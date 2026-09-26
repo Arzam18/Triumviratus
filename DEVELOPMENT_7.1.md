@@ -224,3 +224,57 @@ block, after the next network.
 
 **Tools** (`build/`): `nps_pair.py` (paired simultaneous NPS), `cpu_topology.py` (hyperthread
 siblings), `node_identity.py` (same tree check), `uci_workload.py` (common workload for any UCI engine).
+`uci_stress.py` (UCI robustness), `ccrl_analyze.py` / `ccrl_report.py` / `ccrl_deep.py` (CCRL game analysis).
+
+## 11. Correctness audit, SMP and the CCRL games
+
+**Correctness.** Checked with tests rather than by reading the code:
+- per-thread perft on 171 positions (482M nodes, hash and keys checked at every node): 0 errors;
+- incremental NNUE checked against a full refresh during search: 0 differences;
+- UBSan on bench, perft and Syzygy endgames;
+- 27 UCI stress scenarios (`build/uci_stress.py`);
+- 400 games at 4 threads with Hash 256 and Syzygy: no crashes, time losses or illegal moves.
+
+Eight fixes, none of which changes the 1-thread tree (bench still 273477):
+- correction-history decay computed in 64 bits (a signed overflow in tablebase endgames);
+- a clock of exactly −1 no longer means "no clock";
+- `bestmove` and `readyok` printed under the output mutex;
+- thread 0's PV reset before the helpers start;
+- repeated spaces and a trailing `` accepted in UCI input;
+- an en-passant square that does not match the side to move is ignored instead of crashing;
+- a 64 KB input buffer;
+- an 8 MB thread stack on Windows.
+
+Still open: ponder is not implemented, and `go nodes` counts per thread.
+
+**SMP.** With threads pinned one per core, NPS scaling matches Stockfish. On CCRL 40/15, the step
+from 1 to 4 CPUs is worth +27 (6.0) and +33 (5.0) for us, against +20..+23 for Stockfish and
++19..+34 for the other top engines, so there is no SMP defect to fix. Two SPRTs at 4 threads came
+out neutral, and both options are off:
+- `ThreadVoting`: −3.5 ± 8.7;
+- `OptPerThread` (optimism per thread, as in SF): +0.9 ± 8.6.
+
+**CCRL Blitz games of 7.0** (750 games, +42 =693 −15), re-analysed with Stockfish 19 at 300k nodes
+per position (`build/ccrl_analyze.py`, `build/ccrl_report.py`):
+- we lose less per move than our opponents in every phase;
+- no draw was thrown from a clear advantage;
+- the losses are slow middlegame drifts.
+
+A deeper pass at 3M nodes (`build/ccrl_deep.py`) found 23 real mistakes. 7.0 avoids 17 of them with
+10 s per move and 20 with 60 s, so they are horizon errors: more depth fixes them.
+
+## 12. Next: a long time-control SPSA
+
+Stockfish still tunes its search with SPSA at long time control after every network. Our last
+search-wide SPSA ran at short time control, on older networks. The run is prepared in
+`build/spsa_ltc/`:
+- 46 continuous search parameters (pruning margins, the full fine-grained LMR, singular margins,
+  history weights);
+- starting values taken from the compiled source, not from the UCI defaults;
+- 40+0.4, about 88k games, about 48 hours;
+- the verdict comes only from an SPRT of the final vector against the defaults at the same time control.
+
+Before the run, a simulation of the tuner's exact update rule (`sim_server_math.py`) showed that the
+learning rate we used in September (0.06–0.08) loses Elo when the landscape is flat: noise moves the
+parameters more than the gradient does. The run uses 0.02, with the perturbation at 20% of each range.
+

@@ -127,6 +127,7 @@ struct SfMove {
 // Create / destroy a per-thread incremental position handle (opaque).
 void* nn_pos_create(void);
 void  nn_pos_destroy(void* handle);
+void  nn_pos_set_optimism(void* handle, int w, int b);   // OptPerThread
 
 // (Re)initialise the handle for a search from the root: set side-to-move + the
 // fifty-move clock. Call at the start of a search from the root.

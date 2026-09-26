@@ -168,7 +168,9 @@ void parse_position(char* command)
             make_move(move, all_moves);
 
             while (*current_char && *current_char != ' ') current_char++;
-            current_char++;
+            // AUDIT D (T6): piu' spazi fra le mosse sono ammessi dal protocollo; prima uno spazio doppio
+            // fermava il parsing e le mosse successive venivano perse in silenzio.
+            while (*current_char == ' ' || *current_char == '\t') current_char++;
         }
     }
 }
@@ -219,6 +221,11 @@ void parse_go(char* command)
 
     if ((argument = strstr(command, "btime")) && side == black)
         time_uci = atoi(argument + 6);
+    // AUDIT D (T2, 26/09/2026): -1 e' il sentinella di "nessun orologio". Un GUI con margine che manda
+    // esattamente -1 faceva cercare fino a profondita' 64 (sconfitta a tempo). Un orologio negativo vale
+    // come -2: budget minimo, come ogni altro valore negativo.
+    if (strstr(command, "wtime") || strstr(command, "btime"))
+        if (time_uci == -1) time_uci = -2;
 
     if ((argument = strstr(command, "movestogo")))
         movestogo = atoi(argument + 10);
@@ -429,7 +436,7 @@ static bool parse_setoption(const char* input, const char* want,
 void uci_loop()
 {
     // Input buffer
-    static char input[10000];
+    static char input[65536];   // AUDIT D: era 10000 (~1.990 semimosse); oltre, fgets spezzava la riga
     
     // Engine settings
     // 🔴 2026-09-07: era 1024 MB. Troppo poco per chi ci testa a TC lungo (CCRL
@@ -472,10 +479,11 @@ void uci_loop()
         if (input[0] == '\n')
             continue;
 
-        // Remove newline
+        // Remove newline (AUDIT D, T6: anche '\r' e spazi finali; "uci\r" da un GUI non riceveva uciok)
         size_t len = strlen(input);
-        if (len > 0 && input[len-1] == '\n')
-            input[len-1] = '\0';
+        while (len > 0 && (input[len-1] == '\n' || input[len-1] == '\r' ||
+                           input[len-1] == ' ' || input[len-1] == '\t'))
+            input[--len] = '\0';
 
         char szpath[4096];   // scratch for SF-style SyzygyPath value parsing
 
@@ -874,6 +882,7 @@ void uci_loop()
             printf("option name LMRExpect type spin default 0 min 0 max 2000\n");    // bonus riduzione ad ALL-node con cutoffCnt alto (0=off)
             // ⭐ 5.1 EVAL optimism (SF), default OFF = byte-identico
             printf("option name EvalOptimism type spin default 1 min 0 max 1\n");
+            printf("option name OptPerThread type spin default 0 min 0 max 1\n");   // SMP 26/09: optimism per thread (SF), 0 = globale storico
             // 🔴 I default DICHIARATI devono seguire il bake: un tuner che legge `uci`
             // ripartirebbe da un theta che il motore non ha piu' (gia' successo con
             // NMPEvalDiv, che dichiarava 100 mentre il codice era a 256).
@@ -975,6 +984,10 @@ void uci_loop()
         // UCI command: "isready"
         else if (strncmp(input, "isready", 7) == 0)
         {
+            // AUDIT D (T3/S4): stesso mutex di info e bestmove del thread di ricerca (stdout non bufferizzato),
+            // altrimenti un isready durante la ricerca poteva produrre "bestmove readyok".
+            extern std::mutex output_mutex;
+            std::lock_guard<std::mutex> out_lock(output_mutex);
             printf("readyok\n");
             fflush(stdout);
         }

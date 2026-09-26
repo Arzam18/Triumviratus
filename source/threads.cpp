@@ -2375,6 +2375,7 @@ int g_lmr_expect =
 extern int g_eval_optimism; // definito in nnue_bridge.cpp
 extern std::atomic<int>
     g_optimism[2]; // F-019: atomic (main scrive, helper leggono)
+extern int g_opt_per_thread; // OptPerThread (SMP, 26/09/2026), definito in nnue_bridge.cpp
 // 🔴 BAKE 09/09/2026: co-tunati insieme ai sei del blend eval (nnue_bridge.cpp:176),
 // stesso vettore SPSA, stessa doppia conferma (+2,71 a 10+0.1, +3,75 a 20+0.2 hash 256).
 // Salgono ENTRAMBI, il che lascia l'optimism quasi invariato sui punteggi grandi e ne
@@ -3124,6 +3125,10 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "LMRExpect")) {
     g_lmr_expect = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "OptPerThread")) {
+    g_opt_per_thread = value != 0;
     return true;
   }
   if (!strcmp(name, "EvalOptimism")) {
@@ -6161,7 +6166,7 @@ static inline int td_evaluate(ThreadData &td) {
       // EvalCacheOptTag: l'optimism entra DENTRO il valore (nnue_bridge.cpp:153) e cambia
       // a ogni iterazione ⇒ un hit con opt diverso serve una eval calcolata con un altro
       // contempt. Con il tag quell'hit diventa un miss e si ricalcola.
-      const int opt_now = g_optimism[td.side];
+      const int opt_now = g_opt_per_thread ? td.opt[td.side] : (int)g_optimism[td.side];
       if (ce.key == td.hash_key) {
         // EvalCacheOptSplit: l'optimism entra LINEARMENTE nell'eval, quindi invece di
         // buttare l'entry si CORREGGE il delta. `ce.coeff` e' d(eval)/d(optimism) in
@@ -6181,7 +6186,7 @@ static inline int td_evaluate(ThreadData &td) {
     const U64 ck = td.hash_key ^ (0x9E3779B97F4A7C15ULL * (U64)(td.fifty + 1));
     ThreadData::EvalCacheEntry &ce =
         td.eval_cache[ck & ThreadData::EVAL_CACHE_MASK];
-    const int opt_now = g_optimism[td.side];
+    const int opt_now = g_opt_per_thread ? td.opt[td.side] : (int)g_optimism[td.side];
     if (ce.key == ck)
       return g_evalcache_opt_split ? ce.eval + (opt_now - ce.opt) * ce.coeff / 1000 : ce.eval;
     const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
@@ -8324,7 +8329,10 @@ static inline void td_corr_bucket_update(int &cv, int target, int w, int lim) {
   // Stockfish-style decay: proporzionale al valore corrente e alla magnitudine
   // del bonus
   int abs_bonus = bonus > 0 ? bonus : -bonus;
-  int decay = (cv * abs_bonus) / lim;
+  // AUDIT D (26/09/2026): prodotto a 64 bit. In int, con |diff| > ~2.300 cp (finali con Syzygy) cv*abs_bonus
+  // superava 2^31: overflow con segno (UB, trovato con UBSan) e voce di correzione avvolta in spazzatura.
+  // Identico al vecchio calcolo in ogni caso senza overflow (bench invariato).
+  int decay = (int)(((long long)cv * abs_bonus) / lim);
 
   cv += bonus - decay;
 
@@ -10886,6 +10894,11 @@ static void thread_search(int thread_id, int max_depth) {
 
   copy_board_to_thread(td);
   memset(td.chk_hint, -1, sizeof(td.chk_hint)); // NPS 25/09: nessun suggerimento valido
+  // OptPerThread: si parte dall'optimism corrente (lasciato dalla ricerca precedente), come oggi.
+  td.opt[0] = g_optimism[0];
+  td.opt[1] = g_optimism[1];
+  if (g_opt_per_thread)
+    nn_pos_set_optimism(td.nnpos, td.opt[0], td.opt[1]);
 
   memset(td.killer_moves, 0, sizeof(td.killer_moves));
   // RIMUOVE L'AMNESIA: la history persiste tra le mosse della partita, cosi'
@@ -11159,6 +11172,15 @@ static void thread_search(int thread_id, int max_depth) {
       int opt = g_opt_strength * score / (a + g_opt_div);
       g_optimism[td.side] = opt;
       g_optimism[td.side ^ 1] = -opt;
+    }
+    // OptPerThread: ogni thread (helper compresi) aggiorna l'optimism della propria posizione NNUE dal
+    // PROPRIO score, invece di leggere quello che il thread 0 riscrive a meta' ricerca (audit D, S5).
+    if (g_eval_optimism && g_opt_per_thread) {
+      int a = score < 0 ? -score : score;
+      int opt = g_opt_strength * score / (a + g_opt_div);
+      td.opt[td.side] = opt;
+      td.opt[td.side ^ 1] = -opt;
+      nn_pos_set_optimism(td.nnpos, td.opt[0], td.opt[1]);
     }
 
     if (td.pv_length[0] > 0) {
@@ -11644,6 +11666,11 @@ void search_position_mt(int depth) {
     memset(thread_data[i].tt_probe_hit, 0, sizeof(thread_data[i].tt_probe_hit));
     memset(thread_data[i].tt_probe_mv, 0, sizeof(thread_data[i].tt_probe_mv));
   }
+  // AUDIT D (S2, 26/09/2026): td_root_move_ready() legge thread_data[0].pv_table[0][0]. Senza questo reset un
+  // helper, al primo controllo del tempo, vedeva la PV della ricerca PRECEDENTE e poteva fermare tutto prima che
+  // il thread 0 cercasse una sola mossa (budget sotto ~16 ms), giocando la mossa di soccorso.
+  thread_data[0].pv_table[0][0] = 0;
+  thread_data[0].pv_length[0] = 0;
 
   search_threads.clear();
 
@@ -11921,6 +11948,9 @@ void search_position_mt(int depth) {
     }
   }
 
+  // AUDIT D (T3/S4, 26/09/2026): stdout non e' bufferizzato e la riga usciva in tre printf libere; un isready
+  // concorrente (thread UCI) poteva produrre "bestmove readyok". Stesso mutex delle righe info e del readyok.
+  std::lock_guard<std::mutex> out_lock(output_mutex);
   printf("bestmove ");
   if (best_move) {
     print_move(best_move);

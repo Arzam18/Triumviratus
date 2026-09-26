@@ -206,7 +206,10 @@ void parse_fen(const char* fen)
     {
         int file = fen[0] - 'a';
         int rank = 8 - (fen[1] - '0');
-        enpassant = rank * 8 + file;
+        // AUDIT D (26/09/2026): una casa en passant incoerente col lato al tratto (e3 col Bianco al tratto)
+        // faceva "catturare en passant" un pedone amico e mandava in crash il motore. Si ignora, come SF.
+        const bool ep_ok = (side == white && fen[1] == '6') || (side == black && fen[1] == '3');
+        enpassant = ep_ok ? rank * 8 + file : no_sq;
         fen += 2;
     }
     else

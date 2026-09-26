@@ -1,0 +1,462 @@
+{
+ "RFPMargin": {
+  "var": "g_rfp_margin",
+  "compiled": 53,
+  "compiled_raw": "53",
+  "uci": [
+   53,
+   20,
+   200
+  ]
+ },
+ "FutilityBase": {
+  "var": "g_fut_base",
+  "compiled": 181,
+  "compiled_raw": "181",
+  "uci": [
+   181,
+   20,
+   300
+  ]
+ },
+ "FutilityMult": {
+  "var": "g_fut_mult",
+  "compiled": 138,
+  "compiled_raw": "138",
+  "uci": [
+   138,
+   20,
+   200
+  ]
+ },
+ "FutilityImproving": {
+  "var": "g_fut_improving",
+  "compiled": 145,
+  "compiled_raw": "145",
+  "uci": [
+   145,
+   0,
+   200
+  ]
+ },
+ "RazorBase": {
+  "var": "g_razor_base",
+  "compiled": 272,
+  "compiled_raw": "272",
+  "uci": [
+   272,
+   100,
+   600
+  ]
+ },
+ "RazorMult": {
+  "var": "g_razor_mult",
+  "compiled": 118,
+  "compiled_raw": "118",
+  "uci": [
+   118,
+   20,
+   250
+  ]
+ },
+ "RazorQuadCoef": {
+  "var": "g_razor_quad_coef",
+  "compiled": 82,
+  "compiled_raw": "82",
+  "uci": [
+   82,
+   0,
+   100
+  ]
+ },
+ "LMPQuad": {
+  "var": "g_lmp_quad",
+  "compiled": 138,
+  "compiled_raw": "138",
+  "uci": [
+   138,
+   20,
+   300
+  ]
+ },
+ "NMPStaticMult": {
+  "var": "g_nmp_sm_mult",
+  "compiled": 23,
+  "compiled_raw": "23",
+  "uci": [
+   23,
+   0,
+   100
+  ]
+ },
+ "NMPStaticBias": {
+  "var": "g_nmp_sm_bias",
+  "compiled": 414,
+  "compiled_raw": "414",
+  "uci": [
+   414,
+   0,
+   1200
+  ]
+ },
+ "NMPEvalDiv": {
+  "var": "g_nmp_eval_div",
+  "compiled": 256,
+  "compiled_raw": "256",
+  "uci": [
+   256,
+   50,
+   1000
+  ]
+ },
+ "ProbCutMargin": {
+  "var": "g_probcut_margin",
+  "compiled": 234,
+  "compiled_raw": "234",
+  "uci": [
+   234,
+   60,
+   400
+  ]
+ },
+ "SEEQuietMargin": {
+  "var": "g_see_quiet_margin",
+  "compiled": 116,
+  "compiled_raw": "116",
+  "uci": [
+   116,
+   10,
+   400
+  ]
+ },
+ "CapFutBase": {
+  "var": "g_capfut_base",
+  "compiled": 156,
+  "compiled_raw": "156",
+  "uci": [
+   156,
+   0,
+   500
+  ]
+ },
+ "CapFutMult": {
+  "var": "g_capfut_mult",
+  "compiled": 203,
+  "compiled_raw": "203",
+  "uci": [
+   203,
+   0,
+   400
+  ]
+ },
+ "CapFutChist": {
+  "var": "g_capfut_chist",
+  "compiled": 358,
+  "compiled_raw": "358",
+  "uci": [
+   358,
+   0,
+   400
+  ]
+ },
+ "CapFutVicScale": {
+  "var": "g_capfut_vic_scale",
+  "compiled": 582,
+  "compiled_raw": "582",
+  "uci": [
+   582,
+   0,
+   1000
+  ]
+ },
+ "QSDeltaMargin": {
+  "var": "g_qs_delta",
+  "compiled": 1525,
+  "compiled_raw": "1525",
+  "uci": [
+   1525,
+   200,
+   3000
+  ]
+ },
+ "HistPruneMargin": {
+  "var": "g_histprune_margin",
+  "compiled": 2097,
+  "compiled_raw": "2097",
+  "uci": [
+   2097,
+   200,
+   4000
+  ]
+ },
+ "LMRBase": {
+  "var": "g_lmr_base_x100",
+  "compiled": 22,
+  "compiled_raw": "22",
+  "uci": [
+   22,
+   0,
+   200
+  ]
+ },
+ "LMRDiv": {
+  "var": "g_lmr_div_x100",
+  "compiled": 447,
+  "compiled_raw": "447",
+  "uci": [
+   447,
+   100,
+   500
+  ]
+ },
+ "LMREvalMargin": {
+  "var": "g_lmr_eval_margin",
+  "compiled": 43,
+  "compiled_raw": "43",
+  "uci": [
+   43,
+   0,
+   400
+  ]
+ },
+ "LMRFCut": {
+  "var": "g_lmrf_cut",
+  "compiled": 3687,
+  "compiled_raw": "3687",
+  "uci": [
+   4629,
+   0,
+   8000
+  ]
+ },
+ "LMRFCutNoTT": {
+  "var": "g_lmrf_cut_nott",
+  "compiled": 2397,
+  "compiled_raw": "2397",
+  "uci": [
+   2397,
+   0,
+   4000
+  ]
+ },
+ "LMRFTTCap": {
+  "var": "g_lmrf_ttcap",
+  "compiled": 200,
+  "compiled_raw": "200",
+  "uci": [
+   200,
+   0,
+   4000
+  ]
+ },
+ "LMRFTTPv": {
+  "var": "g_lmrf_ttpv",
+  "compiled": 617,
+  "compiled_raw": "617",
+  "uci": [
+   617,
+   0,
+   8000
+  ]
+ },
+ "LMRFPv": {
+  "var": "g_lmrf_pv",
+  "compiled": 437,
+  "compiled_raw": "437",
+  "uci": [
+   437,
+   0,
+   4000
+  ]
+ },
+ "LMRFSS": {
+  "var": "g_lmrf_ss",
+  "compiled": 664,
+  "compiled_raw": "664",
+  "uci": [
+   695,
+   0,
+   2000
+  ]
+ },
+ "LMRFCorr": {
+  "var": "g_lmrf_corr",
+  "compiled": 866,
+  "compiled_raw": "866",
+  "uci": [
+   897,
+   0,
+   2000
+  ]
+ },
+ "LMRFAll": {
+  "var": "g_lmrf_all",
+  "compiled": 618,
+  "compiled_raw": "618",
+  "uci": [
+   557,
+   0,
+   1200
+  ]
+ },
+ "LMRFImprov": {
+  "var": "g_lmrf_improv",
+  "compiled": 489,
+  "compiled_raw": "489",
+  "uci": [
+   356,
+   0,
+   3000
+  ]
+ },
+ "LMRFEvalCut": {
+  "var": "g_lmrf_evalcut",
+  "compiled": 979,
+  "compiled_raw": "979",
+  "uci": [
+   979,
+   0,
+   3000
+  ]
+ },
+ "LMRFCutoff": {
+  "var": "g_lmrf_cutoff",
+  "compiled": 1520,
+  "compiled_raw": "1520",
+  "uci": [
+   1655,
+   0,
+   4000
+  ]
+ },
+ "LMRFPly": {
+  "var": "g_lmrf_ply",
+  "compiled": 524,
+  "compiled_raw": "524",
+  "uci": [
+   426,
+   0,
+   2048
+  ]
+ },
+ "LMRFKiller": {
+  "var": "g_lmrf_killer",
+  "compiled": 797,
+  "compiled_raw": "797",
+  "uci": [
+   764,
+   0,
+   4000
+  ]
+ },
+ "HistReductionDiv": {
+  "var": "g_hist_red_div",
+  "compiled": 3190,
+  "compiled_raw": "3190",
+  "uci": [
+   3190,
+   500,
+   8000
+  ]
+ },
+ "SingularDoubleMargin": {
+  "var": "g_singular_dmargin",
+  "compiled": 59,
+  "compiled_raw": "59",
+  "uci": [
+   59,
+   0,
+   200
+  ]
+ },
+ "SingularTripleMargin": {
+  "var": "g_singular_tmargin",
+  "compiled": 319,
+  "compiled_raw": "319",
+  "uci": [
+   319,
+   0,
+   400
+  ]
+ },
+ "HistBonusMult": {
+  "var": "g_hist_bonus_mult",
+  "compiled": 490,
+  "compiled_raw": "490",
+  "uci": [
+   490,
+   1,
+   600
+  ]
+ },
+ "HistBonusSub": {
+  "var": "g_hist_bonus_sub",
+  "compiled": 299,
+  "compiled_raw": "299",
+  "uci": [
+   299,
+   0,
+   400
+  ]
+ },
+ "HistBonusMax": {
+  "var": "g_hist_bonus_max",
+  "compiled": 2946,
+  "compiled_raw": "2946",
+  "uci": [
+   2946,
+   200,
+   7000
+  ]
+ },
+ "MalusPct": {
+  "var": "g_malus_pct",
+  "compiled": 69,
+  "compiled_raw": "69",
+  "uci": [
+   69,
+   10,
+   300
+  ]
+ },
+ "MainHistWeight": {
+  "var": "g_mainhist_weight",
+  "compiled": 93,
+  "compiled_raw": "93",
+  "uci": [
+   93,
+   50,
+   400
+  ]
+ },
+ "ContHistWeight": {
+  "var": "g_conthist_weight",
+  "compiled": 135,
+  "compiled_raw": "135",
+  "uci": [
+   135,
+   50,
+   400
+  ]
+ },
+ "PawnHistoryWeight": {
+  "var": "g_pawn_hist_weight",
+  "compiled": 187,
+  "compiled_raw": "187",
+  "uci": [
+   187,
+   0,
+   800
+  ]
+ },
+ "ThreatHistWeight": {
+  "var": "g_threat_hist_weight",
+  "compiled": 130,
+  "compiled_raw": "130",
+  "uci": [
+   130,
+   0,
+   400
+  ]
+ }
+}

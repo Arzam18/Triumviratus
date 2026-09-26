@@ -273,6 +273,7 @@ struct ThreadData {
     // Opaque per-thread handle for the incremental NNUE mirror (see nnue_bridge).
     // Owned here: created in init_threads, destroyed on re-init / shutdown.
     void* nnpos = nullptr;
+    int opt[2] = {0, 0};   // OptPerThread: optimism di questo thread (per lato)
 
     // Per-thread static-eval cache. Maps a position to its NNUE eval so we can
     // skip the (expensive ~60% of node time) nn_pos_eval forward pass when the

@@ -135,7 +135,9 @@ int main()
     // Linux: i thread di ricerca (std::thread = pthread) nascono con stack pari a
     // RLIMIT_STACK (default ~8 MB). La ricorsione di td_negamax (depth + qsearch +
     // estensioni, fino a ply 64) con frame grandi lo sfora -> stack-overflow/SEGV.
-    // MSVC linka l'exe con uno stack grande, per questo su Windows non si vede.
+    // Su Windows lo stack dei thread e' la riserva scritta nell'header dell'exe. Fino al 26/09/2026 era
+    // 1 MB (il commento qui diceva il contrario): con max_ply 128 il caso peggiore stimato era ~0,78 MB.
+    // Da allora il vcxproj imposta StackReserveSize = 8 MB (AUDIT D).
     // Alziamo il soft limit a 256 MB PRIMA di creare qualunque thread (i pthread
     // creati dopo ereditano lo stack grande).
     {

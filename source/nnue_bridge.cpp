@@ -169,6 +169,10 @@ int g_eval_optimism = 1;  // [5.1 BAKE] ON di default (spsa_struct lo ha tenuto 
 // helper leggono nella eval; su int non-atomici era UB formale (TSan-visibile). Su x86
 // load/store atomici su int = stessa istruzione: zero costo, stesso comportamento.
 std::atomic<int> g_optimism[2] = {0, 0};
+// OptPerThread (SMP, 26/09/2026): con 1 ogni thread usa l'optimism della PROPRIA posizione NNUE (SfPos::opt),
+// calcolato dal proprio score di radice, come i worker di SF. 0 = g_optimism globale (storico). A 1 thread le due
+// forme coincidono (il thread 0 scrive entrambi): bench identico.
+int g_opt_per_thread = 0;
 
 // --- COSTANTI DEL BLEND, ESPOSTE (15/08/2026) --------------------------------
 // Sono tutte di Stockfish, ereditate col wrapper e MAI tarate su questa rete. E non
@@ -248,7 +252,7 @@ int g_ev_opt_const  = 7675;   // coefficiente optimism, ora COSTANTE (SF: 7675)
 // =======================================================================
 
 static inline int nn_scale(const Position& pos, Value psqt, Value positional, int rule50,
-                           NnLast* last = nullptr) {
+                           NnLast* last = nullptr, const int* opt_local = nullptr) {
     int nnue           = (g_ev_psqt_w * int(psqt) + g_ev_pos_w * int(positional)) / 128;
     int nnueComplexity = std::abs(int(psqt) - int(positional));
     nnue -= nnue * nnueComplexity / g_ev_cplx_div;
@@ -259,7 +263,7 @@ static inline int nn_scale(const Position& pos, Value psqt, Value positional, in
 
     int v;
     if (g_eval_optimism) {
-        int optimism = g_optimism[pos.side_to_move()];
+        int optimism = opt_local ? opt_local[pos.side_to_move()] : g_optimism[pos.side_to_move()].load();
         optimism += optimism * nnueComplexity / g_ev_opt_cplx;   // SF: blend optimism con la complessita'
         if (g_ev_opt_simple)
             // SF de948f0f: optimism non scala piu' col materiale, e la base sale.
@@ -521,6 +525,7 @@ struct SfPos {
     Color  stm;
     int    rule50;
     int    ply;
+    int    opt[2] = {0, 0};   // OptPerThread: optimism di QUESTO thread (per lato)
     Color  stmStack[SF_STACK];
     int    r50Stack[SF_STACK];
     // Incremental bookkeeping: the move recorded at each ply (for board undo) and
@@ -744,6 +749,11 @@ int nn_last_unadjusted(void* handle) { return static_cast<SfPos*>(handle)->last.
 int nn_last_opt_base(void* handle)   { return static_cast<SfPos*>(handle)->last.opt_base; }
 int nn_last_opt_coeff(void* handle)  { return static_cast<SfPos*>(handle)->last.opt_coeff; }
 void  nn_pos_destroy(void* handle) { delete static_cast<SfPos*>(handle); }
+void  nn_pos_set_optimism(void* handle, int w, int b) {
+    SfPos* p = static_cast<SfPos*>(handle);
+    p->opt[0] = w;
+    p->opt[1] = b;
+}
 
 void nn_pos_set(void* handle, int side_white, const int* pieces,
                 const int* squares, int count, int rule50) {
@@ -838,7 +848,8 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
     }
     // Incremental: the maintained pos + accumulator chain are walked by Network::evaluate.
     auto [psqt, positional] = g_net->evaluate(p->pos, *p->accStack, *p->caches);
-    int  inc                = nn_scale(p->pos, psqt, positional, p->rule50, &p->last);
+    int  inc                = nn_scale(p->pos, psqt, positional, p->rule50, &p->last,
+                                       g_opt_per_thread ? p->opt : nullptr);
 
     if (g_verify) {
         // Compare against a full refresh built from the engine bitboards, on a separate
