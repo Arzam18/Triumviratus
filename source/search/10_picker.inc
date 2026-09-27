@@ -35,6 +35,20 @@ static inline bool td_is_pseudo_legal(ThreadData &td, int move) {
   if (!get_bit(td.bitboards[piece], source))
     return false;
 
+  // Chess960: l'arrocco va verificato PRIMA del controllo "destinazione amica" qui sotto, perche' il re puo'
+  // arrivare sulla casa della propria torre o restare fermo. Stessa regola della generazione (chess960.h).
+  if (g_chess960 && castling) {
+    if (get_move_capture(move) || promoted || enpass || dbl)
+      return false;
+    const int idx = castle_index(target);
+    const int us = td.side;
+    if (piece != (us == white ? K : k) || (idx >> 1) != us || source != castle_king_sq[us] ||
+        target != castle_king_to(idx))
+      return false;
+    auto att = [&td, us](int sq) { return td_is_square_attacked(td, sq, us ^ 1) != 0; };
+    return c960_can_castle(td.castle, idx, td.occupancies[both], att);
+  }
+
   const U64 occ = td.occupancies[both];
   const U64 friends = td.occupancies[td.side];
   const U64 enemies = td.occupancies[td.side ^ 1];

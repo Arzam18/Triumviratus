@@ -47,7 +47,7 @@
 enum { all_moves, only_captures };
 
 // castling rights update constants
-extern const int castling_rights[64];
+extern int castling_rights[64];
 
 extern int is_square_attacked(int square, int side);
 extern void print_attacked_squares(int side);

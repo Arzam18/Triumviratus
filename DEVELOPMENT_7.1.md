@@ -219,12 +219,13 @@ block, after the next network.
   needed or neutral.
 - **Next:** the next network (larger L1), with an L1 penalty on the feature-transformer activations in
   the recipe (one of the recipe changes behind Coda 0.9.4's gain).
-- Found on the way: the engine does not support Chess960 FENs (it accepts the castling rights and then
-  generates castling moves from the wrong squares). To be rejected at parse time.
+- Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
+  generated castling moves from the wrong squares). Now supported: see section 13.
 
 **Tools** (`build/`): `nps_pair.py` (paired simultaneous NPS), `cpu_topology.py` (hyperthread
 siblings), `node_identity.py` (same tree check), `uci_workload.py` (common workload for any UCI engine).
-`uci_stress.py` (UCI robustness), `ccrl_analyze.py` / `ccrl_report.py` / `ccrl_deep.py` (CCRL game analysis).
+`uci_stress.py` (UCI robustness), `ccrl_analyze.py` / `ccrl_report.py` / `ccrl_deep.py` (CCRL game analysis),
+`perft960.py` (Chess960 perft suite, through `perft` or the per-thread `tdperft`, see section 13).
 
 ## 11. Correctness audit, SMP and the CCRL games
 
@@ -240,12 +241,19 @@ Eight fixes, none of which changes the 1-thread tree (bench still 273477):
 - a clock of exactly −1 no longer means "no clock";
 - `bestmove` and `readyok` printed under the output mutex;
 - thread 0's PV reset before the helpers start;
-- repeated spaces and a trailing `` accepted in UCI input;
+- repeated spaces and a trailing `\r` accepted in UCI input;
 - an en-passant square that does not match the side to move is ignored instead of crashing;
 - a 64 KB input buffer;
 - an 8 MB thread stack on Windows.
 
-Still open: ponder is not implemented, and `go nodes` counts per thread.
+A second round (27/09), again with the same 1-thread tree:
+- a proven mate now wins over depth when the result is chosen among threads;
+- `go nodes` counts the nodes of all threads;
+- `go infinite` waits for `stop`;
+- castling rights that do not match the board are dropped;
+- `UCI_ShowWDL`, `SyzygyProbeDepth` and `SyzygyProbeLimit` are honoured by the release build.
+
+Still open: ponder is not implemented.
 
 **SMP.** With threads pinned one per core, NPS scaling matches Stockfish. On CCRL 40/15, the step
 from 1 to 4 CPUs is worth +27 (6.0) and +33 (5.0) for us, against +20..+23 for Stockfish and
@@ -277,4 +285,56 @@ search-wide SPSA ran at short time control, on older networks. The run is prepar
 Before the run, a simulation of the tuner's exact update rule (`sim_server_math.py`) showed that the
 learning rate we used in September (0.06–0.08) loses Elo when the landscape is flat: noise moves the
 parameters more than the gradient does. The run uses 0.02, with the perturbation at 20% of each range.
+
+Three ideas taken from reading Coda 0.9.4's source join the plan, each as an option that is off by
+default and gets an SPRT at 40+0.4 before the SPSA:
+- **pruning that relaxes as the whole search gets deeper** (it depends on the root depth, not on the
+  depth of the node);
+- **TT cutoffs from entries one ply short**, with a score margin;
+- **TT scores damped toward beta** at non-PV cutoffs.
+
+## 13. Chess960 (Fischer Random Chess)
+
+**7.1 is the first version of Triumviratus to support Chess960**, through the standard `UCI_Chess960`
+option.
+- **Positions.** It reads both X-FEN (`KQkq` means the outermost rook on that side) and Shredder-FEN
+  (`HAha`, the rook files).
+- **Moves.** Internally a castling move is still "king to g1/c1" with a castling flag. The rook's
+  starting square now comes from one table instead of eight hard-coded switches. In UCI, castling is
+  written as the king capturing its own rook (`e1h1`).
+- **The Chess960 edge cases:** the king does not move at all, or lands on its own rook's square.
+  Two places had to change for them:
+  - the incremental occupancy update now XORs the squares instead of ORing them;
+  - the piece-on-square table clears both origins before filling both destinations.
+
+  The network update already removed both pieces before placing them, as Stockfish does.
+
+Verification:
+- **Standard chess is untouched.** Bench 273477 with the option off and on, and the same perft counts.
+- **Official FRC perft suite** (`frcperftsuite.epd`, 960 positions), with zero errors:
+  - the main move generator: every position at depth 4, 200 at depth 5;
+  - the per-thread search board through `tdperft`: every position at depth 3, 150 at depth 4.
+- **Network.** Incremental updates match a full refresh on 40 Chess960 searches.
+- **Games.** 8 test games against Stockfish 19: no crash and no illegal move. The engine castled
+  Chess960-style and correctly read Stockfish's castling moves.
+
+**Credit: `tdperft`.** Most of this verification rests on `tdperft`, the per-thread perft written for
+the correctness audit (section 11). The ordinary perft only exercises the main board, which the
+search never uses. `tdperft` runs the search's own move generator, make and unmake. At every node it
+recomputes the hash, pawn, non-pawn and minor/major keys, the occupancy and the piece-on-square table
+from scratch and compares them with the incremental ones. It also re-checks every move of the parent
+position against the pseudo-legality test used for TT and killer moves. It found nothing in the audit
+(171 positions, 482M nodes) and nothing in Chess960. It is now a permanent development command
+(`tdperft N`), and `build/perft960.py` runs the FRC suite through either perft.
+
+## 14. Code layout
+
+`threads.cpp` had grown to 12,000 lines. It is now split into parts under `source/search/`
+(parameters, frozen constants, make/unmake, move generation, ordering, qsearch, negamax, iterative
+deepening, SMP, and `tdperft`), included in order by `threads.cpp`.
+
+It stays a single compilation unit, for two reasons: the hot-path `static inline` functions have to
+be compiled together with their callers, and the frozen-parameter `#define`s apply to all the code
+that follows them. The split has its own commit, and it is a pure move: compiled before and after, the
+object file is identical byte for byte.
 

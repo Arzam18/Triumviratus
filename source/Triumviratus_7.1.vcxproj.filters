@@ -27,6 +27,51 @@
     <ClInclude Include="uci.h">
       <Filter>File di intestazione</Filter>
     </ClInclude>
+    <ClInclude Include="search\01_params_globals.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\02_params_candidates.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\03_params_study.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\04_frozen.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\05_datalog.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\06_init.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\07_makemove.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\08_movegen.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\09_eval_scoring.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\10_picker.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\11_qsearch.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\12_negamax.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\13_iterdeep.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="search\14_smp.inc">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
+    <ClInclude Include="chess960.h">
+      <Filter>File di intestazione</Filter>
+    </ClInclude>
     <ClInclude Include="tt.h">
       <Filter>File di intestazione</Filter>
     </ClInclude>
@@ -93,6 +138,9 @@
       <Filter>File di origine</Filter>
     </ClCompile>
     <ClCompile Include="presentation.cpp">
+      <Filter>File di origine</Filter>
+    </ClCompile>
+    <ClCompile Include="chess960.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
     <ClCompile Include="zobrist.cpp">

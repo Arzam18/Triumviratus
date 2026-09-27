@@ -229,7 +229,13 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
       }
       if (piece == K) {
         // Arrocco: bloccato se captures_only   true
-        if (!captures_only) {
+        if (!captures_only && g_chess960 && td.castle) {
+          // Chess960 (chess960.h): regola generale di SF. Il ramo normale qui sotto resta identico.
+          auto att = [&td](int sq) { return td_is_square_attacked(td, sq, black) != 0; };
+          for (int idx = 0; idx < 2; idx++)
+            if (c960_can_castle(td.castle, idx, td.occupancies[both], att))
+              MG_ADD( encode_move(castle_king_sq[white], castle_king_to(idx), piece, 0, 0, 0, 0, 1));
+        } else if (!captures_only) {
           if (td.castle & wk) {
             if (!get_bit(td.occupancies[both], f1) &&
                 !get_bit(td.occupancies[both], g1)) {
@@ -321,7 +327,12 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
         }
       }
       if (piece == k) {
-        if (!captures_only) {
+        if (!captures_only && g_chess960 && td.castle) {
+          auto att = [&td](int sq) { return td_is_square_attacked(td, sq, white) != 0; };
+          for (int idx = 2; idx < 4; idx++)
+            if (c960_can_castle(td.castle, idx, td.occupancies[both], att))
+              MG_ADD( encode_move(castle_king_sq[black], castle_king_to(idx), piece, 0, 0, 0, 0, 1));
+        } else if (!captures_only) {
           if (td.castle & bk) {
             if (!get_bit(td.occupancies[both], f8) &&
                 !get_bit(td.occupancies[both], g8)) {

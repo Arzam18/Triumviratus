@@ -2,9 +2,11 @@
 #include "attacks.h"
 #include "movegen.h"
 #include "magic.h"
+#include "chess960.h"
 
-// castling rights update constants
-const int castling_rights[64] = {
+// castling rights update constants. Non piu' const dal 27/09/2026: col Chess960 la maschera dipende dalle case
+// di partenza di re e torri (chess960.cpp la riscrive a ogni parse_fen; negli scacchi normali resta questa).
+int castling_rights[64] = {
      7, 15, 15, 15,  3, 15, 15, 11,
     15, 15, 15, 15, 15, 15, 15, 15,
     15, 15, 15, 15, 15, 15, 15, 15,
@@ -59,6 +61,10 @@ void print_move(int move)
         printf("%s%s%c", square_to_coordinates[get_move_source(move)],
             square_to_coordinates[get_move_target(move)],
             mapPieceToPromotion(get_move_promoted(move)));
+    else if (g_chess960 && get_move_castling(move))
+        // UCI_Chess960: l'arrocco si scrive "re cattura la propria torre" (e1h1, b1a1, ...).
+        printf("%s%s", square_to_coordinates[get_move_source(move)],
+            square_to_coordinates[castle_rook_sq[castle_index(get_move_target(move))]]);
     else
         printf("%s%s", square_to_coordinates[get_move_source(move)],
             square_to_coordinates[get_move_target(move)]);
@@ -188,33 +194,16 @@ int make_move(int move, int move_flag)
 
         if (castling)
         {
-            switch (target_square)
-            {
-            case (g1):
-                pop_bit(bitboards[R], h1);
-                set_bit(bitboards[R], f1);
-                hash_key ^= piece_keys[R][h1];
-                hash_key ^= piece_keys[R][f1];
-                break;
-            case (c1):
-                pop_bit(bitboards[R], a1);
-                set_bit(bitboards[R], d1);
-                hash_key ^= piece_keys[R][a1];
-                hash_key ^= piece_keys[R][d1];
-                break;
-            case (g8):
-                pop_bit(bitboards[r], h8);
-                set_bit(bitboards[r], f8);
-                hash_key ^= piece_keys[r][h8];
-                hash_key ^= piece_keys[r][f8];
-                break;
-            case (c8):
-                pop_bit(bitboards[r], a8);
-                set_bit(bitboards[r], d8);
-                hash_key ^= piece_keys[r][a8];
-                hash_key ^= piece_keys[r][d8];
-                break;
-            }
+            // Casa della torre da castle_rook_sq (chess960.h): negli scacchi normali h1/a1/h8/a8 come prima.
+            // Re e torre stanno in bitboard diverse, quindi anche nel 960 (re che arriva dove partiva la
+            // torre, re che non si muove) l'ordine pop/set non li fa interferire.
+            const int idx = castle_index(target_square);
+            const int rook = idx < 2 ? R : r;
+            const int rf = castle_rook_sq[idx], rt = castle_rook_to(idx);
+            pop_bit(bitboards[rook], rf);
+            set_bit(bitboards[rook], rt);
+            hash_key ^= piece_keys[rook][rf];
+            hash_key ^= piece_keys[rook][rt];
         }
 
         hash_key ^= castle_keys[castle];
@@ -322,7 +311,14 @@ void generate_moves(moves* move_list)
                 }
             }
 
-            if (piece == K)
+            if (piece == K && g_chess960)
+            {
+                auto att = [](int sq) { return is_square_attacked(sq, black) != 0; };
+                for (int idx = 0; idx < 2; idx++)
+                    if (c960_can_castle(castle, idx, occupancies[both], att))
+                        add_move(move_list, encode_move(castle_king_sq[white], castle_king_to(idx), piece, 0, 0, 0, 0, 1));
+            }
+            else if (piece == K)
             {
                 if (castle & wk)
                 {
@@ -402,7 +398,14 @@ void generate_moves(moves* move_list)
                 }
             }
 
-            if (piece == k)
+            if (piece == k && g_chess960)
+            {
+                auto att = [](int sq) { return is_square_attacked(sq, white) != 0; };
+                for (int idx = 2; idx < 4; idx++)
+                    if (c960_can_castle(castle, idx, occupancies[both], att))
+                        add_move(move_list, encode_move(castle_king_sq[black], castle_king_to(idx), piece, 0, 0, 0, 0, 1));
+            }
+            else if (piece == k)
             {
                 if (castle & bk)
                 {

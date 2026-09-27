@@ -17,6 +17,7 @@
 #include "threads.h"
 #include "syzygy.h"
 #include "perft.h"
+#include "chess960.h"
 #include "nnue_bridge.h"   // nn_acc_stats (diagnostic "accstats" command)
 #include <algorithm>       // std::sort (istogramma accessi, solo TRIUMV_PROFILE)
 #include <thread>
@@ -98,8 +99,11 @@ int parse_move(char* move_string)
     for (int move_count = 0; move_count < move_list->count; move_count++)
     {
         int move = move_list->moves[move_count];
+        // UCI_Chess960: la GUI manda l'arrocco come "re cattura la propria torre" (e1h1).
+        const int move_target = (g_chess960 && get_move_castling(move))
+            ? castle_rook_sq[castle_index(get_move_target(move))] : get_move_target(move);
 
-        if (source_square == get_move_source(move) && target_square == get_move_target(move))
+        if (source_square == get_move_source(move) && target_square == move_target)
         {
             int promoted_piece = get_move_promoted(move);
 
@@ -513,6 +517,9 @@ void uci_loop()
             // --- Tuning / experimental / diagnostic options: hidden in the release build
             //     (define TRIUMV_RELEASE). Dev/tuning builds expose them for SPSA. ---
 #ifndef TRIUMV_RELEASE
+#ifndef TRIUMV_FROZEN
+            printf("option name UCI_Chess960 type check default false\n");     // chess960.h; solo sviluppo finche' non si pubblica
+#endif
             printf("option name Depth type spin default 0 min 0 max 64\n");
             printf("option name DataLog type check default false\n");
             printf("option name TMLog type check default false\n");             // sonda: una riga CSV per `go` con l'allocazione del tempo. Nessun effetto sulla ricerca
@@ -1706,6 +1713,16 @@ void uci_loop()
             const char* v = input + 32;
             set_evasion_gen(strncmp(v, "true", 4) == 0 || strncmp(v, "on", 2) == 0 || v[0] == '1');
         }
+#ifndef TRIUMV_FROZEN
+        // Chess960 (27/09/2026, chess960.h): gioca gli arrocchi 960, verificato con la suite perft ufficiale
+        // (tools/perft960.py, perft globale e tdperft). Per ora solo build di sviluppo e NON pubblicizzata in
+        // `uci`: si pubblica dopo la misura NPS PGO e partite di prova piu' lunghe.
+        else if (strncmp(input, "setoption name UCI_Chess960 value ", 34) == 0)
+        {
+            const char* v = input + 34;
+            g_chess960 = strncmp(v, "true", 4) == 0 || v[0] == '1';
+        }
+#endif
         else if (strncmp(input, "setoption name ThreadVoting value ", 34) == 0)
         {
             const char* v = input + 34;
@@ -2132,6 +2149,15 @@ void uci_loop()
 
         // DIAGNOSTIC: "perft N" - movegen + make/unmake speed on the current
         // position (no eval, no NNUE mirror). Prints Nodes + Time(ms).
+#ifndef TRIUMV_FROZEN
+        // DIAGNOSTIC: "tdperft N" - perft sulla scacchiera per thread con verifica di chiavi, mailbox,
+        // occupazioni e pseudo-legalita' a ogni nodo (search/15_tdperft.inc). Solo build di sviluppo.
+        else if (strncmp(input, "tdperft ", 8) == 0)
+        {
+            extern void td_perft_driver(int depth);
+            td_perft_driver(atoi(input + 8));
+        }
+#endif
         else if (strncmp(input, "perft", 5) == 0)
         {
             int d = atoi(input + 5);

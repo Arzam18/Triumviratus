@@ -10,6 +10,7 @@
 
 #include "threads.h"
 #include "attacks.h"
+#include "chess960.h"
 #include "evaluation.h"
 #include "magic.h"
 #include "misc.h"
@@ -84,3 +85,4 @@ unsigned long long prof_dead_pair[8][8] = {};
 #include "search/12_negamax.inc"
 #include "search/13_iterdeep.inc"
 #include "search/14_smp.inc"
+#include "search/15_tdperft.inc"

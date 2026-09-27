@@ -65,6 +65,10 @@ Against the **official 7.0 binary**, measured with paired simultaneous runs on t
 games against the 7.0 release: **+14.7 ± 5.4 Elo** at 12+0.12 and **+11.7 ± 4.6 Elo at 60+0.6**
 (both SPRTs passed; the second with two search features switched off after ablation tests).
 
+7.1 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
+`UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
+errors, and it leaves the standard-chess search tree unchanged.
+
 `source/` holds the 7.1 development code; the 7.0 release is the tag `v7.0`. Details, method and
 numbers: **[`DEVELOPMENT_7.1.md`](DEVELOPMENT_7.1.md)**.
 

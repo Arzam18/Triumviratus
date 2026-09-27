@@ -47,6 +47,21 @@
     <ClInclude Include="see.h" />
     <ClInclude Include="threads.h" />
     <ClInclude Include="tt.h" />
+    <ClInclude Include="search\01_params_globals.inc" />
+    <ClInclude Include="search\02_params_candidates.inc" />
+    <ClInclude Include="search\03_params_study.inc" />
+    <ClInclude Include="search\04_frozen.inc" />
+    <ClInclude Include="search\05_datalog.inc" />
+    <ClInclude Include="search\06_init.inc" />
+    <ClInclude Include="search\07_makemove.inc" />
+    <ClInclude Include="search\08_movegen.inc" />
+    <ClInclude Include="search\09_eval_scoring.inc" />
+    <ClInclude Include="search\10_picker.inc" />
+    <ClInclude Include="search\11_qsearch.inc" />
+    <ClInclude Include="search\12_negamax.inc" />
+    <ClInclude Include="search\13_iterdeep.inc" />
+    <ClInclude Include="search\14_smp.inc" />
+    <ClInclude Include="chess960.h" />
     <ClInclude Include="uci.h" />
     <ClInclude Include="syzygy.h" />
     <ClInclude Include="fathom\tbprobe.h" />
@@ -68,6 +83,7 @@
     <ClCompile Include="threads.cpp" />
     <ClCompile Include="uci_mt.cpp" />
     <ClCompile Include="zobrist.cpp" />
+    <ClCompile Include="chess960.cpp" />
     <ClCompile Include="nnue_bridge.cpp" />
     <!-- Vendored Stockfish-master SFNNv13 NNUE (FullThreats + HalfKAv2_hm, L1=1024).
          Replaces the SFNNv10 + Bullet code (removed in M2). We compile only the subset

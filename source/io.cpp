@@ -1,4 +1,5 @@
 #include "defs.h"
+#include "chess960.h"
 #include "attacks.h" // A3: pawn_attacks, per il filtro e.p. fantasma
 #include "io.h"
 #include "movegen.h"
@@ -62,6 +63,15 @@ void print_board()
         (castle & wq) ? 'Q' : '-',
         (castle & bk) ? 'k' : '-',
         (castle & bq) ? 'q' : '-');
+    if (g_chess960)
+    {
+        // Case lette dalla FEN (vedi chess960.h): re bianco/nero, torri per K Q k q.
+        printf("     Chess960:  re %s/%s, torri", g_c960.king_from[0] != no_sq ? square_to_coordinates[g_c960.king_from[0]] : "-",
+               g_c960.king_from[1] != no_sq ? square_to_coordinates[g_c960.king_from[1]] : "-");
+        for (int i = 0; i < 4; i++)
+            printf(" %s", g_c960.rook_from[i] != no_sq ? square_to_coordinates[g_c960.rook_from[i]] : "-");
+        printf("\n\n");
+    }
     printf("     Hash key:  %llx\n", hash_key);
     printf("     Fifty move: %d\n\n", fifty);
 }
@@ -186,17 +196,31 @@ void parse_fen(const char* fen)
     fen += 2;
 
     // Parse castling rights
-    while (*fen != ' ')
+    // Chess960 (chess960.h): X-FEN o Shredder-FEN, case di re e torri lette dalla scacchiera e portate nel
+    // motore. Negli scacchi normali si torna alle case di sempre (h1/a1/h8/a8, maschera fissa).
+    if (g_chess960)
     {
-        switch (*fen)
+        const char* field = fen;
+        while (*fen != ' ' && *fen) fen++;
+        c960_parse_castling(field, fen);
+        castle = g_c960.rights;
+        c960_apply_to_engine();
+    }
+    else
+    {
+        c960_reset_standard();
+        while (*fen != ' ')
         {
-        case 'K': castle |= wk; break;
-        case 'Q': castle |= wq; break;
-        case 'k': castle |= bk; break;
-        case 'q': castle |= bq; break;
-        case '-': break;
+            switch (*fen)
+            {
+            case 'K': castle |= wk; break;
+            case 'Q': castle |= wq; break;
+            case 'k': castle |= bk; break;
+            case 'q': castle |= bq; break;
+            case '-': break;
+            }
+            fen++;
         }
-        fen++;
     }
 
     // Skip space and parse en passant square
@@ -282,16 +306,20 @@ void parse_fen(const char* fen)
     // classico (re in e1/e8, torri negli angoli); una FEN Chess960 o sbagliata con "KQkq" e il re altrove
     // faceva generare arrocchi dalle case sbagliate. Si tiene solo il diritto che la posizione rende
     // possibile (le lettere Shredder A-H erano gia' ignorate dallo switch sopra). Posizioni normali: invariate.
+    // Col 960 acceso la verifica equivalente la fa c960_parse_castling.
     const int castle_in = castle;
-    if (!get_bit(bitboards[K], e1)) castle &= ~(wk | wq);
-    if (!get_bit(bitboards[R], h1)) castle &= ~wk;
-    if (!get_bit(bitboards[R], a1)) castle &= ~wq;
-    if (!get_bit(bitboards[k], e8)) castle &= ~(bk | bq);
-    if (!get_bit(bitboards[r], h8)) castle &= ~bk;
-    if (!get_bit(bitboards[r], a8)) castle &= ~bq;
+    if (!g_chess960)
+    {
+        if (!get_bit(bitboards[K], e1)) castle &= ~(wk | wq);
+        if (!get_bit(bitboards[R], h1)) castle &= ~wk;
+        if (!get_bit(bitboards[R], a1)) castle &= ~wq;
+        if (!get_bit(bitboards[k], e8)) castle &= ~(bk | bq);
+        if (!get_bit(bitboards[r], h8)) castle &= ~bk;
+        if (!get_bit(bitboards[r], a8)) castle &= ~bq;
+    }
     if (castle != castle_in)
     {
-        printf("info string diritti d'arrocco incoerenti con la scacchiera (Chess960 non supportato): ignorati\n");
+        printf("info string diritti d'arrocco incoerenti con la scacchiera (per il Chess960: UCI_Chess960): ignorati\n");
         fflush(stdout);
     }
 

@@ -106,6 +106,16 @@ static inline bool td_lmp_gives_check(ThreadData &td, int move, LmpChkCtx &c) {
          (c.disc & (1ULL << get_move_source(move)));
 }
 
+// Casa di partenza/arrivo della TORRE nell'arrocco, dedotte dalla casa d'arrivo del re. Unica fonte per
+// tutti i siti (occupazioni, chiavi, mailbox, make, rollback, unmake, NNUE). La partenza viene da
+// castle_rook_sq (chess960.h): h1/a1/h8/a8 negli scacchi normali, la casa letta dalla FEN nel 960.
+static inline void td_castle_rook(int target, int &rook_pc, int &rf, int &rt) {
+  const int idx = castle_index(target);
+  rook_pc = idx < 2 ? R : r;
+  rf = castle_rook_sq[idx];
+  rt = castle_rook_to(idx);
+}
+
 // Incremental occupancy update. Flips only the bits that the move touches,
 // instead of OR-recomputing all 12 bitboards (+2.89% NPS, node-identical). XOR
 // is self-inverse, so calling it again with the same move reverses it (used on
@@ -116,44 +126,19 @@ static inline bool td_lmp_gives_check(ThreadData &td, int move, LmpChkCtx &c) {
 static inline void td_occ_update(ThreadData &td, int us, int source, int target,
                                  int captured_square, int captured_piece,
                                  int castling) {
-  td.occupancies[us] ^= (1ULL << source) | (1ULL << target);
+  // XOR fra le due case (non OR): uguale per ogni mossa normale (source != target), e nel Chess960 il re che
+  // arrocca senza muoversi (source == target) non cambia nulla, invece di svuotare la propria casa. Con le
+  // quattro case di re e torre in XOR anche le sovrapposizioni del 960 (re dove partiva la torre) tornano giuste.
+  td.occupancies[us] ^= (1ULL << source) ^ (1ULL << target);
   if (captured_piece != -1)
     td.occupancies[us ^ 1] ^=
         (1ULL << captured_square); // capture (== target, or e.p. square)
   if (castling) {
-    int rf, rt;
-    switch (target) {
-    case g1:
-      rf = h1;
-      rt = f1;
-      break;
-    case c1:
-      rf = a1;
-      rt = d1;
-      break;
-    case g8:
-      rf = h8;
-      rt = f8;
-      break;
-    default:
-      rf = a8;
-      rt = d8;
-      break; // c8
-    }
-    td.occupancies[us] ^= (1ULL << rf) | (1ULL << rt);
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    td.occupancies[us] ^= (1ULL << rf) ^ (1ULL << rt);
   }
   td.occupancies[both] = td.occupancies[white] | td.occupancies[black];
-}
-
-// Casa di partenza/arrivo della TORRE nell'arrocco, dedotte dalla casa d'arrivo del
-// re. Stessa tabella implicita gia' usata da td_occ_update e dai due rollback.
-static inline void td_castle_rook(int target, int &rook_pc, int &rf, int &rt) {
-  switch (target) {
-  case g1: rook_pc = R; rf = h1; rt = f1; break;
-  case c1: rook_pc = R; rf = a1; rt = d1; break;
-  case g8: rook_pc = r; rf = h8; rt = f8; break;
-  default: rook_pc = r; rf = a8; rt = d8; break;  // c8
-  }
 }
 
 #ifdef TRIUMV_MAILBOX_VERIFY
@@ -189,34 +174,43 @@ static inline void td_mailbox_apply(ThreadData &td, int piece, int source, int t
                                     int captured_square, int castling) {
   // La vittima PRIMA del pezzo che arriva: nell'e.p. `captured_square` != target,
   // in una cattura normale coincidono e deve vincere il pezzo che arriva.
+  if (castling) {
+    // Prima le due partenze, poi i due arrivi: nel Chess960 il re puo' arrivare dove partiva la torre (o
+    // non muoversi), e scrivere "re arrivato" prima di "torre partita" cancellerebbe il re.
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    td.piece_on[source] = -1;
+    td.piece_on[rf] = -1;
+    td.piece_on[target] = piece;
+    td.piece_on[rt] = rook_pc;
+    return;
+  }
   if (captured_piece != -1)
     td.piece_on[captured_square] = -1;
   td.piece_on[source] = -1;
   td.piece_on[target] = promoted ? promoted : piece;
-  if (castling) {
-    int rook_pc, rf, rt;
-    td_castle_rook(target, rook_pc, rf, rt);
-    td.piece_on[rf] = -1;
-    td.piece_on[rt] = rook_pc;
-  }
 }
 
 static inline void td_mailbox_revert(ThreadData &td, int piece, int source, int target,
                                      int promoted, int captured_piece,
                                      int captured_square, int castling) {
   (void) promoted;  // in uscita il pezzo torna quello di partenza, promosso o no
+  if (castling) {
+    // Speculare a td_mailbox_apply: prima si svuotano i due arrivi, poi si rimettono re e torre.
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    td.piece_on[target] = -1;
+    td.piece_on[rt] = -1;
+    td.piece_on[source] = piece;
+    td.piece_on[rf] = rook_pc;
+    return;
+  }
   // Ordine speculare: si svuota target e POI si rimette la vittima, cosi' quando
   // captured_square == target (cattura normale) la vittima riprende il suo posto.
   td.piece_on[target] = -1;
   td.piece_on[source] = piece;
   if (captured_piece != -1)
     td.piece_on[captured_square] = captured_piece;
-  if (castling) {
-    int rook_pc, rf, rt;
-    td_castle_rook(target, rook_pc, rf, rt);
-    td.piece_on[rt] = -1;
-    td.piece_on[rf] = rook_pc;
-  }
 }
 
 // ============================================================================
@@ -265,20 +259,9 @@ static inline void td_np_key_update(ThreadData &td, int piece, int source,
     td.np_key[c] ^= piece_keys[captured_piece][captured_square];
   }
   if (castling) {
-    switch (target) {
-    case g1:
-      td.np_key[white] ^= piece_keys[R][h1] ^ piece_keys[R][f1];
-      break;
-    case c1:
-      td.np_key[white] ^= piece_keys[R][a1] ^ piece_keys[R][d1];
-      break;
-    case g8:
-      td.np_key[black] ^= piece_keys[r][h8] ^ piece_keys[r][f8];
-      break;
-    case c8:
-      td.np_key[black] ^= piece_keys[r][a8] ^ piece_keys[r][d8];
-      break;
-    }
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    td.np_key[rook_pc == R ? white : black] ^= piece_keys[rook_pc][rf] ^ piece_keys[rook_pc][rt];
   }
 }
 
@@ -307,12 +290,9 @@ static inline void td_mm_key_update(ThreadData &td, int piece, int source,
       td.mm_key[cc] ^= piece_keys[captured_piece][captured_square];
   }
   if (castling) {
-    switch (target) {
-    case g1: td.mm_key[1] ^= piece_keys[R][h1] ^ piece_keys[R][f1]; break;
-    case c1: td.mm_key[1] ^= piece_keys[R][a1] ^ piece_keys[R][d1]; break;
-    case g8: td.mm_key[1] ^= piece_keys[r][h8] ^ piece_keys[r][f8]; break;
-    case c8: td.mm_key[1] ^= piece_keys[r][a8] ^ piece_keys[r][d8]; break;
-    }
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    td.mm_key[1] ^= piece_keys[rook_pc][rf] ^ piece_keys[rook_pc][rt];
   }
 }
 
@@ -414,32 +394,13 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
   }
 
   if (castling) {
-    switch (target) {
-    case g1:
-      pop_bit(td.bitboards[R], h1);
-      set_bit(td.bitboards[R], f1);
-      td.hash_key ^= piece_keys[R][h1];
-      td.hash_key ^= piece_keys[R][f1];
-      break;
-    case c1:
-      pop_bit(td.bitboards[R], a1);
-      set_bit(td.bitboards[R], d1);
-      td.hash_key ^= piece_keys[R][a1];
-      td.hash_key ^= piece_keys[R][d1];
-      break;
-    case g8:
-      pop_bit(td.bitboards[r], h8);
-      set_bit(td.bitboards[r], f8);
-      td.hash_key ^= piece_keys[r][h8];
-      td.hash_key ^= piece_keys[r][f8];
-      break;
-    case c8:
-      pop_bit(td.bitboards[r], a8);
-      set_bit(td.bitboards[r], d8);
-      td.hash_key ^= piece_keys[r][a8];
-      td.hash_key ^= piece_keys[r][d8];
-      break;
-    }
+    // Re e torre in bitboard diverse: anche con le sovrapposizioni del 960 pop/set non interferiscono.
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    pop_bit(td.bitboards[rook_pc], rf);
+    set_bit(td.bitboards[rook_pc], rt);
+    td.hash_key ^= piece_keys[rook_pc][rf];
+    td.hash_key ^= piece_keys[rook_pc][rt];
   }
 
   td.hash_key ^= castle_keys[td.castle];
@@ -482,24 +443,10 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     }
 
     if (castling) {
-      switch (target) {
-      case g1:
-        pop_bit(td.bitboards[R], f1);
-        set_bit(td.bitboards[R], h1);
-        break;
-      case c1:
-        pop_bit(td.bitboards[R], d1);
-        set_bit(td.bitboards[R], a1);
-        break;
-      case g8:
-        pop_bit(td.bitboards[r], f8);
-        set_bit(td.bitboards[r], h8);
-        break;
-      case c8:
-        pop_bit(td.bitboards[r], d8);
-        set_bit(td.bitboards[r], a8);
-        break;
-      }
+      int rook_pc, rf, rt;
+      td_castle_rook(target, rook_pc, rf, rt);
+      pop_bit(td.bitboards[rook_pc], rt);
+      set_bit(td.bitboards[rook_pc], rf);
     }
 
     td.castle = undo.old_castle;
@@ -587,29 +534,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     sm.rookFrom = -1;
     sm.rookTo = -1;
     if (castling) {
-      int rpc = R, rf = h1, rt = f1;
-      switch (target) {
-      case g1:
-        rpc = R;
-        rf = h1;
-        rt = f1;
-        break;
-      case c1:
-        rpc = R;
-        rf = a1;
-        rt = d1;
-        break;
-      case g8:
-        rpc = r;
-        rf = h8;
-        rt = f8;
-        break;
-      case c8:
-        rpc = r;
-        rf = a8;
-        rt = d8;
-        break;
-      }
+      int rpc, rf, rt;
+      td_castle_rook(target, rpc, rf, rt);
       sm.rookPiece = nn_piece_code[rpc];
       sm.rookFrom = nnue_squares[rf];
       sm.rookTo = nnue_squares[rt];
@@ -652,24 +578,10 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
   }
 
   if (castling) {
-    switch (target) {
-    case g1:
-      pop_bit(td.bitboards[R], f1);
-      set_bit(td.bitboards[R], h1);
-      break;
-    case c1:
-      pop_bit(td.bitboards[R], d1);
-      set_bit(td.bitboards[R], a1);
-      break;
-    case g8:
-      pop_bit(td.bitboards[r], f8);
-      set_bit(td.bitboards[r], h8);
-      break;
-    case c8:
-      pop_bit(td.bitboards[r], d8);
-      set_bit(td.bitboards[r], a8);
-      break;
-    }
+    int rook_pc, rf, rt;
+    td_castle_rook(target, rook_pc, rf, rt);
+    pop_bit(td.bitboards[rook_pc], rt);
+    set_bit(td.bitboards[rook_pc], rf);
   }
 
   td.castle = undo.old_castle;
