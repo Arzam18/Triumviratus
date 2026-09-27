@@ -1283,6 +1283,9 @@ int g_tt_nearmiss = 0;
 // (3) TTDamp (Coda TT_DAMP_TT_WEIGHT_10X): nel taglio TT non-PV con bound inferiore, restituisce
 //     (W*tt_score + 10*beta) / (W+10) invece di tt_score (score meno gonfiati). W in decimi; 0 = off; Coda 31.
 int g_tt_damp = 0;
+// ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_7.1/K_RIFERIMENTI_LTC.md) =====
+// PvTTMinDepth: nella PV la mossa TT non scende in quiescenza (SF, Reckless, Caissa, PlentyChess). Default off.
+static bool g_pv_tt_min_depth = false;
 static bool g_ttcut_malus =
     false; // #3d malus alla quiet AVVERSARIA che porta a un TT-cut (duale di
            // TTCutBonus). BAKE 2026-07-06 (true/7) REVERTITO: SPRT +15.55 Elo

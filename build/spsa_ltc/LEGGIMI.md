@@ -67,6 +67,25 @@ Scelta: **lr 0,02 e c al 20%**. Può spiegare perché gli SPSA recenti non hanno
 ⚠️ Il modello non ha interazioni fra i parametri e ha un ottimo solo. È un controllo di plausibilità sulle
 scale, non una previsione di Elo.
 
+## 28/09/2026 (sera): preset M20, predefinito di `LANCIA_LTC1.ps1`
+Decisione dell'utente: "tarare tutto con lo SPSA, tranne i parametri per cui serve uno SPSA a 40 s o più".
+- **Preset `M20_mega50_20s`:** i 54 di LTC2 **senza le 4 RDR** (agiscono solo a radice profonda), 20+0.2 (il minimo
+  della metodologia), Hash 64, 22.000 iterazioni, circa 1 giorno a macchina libera.
+- **Lancio:** `LANCIA_LTC1.ps1` (predefinito M20; `-Preset LTC2_mega54_40s` per l'altro).
+- **Gate:** prima `gate_ltc1.ps1 -Run <cartella> -TC 20+0.2`, poi, se passa, conferma a 40+0.4.
+- **Le RDR:** restano per LTC2 o per l'SPRT dedicato a 40+0.4 con soglia 17.
+
+## 28/09/2026: preset LTC2 (54 parametri)
+Gli SPRT "innestati" a 10+0.1 hanno dato:
+- `TTNearMiss`: +2,4 ± 7,2 su 4.216 partite;
+- bundle con `TTDamp`: −1,6 ± 18,8 su 634;
+- bundle `PvTTMinDepth` + `SingularPlyGuard`: −5,7 ± 15,4 su 918.
+
+Decisione dell'utente: la ritaratura serve sempre, quindi le idee continue entrano **accese** nello SPSA a TC lungo,
+con limiti che permettono di tornare verso lo "spento" (tabella sotto, colonna limiti aggiornata). Si aggiungono
+anche `TTCutFifty` (89, 60–100) e `TTCutBonusScale` (111, 55–166), vicini TT tarati senza near-miss.
+Generatore: `make_ltc_preset.py` (lista `extra`). Il gate resta vettore tarato contro default (novità spente).
+
 ## Idee di Coda: prima gli SPRT, poi eventualmente nel preset (27/09/2026)
 `sprt_coda_ideas.ps1 -Idea 1|2|3` (40+0.4, `[0, 3]`, stesso binario dev). Le opzioni sono spente di default e hanno
 init 0 = min. Un parametro spento non si mette nel preset: l'anti-clamp gli darebbe c_end 0 e lo SPSA non lo

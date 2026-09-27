@@ -512,14 +512,12 @@ void uci_loop()
             printf("option name MultiPV type spin default 1 min 1 max 64\n");
             // Opzioni ufficiali di analisi/utilizzo (sempre visibili, anche in release):
             printf("option name UCI_ShowWDL type check default false\n");  // W/D/L nelle info-line (via generic handler)
+            printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), dalla 7.1
             printf("option name Clear Hash type button\n");                // svuota la TT su richiesta
             printf("option name UCI_EngineAbout type string default %s%s build %s by %s\n", NAME, VERSION, build_date(), AUTHOR);
             // --- Tuning / experimental / diagnostic options: hidden in the release build
             //     (define TRIUMV_RELEASE). Dev/tuning builds expose them for SPSA. ---
 #ifndef TRIUMV_RELEASE
-#ifndef TRIUMV_FROZEN
-            printf("option name UCI_Chess960 type check default false\n");     // chess960.h; solo sviluppo finche' non si pubblica
-#endif
             printf("option name Depth type spin default 0 min 0 max 64\n");
             printf("option name DataLog type check default false\n");
             printf("option name TMLog type check default false\n");             // sonda: una riga CSV per `go` con l'allocazione del tempo. Nessun effetto sulla ricerca
@@ -735,6 +733,7 @@ void uci_loop()
             printf("option name RDRProbCut type spin default 0 min 0 max 100\n");
             printf("option name TTNearMiss type spin default 0 min 0 max 400\n");
             printf("option name TTDamp type spin default 0 min 0 max 200\n");
+            printf("option name PvTTMinDepth type check default false\n");     // SF/Reckless/Caissa/PlentyChess: TT move in PV mai in quiescenza
             printf("option name TTCutFifty type spin default 89 min 50 max 100\n");
             printf("option name TTCutMalus type check default false\n");                     // #3d malus quiet avversaria su TT-cut (duale TTCutBonus). Bake revertito 2026-07-06, vedi threads.cpp
             printf("option name TTCutMalusSeen type spin default 3 min 0 max 16\n");
@@ -1720,16 +1719,14 @@ void uci_loop()
             const char* v = input + 32;
             set_evasion_gen(strncmp(v, "true", 4) == 0 || strncmp(v, "on", 2) == 0 || v[0] == '1');
         }
-#ifndef TRIUMV_FROZEN
         // Chess960 (27/09/2026, chess960.h): gioca gli arrocchi 960, verificato con la suite perft ufficiale
-        // (tools/perft960.py, perft globale e tdperft). Per ora solo build di sviluppo e NON pubblicizzata in
-        // `uci`: si pubblica dopo la misura NPS PGO e partite di prova piu' lunghe.
+        // (tools/perft960.py, perft globale e tdperft). In release dal 27/09 sera: misura NPS PGO release
+        // pre/post 960 = +0,57% [+0,53, +0,62] (nessun costo), test nullo +0,00%.
         else if (strncmp(input, "setoption name UCI_Chess960 value ", 34) == 0)
         {
             const char* v = input + 34;
             g_chess960 = strncmp(v, "true", 4) == 0 || v[0] == '1';
         }
-#endif
         else if (strncmp(input, "setoption name ThreadVoting value ", 34) == 0)
         {
             const char* v = input + 34;

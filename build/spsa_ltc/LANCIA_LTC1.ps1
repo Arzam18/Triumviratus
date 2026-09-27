@@ -1,10 +1,12 @@
 # Mega-SPSA a TC lungo (LTC1) per Triumviratus 7.1 — lancio in 4 passi. Preparato il 27/09/2026.
 # Durata prevista ~48 ore a macchina libera (76 partite concorrenti a 40+0.4, 22.000 iterazioni da 4 partite).
 # Uso: .\Tuning_SPSA\spsa_ltc\LANCIA_LTC1.ps1   (dalla cartella Triumviratus). Si ferma al primo controllo fallito.
+# 28/09: -Preset M20_mega50_20s (default: 50 parametri a 20+0.2, ~1 giorno) oppure LTC2_mega54_40s (54 a 40+0.4, ~2 giorni).
+param([string]$Preset = "M20_mega50_20s")
 $ErrorActionPreference = "Stop"
 $root   = "C:\Users\Francesco\Desktop\Triumviratus"
 $lab    = "$root\Tuning_SPSA\spsa_lab"
-$preset = "$lab\presets\LTC1_mega46_40s.json"
+$preset = "$lab\presets\$Preset.json"
 $exe    = "$root\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe"
 
 # 1. Binario di tuning: build PGO SENZA -Release (servono tutte le ~440 opzioni, non le 12 della release).
@@ -13,8 +15,9 @@ if (-not (Test-Path $exe)) {
 }
 
 # 2. Il binario deve essere il sorgente attuale ai default: canary 273477 e ~440 opzioni.
-$bench = ("bench`nquit" | & $exe | Select-String "Nodes searched").ToString()
-$nopt  = ("uci`nquit" | & $exe | Select-String "^option name").Count
+# Via cmd: PowerShell 5.1 che scrive su stdin di un exe premette un BOM e il motore non riconosce il comando.
+$bench = "" + (cmd /c "(echo bench& echo quit) | `"$exe`"" | Select-String "Nodes searched")
+$nopt  = (cmd /c "(echo uci& echo quit) | `"$exe`"" | Select-String "^option name").Count
 Write-Host "bench: $bench   opzioni: $nopt"
 if ($bench -notmatch "273477") { throw "canary diverso da 273477: binario non allineato al sorgente" }
 if ($nopt -lt 400) { throw "binario di release (solo $nopt opzioni): serve la build senza -Release" }

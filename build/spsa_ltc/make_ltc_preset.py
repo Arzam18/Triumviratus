@@ -17,15 +17,37 @@ for n in names:
     c = round(min(0.20 * (hi - lo), init - lo, hi - init), 1)
     assert c / 22000 ** 0.101 >= 0.5, n
     params.append({"name": n, "init": init, "min": lo, "max": hi, "c_end": c})
+
+# 28/09/2026 (decisione dell'utente): le idee di Coda non reggono "innestate" (bolt-on) con gli SPRT a 10+0.1
+# (TTNearMiss +2,4 ± 7,2 su 4.216; bundle NearMiss+Damp −1,6 ± 18,8 su 634) perche' i parametri intorno sono stati
+# tarati senza di loro (es. TTCutRefine chiede +1 ply ai fail-high, il near-miss ne accetta -1). Entrano quindi
+# ACCESE e si ritarano insieme ai vicini (re-basin). Ognuna ha una via continua verso lo "spento", cosi' e' lo SPSA a
+# giudicarla: margine near-miss alto = quasi mai; peso TTDamp alto = score TT quasi puro; coefficienti RDR -> 0.
+# Il verdetto resta il gate: vettore tarato (novita' accese) contro la 7.1 di default (spente).
+extra = [  # nome, init (valore acceso), min, max
+    ("TTNearMiss", 80, 30, 400),
+    ("TTDamp", 31, 10, 200),
+    ("RDRRfp", 20, 0, 60),
+    ("RDRLmp", 5, 0, 20),
+    ("RDRProbCut", 5, 0, 20),
+    ("RDRKnee", 17, 12, 24),
+    ("TTCutFifty", 89, 60, 100),        # vicini TT tarati senza near-miss
+    ("TTCutBonusScale", 111, 55, 166),
+]
+for n, init, lo, hi in extra:
+    c = round(min(0.20 * (hi - lo), init - lo, hi - init), 1)
+    assert c / 22000 ** 0.101 >= 0.5, n
+    params.append({"name": n, "init": init, "min": lo, "max": hi, "c_end": c})
 base = r"C:\Users\Francesco\Desktop\Triumviratus"
 preset = {
-    "name": "LTC1_mega46_40s",
-    "label": "Mega-SPSA LTC 7.1 -- 46 parametri, 40+0.4, 76 partite concorrenti, 22k iterazioni",
+    "name": "LTC2_mega54_40s",
+    "label": "Mega-SPSA LTC 7.1 -- 54 parametri (46 + idee di Coda accese e vicini TT), 40+0.4, 76 partite concorrenti, 22k iterazioni",
     "description": ("SPSA a TC lungo richiesto dopo l'analisi CCRL del 26/09 (23 errori d'orizzonte: la 7.0 li evita con piu' tempo). "
                     "46 leve continue di pruning, LMR (LMRFine completa), estensioni singolari e history, init dai valori compilati "
-                    "della 7.1 (canary 273477). Esclusi: feature spente (LMRDeepK=0, QFutility, BrilliantSac...), TM v1, LMR legacy, "
-                    "interi con range <= 4. lr 0.02 e c al 20% del range da sim_server_math.py. Il verdetto e' SOLO l'SPRT del "
-                    "vettore finale contro il default a 40+0.4 (gate_ltc1.ps1)."),
+                    "della 7.1 (canary 273477), piu' TTNearMiss, TTDamp e RDR* ACCESI e TTCutFifty/TTCutBonusScale (re-basin del "
+                    "28/09: innestate da sole non reggono). Esclusi: feature spente (LMRDeepK=0, QFutility, BrilliantSac...), TM v1, "
+                    "LMR legacy, interi con range <= 4. lr 0.02 e c al 20% del range da sim_server_math.py. Il verdetto e' SOLO "
+                    "l'SPRT del vettore finale contro il default (novita' spente) a 40+0.4 (gate_ltc1.ps1)."),
     "mode": "mirror",
     "params": params,
     "spsa": {"lr_default": 0.02, "c_mult": 1.0, "alpha": 0.602, "gamma": 0.101, "astab_frac": 0.1, "max_iters": 22000},
@@ -36,7 +58,22 @@ preset = {
                 "test": {"cmd": base + r"\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe", "fixed_options": {}},
                 "opponent": {"cmd": base + r"\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe", "fixed_options": {}}},
 }
-json.dump(preset, open(r"..\spsa_lab\presets\LTC1_mega46_40s.json", "w"), indent=1)
+json.dump(preset, open(r"..\spsa_lab\presets\LTC2_mega54_40s.json", "w"), indent=1)
+
+# 28/09/2026, decisione dell'utente: "tarare tutto con lo SPSA, tranne i parametri per cui serve uno SPSA a 40 s o
+# piu'". Preset M20: 20+0.2 (il minimo della metodologia; a 12+0.12 il vecchio mega-SPSA si era sovra-adattato),
+# SENZA le RDR* (agiscono solo con root depth > soglia: a 20+0.2 la radice supera 17 nel 10% delle mosse).
+# Le RDR restano per LTC2 a 40+0.4 o per l'SPRT dedicato.
+import copy
+m20 = copy.deepcopy(preset)
+m20["params"] = [p for p in params if not p["name"].startswith("RDR")]
+m20["name"] = "M20_mega50_20s"
+m20["label"] = "Mega-SPSA 7.1 -- 50 parametri (senza RDR*), 20+0.2, 76 partite concorrenti, 22k iterazioni (~1 giorno)"
+m20["description"] = preset["description"].replace("RDR* ACCESI e ", "").replace("a 40+0.4 (gate_ltc1.ps1)", "a 20+0.2, poi conferma a 40+0.4 (gate_ltc1.ps1 -TC)")
+m20["match"]["tc"] = "20+0.2"
+m20["match"]["hash_mb"] = 64
+json.dump(m20, open(r"..\spsa_lab\presets\M20_mega50_20s.json", "w"), indent=1)
+print(len(m20["params"]), "parametri nel preset M20 (20+0.2)")
 for p in params:
     print(f"{p['name']:22s} {p['init']:6d}  [{p['min']:6d}, {p['max']:6d}]  c_end {p['c_end']:7.1f} ({100*p['c_end']/p['init']:.0f}% init)")
 print(len(params), "parametri")

@@ -1349,6 +1349,10 @@ bool set_search_param(const char *name, int value) {
     g_tt_damp = value < 0 ? 0 : value;
     return true;
   }
+  if (!strcmp(name, "PvTTMinDepth")) {
+    g_pv_tt_min_depth = value != 0;
+    return true;
+  }
   if (!strcmp(name, "TTResearchMargin")) {
     g_tt_research_margin = value < 0 ? 0 : value;
     return true;

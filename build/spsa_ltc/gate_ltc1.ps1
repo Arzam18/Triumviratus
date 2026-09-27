@@ -1,7 +1,8 @@
 # Gate del mega-SPSA LTC1: SPRT del vettore finale contro i default, stesso binario, 40+0.4. Decide solo questo.
 # Uso: .\gate_ltc1.ps1 -Run <cartella del run in spsa_lab\runs>
 # Il vettore e' la media delle ultime 1.100 iterazioni (5% del run), come nella simulazione.
-param([Parameter(Mandatory = $true)][string]$Run)
+param([Parameter(Mandatory = $true)][string]$Run,
+      [string]$TC = "40+0.4")   # per M20 (tarato a 20+0.2): prima -TC 20+0.2, poi la conferma a 40+0.4
 $root = "C:\Users\Francesco\Desktop\Triumviratus"
 $exe  = "$root\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe"
 $log  = "$root\Tuning_SPSA\spsa_lab\runs\$Run\log.csv"
@@ -14,7 +15,7 @@ $fc = "$root\Fastechess_For_SPSA\fastchess.exe"
 $book = "$root\OpeningBooks\uho_2024\UHO_2024_+085_+094\UHO_2024_8mvs_+085_+094.epd"
 $fcArgs = @("-engine", "cmd=$exe", "name=LTC1") + $opts + @(
     "-engine", "cmd=$exe", "name=default",
-    "-each", "tc=40+0.4", "option.Hash=128", "option.Threads=1",
+    "-each", "tc=$TC", "option.Hash=128", "option.Threads=1",
     "-openings", "file=$book", "format=epd", "order=random",
     "-draw", "movenumber=40", "movecount=8", "score=10",
     "-resign", "movecount=3", "score=600", "twosided=true",

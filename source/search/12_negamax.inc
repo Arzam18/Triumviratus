@@ -1958,7 +1958,15 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
       // assorbito e serve il co-tune del blocco (re-basin, non cancellazione secca).
       const bool child_cut =
         g_cutnode_prop && !pv_node ? !is_cut_node : false;
-      score = -td_negamax(td, -beta, -alpha, depth - 1 + extension, child_cut, 0,
+      int first_depth = depth - 1 + extension;
+      // PvTTMinDepth (SF search.cpp "Don't dive into QS if we have TT move", uguale in Reckless, Caissa,
+      // PlentyChess): nella PV la mossa TT con un'entry di almeno 2 ply (o decisiva) non scende in quiescenza
+      // per colpa di un'estensione negativa. Default off = albero identico.
+      if (g_pv_tt_min_depth && pv_node && first_depth < 1 && move == tt_move &&
+          (tt_depth > 1 || (tt_depth > 0 && (tt_score_raw >= mate_score - 2 * max_ply ||
+                                             tt_score_raw <= -(mate_score - 2 * max_ply)))))
+        first_depth = 1;
+      score = -td_negamax(td, -beta, -alpha, first_depth, child_cut, 0,
                           child_follow);
     } else {
       int reduction = 0;
@@ -2331,8 +2339,11 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
       // PV full-window re-search (uses the possibly-adjusted full_depth so a
       // doDeeper bump also deepens the PV confirmation, matching SF).
       if (score > alpha && score < beta) {
+        int pv_depth = full_depth;
+        if (g_pv_tt_min_depth && pv_depth < 1 && move == tt_move && tt_depth > 1) // PvTTMinDepth, vedi sopra
+          pv_depth = 1;
         score =
-            -td_negamax(td, -beta, -alpha, full_depth, false, 0, child_follow);
+            -td_negamax(td, -beta, -alpha, pv_depth, false, 0, child_follow);
       }
     }
 

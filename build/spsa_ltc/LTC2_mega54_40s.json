@@ -1,0 +1,418 @@
+{
+ "name": "LTC2_mega54_40s",
+ "label": "Mega-SPSA LTC 7.1 -- 54 parametri (46 + idee di Coda accese e vicini TT), 40+0.4, 76 partite concorrenti, 22k iterazioni",
+ "description": "SPSA a TC lungo richiesto dopo l'analisi CCRL del 26/09 (23 errori d'orizzonte: la 7.0 li evita con piu' tempo). 46 leve continue di pruning, LMR (LMRFine completa), estensioni singolari e history, init dai valori compilati della 7.1 (canary 273477), piu' TTNearMiss, TTDamp e RDR* ACCESI e TTCutFifty/TTCutBonusScale (re-basin del 28/09: innestate da sole non reggono). Esclusi: feature spente (LMRDeepK=0, QFutility, BrilliantSac...), TM v1, LMR legacy, interi con range <= 4. lr 0.02 e c al 20% del range da sim_server_math.py. Il verdetto e' SOLO l'SPRT del vettore finale contro il default (novita' spente) a 40+0.4 (gate_ltc1.ps1).",
+ "mode": "mirror",
+ "params": [
+  {
+   "name": "RFPMargin",
+   "init": 53,
+   "min": 26,
+   "max": 80,
+   "c_end": 10.8
+  },
+  {
+   "name": "FutilityBase",
+   "init": 181,
+   "min": 90,
+   "max": 272,
+   "c_end": 36.4
+  },
+  {
+   "name": "FutilityMult",
+   "init": 138,
+   "min": 69,
+   "max": 200,
+   "c_end": 26.2
+  },
+  {
+   "name": "FutilityImproving",
+   "init": 145,
+   "min": 72,
+   "max": 200,
+   "c_end": 25.6
+  },
+  {
+   "name": "RazorBase",
+   "init": 272,
+   "min": 136,
+   "max": 408,
+   "c_end": 54.4
+  },
+  {
+   "name": "RazorMult",
+   "init": 118,
+   "min": 59,
+   "max": 177,
+   "c_end": 23.6
+  },
+  {
+   "name": "RazorQuadCoef",
+   "init": 82,
+   "min": 41,
+   "max": 100,
+   "c_end": 11.8
+  },
+  {
+   "name": "LMPQuad",
+   "init": 138,
+   "min": 69,
+   "max": 207,
+   "c_end": 27.6
+  },
+  {
+   "name": "NMPStaticMult",
+   "init": 23,
+   "min": 12,
+   "max": 34,
+   "c_end": 4.4
+  },
+  {
+   "name": "NMPStaticBias",
+   "init": 414,
+   "min": 207,
+   "max": 621,
+   "c_end": 82.8
+  },
+  {
+   "name": "NMPEvalDiv",
+   "init": 256,
+   "min": 128,
+   "max": 384,
+   "c_end": 51.2
+  },
+  {
+   "name": "ProbCutMargin",
+   "init": 234,
+   "min": 117,
+   "max": 351,
+   "c_end": 46.8
+  },
+  {
+   "name": "SEEQuietMargin",
+   "init": 116,
+   "min": 58,
+   "max": 174,
+   "c_end": 23.2
+  },
+  {
+   "name": "CapFutBase",
+   "init": 156,
+   "min": 78,
+   "max": 234,
+   "c_end": 31.2
+  },
+  {
+   "name": "CapFutMult",
+   "init": 203,
+   "min": 102,
+   "max": 304,
+   "c_end": 40.4
+  },
+  {
+   "name": "CapFutChist",
+   "init": 358,
+   "min": 179,
+   "max": 400,
+   "c_end": 42
+  },
+  {
+   "name": "CapFutVicScale",
+   "init": 582,
+   "min": 291,
+   "max": 873,
+   "c_end": 116.4
+  },
+  {
+   "name": "QSDeltaMargin",
+   "init": 1525,
+   "min": 762,
+   "max": 2288,
+   "c_end": 305.2
+  },
+  {
+   "name": "HistPruneMargin",
+   "init": 2097,
+   "min": 1048,
+   "max": 3146,
+   "c_end": 419.6
+  },
+  {
+   "name": "LMRBase",
+   "init": 22,
+   "min": 11,
+   "max": 33,
+   "c_end": 4.4
+  },
+  {
+   "name": "LMRDiv",
+   "init": 447,
+   "min": 224,
+   "max": 500,
+   "c_end": 53
+  },
+  {
+   "name": "LMREvalMargin",
+   "init": 43,
+   "min": 22,
+   "max": 64,
+   "c_end": 8.4
+  },
+  {
+   "name": "LMRFCut",
+   "init": 3687,
+   "min": 1844,
+   "max": 5530,
+   "c_end": 737.2
+  },
+  {
+   "name": "LMRFCutNoTT",
+   "init": 2397,
+   "min": 1198,
+   "max": 3596,
+   "c_end": 479.6
+  },
+  {
+   "name": "LMRFTTCap",
+   "init": 200,
+   "min": 100,
+   "max": 300,
+   "c_end": 40.0
+  },
+  {
+   "name": "LMRFTTPv",
+   "init": 617,
+   "min": 308,
+   "max": 926,
+   "c_end": 123.6
+  },
+  {
+   "name": "LMRFPv",
+   "init": 437,
+   "min": 218,
+   "max": 656,
+   "c_end": 87.6
+  },
+  {
+   "name": "LMRFSS",
+   "init": 664,
+   "min": 332,
+   "max": 996,
+   "c_end": 132.8
+  },
+  {
+   "name": "LMRFCorr",
+   "init": 866,
+   "min": 433,
+   "max": 1299,
+   "c_end": 173.2
+  },
+  {
+   "name": "LMRFAll",
+   "init": 618,
+   "min": 309,
+   "max": 927,
+   "c_end": 123.6
+  },
+  {
+   "name": "LMRFImprov",
+   "init": 489,
+   "min": 244,
+   "max": 734,
+   "c_end": 98.0
+  },
+  {
+   "name": "LMRFEvalCut",
+   "init": 979,
+   "min": 490,
+   "max": 1468,
+   "c_end": 195.6
+  },
+  {
+   "name": "LMRFCutoff",
+   "init": 1520,
+   "min": 760,
+   "max": 2280,
+   "c_end": 304.0
+  },
+  {
+   "name": "LMRFPly",
+   "init": 524,
+   "min": 262,
+   "max": 786,
+   "c_end": 104.8
+  },
+  {
+   "name": "LMRFKiller",
+   "init": 797,
+   "min": 398,
+   "max": 1196,
+   "c_end": 159.6
+  },
+  {
+   "name": "HistReductionDiv",
+   "init": 3190,
+   "min": 1595,
+   "max": 4785,
+   "c_end": 638.0
+  },
+  {
+   "name": "SingularDoubleMargin",
+   "init": 59,
+   "min": 30,
+   "max": 88,
+   "c_end": 11.6
+  },
+  {
+   "name": "SingularTripleMargin",
+   "init": 319,
+   "min": 160,
+   "max": 400,
+   "c_end": 48.0
+  },
+  {
+   "name": "HistBonusMult",
+   "init": 490,
+   "min": 245,
+   "max": 600,
+   "c_end": 71.0
+  },
+  {
+   "name": "HistBonusSub",
+   "init": 299,
+   "min": 150,
+   "max": 400,
+   "c_end": 50.0
+  },
+  {
+   "name": "HistBonusMax",
+   "init": 2946,
+   "min": 1473,
+   "max": 4419,
+   "c_end": 589.2
+  },
+  {
+   "name": "MalusPct",
+   "init": 69,
+   "min": 34,
+   "max": 104,
+   "c_end": 14.0
+  },
+  {
+   "name": "MainHistWeight",
+   "init": 93,
+   "min": 50,
+   "max": 140,
+   "c_end": 18.0
+  },
+  {
+   "name": "ContHistWeight",
+   "init": 135,
+   "min": 68,
+   "max": 202,
+   "c_end": 26.8
+  },
+  {
+   "name": "PawnHistoryWeight",
+   "init": 187,
+   "min": 94,
+   "max": 280,
+   "c_end": 37.2
+  },
+  {
+   "name": "ThreatHistWeight",
+   "init": 130,
+   "min": 65,
+   "max": 195,
+   "c_end": 26.0
+  },
+  {
+   "name": "TTNearMiss",
+   "init": 80,
+   "min": 30,
+   "max": 400,
+   "c_end": 50
+  },
+  {
+   "name": "TTDamp",
+   "init": 31,
+   "min": 10,
+   "max": 200,
+   "c_end": 21
+  },
+  {
+   "name": "RDRRfp",
+   "init": 20,
+   "min": 0,
+   "max": 60,
+   "c_end": 12.0
+  },
+  {
+   "name": "RDRLmp",
+   "init": 5,
+   "min": 0,
+   "max": 20,
+   "c_end": 4.0
+  },
+  {
+   "name": "RDRProbCut",
+   "init": 5,
+   "min": 0,
+   "max": 20,
+   "c_end": 4.0
+  },
+  {
+   "name": "RDRKnee",
+   "init": 17,
+   "min": 12,
+   "max": 24,
+   "c_end": 2.4
+  },
+  {
+   "name": "TTCutFifty",
+   "init": 89,
+   "min": 60,
+   "max": 100,
+   "c_end": 8.0
+  },
+  {
+   "name": "TTCutBonusScale",
+   "init": 111,
+   "min": 55,
+   "max": 166,
+   "c_end": 22.2
+  }
+ ],
+ "spsa": {
+  "lr_default": 0.02,
+  "c_mult": 1.0,
+  "alpha": 0.602,
+  "gamma": 0.101,
+  "astab_frac": 0.1,
+  "max_iters": 22000
+ },
+ "match": {
+  "tc": "40+0.4",
+  "games_per_side": 4,
+  "conc_per_side": 4,
+  "async_workers": 19,
+  "resign_score": 600,
+  "resign_movecount": 3,
+  "hash_mb": 128,
+  "move_overhead": 100,
+  "timemargin": 150,
+  "book": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\OpeningBooks\\UHO_4060_v4\\UHO_4060_v4.epd",
+  "book_lines": 240000
+ },
+ "engines": {
+  "fastchess": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Fastechess_For_SPSA\\fastchess.exe",
+  "test": {
+   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_7.1\\x64\\Release\\Triumviratus_7.1_spsaltc_avx512.exe",
+   "fixed_options": {}
+  },
+  "opponent": {
+   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_7.1\\x64\\Release\\Triumviratus_7.1_spsaltc_avx512.exe",
+   "fixed_options": {}
+  }
+ }
+}

@@ -326,6 +326,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_rdr_probcut", (const void*)&g_rdr_probcut, 0, 0},
     {"g_tt_nearmiss", (const void*)&g_tt_nearmiss, 0, 0},
     {"g_tt_damp", (const void*)&g_tt_damp, 0, 0},
+    {"g_pv_tt_min_depth", (const void*)&g_pv_tt_min_depth, 1, 0},
     {"g_tt_static_eval", (const void*)&g_tt_static_eval, 1, 1},
     {"g_ttcut_bonus", (const void*)&g_ttcut_bonus, 1, 1},
     {"g_ttcut_bonus_scale", (const void*)&g_ttcut_bonus_scale, 0, 111},
@@ -636,6 +637,7 @@ void triumv_frozen_check();
 #define g_rdr_probcut 0
 #define g_tt_nearmiss 0
 #define g_tt_damp 0
+#define g_pv_tt_min_depth false
 #define g_tt_static_eval true
 #define g_ttcut_bonus true
 #define g_ttcut_bonus_scale 111

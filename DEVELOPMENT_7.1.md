@@ -293,6 +293,28 @@ default and gets an SPRT at 40+0.4 before the SPSA:
 - **TT cutoffs from entries one ply short**, with a score margin;
 - **TT scores damped toward beta** at non-PV cutoffs.
 
+A scan of the other reference engines (Stockfish, Reckless, PlentyChess, Caissa, Integral,
+Stormphrax, Viridithas, Berserk) for anything that depends on the root depth adds two tests, each
+shared by four engines:
+- **the TT move on the principal variation never drops into quiescence** (new option `PvTTMinDepth`);
+- **singular extensions only while ply < 2 × root depth** (`SingularPlyGuard`: already in the code,
+  never measured on its own).
+
+Bolted on one at a time, at 10+0.1, none of them holds up:
+
+| test | result |
+|---|---|
+| near-miss alone | +2.4 ± 7.2 (4,216 games) |
+| near-miss + damping | −1.6 ± 18.8 (634 games) |
+| TT-move rule + ply guard | −5.7 ± 15.4 (918 games) |
+| ply guard alone | +0.7 ± 8.8 (about 2,700 games) |
+
+The surrounding parameters were tuned without these ideas. For example, the TT cutoff asks one extra
+ply for fail-highs, while the near-miss accepts one ply less. So the continuous ones go into the SPSA
+**switched on**, to be retuned together with their neighbours, and each has a continuous path back to
+"off". The verdict is still the SPRT of the tuned vector against the defaults. The SPSA runs at
+20+0.2, without the root-depth terms, which only act at long time control.
+
 ## 13. Chess960 (Fischer Random Chess)
 
 **7.1 is the first version of Triumviratus to support Chess960**, through the standard `UCI_Chess960`
@@ -317,6 +339,9 @@ Verification:
 - **Network.** Incremental updates match a full refresh on 40 Chess960 searches.
 - **Games.** 8 test games against Stockfish 19: no crash and no illegal move. The engine castled
   Chess960-style and correctly read Stockfish's castling moves.
+- **No speed cost.** Full PGO release builds from before and after the Chess960 work, run as paired
+  simultaneous NPS: the new one is **+0.57%** [+0.53, +0.62] on standard positions (null test +0.00%).
+  `UCI_Chess960` is therefore exposed in the release build too.
 
 **Credit: `tdperft`.** Most of this verification rests on `tdperft`, the per-thread perft written for
 the correctness audit (section 11). The ordinary perft only exercises the main board, which the
