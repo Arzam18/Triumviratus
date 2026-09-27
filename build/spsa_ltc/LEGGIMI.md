@@ -67,6 +67,21 @@ Scelta: **lr 0,02 e c al 20%**. Può spiegare perché gli SPSA recenti non hanno
 ⚠️ Il modello non ha interazioni fra i parametri e ha un ottimo solo. È un controllo di plausibilità sulle
 scale, non una previsione di Elo.
 
+## Idee di Coda: prima gli SPRT, poi eventualmente nel preset (27/09/2026)
+`sprt_coda_ideas.ps1 -Idea 1|2|3` (40+0.4, `[0, 3]`, stesso binario dev). Le opzioni sono spente di default e hanno
+init 0 = min. Un parametro spento non si mette nel preset: l'anti-clamp gli darebbe c_end 0 e lo SPSA non lo
+muoverebbe mai. Chi passa l'SPRT entra nel preset LTC1 **acceso**, con questi limiti (in `names.json` +
+`compiled_values.json`, oppure a mano):
+
+| opzione | init (valore dell'SPRT) | limiti SPSA | nota |
+|---|---|---|---|
+| `RDRRfp` | 20 | 5–60 | cp per ply di radice oltre la soglia, × profondità / 100 |
+| `RDRLmp` | 5 | 1–20 | decimi di mossa per ply di radice oltre la soglia |
+| `RDRProbCut` | 5 | 1–20 | cp per ply di radice oltre la soglia |
+| `RDRKnee` | 17 | 12–24 | soglia di profondità di radice; si tara insieme ai tre sopra |
+| `TTNearMiss` | 80 | 30–200 | margine in cp |
+| `TTDamp` | 31 | 10–100 | peso dello score TT in decimi (31 = 76% score, 24% beta) |
+
 ## Dopo il run
 1. Il verdetto è solo il gate (`gate_ltc1.ps1`), mai l'andamento dell'SPSA.
 2. Se passa, il vettore va bakato in `threads.cpp`, aggiornando anche i default UCI, e il canary va

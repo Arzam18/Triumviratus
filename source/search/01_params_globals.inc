@@ -377,7 +377,7 @@ int g_check_ext_depth = 0;
 static bool g_evalcache_undamp = true;
 // EvalCacheOptTag (2026-08-02) — default OFF = byte-identico.
 // L'optimism entra DENTRO il valore ritornato da nn_scale (nnue_bridge.cpp:153) e
-// g_optimism viene riscritto dal thread 0 a OGNI iterazione ID (threads.cpp:8667+).
+// g_optimism viene riscritto dal thread 0 a OGNI iterazione ID (thread_search, search/13_iterdeep.inc).
 // La cache e' pero' indicizzata solo su hash_key: un hit puo' quindi servire una eval
 // calcolata con un contempt diverso da quello corrente. Non e' rumore innocuo — a score
 // ±2000 l'optimism vale ~68 unita' sulla static eval, piu' di un passo di RFPMargin (53),

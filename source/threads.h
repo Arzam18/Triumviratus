@@ -297,7 +297,7 @@ struct ThreadData {
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
     // `opt`: valore di g_optimism[stm] con cui questa eval e' stata calcolata. Serve
     // perche' nn_scale mescola l'optimism DENTRO il valore ritornato (nnue_bridge.cpp:153)
-    // e g_optimism viene riscritto a ogni iterazione ID (threads.cpp:8667): senza tag, la
+    // e g_optimism viene riscritto a ogni iterazione ID (thread_search, search/13_iterdeep.inc): senza tag, la
     // cache serve valutazioni calcolate con un contempt diverso da quello corrente.
     struct EvalCacheEntry { U64 key; int eval; int opt; int coeff; };
     EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];          // ~1 MB / thread

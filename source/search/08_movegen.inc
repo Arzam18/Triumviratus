@@ -26,7 +26,7 @@ static inline U64 td_attackers_to(ThreadData &td, int sq, int by) {
 // 🔴 quiets_only (2A, 29/07): il movepicker chiamava questa funzione con captures_only=false
 // nello stage QUIET, cioe' generando TUTTE le pseudo-legali — comprese le catture che aveva
 // gia' generato nello stage TACTICAL — per poi marcarle MP_CONSUMED e non renderle mai
-// (threads.cpp:5299-5307). Ogni nodo che supera le good-tactical senza cutoff pagava la
+// (move picker, search/10_picker.inc). Ogni nodo che supera le good-tactical senza cutoff pagava la
 // generazione a vuoto di ~7 catture: pop_lsb, encode, store in lista, e un get_move_capture
 // a valle. Con quiets_only si generano solo gli approdi su case VUOTE.
 //

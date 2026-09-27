@@ -646,7 +646,7 @@ void uci_loop()
             printf("option name PBSwingMargin type spin default 136 min 0 max 500\n");
             printf("option name LowPlyHistory type check default true\n");    // #5: history per-ply near-root nell'ordering quiet
             printf("option name LowPlyWeight type spin default 179 min 0 max 200\n");  // contributo lowply; co-tunabile
-            printf("option name StatEvalDiffMult type spin default 27 min 0 max 60\n");  // SF static-eval-diff ordering. A2 FIX 2026-07-25: annunciava 8 mentre il valore vivo e' 14 (threads.cpp:1431, ripristinato dopo il fix SEO) -> una GUI/tuner che rimanda i default espliciti spegneva il 15.4% dell'albero (bench 275063 -> 232681)
+            printf("option name StatEvalDiffMult type spin default 27 min 0 max 60\n");  // SF static-eval-diff ordering. A2 FIX 2026-07-25: annunciava 8 mentre il valore vivo e' 14 (search/02_params_candidates.inc, ripristinato dopo il fix SEO) -> una GUI/tuner che rimanda i default espliciti spegneva il 15.4% dell'albero (bench 275063 -> 232681)
             printf("option name CutoffCntPenalty type spin default 2 min 0 max 3\n");        // SF cutoffCnt-LMR: 0=off, 1=SF (riduzione +1 se figlio cutoffCnt>3)
             printf("option name ProbCutInCheckMargin type spin default 331 min 0 max 800\n");  // [4.1 BAKE 0->523] SF probcut-sotto-scacco
             printf("option name MainHistWeight type spin default 93 min 50 max 400\n");    // [4.1 BAKE 122->168]
@@ -676,7 +676,7 @@ void uci_loop()
             printf("option name QFutMargin type spin default 199 min 0 max 500\n");
             printf("option name HistBonusMult type spin default 490 min 1 max 600\n");   // [4.1 BAKE 282->326]
             printf("option name HistBonusSub type spin default 299 min 0 max 400\n");      // [4.1 BAKE 59->35]
-            printf("option name HistBonusMax type spin default 2946 min 200 max 7000\n"); // [4.1 BAKE 1247->2439; max 4000->8000 il 2026-07-10 perche' il default era INCOLLATO al max -> SPSA poteva solo scendere]. A7 FIX 2026-07-25: il max era 8000 e la nota "nessun clamp compilato, allargare e' sicuro" era FALSA -> HISTORY_MAX (threads.cpp:4190) e' 7000 ed e' il tetto di gravita': con un bonus sopra 7000 il termine di richiamo supera l'entry e un solo update la inchioda al massimo (la tabella esce dal range voluto). Tetto riportato a 7000 = trappola SPSA disinnescata
+            printf("option name HistBonusMax type spin default 2946 min 200 max 7000\n"); // [4.1 BAKE 1247->2439; max 4000->8000 il 2026-07-10 perche' il default era INCOLLATO al max -> SPSA poteva solo scendere]. A7 FIX 2026-07-25: il max era 8000 e la nota "nessun clamp compilato, allargare e' sicuro" era FALSA -> HISTORY_MAX (search/*.inc) e' 7000 ed e' il tetto di gravita': con un bonus sopra 7000 il termine di richiamo supera l'entry e un solo update la inchioda al massimo (la tabella esce dal range voluto). Tetto riportato a 7000 = trappola SPSA disinnescata
             printf("option name LazyEval type check default true\n");
             printf("option name TimeMgmt type check default true\n");
             printf("option name AggrLMR type check default false\n");
@@ -728,6 +728,13 @@ void uci_loop()
             printf("option name TTCutRefine type check default true\n");                      // [BAKE 2026-07-03] cutoff TT: depth+1 sui fail-high, coerenza cutnode, fifty gate
             printf("option name TTResearch type check default false\n");                      // Q-14 (Ethereal): fail-low anticipato a depth-1 su entry UPPER
             printf("option name TTResearchMargin type spin default 74 min 0 max 400\n");      // Q-14: margine (scala-56) sotto alpha per il fail-low a depth-1
+            // Idee da Coda 0.9.4 (27/09/2026, spente di default): vedi search/02_params_candidates.inc
+            printf("option name RDRKnee type spin default 17 min 1 max 60\n");
+            printf("option name RDRRfp type spin default 0 min 0 max 200\n");
+            printf("option name RDRLmp type spin default 0 min 0 max 100\n");
+            printf("option name RDRProbCut type spin default 0 min 0 max 100\n");
+            printf("option name TTNearMiss type spin default 0 min 0 max 400\n");
+            printf("option name TTDamp type spin default 0 min 0 max 200\n");
             printf("option name TTCutFifty type spin default 89 min 50 max 100\n");
             printf("option name TTCutMalus type check default false\n");                     // #3d malus quiet avversaria su TT-cut (duale TTCutBonus). Bake revertito 2026-07-06, vedi threads.cpp
             printf("option name TTCutMalusSeen type spin default 3 min 0 max 16\n");
@@ -1178,7 +1185,7 @@ void uci_loop()
                     memset(thread_data[i].corr_hist_major, 0, sizeof(thread_data[i].corr_hist_major));
                     memset(thread_data[i].corr_hist_material, 0, sizeof(thread_data[i].corr_hist_material));
                     memset(thread_data[i].corr_hist_trans, 0, sizeof(thread_data[i].corr_hist_trans));
-                    memset(thread_data[i].corr_hist_np, 0, sizeof(thread_data[i].corr_hist_np));   // A6 FIX 2026-07-25: mancava (unico azzeramento in init_threads, threads.cpp:3140) -> era l'unica corr-table a sopravvivere fra le 8 posizioni del bench
+                    memset(thread_data[i].corr_hist_np, 0, sizeof(thread_data[i].corr_hist_np));   // A6 FIX 2026-07-25: mancava (unico azzeramento in init_threads, search/06_init.inc) -> era l'unica corr-table a sopravvivere fra le 8 posizioni del bench
                     apply_history_priors(thread_data[i]);   // Q-26: il bench azzera a mano -> riapplica il prior
                 }
                 reset_time_control();
@@ -1409,7 +1416,7 @@ void uci_loop()
             // Formato Stockfish, richiesto dagli strumenti standard (nnue-pytorch
             // cross_check_eval.py cerca esattamente questa riga). "internal units" e'
             // letterale: questo valore NON passa per la normalizzazione NORM_CP=392
-            // applicata al `score cp` della search-info (threads.cpp:8212), quindi e'
+            // applicata al `score cp` della search-info (print_search_info, search/13_iterdeep.inc), quindi e'
             // direttamente confrontabile con l'uscita del trainer. (27/07/2026)
             // 🔴 GREZZO, non `e`: `e` passa per nn_scale (blend psqt/positional, complessita',
             // materiale, rule50), che il trainer NON ha. Confrontare `e` col trainer paragona

@@ -202,6 +202,9 @@ int main()
 
     // Auto-load Syzygy tablebases from a "Syzygy" folder next to the exe
     // (x64\Release\Syzygy). The "SyzygyPath" UCI option overrides this at runtime.
+    // Audit D (27/09/2026, tenuto apposta): scatta solo se quella cartella esiste, cioe' se qualcuno ce l'ha messa;
+    // una GUI che manda SyzygyPath vuoto (o "<empty>") le scarica (syzygy_init), quindi le condizioni di un
+    // tester restano quelle che imposta. L'info string qui sotto rende visibile il caricamento.
     {
         std::string tbDir = default_syzygy_dir();
         if (syzygy_init(tbDir.c_str()) && !g_startup_quiet)

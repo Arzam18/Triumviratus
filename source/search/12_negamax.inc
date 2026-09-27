@@ -677,9 +677,24 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
               }
             }
           }
+          // TTDamp (Coda): taglio con bound inferiore -> score spinto verso beta (W in decimi). Non-PV per
+          // costruzione di questo blocco; niente score decisivi (matti e TB restano esatti).
+          if (g_tt_damp && tt_flag == hash_flag_beta && tt_score >= beta &&
+              tt_score < mate_score - 2 * max_ply && tt_score > -(mate_score - 2 * max_ply))
+            return (g_tt_damp * tt_score + 10 * beta) / (g_tt_damp + 10);
           return tt_score; // fail-soft
         }
       }
+    }
+
+    // TTNearMiss (Coda): entry di UN ply piu' corta, accettata se lo score supera il bound di un margine. Qui
+    // tt_depth < depth (altrimenti il blocco sopra ha gia' deciso), quindi tt_score e' ancora quello grezzo.
+    if (g_tt_nearmiss && !pv_node && tt_depth == depth - 1 && td.fifty < g_ttcut_fifty &&
+        tt_score < mate_score - 2 * max_ply && tt_score > -(mate_score - 2 * max_ply)) {
+      if (tt_flag == hash_flag_beta && tt_score - g_tt_nearmiss >= beta)
+        return tt_score - g_tt_nearmiss;
+      if (tt_flag == hash_flag_alpha && tt_score + g_tt_nearmiss <= alpha)
+        return tt_score + g_tt_nearmiss;
     }
 
     // Q-14 TTResearchMargin (Ethereal): fail-low anticipato a depth-1. Solo
@@ -1020,6 +1035,8 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
       rfp_margin +=
           corr_uncert * g_cu_rfp /
           64; // P1a: tavole in disaccordo -> eval incerta -> pota meno
+    if (g_rdr_rfp && td.root_depth > g_rdr_knee) // RootDepthRelax (Coda): ricerca profonda -> pota meno
+      rfp_margin += rfp_depth * (td.root_depth - g_rdr_knee) * g_rdr_rfp / 100;
     if (rfp_margin < 0)
       rfp_margin = 0;
     if (rfp_ok && eval - rfp_margin >= beta)
@@ -1166,6 +1183,8 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
       depth >= g_probcut_min_depth && beta < mate_score && beta > -mate_score) {
     int probcut_beta = beta + g_probcut_margin -
                        ((g_improving && improving) ? g_probcut_improve : 0);
+    if (g_rdr_probcut && td.root_depth > g_rdr_knee) // RootDepthRelax (Coda)
+      probcut_beta += (td.root_depth - g_rdr_knee) * g_rdr_probcut;
     bool tt_blocks = tt_hit && tt_depth >= depth - 3 &&
                      tt_score < probcut_beta && tt_score > -mate_score;
     if (!tt_blocks) {
@@ -1428,6 +1447,8 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
         lmp_threshold = lmp_table[lmp_idx] * g_lmp_scale /
                         100; // LMPScale (100 = invariato)
       }
+      if (g_rdr_lmp && lmp_threshold >= 0 && td.root_depth > g_rdr_knee) // RootDepthRelax (Coda)
+        lmp_threshold += (td.root_depth - g_rdr_knee) * g_rdr_lmp / 10;
       if (lmp_threshold >= 0 && quiets_searched >= lmp_threshold) {
         if (g_lmp_check_guard) {
           // Guard: le quiet che danno SCACCO non si potano mai (forzanti:

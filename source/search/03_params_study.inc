@@ -1324,6 +1324,31 @@ bool set_search_param(const char *name, int value) {
     g_tt_research = value != 0;
     return true;
   }
+  // Idee da Coda (27/09/2026), vedi 02_params_candidates.inc
+  if (!strcmp(name, "RDRKnee")) {
+    g_rdr_knee = value < 1 ? 1 : value;
+    return true;
+  }
+  if (!strcmp(name, "RDRRfp")) {
+    g_rdr_rfp = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "RDRLmp")) {
+    g_rdr_lmp = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "RDRProbCut")) {
+    g_rdr_probcut = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "TTNearMiss")) {
+    g_tt_nearmiss = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "TTDamp")) {
+    g_tt_damp = value < 0 ? 0 : value;
+    return true;
+  }
   if (!strcmp(name, "TTResearchMargin")) {
     g_tt_research_margin = value < 0 ? 0 : value;
     return true;

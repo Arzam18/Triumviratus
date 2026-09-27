@@ -1266,6 +1266,23 @@ int g_ttcut_fifty =
 // scala-56 (init SPSA). Default OFF.
 static bool g_tt_research = false;
 int g_tt_research_margin = 74;
+// ===== IDEE DA CODA 0.9.4 (27/09/2026, docs/audit_7.1/J_CODA.md). Tutte spente di default: albero identico. =====
+// (1) RootDepthRelax: potare MENO quando la ricerca complessiva e' profonda. Guarda td.root_depth (l'iterazione
+//     in corso), non la profondita' del nodo: e' la differenza con LMRDeepK/LMRSFBase, che erano neutri/negativi.
+//     over = max(0, root_depth - RDRKnee). Coda: RFP margin += depth*over*20/100 (search.rs RFP_ROOT_*). Da noi
+//     anche LMP e ProbCut nello stesso verso (noi siamo tarati a TC corto; Coda li ha nel verso opposto perche' la sua
+//     base e' piu' vicina al TC lungo). Valori da SPRT: RDRRfp 20, RDRLmp 5, RDRProbCut 5.
+int g_rdr_knee = 17;      // profondita' di radice oltre cui si allenta
+int g_rdr_rfp = 0;        // RFP: margine += rfp_depth * over * RDRRfp / 100 (cp)
+int g_rdr_lmp = 0;        // LMP: soglia di mosse += over * RDRLmp / 10
+int g_rdr_probcut = 0;    // ProbCut: beta di probcut += over * RDRProbCut (cp)
+// (2) TTNearMiss (Coda FEAT_TT_NEARMISS): taglio da TT con entry di UN ply piu' corta, se lo score supera il
+//     bound di almeno TTNearMiss cp (non-PV, niente score decisivi, niente patta-50 vicina). 0 = off; Coda 80.
+//     Il lato fail-low esiste gia' da solo (TTResearch/TTResearchMargin, Ethereal): questo fa entrambi.
+int g_tt_nearmiss = 0;
+// (3) TTDamp (Coda TT_DAMP_TT_WEIGHT_10X): nel taglio TT non-PV con bound inferiore, restituisce
+//     (W*tt_score + 10*beta) / (W+10) invece di tt_score (score meno gonfiati). W in decimi; 0 = off; Coda 31.
+int g_tt_damp = 0;
 static bool g_ttcut_malus =
     false; // #3d malus alla quiet AVVERSARIA che porta a un TT-cut (duale di
            // TTCutBonus). BAKE 2026-07-06 (true/7) REVERTITO: SPRT +15.55 Elo

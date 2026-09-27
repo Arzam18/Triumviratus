@@ -320,6 +320,12 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_tt_prefetch", (const void*)&g_tt_prefetch, 1, 1},
     {"g_tt_research", (const void*)&g_tt_research, 1, 0},
     {"g_tt_research_margin", (const void*)&g_tt_research_margin, 0, 74},
+    {"g_rdr_knee", (const void*)&g_rdr_knee, 0, 17},
+    {"g_rdr_rfp", (const void*)&g_rdr_rfp, 0, 0},
+    {"g_rdr_lmp", (const void*)&g_rdr_lmp, 0, 0},
+    {"g_rdr_probcut", (const void*)&g_rdr_probcut, 0, 0},
+    {"g_tt_nearmiss", (const void*)&g_tt_nearmiss, 0, 0},
+    {"g_tt_damp", (const void*)&g_tt_damp, 0, 0},
     {"g_tt_static_eval", (const void*)&g_tt_static_eval, 1, 1},
     {"g_ttcut_bonus", (const void*)&g_ttcut_bonus, 1, 1},
     {"g_ttcut_bonus_scale", (const void*)&g_ttcut_bonus_scale, 0, 111},
@@ -624,6 +630,12 @@ void triumv_frozen_check();
 #define g_tt_prefetch true
 #define g_tt_research false
 #define g_tt_research_margin 74
+#define g_rdr_knee 17
+#define g_rdr_rfp 0
+#define g_rdr_lmp 0
+#define g_rdr_probcut 0
+#define g_tt_nearmiss 0
+#define g_tt_damp 0
 #define g_tt_static_eval true
 #define g_ttcut_bonus true
 #define g_ttcut_bonus_scale 111

@@ -110,10 +110,20 @@ std::string board_to_fen()
 
     fen += ' ';
     std::string cr;
-    if (castle & wk) cr += 'K';
-    if (castle & wq) cr += 'Q';
-    if (castle & bk) cr += 'k';
-    if (castle & bq) cr += 'q';
+    if (g_chess960)
+    {
+        // Shredder-FEN: la colonna della torre (KQkq sarebbe ambiguo con due torri dallo stesso lato)
+        const char base[4] = {'A', 'A', 'a', 'a'};
+        for (int i = 0; i < 4; i++)
+            if (castle & c960_bit(i)) cr += char(base[i] + (castle_rook_sq[i] & 7));
+    }
+    else
+    {
+        if (castle & wk) cr += 'K';
+        if (castle & wq) cr += 'Q';
+        if (castle & bk) cr += 'k';
+        if (castle & bq) cr += 'q';
+    }
     fen += cr.empty() ? "-" : cr.c_str();
 
     fen += ' ';
@@ -277,10 +287,9 @@ void parse_fen(const char* fen)
     // libri, dagli script di datagen) e non era validata affatto. Una FEN
     // illegale non e' solo "sbagliata", corrompe memoria:
     //   - >32 pezzi -> nn_build_piece_list scrive oltre pieces[33]/squares[33]
-    //     (threads.cpp:4069) e lo stesso loop non limitato in debug_eval_position
-    //     (:4094) e' raggiungibile dal comando "eval";
+    //     e lo stesso loop non limitato in debug_eval_position e' raggiungibile dal comando "eval";
     //   - re mancante -> get_ls1b_index(0) = -1 usato come indice di casa
-    //     (es. threads.cpp:7253, misc.cpp:89).
+    //     (es. nella ricerca in search/*.inc e in misc.cpp).
     // Qui si rifiuta e si torna alla posizione iniziale: la ricorsione termina
     // subito perche' start_position e' valida per costruzione.
     if (count_bits(bitboards[K]) != 1 || count_bits(bitboards[k]) != 1 ||
