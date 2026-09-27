@@ -19,6 +19,9 @@
 #include "see.h"
 #include "tt.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -3917,6 +3920,9 @@ void set_data_log_enabled(bool enabled) { g_data_log_enabled = enabled; }
 //
 // Rigenerare dopo un bake: i valori vanno letti dalle DICHIARAZIONI vive, non
 // dai commenti che le accompagnano. I commenti hanno gia' mentito in passato.
+// AUDIT D (T7, 27/09/2026): UCI_ShowWDL, SyzygyProbeDepth e SyzygyProbeLimit tolti dal congelamento. Sono
+// opzioni standard che la release pubblicizza e che GUI e tester impostano davvero (la build le ignorava,
+// avvisando solo con un info string). Stanno fuori dal percorso caldo: nessun costo misurabile.
 #ifdef TRIUMV_FROZEN
 struct TriumvFrozenRef { const char* name; const void* p; int isBool; long long val; };
 static const TriumvFrozenRef g_frozen_refs[] = {
@@ -4183,7 +4189,6 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_see_quiet_margin", (const void*)&g_see_quiet_margin, 0, 116},
     {"g_see_stalemate_guard", (const void*)&g_see_stalemate_guard, 1, 1},
     {"g_seo_mult", (const void*)&g_seo_mult, 0, 27},
-    {"g_show_wdl", (const void*)&g_show_wdl, 1, 0},
     {"g_singular_de_cap", (const void*)&g_singular_de_cap, 0, 1},
     {"g_singular_depth_div", (const void*)&g_singular_depth_div, 0, 2},
     {"g_singular_dmargin", (const void*)&g_singular_dmargin, 0, 59},
@@ -4197,8 +4202,6 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_singular_tmargin", (const void*)&g_singular_tmargin, 0, 319},
     {"g_singular_ttmargin", (const void*)&g_singular_ttmargin, 0, 3},
     {"g_statscore_lmr", (const void*)&g_statscore_lmr, 1, 1},
-    {"g_syzygy_probe_depth", (const void*)&g_syzygy_probe_depth, 0, 1},
-    {"g_syzygy_probe_limit", (const void*)&g_syzygy_probe_limit, 0, 7},
     {"g_tb_tt_store", (const void*)&g_tb_tt_store, 1, 1},
     {"g_threat_hist", (const void*)&g_threat_hist, 1, 1},
     {"g_threat_hist_weight", (const void*)&g_threat_hist_weight, 0, 130},
@@ -4490,7 +4493,6 @@ void triumv_frozen_check();
 #define g_see_quiet_margin 116
 #define g_see_stalemate_guard true
 #define g_seo_mult 27
-#define g_show_wdl false
 #define g_singular_de_cap 1
 #define g_singular_depth_div 2
 #define g_singular_dmargin 59
@@ -4504,8 +4506,6 @@ void triumv_frozen_check();
 #define g_singular_tmargin 319
 #define g_singular_ttmargin 3
 #define g_statscore_lmr true
-#define g_syzygy_probe_depth 1
-#define g_syzygy_probe_limit 7
 #define g_tb_tt_store true
 #define g_threat_hist true
 #define g_threat_hist_weight 130
@@ -4608,6 +4608,15 @@ static inline bool td_root_move_ready() {
 }
 U64 g_node_limit =
     0; // "go nodes N" budget (0 = off); checked per-node in (q)search.
+// AUDIT D (T9/S6, 27/09/2026): il controllo per nodo guarda i nodi del SINGOLO thread, quindi con N thread
+// `go nodes X` cercava ~N*X nodi. Ogni thread riceve X/N (fissato in search_position_mt); il primo che esaurisce
+// la sua quota ferma tutti. A 1 thread e' X: identico.
+static U64 g_node_limit_thread = 0;
+// AUDIT D (T4, 27/09/2026): con `go infinite` la ricerca finiva da sola a profondita' 64 (o subito con la
+// scorciatoia TB alla radice) e stampava bestmove senza aspettare `stop`, contro il protocollo UCI.
+// g_uci_stop distingue lo `stop` venuto da fuori (stop_search_threads) dagli stop interni della ricerca.
+bool g_go_infinite = false;
+static std::atomic<bool> g_uci_stop{false};
 // searchmoves (analisi, UCI "go searchmoves m1 m2 ..."): whitelist di mosse di
 // root. count>0 => alla root si cercano SOLO queste (le altre saltate nel move
 // loop). Vale anche per le linee MultiPV. Riempita da parse_go, azzerata a ogni
@@ -7686,7 +7695,7 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
   }
 
   td.nodes++;
-  if (g_node_limit && td.nodes >= g_node_limit) {
+  if (g_node_limit_thread && td.nodes >= g_node_limit_thread) {
     stop_threads.store(true, std::memory_order_relaxed);
     return 0;
   }
@@ -8845,7 +8854,7 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
   }
 
   td.nodes++;
-  if (g_node_limit && td.nodes >= g_node_limit) {
+  if (g_node_limit_thread && td.nodes >= g_node_limit_thread) {
     stop_threads.store(true, std::memory_order_relaxed);
     return 0;
   }
@@ -11569,6 +11578,7 @@ static void thread_search(int thread_id, int max_depth) {
 // ============================================================================
 
 void stop_search_threads() {
+  g_uci_stop.store(true, std::memory_order_relaxed);
   stop_threads.store(true, std::memory_order_relaxed);
 }
 
@@ -11612,7 +11622,7 @@ void launch_search(int depth) {
   // Needs .rtbz (DTZ) files; with WDL-only tables it simply fails and we fall
   // through to a normal search (whose in-search WDL probe already fixes the
   // evaluation of covered endgames).
-  {
+  if (!g_go_infinite) {
     int tb_move = 0, tb_score = 0;
     if (syzygy_probe_root(tb_move, tb_score)) {
       new_search();
@@ -11627,6 +11637,7 @@ void launch_search(int depth) {
   }
 
   stop_threads.store(false, std::memory_order_relaxed); // clear before spawning
+  g_uci_stop.store(false, std::memory_order_relaxed);
   search_master = std::thread(search_position_mt, depth);
 }
 
@@ -11639,6 +11650,8 @@ void search_position_mt(int depth) {
   triumv_frozen_check();   // vedi il blocco PARAMETRI CONGELATI
 #endif
   search_start_time = get_time_ms();
+  g_node_limit_thread =
+      g_node_limit ? std::max<U64>(1, g_node_limit / (U64)num_threads) : 0;
 
   // Increment TT age
   new_search();
@@ -11681,6 +11694,9 @@ void search_position_mt(int depth) {
 
   // Main thread search
   thread_search(0, depth);
+
+  while (g_go_infinite && !g_uci_stop.load(std::memory_order_relaxed))
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
   stop_threads.store(true, std::memory_order_relaxed);
   wait_for_threads();
@@ -11752,6 +11768,19 @@ void search_position_mt(int depth) {
     }
   } else {
     // Legacy: vince il thread piu' profondo (tie: score piu' alto).
+    // AUDIT D (S3, 27/09/2026): un matto NOSTRO provato ha la precedenza sulla profondita', come nel ramo
+    // del voto e in SF (vince il matto piu' corto). Prima un helper piu' profondo che non vedeva il matto
+    // poteva scavalcare il thread che l'aveva trovato, anche in `go mate`. A 1 thread il ciclo non gira.
+    int mate_thread = -1;
+    for (int i = 0; i < num_threads; i++)
+      if (thread_data[i].best_move && thread_data[i].best_score >= mate_score &&
+          (mate_thread < 0 || thread_data[i].best_score > thread_data[mate_thread].best_score))
+        mate_thread = i;
+    if (mate_thread >= 0) {
+      best_move = thread_data[mate_thread].best_move;
+      best_score = thread_data[mate_thread].best_score;
+      best_depth = thread_data[mate_thread].depth;
+    } else
     for (int i = 1; i < num_threads; i++) {
       if (thread_data[i].depth > best_depth ||
           (thread_data[i].depth == best_depth &&

@@ -198,6 +198,7 @@ void reset_time_control()
     stopped = 0;
     g_node_limit = 0;
     g_mate_in = 0;
+    g_go_infinite = false;
 }
 
 // parse UCI command "go"
@@ -208,7 +209,8 @@ void parse_go(char* command)
     int depth = -1;
     char* argument = NULL;
 
-    if ((argument = strstr(command, "infinite"))) {}
+    if ((argument = strstr(command, "infinite")))
+        g_go_infinite = true;
 
     if ((argument = strstr(command, "binc")) && side == black)
         inc = atoi(argument + 5);
@@ -386,7 +388,7 @@ void parse_go(char* command)
     }
 
     if (depth == -1)
-        depth = 64;
+        depth = g_go_infinite ? max_ply - 8 : 64;   // infinite: fino allo stop (AUDIT D T4)
 
     // Start the search on a background thread so the UCI loop stays free to
     // handle "stop" / "isready" / "quit" while we are thinking.

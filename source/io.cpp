@@ -278,6 +278,23 @@ void parse_fen(const char* fen)
         !(pawn_attacks[side ^ 1][enpassant] & bitboards[side == white ? P : p]))
         enpassant = no_sq;
 
+    // AUDIT D (27/09/2026): diritti d'arrocco incoerenti con la scacchiera. Il motore conosce solo l'arrocco
+    // classico (re in e1/e8, torri negli angoli); una FEN Chess960 o sbagliata con "KQkq" e il re altrove
+    // faceva generare arrocchi dalle case sbagliate. Si tiene solo il diritto che la posizione rende
+    // possibile (le lettere Shredder A-H erano gia' ignorate dallo switch sopra). Posizioni normali: invariate.
+    const int castle_in = castle;
+    if (!get_bit(bitboards[K], e1)) castle &= ~(wk | wq);
+    if (!get_bit(bitboards[R], h1)) castle &= ~wk;
+    if (!get_bit(bitboards[R], a1)) castle &= ~wq;
+    if (!get_bit(bitboards[k], e8)) castle &= ~(bk | bq);
+    if (!get_bit(bitboards[r], h8)) castle &= ~bk;
+    if (!get_bit(bitboards[r], a8)) castle &= ~bq;
+    if (castle != castle_in)
+    {
+        printf("info string diritti d'arrocco incoerenti con la scacchiera (Chess960 non supportato): ignorati\n");
+        fflush(stdout);
+    }
+
     // Generate hash key
     hash_key = generate_hash_key();
 }
