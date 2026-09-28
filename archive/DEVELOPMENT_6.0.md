@@ -46,7 +46,7 @@ refinements, tracked in the table below:
   bit-identical at graft time — then fine-tuned; both fold into the existing threat accumulator, so
   no new SIMD path is added. Shipped in **`nn-rubicon-alea-v3`**, whose net format is consequently
   **not** SFNNv13 (the reader still loads v2-format nets, zero-filling the passed-pawn segment, so a
-  single binary can gate v2 against v3). See [`NETWORKS.md`](NETWORKS.md) for training details.
+  single binary can gate v2 against v3). See [`NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md) for training details.
 - **SPSA mega co-tune** of the search parameters, co-tuned as a block and baked into the compiled
   defaults.
 - **TMv2 time management** — a multiplicative-stateless time manager (stability, eval-trend, node and
@@ -333,7 +333,7 @@ even with Pawnocchio 1.9.1, 6.0 clears it by a confirmed margin — consistent w
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv13 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv13 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 

@@ -57,7 +57,8 @@ with the value/policy blend annealed. The shipped net is the final stage-2 check
 `legio-septima`.
 
 **Corpus, recipe, hyper-parameters, the epoch-by-epoch history and the reasoning behind the
-feature set are in [NETWORKS.md](NETWORKS.md).** Nothing about training is repeated here.
+feature set are in [archive/NETWORKS_4.2-7.0.md](archive/NETWORKS_4.2-7.0.md#legio-septima--the-triumviratus-70-network).**
+Nothing about training is repeated here.
 
 ---
 
