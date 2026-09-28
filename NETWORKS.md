@@ -293,6 +293,109 @@ above training loss. The next step for the lineage is a wider L1, not more epoch
 
 ---
 
+## MoE-1024 — the Triumviratus 8.0 network (in training)
+
+> **Status: in training since 28 September 2026.** Not released. There are no strength figures yet, and the name is
+> still open. This entry records the design and the run as they are, so the result can be read against them.
+
+`legio-septima` ended its run **saturated**: no gain between stage-1 epochs 249 and 416, a stage-3 tail that measured
+zero, validation loss never above training loss. The conclusion was that the lineage needed more capacity, not more
+epochs. The obvious way to add it — a wider L1 — is expensive at game time, measured on our engine with random nets
+of each shape:
+
+| option | NPS vs L1 = 1024 |
+|---|---|
+| L1 = 2048 | −20.0 % |
+| L1 = 1536 | −11.2 % |
+| **L1 = 1024, HalfKA as 4 experts (this net)** | **−7.5 %** |
+
+<sub>L1 must be a multiple of 256 for the sparse affine path, so between 1024 and 1536 the only width available is
+1280.</sub>
+
+**The idea: a mixture of experts on the king-relative block.** The `HalfKAv2_hm` block gets **four weight sets**, one
+per material phase, chosen by the number of pieces on the board. Only one set is active per position, so evaluation
+costs almost the same as a single block, but the network has four times the parameters where it matters most: how
+the value of a piece on a square changes between the opening and the endgame.
+
+| | 7.0 — `legio-septima` | 8.0 — MoE-1024 |
+|---|---|---|
+| Base architecture | SFNNv16 | SFNNv16 |
+| L1 / L2 / L3 | 1024 / 32 / 32 | 1024 / 32 / 32 |
+| `Full_Threats` | 59,808 | 59,808 |
+| King-relative block | `HalfKAv2_hm`, 22,528 | **`HalfKAv2_hm_P4`, 4 × 22,528 = 90,112** |
+| `PP_3Wide` (pawn pair) | 4,560 | 4,560 |
+| `PassedPawns` | 96 | 96 |
+| **Total inputs** | **86,992** | **154,576** |
+
+- **Phases** by piece count, kings and pawns included: **≤ 9, 10–15, 16–23, ≥ 24**. The cut points are
+  equal-frequency bins measured on the corpus, so each expert sees roughly a quarter of the positions.
+- **Trainer** (`HalfKAv2_hm_P4^`, our addition to `nnue-pytorch`): each expert's weight is a shared base plus a
+  per-phase delta, plus the usual virtual (factorised) features.
+  - The deltas start at zero, so training starts from an ordinary HalfKA network. The experts separate only where the
+    data asks them to.
+  - Export folds the three terms into the four plain weight sets the engine reads.
+- **Engine** (build option `TRIUMV_PSQ_PHASES=4`):
+  - a capture that crosses a phase boundary forces an accumulator refresh;
+  - the Finny-table cache is kept per phase;
+  - the network hash changes, so a MoE net cannot be loaded by a plain build or the other way round;
+  - the default build is unchanged: 1 phase, bench identical.
+- **Verified before training:**
+  - engine against trainer on the same random network with per-phase deltas set to random values (with zero deltas a
+    wrong phase index would be invisible): **R² 0.999999** float and **1.000000** quantized over 4,096 positions,
+    mean error 0.64 internal units;
+  - incremental against full-refresh evaluation in the engine: **0 mismatches** on 51 positions.
+
+### Data: one mix, every label BT4
+
+A single mix from the start, as Stockfish's current recipe does, instead of the two stages of `legio-septima`.
+Everything is **re-labelled with Leela's BT4**, so the whole run shares one label scale.
+
+| source | files | size |
+|---|---|---|
+| [`vondele/master-binpacks_relabel`](https://huggingface.co/datasets/vondele/master-binpacks_relabel) (Stockfish self-play + DFRC) | 5 | 129.4 GB |
+| `vondele/linrock_relabel_1` (Leela `test80`, `test78`, `test77`, `test60`) | 13 | 203.9 GB |
+| `vondele/linrock_relabel_2` (Leela `test80`, 2023) | 12 | 141.8 GB |
+| `vondele/from_kaggle_2_relabel` (T60/T70 wrongIsRight) | 5 | 110.6 GB |
+| `vondele/from_kaggle_1_relabel` (`leela96`) | 5 | 97.6 GB |
+| `xushawn/test80-bt4-relabel` (Leela `test80`, early 2024) | 2 | 17.7 GB |
+| **total** | **42** | **701 GB** |
+
+Excluded:
+- two `test60-2021` files of 3 GB. The loader picks files uniformly, so small files would be repeated (see the
+  stage-2 note above);
+- T91, which is not re-labelled;
+- our own self-play.
+
+### Recipe
+
+Stockfish's SFNNv16 recipe (`vondele/nettest`, `threats.yaml`), scaled to the batch and the budget:
+
+- **Batch and lr:** batch **524,288**; lr **8e-4**, which is SFNNv16's 4e-4 at batch 131,072 scaled by
+  √(batch ratio). One-cycle schedule, 5 % warmup, final divisor 1000.
+- **Lambda:** **1.0 with a cycle** that dips by 0.3 (25 % warmup), plus per-sample and per-batch jitter, as in
+  SFNNv16.
+- **Piece-count sampling:** `pc-y` −0.20 / 0.45 / 1.0 / 0.95 / 0.75.
+- **Skipping:** `random-fen-skipping 2`. Openings are soft-skipped (`soft-early 20`), not hard-skipped: the ≥ 24-piece
+  expert needs opening positions, but book lines repeated in millions of games are down-weighted.
+- **Length:** **450 epochs × 1 G positions**, then a **22-epoch fine-tune at half batch**, resumed from the pretrained
+  weights.
+- **Total:** **≈ 472 G positions**, about 3.7× `legio-septima` (≈ 128 G over both stages) and about 80 % of
+  SFNNv16's run (≈ 600 G).
+
+**Hardware:** 4× RTX 5090, about **4.97 M positions/s** and about 27 hours.
+
+<sub>The first throughput reading was 1.4 M positions/s. The limit was not the GPUs but the data loader: the
+feature-thread share tuned for `legio-septima` (0.05) left a single thread per GPU to build the input features, and
+threats plus experts are more expensive to build. At 0.1 the GPUs became the limit again.</sub>
+
+### How it will be judged
+
+Net-isolated against `legio-septima` at 20+0.2 or longer. Both sides use the 8.0 search; the MoE side is compiled with
+`TRIUMV_PSQ_PHASES=4`, which changes nothing but the input layer. Intermediate checkpoints are exported every 10 % of
+the run so the curve can be followed during training.
+
+---
+
 ## What "own-lineage" means (and does not)
 
 - **Means:** the network *weights* shipped with Triumviratus are trained by the project, **from scratch**, with
