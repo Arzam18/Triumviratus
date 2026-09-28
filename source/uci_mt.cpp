@@ -365,6 +365,13 @@ void parse_go(char* command)
                 int pf = (hash_key == g_tm_pred_hash) ? g_tmv2_pred_hit : g_tmv2_pred_miss;
                 optimum = (int)((long long)optimum * pf / 1000);
             }
+            // TMDrift (28/09/2026, spento di default): valutazione in deriva lenta -> piu' tempo (search/14_smp.inc).
+            {
+                extern int tm_drift_extra_pct();
+                const int dp = tm_drift_extra_pct();
+                if (dp)
+                    optimum = (int)((long long)optimum * (100 + dp) / 100);
+            }
 
             int cap = remaining * 4 / 5;                    // never risk more than ~80% of the clock
             // FIX time-forfeit (2026-07-03): a orologio basso con incremento alto il termine
@@ -734,6 +741,12 @@ void uci_loop()
             printf("option name TTNearMiss type spin default 0 min 0 max 400\n");
             printf("option name TTDamp type spin default 0 min 0 max 200\n");
             printf("option name PvTTMinDepth type check default false\n");     // SF/Reckless/Caissa/PlentyChess: TT move in PV mai in quiescenza
+            printf("option name RootReplyRedPct type spin default 100 min 0 max 100\n");  // % di LMR sulle risposte alla mossa di radice (100 = off)
+            // Idee nostre dalle partite CCRL (28/09/2026, spente): search/02_params_candidates.inc
+            printf("option name NullThreatExt type spin default 0 min 0 max 1000\n");  // null fallita di oltre N cp -> +1 ply
+            printf("option name TMDrift type spin default 0 min 0 max 200\n");         // % di tempo in piu' sulla deriva lenta
+            printf("option name TMDriftThresh type spin default 40 min 1 max 400\n");
+            printf("option name TMDriftMoves type spin default 8 min 2 max 40\n");
             printf("option name TTCutFifty type spin default 89 min 50 max 100\n");
             printf("option name TTCutMalus type check default false\n");                     // #3d malus quiet avversaria su TT-cut (duale TTCutBonus). Bake revertito 2026-07-06, vedi threads.cpp
             printf("option name TTCutMalusSeen type spin default 3 min 0 max 16\n");
@@ -1431,6 +1444,7 @@ void uci_loop()
             // Assicura che nessun thread stia cercando, poi resetta
             stop_search_threads();
             wait_for_search_done();
+            { extern void tm_drift_reset(); tm_drift_reset(); } // TMDrift: storia degli score della partita
             parse_fen(start_position);
             clear_hash_table();
             

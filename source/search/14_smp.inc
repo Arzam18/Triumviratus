@@ -70,6 +70,34 @@ void launch_search(int depth) {
 }
 
 // ============================================================================
+// TMDrift (28/09/2026): piu' tempo quando la valutazione SCIVOLA lentamente.
+// Le sconfitte della 7.0 su CCRL non sono crolli ma derive: -0,1 alla volta per 10-20 mosse, nel mediogioco,
+// e a nessuna singola mossa la gestione del tempo vede un allarme. Qui si tiene lo score di radice di ogni nostra
+// mossa della partita (azzerato da ucinewgame) e parse_go allunga l'optimum se, sulle ultime TMDriftMoves mosse,
+// lo score e' sceso in totale di almeno TMDriftThresh cp SENZA un singolo calo di quella misura (quello e' un
+// errore, non una deriva, e lo gestisce gia' la TM esistente). TMDrift = % in piu' di optimum; 0 = spento.
+// ============================================================================
+static int g_drift_hist[512];
+static int g_drift_n = 0;
+void tm_drift_reset() { g_drift_n = 0; }
+static void tm_drift_push(int score) {
+  if (score > -mate_score && score < mate_score && g_drift_n < 512)
+    g_drift_hist[g_drift_n++] = score;
+}
+int tm_drift_extra_pct() {
+  if (!g_tm_drift || g_drift_n < g_tm_drift_moves + 1)
+    return 0;
+  const int *h = g_drift_hist + g_drift_n - 1 - g_tm_drift_moves;
+  if (h[0] - h[g_tm_drift_moves] < g_tm_drift_thresh || h[g_tm_drift_moves] < -600 ||
+      h[g_tm_drift_moves] > 300)
+    return 0;
+  for (int i = 0; i < g_tm_drift_moves; i++)
+    if (h[i] - h[i + 1] >= g_tm_drift_thresh)
+      return 0; // un calo singolo grosso: non e' deriva
+  return g_tm_drift;
+}
+
+// ============================================================================
 // MAIN SEARCH ENTRY
 // ============================================================================
 
@@ -244,6 +272,7 @@ void search_position_mt(int depth) {
   // PV comincia con la bestmove. Serve DUE volte: per stampare una PV coerente con la
   // mossa (sotto) e per la predizione TM (piu' giu'). Prima era calcolato solo dentro
   // il ramo della stampa, e la predizione restava incollata al thread 0.
+  tm_drift_push(best_score); // TMDrift: storia degli score di radice della partita (search/14_smp.inc)
   int pv_src = (thread_data[0].pv_length[0] > 0 &&
                 thread_data[0].pv_table[0][0] == best_move)
                  ? 0

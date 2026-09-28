@@ -1353,6 +1353,26 @@ bool set_search_param(const char *name, int value) {
     g_pv_tt_min_depth = value != 0;
     return true;
   }
+  if (!strcmp(name, "RootReplyRedPct")) {
+    g_rr_red_pct = value < 0 ? 0 : (value > 100 ? 100 : value);
+    return true;
+  }
+  if (!strcmp(name, "NullThreatExt")) {
+    g_null_threat_ext = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "TMDrift")) {
+    g_tm_drift = value < 0 ? 0 : value;
+    return true;
+  }
+  if (!strcmp(name, "TMDriftThresh")) {
+    g_tm_drift_thresh = value < 1 ? 1 : value;
+    return true;
+  }
+  if (!strcmp(name, "TMDriftMoves")) {
+    g_tm_drift_moves = value < 2 ? 2 : (value > 40 ? 40 : value);
+    return true;
+  }
   if (!strcmp(name, "TTResearchMargin")) {
     g_tt_research_margin = value < 0 ? 0 : value;
     return true;

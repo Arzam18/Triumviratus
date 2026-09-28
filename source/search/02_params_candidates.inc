@@ -1286,6 +1286,19 @@ int g_tt_damp = 0;
 // ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_7.1/K_RIFERIMENTI_LTC.md) =====
 // PvTTMinDepth: nella PV la mossa TT non scende in quiescenza (SF, Reckless, Caissa, PlentyChess). Default off.
 static bool g_pv_tt_min_depth = false;
+// RootReplyRedPct (28/09/2026): % della riduzione LMR tenuta sulle risposte dell'avversario alla mossa di radice.
+// 100 = spento. Continua da 0 a 100: tarabile con SPSA se l'SPRT da' segnale.
+int g_rr_red_pct = 100;
+// ===== Idee nostre dalle partite CCRL (28/09/2026), tutte spente di default =====
+// NullThreatExt: margine (cp) oltre cui una null fallita bassa estende il nodo di 1 ply (12_negamax.inc). 0 = off.
+int g_null_threat_ext = 0;
+// TMDrift: % di tempo in piu' sulla deriva lenta della valutazione (14_smp.inc). 0 = off.
+int g_tm_drift = 0;
+int g_tm_drift_thresh = 40; // calo totale minimo (cp) sulle ultime TMDriftMoves mosse
+int g_tm_drift_moves = 8;
+// (BucketUncert, incertezza dal bucket vicino della rete: rimandata. Serve portare la divergenza attraverso eval
+// cache e TT, che oggi salvano solo la eval; senza, il segnale manca a ogni hit. Sonda EvalBucketOverride del
+// 17/08: salto mediano 14 cp fra bucket adiacenti, max 49, misura su aperture.)
 static bool g_ttcut_malus =
     false; // #3d malus alla quiet AVVERSARIA che porta a un TT-cut (duale di
            // TTCutBonus). BAKE 2026-07-06 (true/7) REVERTITO: SPRT +15.55 Elo

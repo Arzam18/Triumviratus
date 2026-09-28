@@ -327,6 +327,11 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_tt_nearmiss", (const void*)&g_tt_nearmiss, 0, 0},
     {"g_tt_damp", (const void*)&g_tt_damp, 0, 0},
     {"g_pv_tt_min_depth", (const void*)&g_pv_tt_min_depth, 1, 0},
+    {"g_rr_red_pct", (const void*)&g_rr_red_pct, 0, 100},
+    {"g_null_threat_ext", (const void*)&g_null_threat_ext, 0, 0},
+    {"g_tm_drift", (const void*)&g_tm_drift, 0, 0},
+    {"g_tm_drift_thresh", (const void*)&g_tm_drift_thresh, 0, 40},
+    {"g_tm_drift_moves", (const void*)&g_tm_drift_moves, 0, 8},
     {"g_tt_static_eval", (const void*)&g_tt_static_eval, 1, 1},
     {"g_ttcut_bonus", (const void*)&g_ttcut_bonus, 1, 1},
     {"g_ttcut_bonus_scale", (const void*)&g_ttcut_bonus_scale, 0, 111},
@@ -638,6 +643,11 @@ void triumv_frozen_check();
 #define g_tt_nearmiss 0
 #define g_tt_damp 0
 #define g_pv_tt_min_depth false
+#define g_rr_red_pct 100
+#define g_null_threat_ext 0
+#define g_tm_drift 0
+#define g_tm_drift_thresh 40
+#define g_tm_drift_moves 8
 #define g_tt_static_eval true
 #define g_ttcut_bonus true
 #define g_ttcut_bonus_scale 111

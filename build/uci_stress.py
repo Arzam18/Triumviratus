@@ -225,6 +225,40 @@ def main():
         report(f"FEN non valida: {name}", line != "DIED" and f.alive(), f"'{line}' vivo={f.alive()}")
         f.quit()
 
+    # 14. Chess960 (28/09/2026). Arbitro: Stockfish con UCI_Chess960 (arrocco = re cattura torre, come il nostro).
+    legal960 = Legal(a.sf); legal960.e.send("setoption name UCI_Chess960 value true"); legal960.e.ready(5)
+    g = Eng(a.exe, opts + [("UCI_Chess960", "true")])
+    SP = "rkrnnqbb/pppppppp/8/8/8/8/PPPPPPPP/RKRNNQBB w KQkq - 0 1"      # posizione 959, re b1 fra due torri
+    cases = [
+        ("960: partenza 959 (X-FEN)", f"position fen {SP}"),
+        ("960: stessa partenza in Shredder-FEN", f"position fen {SP.replace('KQkq', 'CAca')}"),
+        ("960: arrocco lungo con re che resta quasi fermo (b1a1)",
+         "position fen 6k1/8/8/8/8/8/8/RK2R3 w KQ - 0 1 moves b1a1"),   # (28/09: prima c'era una torre in b8 che
+         # dava scacco -> arrocco illegale; il nostro motore lo rifiutava, Stockfish si bloccava e falsava il resto)
+        ("960: arrocco corto con re fermo in g1 (g1h1)",
+         "position fen 6k1/8/8/8/8/8/8/R5KR w KQ - 0 1 moves g1h1"),
+        ("960: re che arriva sulla casa della torre (f1g1)",
+         "position fen 4k3/8/8/8/8/8/8/R4KR1 w KQ - 0 1 moves f1g1"),
+        ("960: partita normale in notazione 960 (e1h1)",
+         "position startpos moves e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 e1h1"),
+    ]
+    for name, pc in cases:
+        g.send("ucinewgame"); g.send(pc); g.send("go depth 8")
+        line, dt, _ = g.wait("bestmove", 10)
+        check_best(name, g, legal960, pc, line, dt, 5.0)
+    # l'arrocco deve essere GENERATO e giocabile: posizione dove arroccare e' la mossa naturale
+    pc = "position fen 1r2k3/8/8/8/8/8/5PPP/4K2R w K - 0 1"
+    g.send(pc); g.send("go depth 6 searchmoves e1h1")
+    line, dt, _ = g.wait("bestmove", 10)
+    report("960: arrocco generato e scritto re-cattura-torre", line not in (None, "DIED") and bm_parts(line)[0] == "e1h1",
+           f"'{line}'")
+    # si spegne il 960 a meta' sessione: torna la notazione normale (e1g1)
+    g.send("setoption name UCI_Chess960 value false"); g.send("ucinewgame")
+    pc = "position startpos moves e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 e1g1"
+    g.send(pc); g.send("go depth 8"); line, dt, _ = g.wait("bestmove", 10)
+    check_best("960 spento di nuovo: arrocco normale e1g1", g, legal, pc, line, dt, 5.0)
+    g.quit(); legal960.e.quit()
+
     legal.e.quit()
     n_fail = sum(1 for _, ok in RESULTS if not ok)
     print(f"\nscenari {len(RESULTS)}  falliti {n_fail}")

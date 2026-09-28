@@ -1047,6 +1047,7 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
                  : eval - rfp_margin;
   }
 
+  int null_threat = 0; // NullThreatExt: 1 se la null rivela una minaccia (vedi sotto)
   // Null move pruning (not when beta is a mate score)
   // P1.6 NMPVerif (default OFF): (a) mai due null consecutive (move_stack==0 =
   // il padre ha appena nullato); (b) durante una search di verifica niente
@@ -1147,9 +1148,17 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
         } else {
           return (score >= mate_score) ? beta : score;
         }
+      } else if (g_null_threat_ext && score < beta - g_null_threat_ext &&
+                 td.ply < 2 * td.root_depth) {
+        // NullThreatExt (28/09/2026, estensione per minaccia alla Botvinnik-Markoff): la static eval diceva
+        // "sopra beta", ma passando la mossa si crolla di oltre NullThreatExt cp (fail-soft: e' un bound
+        // superiore). C'e' una minaccia che la LMR rischia di vedere tardi (16...Nd4): questo nodo un ply piu' a
+        // fondo. Una volta per nodo, solo per ply < 2 x root depth. 0 = spento.
+        null_threat = 1;
       }
     }
   }
+  depth += null_threat;
 
   // Razoring
   int razor_cap =
@@ -2298,6 +2307,11 @@ int td_negamax(ThreadData &td, int alpha, int beta, int depth, bool is_cut_node,
       // profondita' LMR/re-search: ora v1 estende sul serio. Default OFF -> 0.
       int sac_ext = (g_brilliant_sac && is_brilliant) ? 1 : 0;
       // Reduced-depth zero-window search (LMR). reduced_depth = depth-1-r.
+      // RootReplyRedPct (28/09/2026, idea nostra dall'errore 16...Nd4 contro Coda): sulle RISPOSTE dell'avversario
+      // alla mossa di radice (nodo a ply 1; qui td.ply e' gia' +1) si tiene solo questa percentuale della riduzione.
+      // La minaccia che confuta la nostra mossa sta proprio li'. 100 = spento (albero identico).
+      if (g_rr_red_pct != 100 && td.ply == 2 && reduction > 0)
+        reduction = reduction * g_rr_red_pct / 100;
       int reduced_depth = depth - 1 - reduction + sac_ext;
       td.reduction_stack[td.ply] =
           reduction; // HindsightExt: il figlio sa di essere stato ridotto di
