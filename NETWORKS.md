@@ -192,6 +192,7 @@ Checkpoints are numbered from 0, as the trainer does: "epoch 44" is the end of t
 | 20 | 0.0047 |
 | 27 | 0.0041 |
 | 42–69 | 0.0038–0.0041 |
+| 80–124 | 0.0042–0.0045 (the lambda cycle is raising the floor, see below) |
 
 <sub>The loss is not comparable across the whole run: lambda moves with its cycle, and the achievable floor moves
 with it (see the `legio-septima` note in the archive).</sub>
@@ -211,17 +212,24 @@ thread, 64 MB hash, UHO 2024 (+0.85/+0.94) openings, 75 games at a time.
 | 35 | 20+0.2 | 2,000 | 190 / 991 / 819 | −113 ± 11 |
 | 44 | 20+0.2 | 2,000 | 264 / 989 / 747 | −86 ± 11 |
 | 53 | **30+0.3** | 1,774 | 214 / 963 / 597 | −76 ± 11 |
-| 64 | 30+0.3 | 580 (running) | 84 / 322 / 174 | −54 ± 19 |
+| 64 | 30+0.3 | 1,001 | 139 / 562 / 300 | −56 ± 14 |
+| 71 | 30+0.3 | 1,012 | 121 / 569 / 322 | −70 ± 14 |
+| 80 | 30+0.3 | 2,000 | 315 / 1,052 / 633 | −56 ± 11 |
+| 99 | 30+0.3 | 1,159 | 191 / 631 / 337 | −44 ± 14 |
+| 110 | 30+0.3 | 2,000 | 311 / 1,048 / 641 | −58 ± 11 |
 
-- **The gap is closing steadily**, while the learning rate is still near its peak (warmup ended around epoch 22).
-  Between epochs 20 and 26 the curve was flat, then it resumed.
+- **The gap closed fast up to epoch ≈ 60, then the curve went flat** at −45 to −70. The flat stretch coincides with
+  the learning rate near its peak. The schedule is a cosine one-cycle: warmup to 8e-4 by epoch ≈ 22, still above
+  90 % of the peak until epoch ≈ 110, 84 % at 135, 54 % at 225, 23 % at 315. The previous own networks gained most of
+  their strength late, while the rate decayed.
 - **From epoch 53 the time control is 30+0.3.** The MoE build is 7.5 % slower, and a longer time control weighs that
   less, so the comparison reads the evaluation more than the speed. The two series are not strictly comparable.
 - A self-check early on: epoch ≈ 16 against epoch ≈ 5, 74 / 31 / 4 in 109 games (≈ +265 Elo).
-- **A logarithmic fit** of the 20+0.2 points, weighted by games, is Elo ≈ 111·ln(epoch) − 508. It gains about 77
-  Elo per doubling of epochs and crosses zero around **epoch 96** (realistic range 80–140). It says nothing about
-  the second half of the run: the learning-rate decay is not in these points yet, and a log curve cannot be
-  extrapolated to epoch 450.
+- **A prediction that failed.** A logarithmic fit of the early 20+0.2 points (Elo ≈ 111·ln(epoch) − 508) put parity
+  near epoch 96. Registered before the match, it predicted −32 for epoch 71; the match gave −70 ± 14. Early points
+  on a steep curve say little about the plateau that follows.
+- **Checkpoints fixed in advance:** at epoch 225 (rate at 54 %) the network should be at −30 or better, otherwise
+  the run needs a closer look; at epoch 315 it should be near parity.
 
 ### How it will be judged
 
