@@ -23,7 +23,7 @@ played with both colours. ± is the 95% interval on the opening pairs (pentanomi
 match has the crosstable only, without the games, hence no interval.</sub>
 
 **What it says.** 7.0 is ahead of Caissa 1.26 and 25–65 Elo behind the newest releases: Caissa 2.0,
-Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 7.1 audit compares against
-([`DEVELOPMENT_7.1.md`](../DEVELOPMENT_7.1.md)). Bullet with an unbalanced book widens the gaps
+Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 8.0 audit compares against
+([`DEVELOPMENT_8.0.md`](../DEVELOPMENT_8.0.md)). Bullet with an unbalanced book widens the gaps
 compared with a rating list, and the two August matches used a development build from a month
 before the release.

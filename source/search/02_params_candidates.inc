@@ -572,7 +572,7 @@ int g_negext_cut = 3; // NegExtCut (SF=2): -extension on a cutNode (ttMove not
 // vivo. ⚠️ Finche' resta 0, NegExtCut va tenuto FUORI dallo spazio SPSA: tararlo
 // significa misurare rumore, ed e' gia' successo (default 3 = massimo del range).
 int g_negext_order = 0;
-// ExclPruneGate (audit 7.1 P1, 24/09/2026; spin 0..2, default 0 = byte-identico).
+// ExclPruneGate (audit 8.0 P1, 24/09/2026; spin 0..2, default 0 = byte-identico).
 // Dentro la ricerca singolare (excluded_move != 0) si cerca la stessa posizione senza la
 // TT move, a finestra singular_beta-1/singular_beta. Una null move o una static eval che
 // supera quella finestra la chiude subito: la TT move risulta "non singolare" senza che
@@ -581,7 +581,7 @@ int g_negext_order = 0;
 // Stormphrax, Viridithas, Caissa, Integral e Reckless anche RFP/razoring.
 // 1 = niente NMP nella ricerca singolare; 2 = niente anche RFP e razoring.
 int g_excl_prune_gate = 0;
-// FHBlend (audit 7.1 P2, 24/09/2026; check, default false = byte-identico).
+// FHBlend (audit 8.0 P2, 24/09/2026; check, default false = byte-identico).
 // Su un fail-high non decisivo il valore restituito (e scritto in TT) viene tirato
 // verso beta: best = (best*depth + beta)/(depth+1). SF, PlentyChess, Stormphrax,
 // Viridithas e Caissa lo fanno a fine nodo; da noi esisteva solo su RFP e qsearch
@@ -589,7 +589,7 @@ int g_excl_prune_gate = 0;
 // valle: un bound TT meno ottimista costa meno re-search ai padri. Il peso di beta cala
 // con la profondita' (piu' ricerca = valore piu' fidato).
 bool g_fh_blend = false;
-// ---- Audit 7.1 gruppo 1, P3..P7 (24/09/2026). Tutti default OFF = byte-identico. ----
+// ---- Audit 8.0 gruppo 1, P3..P7 (24/09/2026). Tutti default OFF = byte-identico. ----
 // P3 PrevRefuteMalus (SF update_all_stats "extra penalty for a quiet early move"): quando
 // un nodo fa cutoff e la mossa QUIET del padre era la prima non-TT che il padre ha
 // cercato, quella mossa e' stata confutata subito -> malus alla sua conthist (1 ply).
@@ -635,7 +635,7 @@ bool g_fut_fail_soft = false;
 // pezzo AVVERSARIO (casa vuota -> mailbox -1, oppure pezzo amico -> fuori banda).
 // La condizione `pc >= start && pc <= end` al sito d'uso riproduce quel caso.
 // (Pulizia 25/09/2026: tolta l'opzione di compilazione TRIUMV_NO_MAILBOX, la mailbox e'
-// sempre mantenuta. Il vecchio percorso a loop e' in _backup/Triumviratus_7.1_src_2026-09-25_pre_cleanup.)
+// sempre mantenuta. Il vecchio percorso a loop e' in _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup.)
 // MISURA (9/08/2026, laptop Zen4, un solo binario Trium_p2_avx2, 160 posizioni UHO
 // interlacciate a depth 20): mediana B/A da +1,01% a +0,73%, mai sotto lo zero in
 // nessun blocco da 10. L'audit ne stimava +0,2-0,7% per il LOTTO P2 intero: qui
@@ -1162,7 +1162,7 @@ int g_check_bonus = 13357; // bonus ordering per quiet che da scacco diretto
 //   2026-07-24 sul trend (LOS>99%, mai chiuso ma non evapora, l'opposto del
 //   pattern B1) in attesa di chiusura SPRT formale e di un mega co-tune finale
 //   di 6.0 per la magnitudine esatta.
-// ABLAZIONE A1 (audit 7.1, 25/09/2026): senza la penalita' wall-pawn il motore NON perde, anzi:
+// ABLAZIONE A1 (audit 8.0, 25/09/2026): senza la penalita' wall-pawn il motore NON perde, anzi:
 // QuietOffense=false contro base, SPRT [-1.75, 0.25] a 10+0.1 Hash 64, +1,21 ± 2,12 Elo su 30.440
 // partite (LLR ~1,5 verso H1, fermata e accettata dall'utente). Bakata a luglio sul trend con la rete di
 // allora, con `legio-septima` non serve piu'. SPENTA di default; il codice resta.
@@ -1266,7 +1266,7 @@ int g_ttcut_fifty =
 // scala-56 (init SPSA). Default OFF.
 static bool g_tt_research = false;
 int g_tt_research_margin = 74;
-// ===== IDEE DA CODA 0.9.4 (27/09/2026, docs/audit_7.1/J_CODA.md). Tutte spente di default: albero identico. =====
+// ===== IDEE DA CODA 0.9.4 (27/09/2026, docs/audit_8.0/J_CODA.md). Tutte spente di default: albero identico. =====
 // (1) RootDepthRelax: potare MENO quando la ricerca complessiva e' profonda. Guarda td.root_depth (l'iterazione
 //     in corso), non la profondita' del nodo: e' la differenza con LMRDeepK/LMRSFBase, che erano neutri/negativi.
 //     over = max(0, root_depth - RDRKnee). Coda: RFP margin += depth*over*20/100 (search.rs RFP_ROOT_*). Da noi
@@ -1283,7 +1283,7 @@ int g_tt_nearmiss = 0;
 // (3) TTDamp (Coda TT_DAMP_TT_WEIGHT_10X): nel taglio TT non-PV con bound inferiore, restituisce
 //     (W*tt_score + 10*beta) / (W+10) invece di tt_score (score meno gonfiati). W in decimi; 0 = off; Coda 31.
 int g_tt_damp = 0;
-// ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_7.1/K_RIFERIMENTI_LTC.md) =====
+// ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_8.0/K_RIFERIMENTI_LTC.md) =====
 // PvTTMinDepth: nella PV la mossa TT non scende in quiescenza (SF, Reckless, Caissa, PlentyChess). Default off.
 static bool g_pv_tt_min_depth = false;
 // RootReplyRedPct (28/09/2026): % della riduzione LMR tenuta sulle risposte dell'avversario alla mossa di radice.

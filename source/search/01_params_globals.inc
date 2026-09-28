@@ -530,7 +530,7 @@ int g_corr_np_weight = 100; // /100 sul contributo delle due tabelle non-pawn
 static bool g_corr_material = false;
 int g_corr_material_weight = 67; // /100 sul contributo della tabella material
 
-// TransCorr (audit 7.1, piano F §2, 25/09/2026; idea di Cinder, in Coda 0.9.4 con peso 108/194
+// TransCorr (audit 8.0, piano F §2, 25/09/2026; idea di Cinder, in Coda 0.9.4 con peso 108/194
 // rispetto alla continuation, _reference/Coda/src/search.rs:409). Tavola corr indicizzata da
 // hash(padre) ^ hash(nodo): la mossa di ingresso NEL SUO CONTESTO (pezzo, case, catturato,
 // diritti, e.p.), piu' ricca della cont_corr che vede solo [pezzo][casa]. Impara "questo
@@ -593,10 +593,10 @@ void set_probcut(bool v) { g_probcut = v; }
 // combined (butterfly + continuation) history is strongly negative are pruned
 // at low depth. Toggle off for a clean A/B; tunable via ContHistDiv /
 // HistPruneMargin.
-// ABLAZIONE A4 (audit 7.1, 26/09/2026): la conferma a TC lungo non era mai arrivata. ContHistPrune=false
+// ABLAZIONE A4 (audit 8.0, 26/09/2026): la conferma a TC lungo non era mai arrivata. ContHistPrune=false
 // contro base, SPRT [-1.75, 0.25] a 10+0.1 Hash 64: +5,94 ± 3,98 Elo su 8.957 partite (zero escluso,
 // LLR ~1,7; fermata e accettata dall'utente). Senza la potatura l'albero cresce del 14% al bench, ma il
-// motore GUADAGNA. SPENTA di default; il codice resta. La conferma a TC lungo e' lo SPRT 7.1 contro 7.0.
+// motore GUADAGNA. SPENTA di default; il codice resta. La conferma a TC lungo e' lo SPRT 8.0 contro 7.0.
 static bool g_cont_hist_prune = false; // BAKED OFF 2026-09-26 (ablazione A4); era true (provvisorio)
 void set_cont_hist_prune(bool v) { g_cont_hist_prune = v; }
 

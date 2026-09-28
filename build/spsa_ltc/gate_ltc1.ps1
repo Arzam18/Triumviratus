@@ -4,7 +4,7 @@
 param([Parameter(Mandatory = $true)][string]$Run,
       [string]$TC = "40+0.4")   # per M20 (tarato a 20+0.2): prima -TC 20+0.2, poi la conferma a 40+0.4
 $root = "C:\Users\Francesco\Desktop\Triumviratus"
-$exe  = "$root\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe"
+$exe  = "$root\Triumviratus_8.0\x64\Release\Triumviratus_8.0_spsaltc_avx512.exe"
 $log  = "$root\Tuning_SPSA\spsa_lab\runs\$Run\log.csv"
 $vec  = python "$root\Tuning_SPSA\spsa_lab\extract_vector.py" $log 1100
 $vec | Out-File -Encoding utf8 "$root\Tuning_SPSA\spsa_ltc\vettore_ltc1.txt"

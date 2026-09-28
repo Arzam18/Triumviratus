@@ -519,7 +519,7 @@ void uci_loop()
             printf("option name MultiPV type spin default 1 min 1 max 64\n");
             // Opzioni ufficiali di analisi/utilizzo (sempre visibili, anche in release):
             printf("option name UCI_ShowWDL type check default false\n");  // W/D/L nelle info-line (via generic handler)
-            printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), dalla 7.1
+            printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), dalla 8.0
             printf("option name Clear Hash type button\n");                // svuota la TT su richiesta
             printf("option name UCI_EngineAbout type string default %s%s build %s by %s\n", NAME, VERSION, build_date(), AUTHOR);
             // --- Tuning / experimental / diagnostic options: hidden in the release build
@@ -613,7 +613,7 @@ void uci_loop()
             printf("option name CorrNonPawnWeight type spin default 100 min 0 max 400\n");  // /100 contributo delle 2 tabelle non-pawn; co-tunabile
             printf("option name CorrMaterial type check default false\n");    // SBAKATA il 6/08/2026: il gate da 30.530g @30+0.3 (+2,65 +/- 2,14) muoveva TRE cose insieme (material off->on, cont 100->85, cap 50->48), quindi non misurava questa leva. Isolata: -18,49 +/- 11,43, LOS 0,07%, 1298g @20+0.2. Costa +11,5% di albero senza prova positiva. Dettaglio in threads.cpp.
             printf("option name CorrMaterialWeight type spin default 67 min 0 max 400\n");  // /100 contributo della tabella material; co-tunabile
-            printf("option name TransCorr type spin default 0 min 0 max 400\n");  // audit 7.1 F2: corr keyed by hash(padre)^hash(nodo), /100; 0 = spenta
+            printf("option name TransCorr type spin default 0 min 0 max 400\n");  // audit 8.0 F2: corr keyed by hash(padre)^hash(nodo), /100; 0 = spenta
             printf("option name PawnHistory type check default true\n");    // ordering quiet per struttura pedonale (SF-style, peso 2x)
             printf("option name PawnHistoryWeight type spin default 187 min 0 max 800\n");  // [4.1 BAKE 126->139]
             printf("option name ThreatOrdering type check default true\n");  // ordering quiet per minacce (SF #2): salva pezzo minacciato da inferiore
@@ -823,14 +823,14 @@ void uci_loop()
             printf("option name SingularTripleMargin type spin default 319 min 0 max 400\n");
             printf("option name NegExtTT type spin default 2 min 0 max 4\n");     // -ext on ttMove>=beta (0=off,1=legacy,3=SF)
             printf("option name NegExtCut type spin default 3 min 0 max 3\n");    // -ext on cutNode (0=off/legacy,2=SF). ⚠️ IRRAGGIUNGIBILE con NegExtOrder=0: i due rami sopra partizionano lo spazio (finestra nulla). Bench identico a 0..4. Fuori dallo spazio SPSA finche' NegExtOrder resta 0
-            // audit 7.1 gruppo 1 (P3..P7), tutti spenti = byte-identico
+            // audit 8.0 gruppo 1 (P3..P7), tutti spenti = byte-identico
             printf("option name PrevRefuteMalus type spin default 0 min 0 max 200\n"); // P3: % di stat_bonus; SF ~70
             printf("option name ProbCutAdj type check default false\n");               // P4
             printf("option name RFPNoTTPv type check default false\n");                // P5
             printf("option name PruneNPMGate type check default false\n");             // P6
             printf("option name FutFailSoft type check default false\n");              // P7
-            printf("option name FHBlend type check default false\n"); // audit 7.1 P2: fail-high blending (best*d+beta)/(d+1) al cutoff. false = byte-identico
-            printf("option name ExclPruneGate type spin default 0 min 0 max 2\n"); // audit 7.1 P1: 1 = niente NMP nella ricerca singolare, 2 = anche RFP/razoring. 0 = byte-identico
+            printf("option name FHBlend type check default false\n"); // audit 8.0 P2: fail-high blending (best*d+beta)/(d+1) al cutoff. false = byte-identico
+            printf("option name ExclPruneGate type spin default 0 min 0 max 2\n"); // audit 8.0 P1: 1 = niente NMP nella ricerca singolare, 2 = anche RFP/razoring. 0 = byte-identico
             printf("option name NegExtOrder type spin default 0 min 0 max 1\n");  // FIX 7/08/2026: 1 = ordine SF (cut node PRIMA del test su alpha) -> rende vivo NegExtCut. 0 = ordine storico, byte-identico
             printf("option name CapturedMailbox type spin default 1 min 0 max 1\n"); // P2/B3: td_captured_piece via mailbox piece_on[64] invece della scansione di 6 bitboard. NODE-IDENTICAL: il bench NON deve cambiare. BAKED a 1 il 9/08/2026 su misura NPS +0,73..+1,01% (160 pos UHO, un solo binario, due setoption). 0 = percorso storico
             printf("option name CutNodeProp type spin default 0 min 0 max 1\n");  // propaga !cutNode al primo figlio non-PV (SF Step 18); 0=legacy

@@ -43,7 +43,7 @@
 // ===== TT16 (NPS 25/09/2026) ==================================================
 // Entry da 16 byte, bucket da 4 entry = 64 byte = UNA linea di cache.
 // Prima (vecchia TT, tolta il 25/09/2026 dopo lo SPRT: TT16 +6,30 ± 5,06 su 5.365 partite;
-// sorgente in _backup/Triumviratus_7.1_src_2026-09-25_pre_cleanup/tt.h): entry da 24 byte in bucket da 2, cioe' 48 byte, e con
+// sorgente in _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup/tt.h): entry da 24 byte in bucket da 2, cioe' 48 byte, e con
 // l'indice a modulo META' dei bucket attraversava due linee: due miss per probe. Il
 // profilo xperf del 25/09 (campioni su LLCMisses) dava alla TT ~4,6% dei miss del
 // motore contro ~1,2% di SF, che usa cluster da 32 byte allineati.
@@ -357,7 +357,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         const U64 old_w    = entry->kw ^ old_data;
         if (g_tt_move_keep && move == 0) move = unpack_move(old_data);
         if (ev16 == 0) ev16 = (int)(old_w & 0xFFFF);   // conserva l'eval se lo store non ne porta
-        // TTKeepMargin (studio finali 26/09/2026, docs/audit_7.1/H_FINALI.md). Nei finali, a profondita' >= 12,
+        // TTKeepMargin (studio finali 26/09/2026, docs/audit_8.0/H_FINALI.md). Nei finali, a profondita' >= 12,
         // l'entry c'e' quanto in SF (74%) e e' profonda abbastanza piu' spesso (32% contro 26%), ma il suo
         // bound serve alla finestra meno spesso (53% contro 66%): teniamo l'entry PIU' PROFONDA anche se il
         // suo bound e' vecchio. SF sovrascrive se  depth + 2*pv > vecchia - 4  (tt.cpp, TTWriter::write):

@@ -13,7 +13,7 @@
 #include <vector>
 
 // Define version information
-#define VERSION " - 7.1"
+#define VERSION " - 8.0"
 #define AUTHOR "Francesco Torsello"
 #define NAME "Triumviratus"
 

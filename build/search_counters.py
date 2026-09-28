@@ -1,7 +1,7 @@
 """Confronta i contatori di ricerca (nodi non-PV a profondita' >= 12) fra Triumviratus e Stockfish.
 
 Uso: python search_counters.py <fens.txt> <righe> <nodi> <triumv_egstat.exe> <sf_dbg.exe>
-Richiede le due build strumentate costruite nella cartella di lavoro (vedi docs/audit_7.1/H_FINALI.md):
+Richiede le due build strumentate costruite nella cartella di lavoro (vedi docs/audit_8.0/H_FINALI.md):
   Triumviratus: `info string EGS <nome> n=<conteggio> v=<valore>` prima del bestmove;
   Stockfish:    dbg_print() su stderr (Hit #i / Mean #i), slot allineati ai nostri.
 Per ogni posizione un processo nuovo (i contatori sono cumulativi nel processo); si sommano i totali.

@@ -568,7 +568,7 @@ void update_accumulator_incremental(Color                     perspective,
         // TRANN1: gli indici PawnPair/PassedPawns (folded, gia' offsettati)
         // entrano nelle STESSE liste threat -> nessun pass SIMD aggiuntivo a valle.
 // ⛔ TRIUMV_PF_SMALL — MISURATO E RIGETTATO il 06/09/2026 (prima non aveva misura). Il codice
-// e' stato tolto nella pulizia del 25/09/2026 (copia in _backup/Triumviratus_7.1_src_2026-09-25_pre_cleanup).
+// e' stato tolto nella pulizia del 25/09/2026 (copia in _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup).
 // Prefetch delle righe PawnPair+PassedPawns, cioe' l'equivalente dei parametri
 // prefetchBase/prefetchStride che SF passa a PP_3Wide::append_changed_indices.
 //   Xeon Gold 6138 (Skylake-SP), build PGO clang node-identical (bench 252074 su

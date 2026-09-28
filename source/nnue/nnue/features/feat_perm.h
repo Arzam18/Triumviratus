@@ -75,7 +75,7 @@ inline IndexType feat_row(IndexType raw) { return FeatPerm[raw]; }
 // una permutazione per frequenza puo' solo peggiorare.
 //
 // Il codice (TRIUMV_PSQ_PERM) e' stato tolto nella pulizia del 25/09/2026: copia in
-// _backup/Triumviratus_7.1_src_2026-09-25_pre_cleanup.
+// _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup.
 inline constexpr IndexType PsqRows = 22528;
 
 // ⚠️ Se un giorno si riprova: NON e' compatibile con il target ICL. Li' gli indici

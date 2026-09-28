@@ -1,7 +1,7 @@
 {
  "name": "M20_mega50_20s",
- "label": "Mega-SPSA 7.1 -- 50 parametri (senza RDR*), 20+0.2, 76 partite concorrenti, 22k iterazioni (~1 giorno)",
- "description": "SPSA a TC lungo richiesto dopo l'analisi CCRL del 26/09 (23 errori d'orizzonte: la 7.0 li evita con piu' tempo). 46 leve continue di pruning, LMR (LMRFine completa), estensioni singolari e history, init dai valori compilati della 7.1 (canary 273477), piu' TTNearMiss, TTDamp e TTCutFifty/TTCutBonusScale (re-basin del 28/09: innestate da sole non reggono). Esclusi: feature spente (LMRDeepK=0, QFutility, BrilliantSac...), TM v1, LMR legacy, interi con range <= 4. lr 0.02 e c al 20% del range da sim_server_math.py. Il verdetto e' SOLO l'SPRT del vettore finale contro il default (novita' spente) a 20+0.2, poi conferma a 40+0.4 (gate_ltc1.ps1 -TC).",
+ "label": "Mega-SPSA 8.0 -- 50 parametri (senza RDR*), 20+0.2, 76 partite concorrenti, 22k iterazioni (~1 giorno)",
+ "description": "SPSA a TC lungo richiesto dopo l'analisi CCRL del 26/09 (23 errori d'orizzonte: la 7.0 li evita con piu' tempo). 46 leve continue di pruning, LMR (LMRFine completa), estensioni singolari e history, init dai valori compilati della 8.0 (canary 273477), piu' TTNearMiss, TTDamp e TTCutFifty/TTCutBonusScale (re-basin del 28/09: innestate da sole non reggono). Esclusi: feature spente (LMRDeepK=0, QFutility, BrilliantSac...), TM v1, LMR legacy, interi con range <= 4. lr 0.02 e c al 20% del range da sim_server_math.py. Il verdetto e' SOLO l'SPRT del vettore finale contro il default (novita' spente) a 20+0.2, poi conferma a 40+0.4 (gate_ltc1.ps1 -TC).",
  "mode": "mirror",
  "params": [
   {
@@ -379,11 +379,11 @@
  "engines": {
   "fastchess": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Fastechess_For_SPSA\\fastchess.exe",
   "test": {
-   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_7.1\\x64\\Release\\Triumviratus_7.1_spsaltc_avx512.exe",
+   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_8.0\\x64\\Release\\Triumviratus_8.0_spsaltc_avx512.exe",
    "fixed_options": {}
   },
   "opponent": {
-   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_7.1\\x64\\Release\\Triumviratus_7.1_spsaltc_avx512.exe",
+   "cmd": "C:\\Users\\Francesco\\Desktop\\Triumviratus\\Triumviratus_8.0\\x64\\Release\\Triumviratus_8.0_spsaltc_avx512.exe",
    "fixed_options": {}
   }
  }

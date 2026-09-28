@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="Triumviratus" width="200">
 
-# Triumviratus 7.1 — development log
+# Triumviratus 8.0 — development log
 
 **Started as a speed project.** Same network as 7.0 (`legio-septima`) · the code around it made faster · where it ends up is still open
 
@@ -26,11 +26,11 @@
 ---
 
 > [!NOTE]
-> **Work in progress.** `source/` now holds the 7.1 development code; the 7.0 release is the tag
+> **Work in progress.** `source/` now holds the 8.0 development code; the 7.0 release is the tag
 > `v7.0`. Every change in section 4 leaves the search tree **bit-for-bit identical** (same `bench`,
 > same node counts on 50 positions at depth 15), so it can only change speed, never play. Against the
 > official 7.0 binary, the same tree now runs **+8.7% faster**, and **+11.5%** with the new
-> transposition table (section 6). In games, 7.1 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
+> transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
 > **+11.7 ± 4.6 Elo at 60+0.6** (section 7).
 
@@ -38,11 +38,11 @@
 
 ## 1. Why speed
 
-7.1 started with an audit of the search against the engines released in the last few months:
+8.0 started with an audit of the search against the engines released in the last few months:
 Stockfish 19, Reckless, PlentyChess 8, Integral 8, Caissa 2.0, Stormphrax 8 and Viridithas 20.
 Porting their search ideas did **not** pay here. Three SPRTs in a row came back flat or negative:
 dropping null-move pruning inside the singular search (−23 ± 19, stopped early), fail-high score
-blending (−0.6 ± 7.3 on 2,502 games) and a bundle of five small ports (−4.4 ± 7.1 on 4,212 games).
+blending (−0.6 ± 7.3 on 2,502 games) and a bundle of five small ports (−4.4 ± 8.0 on 4,212 games).
 Our search is tuned around its own behaviour, so a single foreign heuristic mostly shifts the balance
 the tuning found.
 
@@ -75,7 +75,7 @@ Same compiler, same 30 positions × 400,000 nodes, per node:
 | engine | instructions | cycles | branch misses |
 |---|---:|---:|---:|
 | Stockfish 19 | 6,087 | 6,678 | 28.7 |
-| **Triumviratus 7.1 at the start** | **6,768** | **8,728** | **37.7** |
+| **Triumviratus 8.0 at the start** | **6,768** | **8,728** | **37.7** |
 
 We did not execute many more instructions than Stockfish: the gap was **stalls** — about 30% more
 branch mispredictions and more memory misses. The network code itself (accumulator updates and the
@@ -100,7 +100,7 @@ correction history, the transposition table.
 | **Prefetch of the threat PSQT rows** before the accumulator update uses them | **+1.76% NPS** |
 | One TT probe instead of two at the search/quiescence boundary | −0.2% instructions |
 
-With the same compiler, 7.1 now runs **5,647 instructions per node against Stockfish 19's 6,087**, with
+With the same compiler, 8.0 now runs **5,647 instructions per node against Stockfish 19's 6,087**, with
 fewer branch misses (27.3 against 28.8). The NPS gains in the table come from the paired runs, and each
 has its 95% interval in the internal notes; the first batches predate the paired tool and are given
 in counter terms.
@@ -129,7 +129,7 @@ word protected by the same XOR as before. Because capacity and placement change,
 
 **Game test**, TT16 against the old table, both PGO release builds, 10+0.1, Hash 16 (small on
 purpose, where capacity matters): **+6.30 ± 5.06 Elo** on 5,365 games, LOS 99.3%, pentanomial
-[42, 573, 1354, 662, 46]. Stopped with zero excluded. TT16 is the 7.1 table.
+[42, 573, 1354, 662, 46]. Stopped with zero excluded. TT16 is the 8.0 table.
 
 ## 7. Result against 7.0
 
@@ -139,15 +139,15 @@ parallel.
 
 | comparison | NPS | 95% interval | faster in |
 |---|---:|---|---:|
-| **7.0 → 7.1, old table** (identical tree, bench 240503) | **+8.70%** | [+8.63%, +8.78%] | 2,400 / 2,400 |
-| 7.1 old table → 7.1 TT16 | +2.60% | [+2.42%, +2.77%] | 1,743 / 2,400 |
-| **7.0 → 7.1 TT16** | **+11.54%** | [+11.40%, +11.68%] | 5,690 / 5,760 |
+| **7.0 → 8.0, old table** (identical tree, bench 240503) | **+8.70%** | [+8.63%, +8.78%] | 2,400 / 2,400 |
+| 8.0 old table → 8.0 TT16 | +2.60% | [+2.42%, +2.77%] | 1,743 / 2,400 |
+| **7.0 → 8.0 TT16** | **+11.54%** | [+11.40%, +11.68%] | 5,690 / 5,760 |
 
 The two steps multiply to the direct figure (1.087 × 1.026 = 1.115). Null tests (the same binary
 against itself) gave +0.05% under load and −0.10% on an idle machine, so the tool resolves about
 0.1%. The +8.7% is speed and nothing else: same moves, same nodes, same tree as 7.0.
 
-**In games**, 7.1 (TT16) against the official 7.0 binary, both PGO release AVX-512, 1 thread:
+**In games**, 8.0 (TT16) against the official 7.0 binary, both PGO release AVX-512, 1 thread:
 
 | TC | hash | games | W / D / L | pentanomial | Elo | SPRT |
 |---|---:|---:|---|---|---:|---|
@@ -207,7 +207,7 @@ block, after the next network.
 
 - Every change in section 4 is in `source/` and enabled on all targets (AVX2, AVX-512, VNNI, ICL,
   `-intel`).
-- **Done:** TT16 adopted (+6.3 ± 5.1); 7.1 against 7.0: +14.7 ± 5.4 at 12+0.12 and +11.7 ± 4.6 at 60+0.6,
+- **Done:** TT16 adopted (+6.3 ± 5.1); 8.0 against 7.0: +14.7 ± 5.4 at 12+0.12 and +11.7 ± 4.6 at 60+0.6,
   both SPRTs passed. Ablations A1 and A4 switched off two features; bench is now **273477**.
 - **Tried:** a correction history keyed by the last move in context (hash of parent XOR hash of
   node, as in Coda and Cinder): −7.6 ± 7.8 on 2,069 games at 20+0.2. Left in the code, switched off.
@@ -317,7 +317,7 @@ ply for fail-highs, while the near-miss accepts one ply less. So the continuous 
 
 ## 13. Chess960 (Fischer Random Chess)
 
-**7.1 is the first version of Triumviratus to support Chess960**, through the standard `UCI_Chess960`
+**8.0 is the first version of Triumviratus to support Chess960**, through the standard `UCI_Chess960`
 option.
 - **Positions.** It reads both X-FEN (`KQkq` means the outermost rook on that side) and Shredder-FEN
   (`HAha`, the rook files).

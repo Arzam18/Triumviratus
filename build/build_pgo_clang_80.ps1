@@ -1,6 +1,6 @@
 ﻿# =============================================================================
-#  Build RELEASE clang-cl + ThinLTO + PGO (IR-based) per TRIUMVIRATUS 7.1
-#  (derivato da build_pgo_clang_7_trann2.ps1: stesse 4 fasi, sorgenti in Triumviratus_7.1)
+#  Build RELEASE clang-cl + ThinLTO + PGO (IR-based) per TRIUMVIRATUS 8.0
+#  (derivato da build_pgo_clang_7_trann2.ps1: stesse 4 fasi, sorgenti in Triumviratus_8.0)
 #  (= SFNNv16 + blocco PassedPawns nostro). Rete: legio-septima, caricata a
 #  runtime ACCANTO all'exe.
 #
@@ -51,7 +51,7 @@ param([int]$Movetime = 0, [int]$Positions = 200, [int]$Workers = 8,
       # ottimizza layout e predizioni di salto per il profilo che VEDE, e finora ha visto
       # ricerche venti volte piu' corte di quelle vere.
       [string]$Times = "",
-      [string]$Name = "Triumviratus_7.1",
+      [string]$Name = "Triumviratus_8.0",
       [string]$Net  = "Networks_Triumviratus_7\nn-legio-septima-v1.nnue",
       # avx2-nopext = AVX2 SENZA pext/bmi2 (fancy-magics + dual hyperbola quintessence).
       # Serve ai tester su AMD Zen1/Zen2, dove PEXT e' microcodato (~18 cicli contro 3):
@@ -74,11 +74,11 @@ $reldef = if ($Release) { " -DTRIUMV_RELEASE" } else { "" }
 if ($ExtraDefs) { $reldef += " $ExtraDefs" }
 
 $root    = $PSScriptRoot
-$proj    = "$root\Triumviratus_7.1\Triumviratus_7.1.vcxproj"
-if (-not (Test-Path $proj)) { throw "vcxproj 7.1 non trovato: $proj" }
+$proj    = "$root\Triumviratus_8.0\Triumviratus_8.0.vcxproj"
+if (-not (Test-Path $proj)) { throw "vcxproj 8.0 non trovato: $proj" }
 $projDir = Split-Path $proj
 $outDir  = "$projDir\x64\Release"
-$exe     = "$outDir\Triumviratus_7.1.exe"
+$exe     = "$outDir\Triumviratus_8.0.exe"
 $netName = "nn-legio-septima.nnue"          # nome che il motore cerca (EvalFileDefaultName)
 $netSrc  = if ([System.IO.Path]::IsPathRooted($Net)) { $Net } else { "$root\$Net" }
 
@@ -119,8 +119,8 @@ $common = @("-p:Configuration=Release","-p:Platform=x64","-p:PlatformToolset=Cla
 
 function Build-Variant([string]$tag) {
     $suffix = "_$tag"
-    $merged = "$profDir\clang71_$tag.profdata"
-    Write-Host "`n########  VARIANTE 7.1 $tag  ->  $Name$suffix.exe  ########" -ForegroundColor Magenta
+    $merged = "$profDir\clang80_$tag.profdata"
+    Write-Host "`n########  VARIANTE 8.0 $tag  ->  $Name$suffix.exe  ########" -ForegroundColor Magenta
 
     # 🔴 ASSE VENDOR (6/08/2026), ortogonale all'ISA. Il suffisso "-intel" su QUALSIASI
     # target spegne `append_changed_indices_both` (la patch "persp", porting SF 7b550409).
@@ -231,7 +231,7 @@ function Build-Variant([string]$tag) {
     #   - se si cancellano i soli .tlog, sotto -m il Clean di Rebuild toglie gli .obj e la
     #     ricompilazione viene saltata: il link poi fallisce con "could not open threads.obj".
     # Cancellare la IntDir e' un clean vero (obj + tlog insieme) e -t:Build ricostruisce.
-    $intDir = "$projDir\Triumviratus_7.1\x64\Release"
+    $intDir = "$projDir\Triumviratus_8.0\x64\Release"
     function Clear-IntDir { Remove-Item $intDir -Recurse -Force -ErrorAction SilentlyContinue }
 
     Clear-IntDir
@@ -301,5 +301,5 @@ $variants = switch ($Arch) {
 }
 foreach ($v in $variants) { Build-Variant $v }
 
-Write-Host "`n==== 7.1 PGO PRONTA ====" -ForegroundColor Cyan
+Write-Host "`n==== 8.0 PGO PRONTA ====" -ForegroundColor Cyan
 foreach ($v in $variants) { Write-Host "  $outDir\$Name`_$v.exe  (+ $netName accanto)" }

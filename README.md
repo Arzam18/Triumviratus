@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [7.1 (in development)](#triumviratus-71--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 7.1](DEVELOPMENT_7.1.md) · [Dev log 7.0](DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0 (in development)](#triumviratus-71--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -54,10 +54,10 @@ other.</sub>
 
 ---
 
-## Triumviratus 7.1 — in development
+## Triumviratus 8.0 — in development
 
-7.1 **started from speed**: same network as 7.0, and a first round of changes that make the code
-around it faster while leaving the search tree node-for-node identical. Where 7.1 ends up is still
+8.0 **started from speed**: same network as 7.0, and a first round of changes that make the code
+around it faster while leaving the search tree node-for-node identical. Where 8.0 ends up is still
 open. Measured against Stockfish 19 with the same compiler and the same network size, the engine
 now executes **fewer instructions per node (5,647 vs 6,087)** and has fewer branch mispredictions.
 Against the **official 7.0 binary**, measured with paired simultaneous runs on the same CPU cores:
@@ -65,12 +65,12 @@ Against the **official 7.0 binary**, measured with paired simultaneous runs on t
 games against the 7.0 release: **+14.7 ± 5.4 Elo** at 12+0.12 and **+11.7 ± 4.6 Elo at 60+0.6**
 (both SPRTs passed; the second with two search features switched off after ablation tests).
 
-7.1 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
+8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
 `UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
 errors, and it leaves the standard-chess search tree unchanged.
 
-`source/` holds the 7.1 development code; the 7.0 release is the tag `v7.0`. Details, method and
-numbers: **[`DEVELOPMENT_7.1.md`](DEVELOPMENT_7.1.md)**.
+`source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`. Details, method and
+numbers: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)**.
 
 ---
 

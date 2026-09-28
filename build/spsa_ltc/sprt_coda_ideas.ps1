@@ -1,10 +1,10 @@
-# SPRT delle tre idee di Coda (docs/audit_7.1/J_CODA.md), 27/09/2026. Da lanciare A MACCHINA LIBERA, una alla volta.
+# SPRT delle tre idee di Coda (docs/audit_8.0/J_CODA.md), 27/09/2026. Da lanciare A MACCHINA LIBERA, una alla volta.
 # Stesso binario dev (A/B con le opzioni), 40+0.4, [0, 3], convenzioni del progetto (UHO 2024, concurrency 75).
 # Uso:  .\sprt_coda_ideas.ps1 -Idea 1     (1 = RootDepthRelax, 2 = TTNearMiss, 3 = TTDamp: idee di Coda;
 #                                          4 = PvTTMinDepth, 5 = SingularPlyGuard: consenso dei riferimenti,
-#                                          docs/audit_7.1/K_RIFERIMENTI_LTC.md)
+#                                          docs/audit_8.0/K_RIFERIMENTI_LTC.md)
 # Il binario: build PGO senza -Release, per esempio
-#   .\build_pgo_clang_71.ps1 -Arch avx512 -Name Triumviratus_7.1_devJ     (bench atteso 273477)
+#   .\build_pgo_clang_80.ps1 -Arch avx512 -Name Triumviratus_8.0_devJ     (bench atteso 273477)
 # Binario predefinito: devL (27/09 sera, PGO completa, bench 273477), che ha tutte e cinque le opzioni.
 #       6 = bundle 4+5 (27/09: la 5 da sola giudicata neutra dall'utente, +0,65 ± 8,8 su ~2.700 partite a 10+0.1)
 #       7 = bundle 2+3 (TTNearMiss + TTDamp; 28/09: la 2 da sola in positivo ma non chiusa)
@@ -20,7 +20,7 @@ param([Parameter(Mandatory = $true)][ValidateSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)]
       # RDRKnee per l'idea 1: 17 come Coda. Nota: a 20+0.2 la profondita' mediana e' 14 e solo il 10% delle mosse
       # supera 17 (tools/pgn_depths.py su 1.314 partite); per questo l'idea 1 si fa a 40+0.4.
       [int]$Knee = 17,
-      [string]$Exe = "C:\Users\Francesco\Desktop\Triumviratus\Triumviratus_7.1\x64\Release\Triumviratus_7.1_devL_avx512.exe")
+      [string]$Exe = "C:\Users\Francesco\Desktop\Triumviratus\Triumviratus_8.0\x64\Release\Triumviratus_8.0_devL_avx512.exe")
 $root = "C:\Users\Francesco\Desktop\Triumviratus"
 if (-not $TC) { $TC = if ($Idea -eq 1) { "40+0.4" } else { "10+0.1" } }
 if ($Idea -eq 1 -and $Hash -lt 128) { $Hash = 128 }

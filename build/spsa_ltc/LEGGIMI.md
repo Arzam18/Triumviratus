@@ -1,6 +1,6 @@
 # Mega-SPSA a TC lungo (LTC1), preparato il 27/09/2026. Non ancora lanciato.
 
-**Perché.** La rianalisi delle partite CCRL Blitz della 7.0 (`docs/audit_7.1/D_CORRETTEZZA.md`) ha trovato
+**Perché.** La rianalisi delle partite CCRL Blitz della 7.0 (`docs/audit_8.0/D_CORRETTEZZA.md`) ha trovato
 23 errori reali. Sono errori d'orizzonte: la 7.0 ne evita 17 con 10 secondi e 20 con 60 secondi. SF tara
 ancora con SPSA a TC lungo, mentre il nostro mega-SPSA "saturo" girava a TC corto e con reti precedenti.
 
@@ -10,7 +10,7 @@ ancora con SPSA a TC lungo, mentre il nostro mega-SPSA "saturo" girava a TC cort
 | `LANCIA_LTC1.ps1` | build dev PGO → controllo canary 273477 e opzioni → check_preset_bounds / check_perturbations / smoke_preset → server + run |
 | `gate_ltc1.ps1 -Run <cartella>` | estrae il vettore (media delle ultime 1.100 iterazioni) e lancia l'SPRT `[0, 3]` a 40+0.4 contro il default, in finestra |
 | `make_ltc_preset.py` | genera `spsa_lab/presets/LTC1_mega46_40s.json` da `names.json` + `compiled_values.json` |
-| `extract_params.py` | legge dal sorgente 7.1 i valori **compilati** e i bound UCI (i default UCI degli LMRF* sono stale) |
+| `extract_params.py` | legge dal sorgente 8.0 i valori **compilati** e i bound UCI (i default UCI degli LMRF* sono stale) |
 | `sim_server_math.py` | simulazione delle formule esatte di `server.py` su una funzione Elo nota |
 
 ## Impostazioni

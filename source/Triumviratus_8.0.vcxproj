@@ -29,7 +29,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="Triumviratus_7.1.rc" />
+    <ResourceCompile Include="Triumviratus_8.0.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="attacks.h" />
@@ -218,7 +218,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>Triumviratus_7.1</TargetName>
+    <TargetName>Triumviratus_8.0</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleasePGI|x64'">
     <TargetName>Triumviratus_pgo</TargetName>

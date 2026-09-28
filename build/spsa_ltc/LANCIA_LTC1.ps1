@@ -1,4 +1,4 @@
-# Mega-SPSA a TC lungo (LTC1) per Triumviratus 7.1 — lancio in 4 passi. Preparato il 27/09/2026.
+# Mega-SPSA a TC lungo (LTC1) per Triumviratus 8.0 — lancio in 4 passi. Preparato il 27/09/2026.
 # Durata prevista ~48 ore a macchina libera (76 partite concorrenti a 40+0.4, 22.000 iterazioni da 4 partite).
 # Uso: .\Tuning_SPSA\spsa_ltc\LANCIA_LTC1.ps1   (dalla cartella Triumviratus). Si ferma al primo controllo fallito.
 # 28/09: -Preset M20_mega50_20s (default: 50 parametri a 20+0.2, ~1 giorno) oppure LTC2_mega54_40s (54 a 40+0.4, ~2 giorni).
@@ -7,11 +7,11 @@ $ErrorActionPreference = "Stop"
 $root   = "C:\Users\Francesco\Desktop\Triumviratus"
 $lab    = "$root\Tuning_SPSA\spsa_lab"
 $preset = "$lab\presets\$Preset.json"
-$exe    = "$root\Triumviratus_7.1\x64\Release\Triumviratus_7.1_spsaltc_avx512.exe"
+$exe    = "$root\Triumviratus_8.0\x64\Release\Triumviratus_8.0_spsaltc_avx512.exe"
 
 # 1. Binario di tuning: build PGO SENZA -Release (servono tutte le ~440 opzioni, non le 12 della release).
 if (-not (Test-Path $exe)) {
-    & "$root\build_pgo_clang_71.ps1" -Arch avx512 -Name Triumviratus_7.1_spsaltc
+    & "$root\build_pgo_clang_80.ps1" -Arch avx512 -Name Triumviratus_8.0_spsaltc
 }
 
 # 2. Il binario deve essere il sorgente attuale ai default: canary 273477 e ~440 opzioni.

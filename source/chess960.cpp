@@ -1,4 +1,4 @@
-// Chess960: fondamenta (fase 1). Vedi chess960.h e docs/audit_7.1/I_CHESS960.md.
+// Chess960: fondamenta (fase 1). Vedi chess960.h e docs/audit_8.0/I_CHESS960.md.
 #include "chess960.h"
 #include "defs.h"
 

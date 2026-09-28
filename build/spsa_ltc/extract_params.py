@@ -1,7 +1,7 @@
-"""Per ogni parametro del preset MEGA70: valore COMPILATO in Triumviratus_7.1 (non il default UCI) e bound UCI.
+"""Per ogni parametro del preset MEGA70: valore COMPILATO in Triumviratus_8.0 (non il default UCI) e bound UCI.
 Riusa le regex di spsa_lab/sync_uci_defaults.py."""
 import re, os, json, sys
-ROOT = r"C:\Users\Francesco\Desktop\Triumviratus\Triumviratus_7.1"
+ROOT = r"C:\Users\Francesco\Desktop\Triumviratus\Triumviratus_8.0"
 src = {f: open(os.path.join(ROOT, f), encoding="utf-8", errors="replace").read() for f in ("threads.cpp", "uci_mt.cpp", "nnue_bridge.cpp", "tt.h")}
 allsrc = "\n".join(src.values())
 DISPATCH = re.compile(r'strcmp\(name,\s*"([A-Za-z0-9_]+)"\)\s*\)\s*\{?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=')

@@ -1,5 +1,5 @@
 #pragma once
-// Chess960 (Fischer Random). Vedi docs/audit_7.1/I_CHESS960.md.
+// Chess960 (Fischer Random). Vedi docs/audit_8.0/I_CHESS960.md.
 //
 // Fase 1 (27/09/2026): modello dati letto da parse_fen (X-FEN e Shredder-FEN).
 // Fase 2 (27/09/2026): collegato al motore. Il motore codifica l'arrocco come prima (re verso g1/c1/g8/c8 col

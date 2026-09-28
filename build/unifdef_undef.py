@@ -6,7 +6,7 @@ Riconosce solo le forme semplici, che sono quelle usate nel progetto:
   #ifdef M / #ifndef M / #if defined(M) / #if !defined(M)  (con #else, senza #elif)
 I condizionali su altre macro restano intatti, anche annidati. Se trova la macro in una forma
 che non sa risolvere (#elif, espressioni composte) si ferma e non scrive nulla.
-Serve per la pulizia 7.1 (25/09/2026): le biforcazioni chiuse spariscono, l'albero resta identico
+Serve per la pulizia 8.0 (25/09/2026): le biforcazioni chiuse spariscono, l'albero resta identico
 (si verifica poi con bench e node_identity.py).
 """
 import re

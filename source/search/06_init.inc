@@ -31,7 +31,7 @@ static inline int td_see_at_least(ThreadData &td, int move, int thr) {
 }
 
 int lmr_table[64][64];
-// LMRSFBase (studio finali 25/09/2026, docs/audit_7.1/H_FINALI.md). Nei nodi non-PV a
+// LMRSFBase (studio finali 25/09/2026, docs/audit_8.0/H_FINALI.md). Nei nodi non-PV a
 // profondita' >= 12 Stockfish riduce in media 6,5 ply, noi 3,6, e sopra profondita' 20 il nostro
 // albero cresce ~1,25x per ply contro 1,15x. La base della nostra riduzione (lmr_table) ha tre
 // differenze dalla loro: pendenza in profondita' meta' (div 4,47 contro ~2,1), troncamento
