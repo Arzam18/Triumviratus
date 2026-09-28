@@ -4178,7 +4178,7 @@ const unsigned short FeatPerm[FeatPermSize] = {
     64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,64464,
 };
 
-static_assert(HalfKAv2_hm::Dimensions == PsqRows,
+static_assert(HalfKAv2_hm::BaseDimensions == PsqRows,  // per fascia: con le fasce il blocco si ripete
               "PsqRows non combacia con HalfKAv2_hm");
 
 

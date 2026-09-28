@@ -692,6 +692,15 @@ inline void apply_move(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThre
     if (Eval::NNUE::Features::g_mobility_on)
         Eval::NNUE::Features::Mobility::snapshot(pos, dmo.before);
     apply_move_impl(pos, m, dp, dts, dpw);
+#if TRIUMV_PSQ_PHASES > 1
+    {   // HalfKA a esperti: fascia della posizione dopo la mossa, e se una cattura l'ha cambiata (-> refresh)
+        using PSQ       = Eval::NNUE::Features::HalfKAv2_hm;
+        const int after  = pos.count<ALL_PIECES>();
+        const int before = after + (m->capturedPiece ? 1 : 0);
+        dp.psqPhase        = std::uint8_t(PSQ::phase_of_count(after));
+        dp.psqPhaseChanged = PSQ::phase_of_count(before) != dp.psqPhase;
+    }
+#endif
     if (Eval::NNUE::Features::g_mobility_on)
         Eval::NNUE::Features::Mobility::snapshot(pos, dmo.after);
 }

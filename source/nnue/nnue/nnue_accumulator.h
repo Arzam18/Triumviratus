@@ -79,14 +79,18 @@ struct AccumulatorCaches {
 
     template<typename Network>
     void clear(const Network& network) {
-        for (auto& entries1D : entries)
-            for (auto& entry : entries1D)
-                entry.clear(network.featureTransformer.biases);
+        for (auto& perPhase : entries)
+            for (auto& entries1D : perPhase)
+                for (auto& entry : entries1D)
+                    entry.clear(network.featureTransformer.biases);
     }
 
-    std::array<Entry, COLOR_NB>& operator[](Square sq) { return entries[sq]; }
+    // Una tabella per fascia di materiale (HalfKA a esperti, TRIUMV_PSQ_PHASES > 1): l'accumulazione di una entry
+    // vale solo per i pesi della sua fascia. Con 1 fascia e' la tabella di sempre.
+    std::array<Entry, COLOR_NB>& at(int phase, Square sq) { return entries[phase][sq]; }
+    std::array<Entry, COLOR_NB>& operator[](Square sq) { return entries[0][sq]; }
 
-    std::array<std::array<Entry, COLOR_NB>, SQUARE_NB> entries;
+    std::array<std::array<std::array<Entry, COLOR_NB>, SQUARE_NB>, TRIUMV_PSQ_PHASES> entries;
 };
 
 

@@ -291,6 +291,12 @@ enum Rank : u8 {
 };
 
 // Keep track of what a move changes on the board (used by NNUE)
+// Triumviratus 28/09/2026: HalfKA a esperti per fase (MoE nel feature transformer). Numero di fasce di materiale;
+// 1 = HalfKA normale (default: codice e rete di sempre). Vedi features/half_ka_v2_hm.h.
+#ifndef TRIUMV_PSQ_PHASES
+    #define TRIUMV_PSQ_PHASES 1
+#endif
+
 struct DirtyPiece {
     Piece  pc;        // this is never allowed to be NO_PIECE
     Square from, to;  // to should be SQ_NONE for promotions
@@ -300,6 +306,12 @@ struct DirtyPiece {
     // castling uses add_sq and remove_sq to remove and add the rook
     Square remove_sq, add_sq;
     Piece  remove_pc, add_pc;
+#if TRIUMV_PSQ_PHASES > 1
+    // Fascia di materiale della posizione DOPO la mossa, e se e' cambiata (una cattura che attraversa una soglia):
+    // il cambio forza il refresh dell'accumulatore come una mossa di re. Li scrive apply_move (nnue_bridge.cpp).
+    std::uint8_t psqPhase        = 0;
+    bool         psqPhaseChanged = false;
+#endif
 };
 
 // Keep track of what threats change on the board (used by NNUE)

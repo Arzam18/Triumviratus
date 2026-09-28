@@ -25,13 +25,13 @@
 #include "../../types.h"
 #include "../nnue_common.h"
 
-#if defined(USE_AVX512ICL)
+#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
     #include "../../bitboard.h"
 #endif
 
 namespace Triumviratus::Eval::NNUE::Features {
 
-#if defined(USE_AVX512ICL)
+#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
 void HalfKAv2_hm::write_indices(const std::array<Piece, SQUARE_NB>& oldPieces,
                                 const std::array<Piece, SQUARE_NB>& newPieces,
                                 Bitboard                            removedBB,
@@ -89,32 +89,43 @@ void HalfKAv2_hm::write_indices(const std::array<Piece, SQUARE_NB>& oldPieces,
 
 // Index of a feature for a given king position and another piece on some square
 
-IndexType HalfKAv2_hm::make_index(Color perspective, Square s, Piece pc, Square ksq) {
+IndexType HalfKAv2_hm::make_index(Color perspective, Square s, Piece pc, Square ksq, int phase) {
     const IndexType flip = 56 * perspective;
     // Unico punto in cui nascono gli indici HalfKA del percorso scalare: refresh,
     // incrementale, cache di refresh e hybrid passano tutti da qui. `psq_row`
     // rimappa alla riga permutata per localita' (vedi feat_perm.h); e' l'identita'
     // sul target ICL, dove `write_indices` produce gli indici in modo vettoriale.
+    // Con le fasce (TRIUMV_PSQ_PHASES > 1) il blocco della fascia sta a phase * BaseDimensions.
     return psq_row((IndexType(s) ^ OrientTBL[ksq] ^ flip) + PieceSquareIndex[perspective][pc]
-                   + KingBuckets[int(ksq) ^ flip]);
+                   + KingBuckets[int(ksq) ^ flip])
+         + IndexType(phase) * BaseDimensions;
 }
 
 // Get a list of indices for recently changed features
 
-void HalfKAv2_hm::append_changed_indices(
-  Color perspective, Square ksq, const DiffType& diff, IndexList& removed, IndexList& added) {
-    removed.push_back(make_index(perspective, diff.from, diff.pc, ksq));
+void HalfKAv2_hm::append_changed_indices(Color           perspective,
+                                         Square          ksq,
+                                         const DiffType& diff,
+                                         IndexList&      removed,
+                                         IndexList&      added,
+                                         int             phase) {
+    removed.push_back(make_index(perspective, diff.from, diff.pc, ksq, phase));
     if (diff.to != SQ_NONE)
-        added.push_back(make_index(perspective, diff.to, diff.pc, ksq));
+        added.push_back(make_index(perspective, diff.to, diff.pc, ksq, phase));
 
     if (diff.remove_sq != SQ_NONE)
-        removed.push_back(make_index(perspective, diff.remove_sq, diff.remove_pc, ksq));
+        removed.push_back(make_index(perspective, diff.remove_sq, diff.remove_pc, ksq, phase));
 
     if (diff.add_sq != SQ_NONE)
-        added.push_back(make_index(perspective, diff.add_sq, diff.add_pc, ksq));
+        added.push_back(make_index(perspective, diff.add_sq, diff.add_pc, ksq, phase));
 }
 
 bool HalfKAv2_hm::requires_refresh(const DiffType& diff, Color perspective) {
+#if TRIUMV_PSQ_PHASES > 1
+    // un cambio di fascia cambia TUTTE le righe HalfKA attive: come una mossa di re, per entrambe le prospettive
+    if (diff.psqPhaseChanged)
+        return true;
+#endif
     return diff.pc == make_piece(perspective, KING);
 }
 

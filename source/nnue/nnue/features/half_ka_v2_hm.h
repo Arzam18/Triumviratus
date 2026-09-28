@@ -57,12 +57,36 @@ class HalfKAv2_hm {
        PS_NONE, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING, PS_NONE}};
 
    public:
+    // Triumviratus 28/09/2026: esperti per fase (TRIUMV_PSQ_PHASES > 1). Ogni fascia di materiale ha il suo blocco
+    // di pesi HalfKA; l'indice e' quello di sempre + fase * BaseDimensions. Deve coincidere col trainer
+    // (model/modules/features/halfka_v2_hm_phase.py e HalfKAv2_hm_P4 nel loader C++): hash, fasce, layout.
+    static constexpr int Phases = TRIUMV_PSQ_PHASES;
+    static_assert(Phases == 1 || Phases == 4, "fasce definite solo per 1 (HalfKA) e 4 (HalfKAv2_hm_P4)");
+
     // Hash value embedded in the evaluation file
-    static constexpr u32 HashValue = 0x7f234cb8u;
+    static constexpr u32 HashValue = Phases == 1 ? 0x7f234cb8u : (0x7f234cb8u ^ 0x50484134u);  // ^ "PHA4"
 
     // Number of feature dimensions
-    static constexpr IndexType Dimensions =
+    static constexpr IndexType BaseDimensions =
       static_cast<IndexType>(SQUARE_NB) * static_cast<IndexType>(PS_NB) / 2;
+    static constexpr IndexType Dimensions = BaseDimensions * Phases;
+
+    // pezzi sulla scacchiera (re compresi) -> fascia, a frequenza uguale: <=9, 10-15, 16-23, >=24.
+    static constexpr std::uint8_t PhaseOfPieceCount[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,        // 0..9
+                                                           1, 1, 1, 1, 1, 1,                    // 10..15
+                                                           2, 2, 2, 2, 2, 2, 2, 2,              // 16..23
+                                                           3, 3, 3, 3, 3, 3, 3, 3, 3};          // 24..32
+    static constexpr int phase_of_count(int pieceCount) {
+        return Phases == 1 ? 0 : PhaseOfPieceCount[pieceCount];
+    }
+    static int phase_of(const DirtyPiece& dp) {
+#if TRIUMV_PSQ_PHASES > 1
+        return dp.psqPhase;
+#else
+        (void) dp;
+        return 0;
+#endif
+    }
 
 #define B(v) (v * PS_NB)
     // clang-format off
@@ -97,7 +121,8 @@ class HalfKAv2_hm {
     using IndexList                                = ValueList<IndexType, MaxActiveDimensions>;
     using DiffType                                 = DirtyPiece;
 
-#if defined(USE_AVX512ICL)
+#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
+    // (Con le fasce gli indici superano 16 bit: il percorso vettoriale ICL e' spento e si usa make_index.)
     // Compute all changed feature indices and write them to the given lists
     static void write_indices(const std::array<Piece, SQUARE_NB>& oldPieces,
                               const std::array<Piece, SQUARE_NB>& newPieces,
@@ -111,11 +136,17 @@ class HalfKAv2_hm {
 
     // Index of a feature for a given king position and another piece on some square
 
-    static IndexType make_index(Color perspective, Square s, Piece pc, Square ksq);
+    // phase = fascia di materiale (0 se TRIUMV_PSQ_PHASES == 1)
+    static IndexType make_index(Color perspective, Square s, Piece pc, Square ksq, int phase = 0);
 
-    // Get a list of indices for recently changed features
-    static void append_changed_indices(
-      Color perspective, Square ksq, const DiffType& diff, IndexList& removed, IndexList& added);
+    // Get a list of indices for recently changed features. La fascia e' quella dello stato di arrivo; dentro una
+    // catena incrementale e' costante (un cambio di fascia forza il refresh, vedi requires_refresh).
+    static void append_changed_indices(Color            perspective,
+                                       Square           ksq,
+                                       const DiffType&  diff,
+                                       IndexList&       removed,
+                                       IndexList&       added,
+                                       int              phase = 0);
 
     // Returns whether the change stored in this DirtyPiece means
     // that a full accumulator refresh is required.

@@ -201,7 +201,12 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         if (size >= 2 && dp.pc == make_piece(perspective, KING) && dp.to != SQ_NONE
             && accumulators[size - 2].computed[perspective]
             && pos.count<ALL_PIECES>() >= MIN_PC_COUNT_HYBRID
-            && ((int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == SQ_NONE)
+            && ((int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == SQ_NONE
+#if TRIUMV_PSQ_PHASES > 1
+            // re che cattura attraversando una soglia di fascia: le due entry starebbero in fasce diverse
+            && !dp.psqPhaseChanged
+#endif
+        )
         {
     #ifdef TRIUMV_PROFILE
             prof_refresh_same_orient++;
@@ -545,9 +550,13 @@ void update_accumulator_incremental(Color                     perspective,
     const auto* pfBase   = &featureTransformer.threatWeights[0];
     IndexType   pfStride = FeatureTransformer::OutputDimensions;
 
+    // Fascia (HalfKA a esperti): costante lungo la catena incrementale, perche' un cambio di fascia forza il refresh.
+    const int psqPhase = PSQFeatureSet::phase_of(dirtyPiece);
+
     if constexpr (Forward)
     {
-        PSQFeatureSet::append_changed_indices(perspective, ksq, dirtyPiece, psqRemoved, psqAdded);
+        PSQFeatureSet::append_changed_indices(perspective, ksq, dirtyPiece, psqRemoved, psqAdded,
+                                              psqPhase);
         prefetch_psq_rows(featureTransformer, psqRemoved, psqAdded);
         { PROF_GUARD(prof_idx_thr);
         ThreatFeatureSet::append_changed_indices(perspective, ksq, dirtyThreats, thrRemoved,
@@ -588,7 +597,8 @@ void update_accumulator_incremental(Color                     perspective,
     }
     else
     {
-        PSQFeatureSet::append_changed_indices(perspective, ksq, dirtyPiece, psqAdded, psqRemoved);
+        PSQFeatureSet::append_changed_indices(perspective, ksq, dirtyPiece, psqAdded, psqRemoved,
+                                              psqPhase);
         prefetch_psq_rows(featureTransformer, psqRemoved, psqAdded);
         ThreatFeatureSet::append_changed_indices(perspective, ksq, dirtyThreats, thrAdded,
                                                  thrRemoved, pfBase, pfStride);
@@ -710,15 +720,16 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
     auto& remB = Forward ? thrRemB : thrAddB;
     auto& addB = Forward ? thrAddB : thrRemB;
 
+    const int psqPhase = PSQFeatureSet::phase_of(dirtyPiece);  // costante lungo la catena (vedi sopra)
     if constexpr (Forward)
     {
-        PSQFeatureSet::append_changed_indices(WHITE, ksqW, dirtyPiece, psqRemW, psqAddW);
-        PSQFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPiece, psqRemB, psqAddB);
+        PSQFeatureSet::append_changed_indices(WHITE, ksqW, dirtyPiece, psqRemW, psqAddW, psqPhase);
+        PSQFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPiece, psqRemB, psqAddB, psqPhase);
     }
     else
     {
-        PSQFeatureSet::append_changed_indices(WHITE, ksqW, dirtyPiece, psqAddW, psqRemW);
-        PSQFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPiece, psqAddB, psqRemB);
+        PSQFeatureSet::append_changed_indices(WHITE, ksqW, dirtyPiece, psqAddW, psqRemW, psqPhase);
+        PSQFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPiece, psqAddB, psqRemB, psqPhase);
     }
     prefetch_psq_rows(featureTransformer, psqRemW, psqAddW);
     prefetch_psq_rows(featureTransformer, psqRemB, psqAddB);
@@ -891,8 +902,10 @@ void update_accumulator_hybrid(Color                     perspective,
     previousPieces[oldKsq] = dirtyPiece.pc;
     previousPieceBB |= square_bb(oldKsq);
 
-    const auto& oldEntry = cache[oldKsq][perspective];
-    auto&       newEntry = cache[newKsq][perspective];
+    // Fascia (HalfKA a esperti): il gate esclude il cambio di fascia, quindi prima e dopo stanno nella stessa.
+    const int   psqPhase = PSQFeatureSet::phase_of(dirtyPiece);
+    const auto& oldEntry = cache.at(psqPhase, oldKsq)[perspective];
+    auto&       newEntry = cache.at(psqPhase, newKsq)[perspective];
 
     // "Remove"/"Add" = cosa togliere/aggiungere ALLA ENTRY per ottenere
     // l'accumulatore HalfKA voluto.
@@ -909,22 +922,24 @@ void update_accumulator_hybrid(Color                     perspective,
     while (oldRemovedBB)
     {
         Square sq = pop_lsb(oldRemovedBB);
-        oldRemove.push_back(PSQFeatureSet::make_index(perspective, sq, oldEntry.pieces[sq], oldKsq));
+        oldRemove.push_back(
+          PSQFeatureSet::make_index(perspective, sq, oldEntry.pieces[sq], oldKsq, psqPhase));
     }
     while (oldAddedBB)
     {
         Square sq = pop_lsb(oldAddedBB);
-        oldAdd.push_back(PSQFeatureSet::make_index(perspective, sq, previousPieces[sq], oldKsq));
+        oldAdd.push_back(PSQFeatureSet::make_index(perspective, sq, previousPieces[sq], oldKsq, psqPhase));
     }
     while (newRemovedBB)
     {
         Square sq = pop_lsb(newRemovedBB);
-        newRemove.push_back(PSQFeatureSet::make_index(perspective, sq, newEntry.pieces[sq], newKsq));
+        newRemove.push_back(
+          PSQFeatureSet::make_index(perspective, sq, newEntry.pieces[sq], newKsq, psqPhase));
     }
     while (newAddedBB)
     {
         Square sq = pop_lsb(newAddedBB);
-        newAdd.push_back(PSQFeatureSet::make_index(perspective, sq, currentPieces[sq], newKsq));
+        newAdd.push_back(PSQFeatureSet::make_index(perspective, sq, currentPieces[sq], newKsq, psqPhase));
     }
 
     // Delta dei tre blocchi non-HalfKA. Gli indici di PawnPair/PassedPawns sono
@@ -1138,27 +1153,29 @@ void update_accumulator_refresh_cache(Color                     perspective,
 
     using Tiling [[maybe_unused]] = SIMDTiling<Dimensions, Dimensions, PSQTBuckets>;
 
-    const Square             ksq   = pos.square<KING>(perspective);
-    auto&                    entry = cache[ksq][perspective];
+    const Square ksq = pos.square<KING>(perspective);
+    // Fascia (HalfKA a esperti) della posizione da ricostruire: si lavora sulla finny table di quella fascia.
+    const int                psqPhase = PSQFeatureSet::phase_of_count(pos.count<ALL_PIECES>());
+    auto&                    entry    = cache.at(psqPhase, ksq)[perspective];
     PSQFeatureSet::IndexList removed, added;
 
     const Bitboard changedBB = get_changed_pieces(entry.pieces, pos.piece_array());
     Bitboard       removedBB = changedBB & entry.pieceBB;
     Bitboard       addedBB   = changedBB & pos.pieces();
 
-#if defined(USE_AVX512ICL)
+#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
     PSQFeatureSet::write_indices(entry.pieces, pos.piece_array(), removedBB, addedBB, perspective,
                                  ksq, removed, added);
 #else
     while (removedBB)
     {
         Square sq = pop_lsb(removedBB);
-        removed.push_back(PSQFeatureSet::make_index(perspective, sq, entry.pieces[sq], ksq));
+        removed.push_back(PSQFeatureSet::make_index(perspective, sq, entry.pieces[sq], ksq, psqPhase));
     }
     while (addedBB)
     {
         Square sq = pop_lsb(addedBB);
-        added.push_back(PSQFeatureSet::make_index(perspective, sq, pos.piece_on(sq), ksq));
+        added.push_back(PSQFeatureSet::make_index(perspective, sq, pos.piece_on(sq), ksq, psqPhase));
     }
 #endif
 
