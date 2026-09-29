@@ -223,6 +223,12 @@ shared cache. Same network, same settings, only the concurrency changed:
 | 90+0.9 | 75 | 720 | +14.5 ± 12.6 |
 | **12+0.12** | **38** | 922 | **+23.4 ± 12.0** |
 
+**The network step on its own** (network plus its per-phase eval-scale calibration, which belongs to
+the network upgrade; same 8.0 search on both sides, no SPSA): the five checkpoints tested against
+`legio-septima` after the lambda fix (epochs 321–368, 30+0.3) pooled give **+6.3 ± 4.4 Elo** over 6,738
+games, pentanomial [30, 758, 1675, 871, 35]. Those matches ran at concurrency 75, so this is a lower
+bound: see the table above for what the hyperthread saturation hides.
+
 At 75 the MoE looked flat at short time controls and positive only at long ones; with one engine per
 physical core the gain shows at every time control. From now on network tests run at most 38 games at
 a time on this machine. Against Viridithas 20 under the same conditions (12+0.12, concurrency 38) the
