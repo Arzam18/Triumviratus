@@ -24,7 +24,7 @@ jobs:
           set -euxo pipefail
 
           NDK_VERSION="27.2.12479018"
-          NDK_ROOT="$HOME/android-ndk-$NDK_VERSION"
+          NDK_ROOT="$HOME/android-ndk-r27c"
           NDK_ZIP="$RUNNER_TEMP/android-ndk.zip"
 
           curl -L --fail --retry 5 \
