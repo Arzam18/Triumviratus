@@ -121,9 +121,6 @@
     <ClCompile Include="nnue\nnue\features\pawn_pair.cpp">
       <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="nnue\nnue\features\mobility.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
-    </ClCompile>
     <ClCompile Include="nnue\nnue\features\passed_pawns.cpp">
       <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
     </ClCompile>

@@ -117,6 +117,13 @@ in counter terms.
 - **Dropping the eval cache.** It is not a pure cache: it returns evaluations computed with the
   optimism of the iteration that stored them, and turning it off changes the tree by 19%. That makes
   it a playing-strength question for an SPRT, not a speed one.
+- **A mobility input block** ("threats on empty squares": one feature per knight, bishop, rook and
+  queen — oriented square × four mobility buckets, 2,048 inputs), meant as a graft on the 8.0 network.
+  Measured on the MoE-1024 with paired simultaneous runs (480 samples): **−16.2 % NPS**
+  (95 % interval −17.1 / −15.3). Mobility changes with every move, so the block recomputes about 28
+  attack sets per node before and after the move. On top of the MoE's −7.5 % it would have needed
+  more than 15 Elo just to break even; the PassedPawns graft gave 7. Removed from the engine on
+  29 September 2026 (bench unchanged: 273477 with `legio-septima`).
 
 ## 6. TT16: the one change that alters the tree
 
@@ -217,8 +224,10 @@ block, after the next network.
   options that are switched off stay in the code.
 - **Ablation campaign closed:** nine tests, two features switched off (about +7 Elo together), the rest
   needed or neutral.
-- **Next:** the next network (larger L1), with an L1 penalty on the feature-transformer activations in
-  the recipe (one of the recipe changes behind Coda 0.9.4's gain).
+- **Network:** instead of a wider L1, the 8.0 network is a **mixture of experts** on the king-relative
+  block (MoE-1024, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
+  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
+  The mobility block planned as a graft was measured and dropped (section 5).
 - Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
   generated castling moves from the wrong squares). Now supported: see section 13.
 

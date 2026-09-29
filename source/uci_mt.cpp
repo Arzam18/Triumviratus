@@ -546,7 +546,6 @@ void uci_loop()
             // una check nuova qui non si accenderebbe mai (stessa ragione di IID).
             printf("option name TMPredBestThread type spin default 0 min 0 max 1\n"); // predizione TM dal thread VINCITORE (a 1 thread: identico)
             // Toggle da CO-TUNE (default OFF = byte-identico; si accendono nel mega-SPSA 4.0)
-            printf("option name MobilityBlock type check default false\n");     // 8.0 studio: blocco Mobility a pesi ZERO (eval identica): on/off misura il costo dell'inferenza
             printf("option name QSChecks type check default false\n");         // P1.3 scacchi quieti alla prima ply di qsearch. BAKED OFF 2026-07-25: spegnerli vale +9.71 +/- 5.99 Elo, LOS 99.93%, LLR 2.96 @3294g 20+0.2 (SF li ha rimossi, PR #5498)
             printf("option name QSTTQuiets type spin default 0 min 0 max 2\n"); // condizione TT di Stormphrax (search.cpp:1557: !PvNode && ttMove && flag!=UpperBound && ttMove quieta). 0=off (byte-identico) · 1=porta fedele, TUTTE le quiete (bench 371449, +80.7%: troppo caro) · 2=solo quiete che danno SCACCO, cioe' QSChecks TT-gated = la forma stretta che recupera le sequenze forzate senza ricomprare l'albero
             printf("option name NMPVerif type check default true\n");          // P1.6 NMP verification + no doppia null
@@ -1745,11 +1744,6 @@ void uci_loop()
         {
             const char* v = input + 34;
             set_thread_voting(strncmp(v, "true", 4) == 0 || strncmp(v, "on", 2) == 0 || v[0] == '1');
-        }
-        else if (strncmp(input, "setoption name MobilityBlock value ", 35) == 0)
-        {
-            const char* v = input + 35;
-            nn_set_mobility(strncmp(v, "true", 4) == 0 || strncmp(v, "on", 2) == 0 || v[0] == '1');
         }
         else if (strncmp(input, "setoption name QSChecks value ", 30) == 0)
         {

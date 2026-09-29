@@ -33,8 +33,6 @@ int nn_reload_big(const char* net_path);
 // M2 full-refresh path (the master always uses the cache to accelerate refresh;
 // the eval value is identical regardless). Kept for API stability.
 void nn_set_finny(int on);
-// 8.0 studio: blocco Mobility ("threat su case vuote") con pesi zero, UCI MobilityBlock.
-void nn_set_mobility(int on);
 
 // DIAGNOSTIC ("accstats" UCI command). No-op stub in M2 (the v13 incremental
 // refresh counters arrive with M3).

@@ -31,7 +31,6 @@
 #include "features/half_ka_v2_hm.h"
 #include "features/full_threats.h"
 #include "features/passed_pawns.h"
-#include "features/mobility.h"
 #include "features/pawn_pair.h"
 #include "layers/affine_transform.h"
 #include "layers/affine_transform_sparse_input.h"
@@ -57,9 +56,9 @@ using ThreatFeatureSet = Features::FullThreats;
 using PSQFeatureSet    = Features::HalfKAv2_hm;
 using PawnFeatureSet   = Features::PawnPair;
 using PassedFeatureSet = Features::PassedPawns;  // v3 graft: 96 feature passed-pawn, folded dopo PawnPair
-// 8.0 studio: mobilita' bucketizzata ("threat su case vuote"), folded dopo PassedPawns,
-// pesi ZERO finche' una rete non li allena, attivo solo con UCI MobilityBlock=true.
-using MobilityFeatureSet = Features::Mobility;
+// 8.0: il blocco Mobility ("threat su case vuote") e' stato TOLTO il 29/09/2026: costo misurato
+// -16,2% NPS (nps_pair, 480 campioni, IC95 [-17,05; -15,34]) sulla MoE-1024, troppo per una graft.
+// Codice in _archivio/mobility_2026-09-29 (motore e trainer).
 
 // Number of input feature dimensions after conversion
 // 8.0 studio: L1 sovrascrivibile dalla build (make EXTRACXXFLAGS=-DTRIUMV_L1=2048) per

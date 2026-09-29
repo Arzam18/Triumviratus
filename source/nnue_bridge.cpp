@@ -20,7 +20,6 @@
 #include "frozen.h"   // 🔴 DEVE stare qui: senza, il congelamento della
                       // miscela non si attiva nelle build di spedizione.
 #include "nnue_bridge.h"
-#include "nnue/nnue/features/mobility.h"   // 8.0 studio: snapshot + g_mobility_on
 
 #include "profile.h"
 
@@ -364,9 +363,6 @@ void nn_init_tables(void) {
 // No-ops kept for API stability (both paths always use the refresh cache).
 void nn_set_finny(int) {}
 
-// 8.0 studio Mobility (UCI MobilityBlock). Pesi zero => eval identica, cambia solo il
-// costo. Da impostare prima di `ucinewgame`: gli accumulatori gia' calcolati restano.
-void nn_set_mobility(int on) { Eval::NNUE::Features::g_mobility_on = on != 0; }
 void nn_acc_stats(void) {}
 
 // M3 toggles. Incremental is now the DEFAULT: validated bit-exact vs full-refresh
@@ -684,13 +680,8 @@ apply_move_impl(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThreats& dt
     }
 }
 
-// 8.0 studio Mobility: il blocco non ha un delta per eventi (la mobilita' cambia con
-// qualunque mossa), quindi si salva lo snapshot dei bitboard PRIMA e DOPO la mutazione
-// e features/mobility.cpp emette la differenza. Con MobilityBlock off costa zero.
 inline void apply_move(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThreats& dts,
-                       DirtyPawns& dpw, DirtyMobility& dmo) {
-    if (Eval::NNUE::Features::g_mobility_on)
-        Eval::NNUE::Features::Mobility::snapshot(pos, dmo.before);
+                       DirtyPawns& dpw) {
     apply_move_impl(pos, m, dp, dts, dpw);
 #if TRIUMV_PSQ_PHASES > 1
     {   // HalfKA a esperti: fascia della posizione dopo la mossa, e se una cattura l'ha cambiata (-> refresh)
@@ -701,8 +692,6 @@ inline void apply_move(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThre
         dp.psqPhaseChanged = PSQ::phase_of_count(before) != dp.psqPhase;
     }
 #endif
-    if (Eval::NNUE::Features::g_mobility_on)
-        Eval::NNUE::Features::Mobility::snapshot(pos, dmo.after);
 }
 
 // Reverse apply_move on pos (no dts — undo just pops the accumulator). Mirrors the
@@ -743,7 +732,7 @@ inline void nn_catch_up(SfPos* p) {
 
             auto dirties = p->accStack->push();
             apply_move(p->pos, &p->mvStack[i], std::get<0>(dirties), std::get<1>(dirties),
-                       std::get<2>(dirties), std::get<3>(dirties));
+                       std::get<2>(dirties));
         }
         p->pos.set_side_to_move(flip(p->pos.side_to_move()));
         ++p->appliedPly;
@@ -796,9 +785,8 @@ void nn_pos_do(void* handle, const struct SfMove* m) {
     // it later, only if an eval is actually reached). Eager fallback (g_lazy_mirror
     // off) applies immediately, same as pre-N1, keeping appliedPly in lockstep.
     if (g_incremental && !g_lazy_mirror) {
-        auto dirties = p->accStack->push();  // {DirtyPiece&, DirtyThreats&, DirtyPawns&, DirtyMobility&}
-        apply_move(p->pos, m, std::get<0>(dirties), std::get<1>(dirties), std::get<2>(dirties),
-                   std::get<3>(dirties));
+        auto dirties = p->accStack->push();  // {DirtyPiece&, DirtyThreats&, DirtyPawns&}
+        apply_move(p->pos, m, std::get<0>(dirties), std::get<1>(dirties), std::get<2>(dirties));
         p->pos.set_side_to_move(flip(p->pos.side_to_move()));
         p->appliedPly = p->ply + 1;
     }

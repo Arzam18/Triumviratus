@@ -85,7 +85,7 @@ void AccumulatorStack::reset() noexcept {
     size = 1;
 }
 
-std::tuple<DirtyPiece&, DirtyThreats&, DirtyPawns&, DirtyMobility&>
+std::tuple<DirtyPiece&, DirtyThreats&, DirtyPawns&>
 AccumulatorStack::push() noexcept {
     assert(size < MaxSize);
     auto& st = accumulators[size];
@@ -93,7 +93,7 @@ AccumulatorStack::push() noexcept {
     new (&st.dirtyThreats) DirtyThreats;
     st.dirtyPawns.any = false;  // TRANN1: apply_move la riempie se la mossa tocca pedoni
     size++;
-    return {st.dirtyPiece, st.dirtyThreats, st.dirtyPawns, st.dirtyMobility};
+    return {st.dirtyPiece, st.dirtyThreats, st.dirtyPawns};
 }
 
 void AccumulatorStack::pop() noexcept {
@@ -545,7 +545,6 @@ void update_accumulator_incremental(Color                     perspective,
     const auto& dirtyPiece   = Forward ? target_state.dirtyPiece : computed.dirtyPiece;
     const auto& dirtyThreats = Forward ? target_state.dirtyThreats : computed.dirtyThreats;
     const auto& dirtyPawns   = Forward ? target_state.dirtyPawns : computed.dirtyPawns;
-    const auto& dirtyMobility = Forward ? target_state.dirtyMobility : computed.dirtyMobility;
 
     const auto* pfBase   = &featureTransformer.threatWeights[0];
     IndexType   pfStride = FeatureTransformer::OutputDimensions;
@@ -587,9 +586,6 @@ void update_accumulator_incremental(Color                     perspective,
         { PROF_GUARD(prof_idx_pawn);
         PawnFeatureSet::append_changed_indices(perspective, ksq, dirtyPawns, thrRemoved, thrAdded);
         PassedFeatureSet::append_changed_indices(perspective, ksq, dirtyPawns, thrRemoved, thrAdded); }
-        if (Features::g_mobility_on)  // 8.0 studio: folded, stesse liste
-            MobilityFeatureSet::append_changed_indices(perspective, ksq, dirtyMobility, thrRemoved,
-                                                       thrAdded);
 #ifdef TRIUMV_PROFILE
         prof_cols_pawn_inc += thrRemoved.size() + thrAdded.size() - profThrBeforePawn;
         prof_cols_psq_inc  += psqRemoved.size() + psqAdded.size();
@@ -604,9 +600,6 @@ void update_accumulator_incremental(Color                     perspective,
                                                  thrRemoved, pfBase, pfStride);
         PawnFeatureSet::append_changed_indices(perspective, ksq, dirtyPawns, thrAdded, thrRemoved);
         PassedFeatureSet::append_changed_indices(perspective, ksq, dirtyPawns, thrAdded, thrRemoved);
-        if (Features::g_mobility_on)
-            MobilityFeatureSet::append_changed_indices(perspective, ksq, dirtyMobility, thrAdded,
-                                                       thrRemoved);
     }
     // NB (2026-07-15): estendere il prefetch a HalfKA/PawnPair/refresh aveva
     // MISURATO -12.9% NPS su Zen4, e per due settimane quel numero ha tenuto
@@ -743,12 +736,6 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
     PawnFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPawns, remB, addB);
     PassedFeatureSet::append_changed_indices(WHITE, ksqW, dirtyPawns, remW, addW);
     PassedFeatureSet::append_changed_indices(BLACK, ksqB, dirtyPawns, remB, addB);
-    if (Features::g_mobility_on)  // 8.0 studio: folded, stesse liste
-    {
-        const auto& dirtyMobility = Forward ? target_state.dirtyMobility : computed.dirtyMobility;
-        MobilityFeatureSet::append_changed_indices(WHITE, ksqW, dirtyMobility, remW, addW);
-        MobilityFeatureSet::append_changed_indices(BLACK, ksqB, dirtyMobility, remB, addB);
-    }
 
 #ifdef TRIUMV_PROFILE
     prof_n_cols += psqAddW.size() + psqRemW.size() + thrAddW.size() + thrRemW.size()
@@ -953,11 +940,6 @@ void update_accumulator_hybrid(Color                     perspective,
                                            thrAdded);
     PassedFeatureSet::append_changed_indices(perspective, newKsq, target.dirtyPawns, thrRemoved,
                                              thrAdded);
-    // 8.0 studio Mobility: il gate garantisce stessa orientation fra oldKsq e newKsq,
-    // quindi il delta dallo snapshot prima/dopo vale come per gli altri blocchi folded.
-    if (Features::g_mobility_on)
-        MobilityFeatureSet::append_changed_indices(perspective, newKsq, target.dirtyMobility,
-                                                   thrRemoved, thrAdded);
 
     const auto& fromAcc     = computed.accumulation[perspective];
     auto&       toAcc       = target.accumulation[perspective];
@@ -1228,10 +1210,6 @@ void update_accumulator_refresh_cache(Color                     perspective,
 
     ThreatFeatureSet::IndexList active;
     ThreatFeatureSet::append_active_indices(perspective, pos, active);
-    // 8.0 studio Mobility: PRIMA dei blocchi pedoni e DENTRO nThreat, cosi' viene sommato
-    // sempre (dipende dalla posizione intera, non puo' stare nella cache dei pedoni).
-    if (Features::g_mobility_on)
-        MobilityFeatureSet::append_active_indices(perspective, pos, active);
     const int nThreat = active.ssize();
     if (!pawnHit)
     {

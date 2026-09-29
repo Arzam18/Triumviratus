@@ -142,10 +142,15 @@ Stockfish's SFNNv16 recipe (`vondele/nettest`, `threats.yaml`), scaled to the ba
 
 | | pretraining (P) | fine-tune (F) |
 |---|---|---|
-| Length | **450 epochs × 1 G positions** | **22 epochs**, resumed from P |
+| Length | **450 epochs × 1 G positions** | **30 epochs**, resumed from P's weights |
 | Batch | **524,288** | 262,144 |
-| lr | **8e-4** (SFNNv16's 4e-4 at batch 131,072, × √4) | 5.66e-4 |
-| Schedule | one-cycle, 5 % warmup, final divisor 1000 | one-cycle |
+| lr | **8e-4** (SFNNv16's 4e-4 at batch 131,072, × √4) | **6.5e-5** peak |
+| Schedule | one-cycle, 5 % warmup, final divisor 1000 | one-cycle, 10 % warmup, final divisor 1000 |
+
+<sub>The fine-tune was changed on 29 September, before it started. As launched it followed SFNNv16: 22 epochs
+re-warmed to 5.66e-4 — 70 % of P's peak, right after P has taken the rate to almost zero — with the lambda cycle
+restarting from 1.0. Now it is a gentle one: a slow rise to about 8 % of P's peak, lambda 0.75 throughout. P's
+final network and F's are both kept and will be compared directly.</sub>
 
 - **Lambda, as launched:** **1.0 with a cycle** that dips by 0.3 (25 % warmup), plus jitter (0.0035 per sample,
   0.0070 per batch, decay 0.999), as in SFNNv16. That cycle dips to 0.7 at epoch ≈ 112 and **climbs back to 1.0**
@@ -240,6 +245,9 @@ thread, 64 MB hash, UHO 2024 (+0.85/+0.94) openings, 75 games at a time.
 | 293 | 30+0.3, scale, **new lambda** | 909 | 211 / 480 / 218 | −3 ± 16 |
 | 299 | 30+0.3, scale, new lambda | 886 | 201 / 460 / 225 | −9 ± 16 |
 | 311 | 30+0.3, scale, new lambda | 1,491 | 340 / 794 / 357 | −4 ± 12 |
+| 321 | 30+0.3, scale, new lambda | 1,949 | 438 / 1,106 / 405 | +6 ± 10 |
+| 333 | 30+0.3, scale, **lambda 0.75 fixed** | 1,425 | 343 / 788 / 294 | **+12 ± 12** |
+| 343 | 30+0.3, scale, lambda 0.75 fixed | 578 | 126 / 325 / 127 | −1 ± 15 |
 
 - **The gap closed fast up to epoch ≈ 60, then the curve went flat** at −45 to −70. The flat stretch coincides with
   the learning rate near its peak. The schedule is a cosine one-cycle: warmup to 8e-4 by epoch ≈ 22, still above
