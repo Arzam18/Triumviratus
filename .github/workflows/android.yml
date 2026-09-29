@@ -15,16 +15,62 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ============================================================
+      # CHECK NNUE NETWORK
+      #
+      # The Triumviratus Makefile automatically embeds
+      # nn-legio-septima.nnue when this file exists at the
+      # source/ build root.
+      #
+      # If it is missing, Makefile defines:
+      #   -DNNUE_EMBEDDING_OFF
+      #
+      # which produces the ~684 KB networkless binary.
+      # ============================================================
+      - name: Verify NNUE network
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          NET="nn-legio-septima.nnue"
+
+          if [ ! -f "$NET" ]; then
+            echo "ERROR: $NET is missing."
+            echo "The build would disable NNUE embedding."
+            exit 1
+          fi
+
+          echo "NNUE network found:"
+          ls -lh "$NET"
+
+          # Sanity check: the network must be substantially larger
+          # than the engine itself.
+          SIZE=$(stat -c%s "$NET")
+
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: NNUE file is suspiciously small: $SIZE bytes"
+            exit 1
+          fi
+
+          echo "NNUE size: $SIZE bytes"
+
+      # ============================================================
+      # INSTALL ANDROID NDK
+      # ============================================================
       - name: Install Android NDK 27.2.12479018
         shell: bash
         run: |
           set -euxo pipefail
 
           NDK_VERSION="27.2.12479018"
-          NDK_ROOT="$HOME/android-ndk-r27c"
+          NDK_ROOT="$HOME/android-ndk-$NDK_VERSION"
           NDK_ZIP="$RUNNER_TEMP/android-ndk.zip"
 
           curl -L --fail --retry 5 \
@@ -34,12 +80,16 @@ jobs:
           rm -rf "$NDK_ROOT"
           unzip -q "$NDK_ZIP" -d "$HOME"
 
-          test -x "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+          test -x \
+            "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 
           echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
           echo "$NDK_ROOT" >> "$GITHUB_PATH"
           echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
+      # ============================================================
+      # BUILD
+      # ============================================================
       - name: Build Triumviratus ARM64 NEON
         working-directory: source
         shell: bash
@@ -47,10 +97,14 @@ jobs:
           set -euxo pipefail
 
           make clean
+
           make android \
             NDK="$NDK_ROOT" \
             EXE=Triumviratus-android-arm64-neon
 
+      # ============================================================
+      # VERIFY ANDROID ARM64 BINARY
+      # ============================================================
       - name: Verify Android ARM64 binary
         working-directory: source
         shell: bash
@@ -65,9 +119,41 @@ jobs:
 
           "$LLVM/llvm-readelf" -h "$BIN"
           "$LLVM/llvm-readelf" -A "$BIN" || true
+
           file "$BIN"
           ls -lh "$BIN"
 
+      # ============================================================
+      # VERIFY EMBEDDED NNUE
+      #
+      # The binary should now be much larger because the network
+      # is compiled into it by INCBIN().
+      # ============================================================
+      - name: Verify embedded NNUE
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BIN="Triumviratus-android-arm64-neon"
+
+          SIZE=$(stat -c%s "$BIN")
+
+          echo "Final binary size: $SIZE bytes"
+
+          # A networkless build was only ~684 KB.
+          # Reject anything suspiciously small.
+          if [ "$SIZE" -lt 10000000 ]; then
+            echo "ERROR: Binary is too small."
+            echo "The NNUE network was probably not embedded."
+            exit 1
+          fi
+
+          echo "Embedded NNUE sanity check passed."
+
+      # ============================================================
+      # PREPARE ARTIFACT
+      # ============================================================
       - name: Prepare artifact
         working-directory: source
         shell: bash
@@ -75,8 +161,14 @@ jobs:
           set -euxo pipefail
 
           mkdir -p ../artifact
-          cp "Triumviratus-android-arm64-neon" ../artifact/
 
+          cp \
+            "Triumviratus-android-arm64-neon" \
+            ../artifact/
+
+      # ============================================================
+      # UPLOAD ONLY THE ENGINE
+      # ============================================================
       - name: Upload Android engine
         uses: actions/upload-artifact@v4
         with:
