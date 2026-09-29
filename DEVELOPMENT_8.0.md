@@ -33,7 +33,7 @@
 > transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
 > **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the new **MoE-1024 network** and a first partial SPSA,
-> the first release-level test gives **+21.1 ± 8.8 Elo** against the official 7.0 at 20+0.2 (section 9,
+> the first release-level test gives **+22.1 ± 8.1 Elo** against the official 7.0 at 20+0.2 (section 9,
 > provisional: final network and full SPSA still to come).
 
 ---
@@ -198,12 +198,12 @@ network: **MoE-1024**, the `legio-septima` architecture with the king-relative b
 experts by game phase. Design, data, training and every intermediate measurement are in
 [NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
 
-**First release-level number** (29 September 2026, provisional: the match was still running, and the
+**First release-level number** (29 September 2026, provisional: the
 network is the end of the F3 fine-tune, epoch 79, not yet the final one):
 
 | engine | against | TC | games | pentanomial | Elo |
 |---|---|---|---:|---|---:|
-| 8.0 MoE, PGO, network F3 ep. 79 | **official 7.0 binary** (AVX-512, checksum verified) | 20+0.2 | 1,678 | [3, 171, 394, 263, 8] | **+21.1 ± 8.8** |
+| 8.0 MoE, PGO, network F3 ep. 79 | **official 7.0 binary** (AVX-512, checksum verified) | 20+0.2 | 2,000 | [4, 203, 467, 314, 12] | **+22.1 ± 8.1** |
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side carries everything so far: the
 speed work and TT16, the two ablations, `NullThreatExt=300` (closed as neutral-to-positive in the SPRT
