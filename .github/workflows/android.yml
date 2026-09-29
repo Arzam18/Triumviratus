@@ -18,41 +18,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Android NDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK 27.2.12479018
+      - name: Install Android NDK 27.2.12479018
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;27.2.12479018"
+          set -euxo pipefail
+
+          NDK_VERSION="27.2.12479018"
+          NDK_ROOT="$HOME/android-ndk-$NDK_VERSION"
+          NDK_ZIP="$RUNNER_TEMP/android-ndk.zip"
+
+          curl -L --fail --retry 5 \
+            -o "$NDK_ZIP" \
+            "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
+
+          rm -rf "$NDK_ROOT"
+          unzip -q "$NDK_ZIP" -d "$HOME"
+
+          test -x "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+
+          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+          echo "$NDK_ROOT" >> "$GITHUB_PATH"
+          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Build Triumviratus ARM64 NEON
         working-directory: source
         shell: bash
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
         run: |
           set -euxo pipefail
 
           make clean
-          make android             NDK="$NDK_HOME"             EXE=Triumviratus-android-arm64-neon
+          make android \
+            NDK="$NDK_ROOT" \
+            EXE=Triumviratus-android-arm64-neon
 
-      - name: Verify Android ELF
+      - name: Verify Android ARM64 binary
         working-directory: source
         shell: bash
         run: |
           set -euxo pipefail
 
           BIN="Triumviratus-android-arm64-neon"
+          LLVM="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
           test -f "$BIN"
           test -x "$BIN"
 
-          "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -h "$BIN"
-
-          "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -A "$BIN" || true
-
+          "$LLVM/llvm-readelf" -h "$BIN"
+          "$LLVM/llvm-readelf" -A "$BIN" || true
           file "$BIN"
           ls -lh "$BIN"
 
