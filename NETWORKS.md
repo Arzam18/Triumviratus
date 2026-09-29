@@ -61,6 +61,8 @@ step if the MoE-1024 gains little.</sub>
 
 ### The idea: a mixture of experts on the king-relative block
 
+![TRANN3 architecture: MoE-1024](docs/TRANN3_architecture_moe.svg)
+
 The `HalfKAv2_hm` block gets **four weight sets**, one per material phase, chosen by the number of pieces on the
 board. Only one set is active per position, so evaluation costs almost the same as a single block. The network gets
 four times the parameters where a single set has to compromise most: how the value of a piece on a square changes
@@ -142,8 +144,12 @@ Stockfish's SFNNv16 recipe (`vondele/nettest`, `threats.yaml`), scaled to the ba
 | lr | **8e-4** (SFNNv16's 4e-4 at batch 131,072, × √4) | 5.66e-4 |
 | Schedule | one-cycle, 5 % warmup, final divisor 1000 | one-cycle |
 
-- **Lambda:** **1.0 with a cycle** that dips by 0.3 (25 % warmup), plus jitter (0.0035 per sample, 0.0070 per batch,
-  decay 0.999), as in SFNNv16.
+- **Lambda, as launched:** **1.0 with a cycle** that dips by 0.3 (25 % warmup), plus jitter (0.0035 per sample,
+  0.0070 per batch, decay 0.999), as in SFNNv16. That cycle dips to 0.7 at epoch ≈ 112 and **climbs back to 1.0**
+  by the end of P, and restarts in F.
+- **Lambda, changed at epoch 292** (see [the plateau](#the-plateau-and-the-lambda-fix)): a linear descent from 0.865
+  to **0.75** over 40 epochs (reached at epoch 332), then **0.75 fixed** to the end of P and through all of F — the
+  target every earlier own network finished on.
 - **Piece-count sampling:** `pc-y` −0.20 / 0.45 / 1.0 / 0.95 / 0.75.
 - **Skipping:** `random-fen-skipping 2`. Openings are **soft**-skipped (`soft-early 20`) and never hard-skipped: the
   ≥ 24-piece expert needs opening positions, but book lines repeated across millions of games are down-weighted.
@@ -217,6 +223,20 @@ thread, 64 MB hash, UHO 2024 (+0.85/+0.94) openings, 75 games at a time.
 | 80 | 30+0.3 | 2,000 | 315 / 1,052 / 633 | −56 ± 11 |
 | 99 | 30+0.3 | 1,159 | 191 / 631 / 337 | −44 ± 14 |
 | 110 | 30+0.3 | 2,000 | 311 / 1,048 / 641 | −58 ± 11 |
+| 124 | 30+0.3 | 2,000 | 357 / 1,059 / 584 | −40 ± 10 |
+| 134 | 30+0.3 | 1,370 | 233 / 742 / 395 | −41 ± 12 |
+| 145 | 30+0.3 | 995 | 187 / 519 / 289 | −36 ± 15 |
+| 157 | 30+0.3, **scale** | 1,220 | 210 / 690 / 320 | −31 ± 13 |
+| 165 | 30+0.3, scale | 898 | 177 / 483 / 238 | −24 ± 16 |
+| 171 | 30+0.3, scale | 2,000 | 356 / 1,125 / 519 | −28 ± 10 |
+| 200 | 30+0.3, scale | 2,000 | 405 / 1,085 / 510 | −18 ± 10 |
+| 254 | 30+0.3, scale | 1,187 | 257 / 654 / 276 | −6 ± 13 |
+| 262 | 30+0.3, scale | 1,154 | 254 / 661 / 239 | **+5 ± 13** |
+| 272 | 30+0.3, scale | 604 | 130 / 323 / 151 | −12 ± 19 |
+| 278 | 30+0.3, scale | 701 | 151 / 385 / 165 | −7 ± 17 |
+| 293 | 30+0.3, scale, **new lambda** | 909 | 211 / 480 / 218 | −3 ± 16 |
+| 299 | 30+0.3, scale, new lambda | 886 | 201 / 460 / 225 | −9 ± 16 |
+| 311 | 30+0.3, scale, new lambda | 1,491 | 340 / 794 / 357 | −4 ± 12 |
 
 - **The gap closed fast up to epoch ≈ 60, then the curve went flat** at −45 to −70. The flat stretch coincides with
   the learning rate near its peak. The schedule is a cosine one-cycle: warmup to 8e-4 by epoch ≈ 22, still above
@@ -229,7 +249,61 @@ thread, 64 MB hash, UHO 2024 (+0.85/+0.94) openings, 75 games at a time.
   near epoch 96. Registered before the match, it predicted −32 for epoch 71; the match gave −70 ± 14. Early points
   on a steep curve say little about the plateau that follows.
 - **Checkpoints fixed in advance:** at epoch 225 (rate at 54 %) the network should be at −30 or better, otherwise
-  the run needs a closer look; at epoch 315 it should be near parity.
+  the run needs a closer look; at epoch 315 it should be near parity. **Both were met** (−18 at 200, parity from 254).
+- **From epoch 124 to 254 the curve rose on a straight line**, about +3.8 Elo every 10 epochs. A weighted linear fit
+  of the uncalibrated points 53–145 predicted −17 at epoch 200 and parity near 240; the later points, not used in the
+  fit, landed on it. **Then it went flat at parity**, from epoch ≈ 250 to at least 311.
+- Two direct MoE-against-MoE checks (10+0.1, 2,000 games, same scale on both sides) confirm the plateau is in the
+  network and not in the match: epoch 285 vs 278 **−2.1 ± 10.1**, epoch 305 vs 291 **+3.5 ± 10.7**.
+
+#### Eval scale per phase ("scale" in the table)
+
+The engine compresses the raw network output with a per-bucket factor, `EvalScaleB0..B7` (default 60, the value tuned
+for `legio-septima`), before search thresholds use it. The MoE has its own scale, so it was measured: the raw static
+eval of both nets on 40,000 positions from these matches, compared bucket by bucket (orthogonal regression).
+
+- At epoch 145 the MoE matched `legio-septima` everywhere **except 5–8 pieces**, where it read about **13 % higher**.
+  The scale depends on the piece count only: no jump at the expert boundaries 9|10, 15|16, 23|24.
+- Corrected set for the MoE side: **64 / 53 / 62 / 60 / 60 / 59 / 59 / 60**. Against the default on the same
+  network at 10+0.1: +6.1 ± 10.1 over 2,225 games — small, stopped before a verdict, adopted for all later tests.
+- At epoch 254 the network had drifted: the opening buckets now read 6–9 % *lower* than `legio-septima`. A set that
+  matched the ratios again (60 / 54 / 60 / 61 / 60 / 62 / 64 / 66) was tried on epoch 262 and did **worse**:
+  −27 ± 24 over 327 games against +5 ± 13 over 1,154 with the old set. It was dropped. Matching the raw ratio is not
+  what the search wants in the opening; the final values will be tuned by SPSA on the finished network.
+
+#### The plateau and the lambda fix
+
+The training and validation losses could not explain the plateau: both kept falling. But they are computed at the
+current lambda, and **lambda was moving**: the SFNNv16 cycle dips to 0.7 at epoch ≈ 112 and then climbs back towards
+1.0 — pure evaluation, no game result — by the end of the run. Every earlier own network (`rubicon-alea`,
+`legio-septima`) finished on **lambda 0.75 fixed**; `legio-septima` spent 700 of its 800 stage-2 epochs there.
+
+To separate learning from the moving target, five checkpoints were scored on the **same 600,000 positions** of a
+binpack the MoE never saw, with lambda held fixed (loss × 10⁻³):
+
+| epoch | λ = 1.0 (predict the eval label) | λ = 0.0 (predict the game result) |
+|---|---|---|
+| 110 | 4.78 | 18.65 |
+| 145 | 4.68 | 18.46 |
+| 200 | 4.53 | **18.36** |
+| 254 | 4.34 | 18.47 |
+| 285 | 4.23 | 18.40 |
+
+- Against the eval labels the network **kept improving at a constant rate**: no saturation, no over-fitting.
+- Against game results it **stopped improving at epoch ≈ 200**. Games are won on results, and the Elo plateau starts
+  right after.
+- The cycle was pushing the network towards imitating the labels, and it did exactly that.
+
+So at epoch 292 the run was stopped at an epoch boundary and resumed from the checkpoint (weights, optimiser,
+learning-rate schedule and step count restored) with the lambda change described under [Recipe](#recipe). Two
+details of the resume, both handled:
+
+- the trainer re-runs the epoch stored in the checkpoint; left alone, that extra epoch would have pushed the step count
+  past the one-cycle schedule and crashed the last epoch of P, so the stored epoch was advanced by one;
+- the fine-tune F would have restarted the lambda cycle from 1.0; it now runs at 0.75 throughout.
+
+The loss rises while lambda descends (a noisier target), as it did between epochs 39 and 119 while the network gained
+70 Elo. The first test of the fix is at epoch ≈ 335, with lambda settled.
 
 ### How it will be judged
 

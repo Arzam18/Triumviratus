@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 860" width="1160" height="860"
+     font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img"
+     aria-label="TRANN3 architecture: four input blocks, the HalfKA block split into four experts selected by piece count, a 1024 feature transformer, eight layer stacks and the SFNNv15 output head">
+  <title>TRANN3 &#8212; MoE-1024 &#8212; Triumviratus 8.0 network architecture</title>
+
+  <defs>
+    <style>
+      text        { fill: #E6EAF0; }
+      .dim        { fill: #9AA6B6; }
+      .faint      { fill: #67717F; }
+      .gold       { fill: #E8C170; }
+      .bz         { fill: #C4913F; }
+      .disp       { font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif; }
+      .mono       { font-family: 'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace; }
+      .sec        { font-size: 12px; letter-spacing: .14em; fill: #9AA6B6; }
+      .rule       { stroke: #2A3340; fill: none; }
+      .verd       { fill: #27564C; stroke: #3F8C7C; }
+      .verd-soft  { fill: #1D3F39; stroke: #2F6A5D; }
+      .bronze     { fill: #7A5A26; stroke: #C4913F; }
+      .box        { fill: #1B222D; stroke: #2A3340; }
+      .arrow      { stroke: #56647C; stroke-width: 1.5; fill: none; }
+      .arrow-b    { stroke: #C4913F; stroke-width: 1.5; fill: none; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#56647C"/>
+    </marker>
+    <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#C4913F"/>
+    </marker>
+    <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="#232C39"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#7A5A26" stroke-width="3"/>
+    </pattern>
+  </defs>
+
+  <rect x="0" y="0" width="1160" height="860" fill="#0A0D12"/>
+
+  <!-- ============================ header ============================ -->
+  <text class="disp" x="40" y="54" font-size="27" letter-spacing="6">TRANN3 &#183; MoE-1024</text>
+  <text class="dim" x="40" y="80" font-size="13.5">The NNUE network of Triumviratus 8.0. Same body as TRANN2 (Stockfish SFNNv16 + PassedPawns), with one change:</text>
+  <text class="dim" x="40" y="98" font-size="13.5">the king-relative piece block (HalfKA) is split into <tspan class="gold">four experts, one per game phase</tspan>. Each position uses exactly one of them.</text>
+  <line class="rule" x1="40" y1="116" x2="1120" y2="116"/>
+
+  <!-- ============================ 1. inputs -> FT -> stacks ============================ -->
+  <text class="sec mono" x="40" y="146">1 &#183; INPUTS &#8594; FEATURE TRANSFORMER &#8594; LAYER STACKS</text>
+
+  <!-- shared blocks -->
+  <rect class="verd" x="40" y="162" width="250" height="42" rx="3"/>
+  <text class="mono" x="54" y="181" font-size="12.5">Full_Threats</text>
+  <text class="mono dim" x="54" y="196" font-size="10.5">who attacks what &#183; shared</text>
+  <text class="mono" x="278" y="188" font-size="12.5" text-anchor="end">59,808</text>
+
+  <!-- the MoE block -->
+  <rect x="40" y="214" width="250" height="176" rx="3" fill="#241D12" stroke="#C4913F" stroke-width="1.5"/>
+  <text class="mono" x="54" y="234" font-size="12.5">HalfKAv2_hm_P4</text>
+  <text class="mono" x="278" y="234" font-size="12.5" text-anchor="end">90,112</text>
+  <text class="mono bz" x="54" y="250" font-size="10.5">4 experts &#215; 22,528 &#183; ONE is active</text>
+
+  <rect class="verd-soft" x="54" y="260" width="222" height="27" rx="2"/>
+  <text class="mono" x="66" y="278" font-size="11.5">E3</text><text class="mono dim" x="96" y="278" font-size="11">&#8805; 24 pieces</text><text class="mono faint" x="266" y="278" font-size="10.5" text-anchor="end">opening</text>
+  <rect class="verd-soft" x="54" y="291" width="222" height="27" rx="2"/>
+  <text class="mono" x="66" y="309" font-size="11.5">E2</text><text class="mono dim" x="96" y="309" font-size="11">16&#8211;23</text><text class="mono faint" x="266" y="309" font-size="10.5" text-anchor="end">middlegame</text>
+  <rect class="verd-soft" x="54" y="322" width="222" height="27" rx="2"/>
+  <text class="mono" x="66" y="340" font-size="11.5">E1</text><text class="mono dim" x="96" y="340" font-size="11">10&#8211;15</text><text class="mono faint" x="266" y="340" font-size="10.5" text-anchor="end">late middlegame</text>
+  <rect class="verd-soft" x="54" y="353" width="222" height="27" rx="2"/>
+  <text class="mono" x="66" y="371" font-size="11.5">E0</text><text class="mono dim" x="96" y="371" font-size="11">&#8804; 9</text><text class="mono faint" x="266" y="371" font-size="10.5" text-anchor="end">endgame</text>
+
+  <rect class="verd" x="40" y="400" width="250" height="42" rx="3"/>
+  <text class="mono" x="54" y="419" font-size="12.5">PP_3Wide (pawn pairs)</text>
+  <text class="mono dim" x="54" y="434" font-size="10.5">same / adjacent files &#183; shared</text>
+  <text class="mono" x="278" y="426" font-size="12.5" text-anchor="end">4,560</text>
+
+  <rect class="bronze" x="40" y="452" width="250" height="42" rx="3"/>
+  <text class="mono" x="54" y="471" font-size="12.5">PassedPawns</text>
+  <text class="mono bz" x="54" y="486" font-size="10.5">ours &#183; shared</text>
+  <text class="mono" x="278" y="478" font-size="12.5" text-anchor="end">96</text>
+
+  <!-- selector -->
+  <rect x="318" y="206" width="136" height="58" rx="3" fill="#241D12" stroke="#C4913F" stroke-dasharray="4 3"/>
+  <text class="mono gold" x="386" y="228" font-size="11" text-anchor="middle">piece count</text>
+  <text class="mono gold" x="386" y="244" font-size="11" text-anchor="middle">picks the expert</text>
+  <path class="arrow-b" d="M 318 250 L 294 250" marker-end="url(#ab)"/>
+
+  <!-- wires into FT -->
+  <path class="arrow" d="M 290 183 C 440 183 470 330 500 330" marker-end="url(#a)"/>
+  <path class="arrow-b" d="M 290 318 C 400 318 440 330 500 330" marker-end="url(#ab)"/>
+  <text class="mono bz" x="308" y="306" font-size="9.5">only the active expert's rows</text>
+  <path class="arrow" d="M 290 421 C 440 421 470 330 500 330" marker-end="url(#a)"/>
+  <path class="arrow" d="M 290 473 C 440 473 470 330 500 330" marker-end="url(#a)"/>
+
+  <!-- feature transformer -->
+  <rect class="box" x="504" y="190" width="120" height="280" rx="3"/>
+  <text class="mono faint" x="564" y="212" font-size="10.5" text-anchor="middle">FEATURE</text>
+  <text class="mono faint" x="564" y="226" font-size="10.5" text-anchor="middle">TRANSFORMER</text>
+  <text class="disp" x="564" y="336" font-size="32" text-anchor="middle">1024</text>
+  <text class="mono dim" x="564" y="356" font-size="10.5" text-anchor="middle">one accumulator</text>
+
+  <path class="arrow" d="M 624 330 L 680 330" marker-end="url(#a)"/>
+
+  <!-- layer stacks -->
+  <rect class="box" x="684" y="190" width="120" height="280" rx="3"/>
+  <text class="mono faint" x="744" y="212" font-size="10.5" text-anchor="middle">8 LAYER</text>
+  <text class="mono faint" x="744" y="226" font-size="10.5" text-anchor="middle">STACKS</text>
+  <g class="mono" font-size="10" fill="#9AA6B6">
+    <rect x="698" y="238" width="92" height="25" rx="2" fill="#232C39"/><text x="744" y="255" text-anchor="middle">b7 &#183; 29&#8211;32</text>
+    <rect x="698" y="266" width="92" height="25" rx="2" fill="#232C39"/><text x="744" y="283" text-anchor="middle">b6 &#183; 25&#8211;28</text>
+    <rect x="698" y="294" width="92" height="25" rx="2" fill="url(#hatch)"/><text x="744" y="311" text-anchor="middle" fill="#E6EAF0">b5 &#183; 21&#8211;24</text>
+    <rect x="698" y="322" width="92" height="25" rx="2" fill="#232C39"/><text x="744" y="339" text-anchor="middle">b4 &#183; 17&#8211;20</text>
+    <rect x="698" y="350" width="92" height="25" rx="2" fill="url(#hatch)"/><text x="744" y="367" text-anchor="middle" fill="#E6EAF0">b3 &#183; 13&#8211;16</text>
+    <rect x="698" y="378" width="92" height="25" rx="2" fill="url(#hatch)"/><text x="744" y="395" text-anchor="middle" fill="#E6EAF0">b2 &#183; 9&#8211;12</text>
+    <rect x="698" y="406" width="92" height="25" rx="2" fill="#232C39"/><text x="744" y="423" text-anchor="middle">b1 &#183; 5&#8211;8</text>
+    <rect x="698" y="434" width="92" height="25" rx="2" fill="#232C39"/><text x="744" y="451" text-anchor="middle">b0 &#183; 1&#8211;4</text>
+  </g>
+
+  <path class="arrow" d="M 804 330 L 846 330" marker-end="url(#a)"/>
+  <text class="mono dim" x="852" y="326" font-size="11">to the head</text>
+  <text class="mono dim" x="852" y="341" font-size="11">(section 3)</text>
+
+  <!-- key facts -->
+  <g class="mono" font-size="11">
+    <text class="gold" x="852" y="196">Why it is cheap</text>
+    <text class="dim" x="852" y="214">154,576 inputs, but ~40 are</text>
+    <text class="dim" x="852" y="229">active per position &#8212; as in TRANN2.</text>
+    <text class="dim" x="852" y="244">Only active rows are summed.</text>
+
+    <text class="gold" x="852" y="378">What it costs</text>
+    <text class="dim" x="852" y="396">~158 M first-layer weights</text>
+    <text class="dim" x="852" y="411">(TRANN2 ~89 M): &#8722;7.5% NPS.</text>
+    <text class="dim" x="852" y="426">Expert switch = full refresh,</text>
+    <text class="dim" x="852" y="441">like a king move; only on a</text>
+    <text class="dim" x="852" y="456">capture crossing 9|10, 15|16, 23|24.</text>
+  </g>
+
+  <line class="rule" x1="40" y1="518" x2="1120" y2="518"/>
+
+  <!-- ============================ 2. piece-count axis ============================ -->
+  <text class="sec mono" x="40" y="548">2 &#183; PIECE COUNT PICKS BOTH THE EXPERT AND THE LAYER STACK &#8212; WITH DIFFERENT BOUNDARIES</text>
+
+  <!-- scale: 30 px per piece, piece 1 starts at x=150 -->
+  <text class="mono dim" x="140" y="584" font-size="11" text-anchor="end">experts</text>
+  <rect class="verd-soft" x="150" y="566" width="270" height="30" rx="2"/><text class="mono" x="285" y="586" font-size="12" text-anchor="middle">E0 &#183; 1&#8211;9</text>
+  <rect class="verd-soft" x="422" y="566" width="178" height="30" rx="2"/><text class="mono" x="511" y="586" font-size="12" text-anchor="middle">E1 &#183; 10&#8211;15</text>
+  <rect class="verd-soft" x="602" y="566" width="238" height="30" rx="2"/><text class="mono" x="721" y="586" font-size="12" text-anchor="middle">E2 &#183; 16&#8211;23</text>
+  <rect class="verd-soft" x="842" y="566" width="268" height="30" rx="2"/><text class="mono" x="976" y="586" font-size="12" text-anchor="middle">E3 &#183; 24&#8211;32</text>
+
+  <text class="mono dim" x="140" y="624" font-size="11" text-anchor="end">layer stacks</text>
+  <g class="mono" font-size="11.5">
+    <rect x="150" y="606" width="118" height="30" rx="2" fill="#232C39"/><text x="209" y="626" text-anchor="middle">b0</text>
+    <rect x="270" y="606" width="118" height="30" rx="2" fill="#232C39"/><text x="329" y="626" text-anchor="middle">b1</text>
+    <rect x="390" y="606" width="118" height="30" rx="2" fill="url(#hatch)" stroke="#C4913F"/><text x="449" y="626" text-anchor="middle">b2</text>
+    <rect x="510" y="606" width="118" height="30" rx="2" fill="url(#hatch)" stroke="#C4913F"/><text x="569" y="626" text-anchor="middle">b3</text>
+    <rect x="630" y="606" width="118" height="30" rx="2" fill="#232C39"/><text x="689" y="626" text-anchor="middle">b4</text>
+    <rect x="750" y="606" width="118" height="30" rx="2" fill="url(#hatch)" stroke="#C4913F"/><text x="809" y="626" text-anchor="middle">b5</text>
+    <rect x="870" y="606" width="118" height="30" rx="2" fill="#232C39"/><text x="929" y="626" text-anchor="middle">b6</text>
+    <rect x="990" y="606" width="120" height="30" rx="2" fill="#232C39"/><text x="1049" y="626" text-anchor="middle">b7</text>
+  </g>
+  <!-- expert boundaries drawn through both rows -->
+  <g stroke="#E8C170" stroke-width="1.5" stroke-dasharray="3 3">
+    <line x1="421" y1="560" x2="421" y2="644"/>
+    <line x1="601" y1="560" x2="601" y2="644"/>
+    <line x1="841" y1="560" x2="841" y2="644"/>
+  </g>
+  <g class="mono faint" font-size="10.5" text-anchor="middle">
+    <text x="150" y="658">1</text><text x="270" y="658">5</text><text x="390" y="658">9</text><text x="510" y="658">13</text>
+    <text x="630" y="658">17</text><text x="750" y="658">21</text><text x="870" y="658">25</text><text x="990" y="658">29</text><text x="1110" y="658">32</text>
+  </g>
+  <text class="mono faint" x="150" y="674" font-size="10.5">pieces on the board, kings included &#8594;</text>
+  <text class="mono gold" x="560" y="674" font-size="11">Hatched stacks (b2, b3, b5) receive positions from two experts.</text>
+  <text class="mono dim" x="560" y="689" font-size="10.5">Measured: no eval-scale jump at 9|10, 15|16, 23|24 &#8212; aligning them is an idea for the next net.</text>
+
+  <line class="rule" x1="40" y1="706" x2="1120" y2="706"/>
+
+  <!-- ============================ 3. head ============================ -->
+  <text class="sec mono" x="40" y="734">3 &#183; OUTPUT HEAD, ONE PER LAYER STACK &#8212; UNCHANGED FROM TRANN2 (SFNNv15/v16)</text>
+
+  <rect class="box" x="40" y="752" width="112" height="40" rx="3"/>
+  <text class="mono" x="96" y="770" font-size="12" text-anchor="middle">fc_0</text>
+  <text class="mono faint" x="96" y="784" font-size="10" text-anchor="middle">1024 &#8594; 32</text>
+  <path class="arrow" d="M 152 772 L 186 772" marker-end="url(#a)"/>
+
+  <rect class="verd-soft" x="190" y="752" width="92" height="40"/><text class="mono" x="236" y="776" font-size="10.5" text-anchor="middle">L2&#178;</text>
+  <rect class="verd-soft" x="282" y="752" width="92" height="40"/><text class="mono" x="328" y="776" font-size="10.5" text-anchor="middle">L2</text>
+  <rect class="verd-soft" x="374" y="752" width="92" height="40"/><text class="mono" x="420" y="776" font-size="10.5" text-anchor="middle">L3&#178;</text>
+  <rect class="verd-soft" x="466" y="752" width="92" height="40"/><text class="mono" x="512" y="776" font-size="10.5" text-anchor="middle">L3</text>
+  <text class="mono faint" x="374" y="746" font-size="10" text-anchor="middle">concat buffer &#183; 128</text>
+
+  <path class="arrow" d="M 282 792 L 282 818 L 590 818" />
+  <rect class="box" x="590" y="802" width="100" height="32" rx="3"/>
+  <text class="mono" x="640" y="822" font-size="11" text-anchor="middle">fc_1 64&#8594;32</text>
+  <path class="arrow" d="M 690 818 L 706 818 L 706 800 L 512 800 L 512 796" marker-end="url(#a)"/>
+
+  <path class="arrow" d="M 558 772 L 736 772" marker-end="url(#a)"/>
+  <rect class="box" x="740" y="752" width="112" height="40" rx="3"/>
+  <text class="mono" x="796" y="770" font-size="12" text-anchor="middle">fc_2</text>
+  <text class="mono faint" x="796" y="784" font-size="10" text-anchor="middle">128 &#8594; 1</text>
+  <path class="arrow" d="M 852 772 L 886 772" marker-end="url(#a)"/>
+  <rect class="box" x="890" y="752" width="150" height="40" rx="3" stroke="#C4913F"/>
+  <text class="disp" x="965" y="778" font-size="17" text-anchor="middle">evaluation</text>
+  <text class="mono faint" x="890" y="810" font-size="10">+ L1 skip (last two fc_0 outputs)</text>
+  <text class="mono faint" x="890" y="824" font-size="10">&#215; EvalScaleB per piece bucket</text>
+
+  <!-- ============================ legend / credits ============================ -->
+  <rect class="verd" x="40" y="842" width="10" height="10" rx="1"/>
+  <text class="mono faint" x="56" y="851" font-size="10">from Stockfish SFNNv16</text>
+  <rect class="bronze" x="220" y="842" width="10" height="10" rx="1"/>
+  <text class="mono faint" x="236" y="851" font-size="10">ours, not in Stockfish (PassedPawns, HalfKA experts)</text>
+  <text class="mono faint" x="1120" y="851" font-size="9.5" text-anchor="end">NNUE inference and SFNNv16 from Stockfish (GPLv3) &#183; pawn pairs by J. Hallstr&#246;m (Pawnocchio) &#183; Triumviratus is GPLv3</text>
+</svg>
