@@ -23,221 +23,88 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # DOWNLOAD OFFICIAL TRIUMVIRATUS 7.0 ANDROID BINARY
+      # INSTALL ANDROID NDK 27.2.12479018
       #
-      # The official 7.0 binary contains the embedded
-      # nn-legio-septima.nnue network.
-      # We extract that network and use it for our build.
-      # ============================================================
-      - name: Obtain official NNUE network
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          OFFICIAL_URL="https://github.com/Tors3/Triumviratus/releases/download/v7.0/triumviratus_android_dotprod"
-
-          curl -L --fail --retry 5 \
-            -o official-triumviratus-android \
-            "$OFFICIAL_URL"
-
-          chmod +x official-triumviratus-android
-
-          ls -lh official-triumviratus-android
-          file official-triumviratus-android
-
-      # ============================================================
-      # EXTRACT EMBEDDED NNUE
+      # NDK r27c extracts to:
+      #   $HOME/android-ndk-r27c
       #
-      # The official binary contains:
-      #
-      #   gEmbeddedNNUEData
-      #   gEmbeddedNNUESize
-      #
-      # We locate the embedded-data symbol and extract exactly
-      # 92,417,127 bytes from the ELF file.
-      # ============================================================
-      - name: Extract embedded NNUE
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          BIN="official-triumviratus-android"
-          NET="nn-legio-septima.nnue"
-
-          LLVM="$HOME/llvm-tools"
-
-          mkdir -p "$LLVM"
-
-          # Android NDK supplies llvm tools.
-          NDK_VERSION="27.2.12479018"
-          NDK_ROOT="$HOME/android-ndk-$NDK_VERSION"
-
-          if [ ! -x "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" ]; then
-            echo "NDK tools not installed yet."
-            echo "Installing NDK first..."
-          fi
-
-      # ============================================================
-      # INSTALL ANDROID NDK
+      # NOT:
+      #   $HOME/android-ndk-27.2.12479018
       # ============================================================
       - name: Install Android NDK 27.2.12479018
         shell: bash
         run: |
           set -euxo pipefail
 
-          NDK_VERSION="27.2.12479018"
-          NDK_ROOT="$HOME/android-ndk-$NDK_VERSION"
-          NDK_ZIP="$RUNNER_TEMP/android-ndk.zip"
+          NDK_ROOT="$HOME/android-ndk-r27c"
+          NDK_ZIP="$RUNNER_TEMP/android-ndk-r27c-linux.zip"
 
           curl -L --fail --retry 5 \
             -o "$NDK_ZIP" \
             "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
 
           rm -rf "$NDK_ROOT"
+
           unzip -q "$NDK_ZIP" -d "$HOME"
 
           test -x \
             "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
 
           echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+
           echo "$NDK_ROOT" >> "$GITHUB_PATH"
 
-          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" \
+            >> "$GITHUB_PATH"
+
+          echo "NDK installed successfully:"
+          echo "$NDK_ROOT"
 
       # ============================================================
-      # EXTRACT NETWORK FROM OFFICIAL RELEASE BINARY
+      # VERIFY NNUE
+      #
+      # The supplied Makefile contains:
+      #
+      #   NET_NAME := nn-legio-septima.nnue
+      #
+      # and embeds it only when the file exists at the build root.
+      #
+      # If it is absent, Makefile deliberately uses:
+      #
+      #   -DNNUE_EMBEDDING_OFF
+      #
+      # which produced your ~684 KB binary.
       # ============================================================
-      - name: Extract and verify NNUE
+      - name: Verify NNUE network
         working-directory: source
         shell: bash
         run: |
           set -euxo pipefail
 
-          BIN="official-triumviratus-android"
           NET="nn-legio-septima.nnue"
 
-          LLVM="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
-
-          EXPECTED_SIZE=92417127
-          EXPECTED_SHA256="b04e2835f538861bf26b7cc9e27c65911af420974f0ddab818ab0d3adf8e3ecc"
-
-          echo "Searching for embedded NNUE symbols..."
-
-          "$LLVM/llvm-nm" -S --defined-only "$BIN" | \
-            grep -E 'gEmbeddedNNUEData|gEmbeddedNNUESize' || true
-
-          DATA_LINE=$(
-            "$LLVM/llvm-nm" -S --defined-only "$BIN" |
-            awk '$NF=="gEmbeddedNNUEData" {print $1, $2; exit}'
-          )
-
-          if [ -z "$DATA_LINE" ]; then
-            echo "ERROR: gEmbeddedNNUEData was not found."
+          if [ ! -f "$NET" ]; then
+            echo "ERROR: $NET is missing."
+            echo
+            echo "The Triumviratus Makefile will disable NNUE embedding."
+            echo "The source repository does not contain the external NNUE."
+            echo
+            echo "Place the official $NET in source/ before running this build."
             exit 1
           fi
 
-          DATA_ADDR=$(echo "$DATA_LINE" | awk '{print $1}')
-          DATA_SIZE=$(echo "$DATA_LINE" | awk '{print $2}')
-
-          echo "Embedded network address: $DATA_ADDR"
-          echo "Embedded symbol size:      $DATA_SIZE"
-
-          if [ "$DATA_SIZE" != "$EXPECTED_SIZE" ]; then
-            echo "ERROR: unexpected embedded network size."
-            echo "Expected: $EXPECTED_SIZE"
-            echo "Found:    $DATA_SIZE"
-            exit 1
-          fi
-
-          echo "Finding ELF section containing gEmbeddedNNUEData..."
-
-          SECTION_INFO=$(
-            "$LLVM/llvm-readelf" -SW "$BIN" |
-            awk -v addr="$DATA_ADDR" '
-              function hex(x) {
-                return strtonum("0x" x)
-              }
-
-              $1 ~ /^\[[0-9]+$/ {
-                name=$2
-                address=$4
-                offset=$5
-                size=$6
-
-                a=strtonum("0x" address)
-                o=strtonum("0x" offset)
-                s=strtonum("0x" size)
-                d=strtonum("0x" addr)
-
-                if (d >= a && d < a+s) {
-                  print address, offset, size
-                  exit
-                }
-              }
-            '
-          )
-
-          if [ -z "$SECTION_INFO" ]; then
-            echo "ERROR: Could not locate ELF section."
-            exit 1
-          fi
-
-          SECTION_ADDR=$(echo "$SECTION_INFO" | awk '{print $1}')
-          SECTION_OFFSET=$(echo "$SECTION_INFO" | awk '{print $2}')
-
-          echo "Section virtual address: $SECTION_ADDR"
-          echo "Section file offset:     $SECTION_OFFSET"
-
-          DATA_ADDR_DEC=$(
-            printf "%d" "0x$DATA_ADDR"
-          )
-
-          SECTION_ADDR_DEC=$(
-            printf "%d" "0x$SECTION_ADDR"
-          )
-
-          SECTION_OFFSET_DEC=$(
-            printf "%d" "0x$SECTION_OFFSET"
-          )
-
-          DATA_OFFSET=$((SECTION_OFFSET_DEC + DATA_ADDR_DEC - SECTION_ADDR_DEC))
-
-          echo "Network file offset: $DATA_OFFSET"
-
-          dd if="$BIN" \
-             of="$NET" \
-             bs=1 \
-             skip="$DATA_OFFSET" \
-             count="$EXPECTED_SIZE" \
-             status=progress
-
-          ACTUAL_SIZE=$(stat -c%s "$NET")
-
-          if [ "$ACTUAL_SIZE" -ne "$EXPECTED_SIZE" ]; then
-            echo "ERROR: extracted network has wrong size."
-            echo "Expected: $EXPECTED_SIZE"
-            echo "Actual:   $ACTUAL_SIZE"
-            exit 1
-          fi
-
-          ACTUAL_SHA256=$(sha256sum "$NET" | awk '{print $1}')
-
-          echo "Expected SHA256:"
-          echo "$EXPECTED_SHA256"
-
-          echo "Actual SHA256:"
-          echo "$ACTUAL_SHA256"
-
-          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "ERROR: extracted network does not match official network."
-            exit 1
-          fi
-
-          echo "SUCCESS: official nn-legio-septima.nnue extracted."
-
+          echo "NNUE network found:"
           ls -lh "$NET"
+
+          SIZE=$(stat -c%s "$NET")
+
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: NNUE file is suspiciously small:"
+            echo "$SIZE bytes"
+            exit 1
+          fi
+
+          echo "NNUE size: $SIZE bytes"
 
       # ============================================================
       # BUILD
@@ -247,8 +114,6 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-
-          test -f nn-legio-septima.nnue
 
           make clean
 
@@ -266,6 +131,7 @@ jobs:
           set -euxo pipefail
 
           BIN="Triumviratus-android-arm64-neon"
+
           LLVM="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
           test -f "$BIN"
@@ -275,10 +141,11 @@ jobs:
           "$LLVM/llvm-readelf" -A "$BIN" || true
 
           file "$BIN"
+
           ls -lh "$BIN"
 
       # ============================================================
-      # VERIFY NETWORK WAS EMBEDDED
+      # VERIFY NNUE WAS EMBEDDED
       # ============================================================
       - name: Verify embedded NNUE
         working-directory: source
@@ -290,17 +157,18 @@ jobs:
 
           SIZE=$(stat -c%s "$BIN")
 
-          echo "Final binary size: $SIZE bytes"
+          echo "Final binary size:"
+          echo "$SIZE bytes"
 
-          # The previous networkless build was only ~684 KB.
-          # A build containing the 92 MB NNUE must be substantially larger.
+          # The previous networkless binary was only about 684 KB.
+          # Reject an obviously networkless build.
           if [ "$SIZE" -lt 90000000 ]; then
-            echo "ERROR: binary is too small."
-            echo "NNUE was probably not embedded."
+            echo "ERROR: Binary is too small."
+            echo "The NNUE network was probably not embedded."
             exit 1
           fi
 
-          echo "SUCCESS: binary size confirms NNUE embedding."
+          echo "NNUE embedding sanity check passed."
 
       # ============================================================
       # PREPARE ARTIFACT
@@ -314,7 +182,7 @@ jobs:
           mkdir -p ../artifact
 
           cp \
-            Triumviratus-android-arm64-neon \
+            "Triumviratus-android-arm64-neon" \
             ../artifact/
 
       # ============================================================
