@@ -17,7 +17,7 @@ jobs:
     steps:
 
       # ============================================================
-      # CHECKOUT
+      # CHECKOUT TRIUMVIRATUS
       # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,11 +25,8 @@ jobs:
       # ============================================================
       # INSTALL ANDROID NDK 27.2.12479018
       #
-      # NDK r27c extracts to:
+      # r27c extracts to:
       #   $HOME/android-ndk-r27c
-      #
-      # NOT:
-      #   $HOME/android-ndk-27.2.12479018
       # ============================================================
       - name: Install Android NDK 27.2.12479018
         shell: bash
@@ -57,23 +54,77 @@ jobs:
           echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" \
             >> "$GITHUB_PATH"
 
-          echo "NDK installed successfully:"
+          echo "Android NDK installed:"
           echo "$NDK_ROOT"
 
       # ============================================================
-      # VERIFY NNUE
+      # OBTAIN THE OFFICIAL TRIUMVIRATUS NETWORK
       #
-      # The supplied Makefile contains:
+      # NETWORKS.md in this repository explicitly points to:
       #
-      #   NET_NAME := nn-legio-septima.nnue
+      #   https://github.com/Tors3/Triumviratus-Networks
       #
-      # and embeds it only when the file exists at the build root.
+      # The network repository uses Git LFS.
       #
-      # If it is absent, Makefile deliberately uses:
-      #
-      #   -DNNUE_EMBEDDING_OFF
-      #
-      # which produced your ~684 KB binary.
+      # We disable automatic LFS downloading during clone so that
+      # we do NOT download every network in the repository.
+      # ============================================================
+      - name: Obtain Triumviratus NNUE network
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          NETWORK_REPO="https://github.com/Tors3/Triumviratus-Networks.git"
+          NETWORK_DIR="$RUNNER_TEMP/Triumviratus-Networks"
+
+          rm -rf "$NETWORK_DIR"
+
+          export GIT_LFS_SKIP_SMUDGE=1
+
+          git clone \
+            --depth 1 \
+            "$NETWORK_REPO" \
+            "$NETWORK_DIR"
+
+          cd "$NETWORK_DIR"
+
+          git lfs install
+
+          echo "Searching for nn-legio-septima.nnue..."
+
+          NET_PATH=$(git ls-tree -r --name-only HEAD | \
+            grep -E '(^|/)nn-legio-septima\.nnue$' | \
+            head -n 1 || true)
+
+          if [ -z "$NET_PATH" ]; then
+            echo "ERROR: nn-legio-septima.nnue was not found in"
+            echo "Tors3/Triumviratus-Networks."
+            exit 1
+          fi
+
+          echo "Found network:"
+          echo "$NET_PATH"
+
+          git lfs pull \
+            --include="$NET_PATH" \
+            --exclude=""
+
+          test -f "$NETWORK_DIR/$NET_PATH"
+
+          echo "Network downloaded:"
+          ls -lh "$NETWORK_DIR/$NET_PATH"
+
+          mkdir -p "$GITHUB_WORKSPACE/source"
+
+          cp \
+            "$NETWORK_DIR/$NET_PATH" \
+            "$GITHUB_WORKSPACE/source/nn-legio-septima.nnue"
+
+          echo "Network copied to:"
+          echo "$GITHUB_WORKSPACE/source/nn-legio-septima.nnue"
+
+      # ============================================================
+      # VERIFY NNUE BEFORE BUILD
       # ============================================================
       - name: Verify NNUE network
         working-directory: source
@@ -83,31 +134,29 @@ jobs:
 
           NET="nn-legio-septima.nnue"
 
-          if [ ! -f "$NET" ]; then
-            echo "ERROR: $NET is missing."
-            echo
-            echo "The Triumviratus Makefile will disable NNUE embedding."
-            echo "The source repository does not contain the external NNUE."
-            echo
-            echo "Place the official $NET in source/ before running this build."
-            exit 1
-          fi
-
-          echo "NNUE network found:"
-          ls -lh "$NET"
+          test -f "$NET"
 
           SIZE=$(stat -c%s "$NET")
 
+          echo "NNUE size: $SIZE bytes"
+
           if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: NNUE file is suspiciously small:"
-            echo "$SIZE bytes"
+            echo "ERROR: NNUE file is suspiciously small."
             exit 1
           fi
 
-          echo "NNUE size: $SIZE bytes"
+          file "$NET"
+          ls -lh "$NET"
 
       # ============================================================
-      # BUILD
+      # BUILD TRIUMVIRATUS ARM64 NEON
+      #
+      # Because nn-legio-septima.nnue now exists at the Makefile
+      # build root, the existing Makefile will NOT define:
+      #
+      #   -DNNUE_EMBEDDING_OFF
+      #
+      # and INCBIN will embed the network.
       # ============================================================
       - name: Build Triumviratus ARM64 NEON
         working-directory: source
@@ -138,6 +187,7 @@ jobs:
           test -x "$BIN"
 
           "$LLVM/llvm-readelf" -h "$BIN"
+
           "$LLVM/llvm-readelf" -A "$BIN" || true
 
           file "$BIN"
@@ -146,6 +196,9 @@ jobs:
 
       # ============================================================
       # VERIFY NNUE WAS EMBEDDED
+      #
+      # Your previous networkless binary was about 684 KB.
+      # The embedded-network binary must be vastly larger.
       # ============================================================
       - name: Verify embedded NNUE
         working-directory: source
@@ -157,18 +210,15 @@ jobs:
 
           SIZE=$(stat -c%s "$BIN")
 
-          echo "Final binary size:"
-          echo "$SIZE bytes"
+          echo "Final binary size: $SIZE bytes"
 
-          # The previous networkless binary was only about 684 KB.
-          # Reject an obviously networkless build.
           if [ "$SIZE" -lt 90000000 ]; then
             echo "ERROR: Binary is too small."
             echo "The NNUE network was probably not embedded."
             exit 1
           fi
 
-          echo "NNUE embedding sanity check passed."
+          echo "NNUE embedding verification passed."
 
       # ============================================================
       # PREPARE ARTIFACT
