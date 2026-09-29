@@ -1,0 +1,73 @@
+name: Build Triumviratus for Android ARM64 NEON
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "source/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK 27.2.12479018
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;27.2.12479018"
+
+      - name: Build Triumviratus ARM64 NEON
+        working-directory: source
+        shell: bash
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: |
+          set -euxo pipefail
+
+          make clean
+          make android             NDK="$NDK_HOME"             EXE=Triumviratus-android-arm64-neon
+
+      - name: Verify Android ELF
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BIN="Triumviratus-android-arm64-neon"
+
+          test -f "$BIN"
+          test -x "$BIN"
+
+          "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -h "$BIN"
+
+          "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -A "$BIN" || true
+
+          file "$BIN"
+          ls -lh "$BIN"
+
+      - name: Prepare artifact
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p ../artifact
+          cp "Triumviratus-android-arm64-neon" ../artifact/
+
+      - name: Upload Android engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: Triumviratus-android-arm64-neon
+          path: artifact/Triumviratus-android-arm64-neon
+          if-no-files-found: error
