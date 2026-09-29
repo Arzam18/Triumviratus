@@ -118,16 +118,19 @@ Everything is **re-labelled with Leela's BT4**, so the whole run shares one labe
 | source | files | size |
 |---|---|---|
 | [`vondele/master-binpacks_relabel`](https://huggingface.co/datasets/vondele/master-binpacks_relabel) (Stockfish self-play + DFRC) | 5 | 129.4 GB |
-| `vondele/linrock_relabel_1` (Leela `test80`, `test78`, `test77`, `test60`) | 13 | 203.9 GB |
-| `vondele/linrock_relabel_2` (Leela `test80`, 2023) | 12 | 141.8 GB |
-| `vondele/from_kaggle_2_relabel` (T60/T70 wrongIsRight) | 5 | 110.6 GB |
-| `vondele/from_kaggle_1_relabel` (`leela96`) | 5 | 97.6 GB |
-| `xushawn/test80-bt4-relabel` (Leela `test80`, early 2024) | 2 | 17.7 GB |
+| [`vondele/linrock_relabel_1`](https://huggingface.co/datasets/vondele/linrock_relabel_1) (Leela `test80`, `test78`, `test77`, `test60`) | 13 | 203.9 GB |
+| [`vondele/linrock_relabel_2`](https://huggingface.co/datasets/vondele/linrock_relabel_2) (Leela `test80`, 2023) | 12 | 141.8 GB |
+| [`vondele/from_kaggle_2_relabel`](https://huggingface.co/datasets/vondele/from_kaggle_2_relabel) (T60/T70 wrongIsRight) | 5 | 110.6 GB |
+| [`vondele/from_kaggle_1_relabel`](https://huggingface.co/datasets/vondele/from_kaggle_1_relabel) (`leela96`) | 5 | 97.6 GB |
+| [`xushawn/test80-bt4-relabel`](https://huggingface.co/datasets/xushawn/test80-bt4-relabel) (Leela `test80`, early 2024) | 2 | 17.7 GB |
 | **downloaded** | **42** | **701 GB** |
 
 **40 files are used.** The two `test60-2021` files of 3 GB are excluded: the loader picks files uniformly, not by
-size, so a small file would be read many times over. Anything under 5 GB is left out. Also excluded: T91 (not
-re-labelled) and our own self-play.
+size, so a small file would be read many times over. Anything under 5 GB is left out. Also excluded: T91
+([`jshriver/t91-binpacks`](https://huggingface.co/datasets/jshriver/t91-binpacks), not re-labelled) and our own
+self-play. The download script, which resolves every file through the Hugging Face API, is
+[`recipes/06_moe-1024/download_bt4.sh`](https://github.com/Tors3/Triumviratus-Networks/blob/main/recipes/06_moe-1024/download_bt4.sh)
+in Triumviratus-Networks.
 
 <sub>The planned 790 GB turned out to be 701 GB, checked file by file against the Hugging Face API: one `test80`
 month exists both whole and split in two parts and is downloaded once, and `xushawn/test80-bt4-relabel` is 17.7 GB,
@@ -279,7 +282,9 @@ current lambda, and **lambda was moving**: the SFNNv16 cycle dips to 0.7 at epoc
 `legio-septima`) finished on **lambda 0.75 fixed**; `legio-septima` spent 700 of its 800 stage-2 epochs there.
 
 To separate learning from the moving target, five checkpoints were scored on the **same 600,000 positions** of a
-binpack the MoE never saw, with lambda held fixed (loss × 10⁻³):
+binpack the MoE never saw (a sample of Leela T91 from
+[`jshriver/t91-binpacks`](https://huggingface.co/datasets/jshriver/t91-binpacks), excluded from training), with
+lambda held fixed (loss × 10⁻³):
 
 | epoch | λ = 1.0 (predict the eval label) | λ = 0.0 (predict the game result) |
 |---|---|---|
