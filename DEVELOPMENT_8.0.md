@@ -32,9 +32,9 @@
 > official 7.0 binary, the same tree now runs **+8.7% faster**, and **+11.5%** with the new
 > transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
-> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the new **MoE-1024 network** and a first partial SPSA,
-> the first release-level test gives **+22.1 ± 8.1 Elo** against the official 7.0 at 20+0.2 (section 9,
-> provisional: final network and full SPSA still to come).
+> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **MoE-1024 network** and its SPSA baked
+> into the code, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** at 15+0.15 over
+> 2,000 games (section 9). A broader search SPSA is next, then the release.
 
 ---
 
@@ -198,6 +198,34 @@ network: **MoE-1024**, the `legio-septima` architecture with the king-relative b
 experts by game phase. Design, data, training and every intermediate measurement are in
 [NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
 
+**Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
+release build.
+
+| engine | against | TC | games | pentanomial | Elo |
+|---|---|---|---:|---|---:|
+| **8.0 release**, PGO, MoE F4 (average of the last 5 epochs, permuted), SPSA MOE1 baked | **official 7.0 binary** (AVX-512) | 15+0.15 | 2,000 | [10, 180, 471, 321, 18] | **+27.3 ± 8.3** |
+
+1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side is the build we would ship: tuning
+options frozen, no option set by the test. `NullThreatExt` is **off** (its SPRT, +2.75 ± 5.5, never
+confirmed it). The two sockets of the test machine, measured as separate halves, agree: +26.8 ± 11.7 and
++27.9 ± 11.8.
+
+How the pieces were chosen, all on the same day:
+
+| step | test | TC | games | Elo |
+|---|---|---|---:|---:|
+| final network: F4 average-and-permute against the end of F3 (same engine, same settings) | MoE vs MoE | 8+0.08 | 686 | +19.3 ± 13.9 |
+| SPSA MOE1 (25 network-dependent parameters: per-phase eval scale, eval blend, pruning margins), vector at 4,363 iterations against its starting point, same network | 8.0 vs 8.0 | 10+0.1 | 928 | +8.6 ± 11.5 |
+| the SPSA vector was then baked at iteration 5,410; release bench **362367** equals the dev build with the 25 options set by hand | | | | |
+
+**Second measurement lesson: NUMA.** The two Xeons are two NUMA nodes, and Windows showed every engine
+of a match as able to run on both. One socket also had **no memory of its own** (all six DIMMs sat on
+the other CPU), so any engine scheduled there read its network through the socket link. We moved two
+DIMMs to the second CPU (4 + 2, both memory controllers balanced) and now pin each fastchess instance,
+and the engines it starts, to one socket (`start /NODE`). With pinning the saturation problem described
+below largely goes away: 8.0 against 7.0 at 10+0.1 gave +20 ± 11 at concurrency 74, in line with the
+concurrency-38 results, and the release test above ran at 76.
+
 **First release-level number** (29 September 2026, provisional: the
 network is the end of the F3 fine-tune, epoch 79, not yet the final one):
 
@@ -206,8 +234,8 @@ network is the end of the F3 fine-tune, epoch 79, not yet the final one):
 | 8.0 MoE, PGO, network F3 ep. 79 | **official 7.0 binary** (AVX-512, checksum verified) | 20+0.2 | 2,000 | [4, 203, 467, 314, 12] | **+22.1 ± 8.1** |
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side carries everything so far: the
-speed work and TT16, the two ablations, `NullThreatExt=300` (closed as neutral-to-positive in the SPRT
-queue, +2.75 ± 5.5 on 7,070 games, and switched on), the new network, and a first, partial SPSA of the
+speed work and TT16, the two ablations, `NullThreatExt=300` (its SPRT gave +2.75 ± 5.5 on 7,070 games,
+not conclusive; it is off in the release above), the new network, and a first, partial SPSA of the
 25 search and evaluation parameters that depend on the network's scale (1,691 of 6,000 iterations,
 +6 ± 10 on its own). The final network and the full SPSA are still to come.
 
