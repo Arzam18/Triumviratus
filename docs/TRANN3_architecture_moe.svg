@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 860" width="1160" height="860"
      font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img"
      aria-label="TRANN3 architecture: four input blocks, the HalfKA block split into four experts selected by piece count, a 1024 feature transformer, eight layer stacks and the SFNNv15 output head">
-  <title>TRANN3 &#8212; MoE-1024 &#8212; Triumviratus 8.0 network architecture</title>
+  <title>TRANN3 &#8212; Consilium &#8212; Triumviratus 8.0 network architecture</title>
 
   <defs>
     <style>
@@ -37,7 +37,7 @@
   <rect x="0" y="0" width="1160" height="860" fill="#0A0D12"/>
 
   <!-- ============================ header ============================ -->
-  <text class="disp" x="40" y="54" font-size="27" letter-spacing="6">TRANN3 &#183; MoE-1024</text>
+  <text class="disp" x="40" y="54" font-size="27" letter-spacing="6">TRANN3 &#183; Consilium</text>
   <text class="dim" x="40" y="80" font-size="13.5">The NNUE network of Triumviratus 8.0. Same body as TRANN2 (Stockfish SFNNv16 + PassedPawns), with one change:</text>
   <text class="dim" x="40" y="98" font-size="13.5">the king-relative piece block (HalfKA) is split into <tspan class="gold">four experts, one per game phase</tspan>. Each position uses exactly one of them.</text>
   <line class="rule" x1="40" y1="116" x2="1120" y2="116"/>

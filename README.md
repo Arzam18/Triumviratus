@@ -65,7 +65,7 @@ other.</sub>
 |---|---|---:|
 | speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 at 12+0.12 |
 | ablations | two search features switched off after ablation tests | +11.7 ± 4.6 at 60+0.6 |
-| **new network** | **MoE-1024**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | **+27.3 ± 8.3 at 15+0.15** |
+| **new network** | **Consilium**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | **+27.3 ± 8.3 at 15+0.15** |
 
 Measured against Stockfish 19 with the same compiler and the same network size, the engine executes
 **fewer instructions per node (5,647 vs 6,087)** and has fewer branch mispredictions. A broader SPSA

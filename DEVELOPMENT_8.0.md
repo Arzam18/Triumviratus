@@ -4,7 +4,7 @@
 
 # Triumviratus 8.0 — development log
 
-**Started as a speed project.** The code around the network made faster · ablations · then a new network, MoE-1024 · still in progress
+**Started as a speed project.** The code around the network made faster · ablations · then a new network, Consilium · still in progress
 
 **by Francesco Torsello**
 
@@ -19,7 +19,7 @@
 [Why speed](#1-why-speed) · [How it is measured](#2-how-it-is-measured) ·
 [Where we started](#3-where-we-started) · [What changed](#4-what-changed-identical-tree) ·
 [Tried and dropped](#5-tried-and-dropped) · [TT16](#6-tt16-the-one-change-that-alters-the-tree) ·
-[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [MoE network](#9-the-80-network-moe-1024-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) · [7.0 log](DEVELOPMENT_7.0.md)
+[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [MoE network](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) · [7.0 log](DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -32,7 +32,7 @@
 > official 7.0 binary, the same tree now runs **+8.7% faster**, and **+11.5%** with the new
 > transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
-> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **MoE-1024 network** and its SPSA baked
+> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **Consilium network** and its SPSA baked
 > into the code, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** at 15+0.15 over
 > 2,000 games (section 9). A broader search SPSA is next, then the release.
 
@@ -121,7 +121,7 @@ in counter terms.
   it a playing-strength question for an SPRT, not a speed one.
 - **A mobility input block** ("threats on empty squares": one feature per knight, bishop, rook and
   queen — oriented square × four mobility buckets, 2,048 inputs), meant as a graft on the 8.0 network.
-  Measured on the MoE-1024 with paired simultaneous runs (480 samples): **−16.2 % NPS**
+  Measured on the Consilium with paired simultaneous runs (480 samples): **−16.2 % NPS**
   (95 % interval −17.1 / −15.3). Mobility changes with every move, so the block recomputes about 28
   attack sets per node before and after the move. On top of the MoE's −7.5 % it would have needed
   more than 15 Elo just to break even; the PassedPawns graft gave 7. Removed from the engine on
@@ -191,12 +191,12 @@ correction history keyed by the last move in context (Coda, Cinder), −7.6 ± 7
 time-management fix for rising evaluations does not apply here: our eval-stability factor is already
 symmetric.
 
-## 9. The 8.0 network: MoE-1024, against 7.0
+## 9. The 8.0 network: Consilium, against 7.0
 
 After the speed work (sections 4–7) and the ablations (section 8), the third step of 8.0 is a new
-network: **MoE-1024**, the `legio-septima` architecture with the king-relative block split into four
+network: **Consilium**, the `legio-septima` architecture with the king-relative block split into four
 experts by game phase. Design, data, training and every intermediate measurement are in
-[NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
+[NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
 
 **Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
 release build.
@@ -298,8 +298,8 @@ block, after the next network.
 - **Ablation campaign closed:** nine tests, two features switched off (about +7 Elo together), the rest
   needed or neutral.
 - **Network:** instead of a wider L1, the 8.0 network is a **mixture of experts** on the king-relative
-  block (MoE-1024, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
-  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
+  block (Consilium, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
+  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
   The mobility block planned as a graft was measured and dropped (section 5).
 - Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
   generated castling moves from the wrong squares). Now supported: see section 14.

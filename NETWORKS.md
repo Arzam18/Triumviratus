@@ -34,12 +34,12 @@ The full record of each one — data, recipe, epoch-by-epoch measurements — is
 
 ---
 
-## MoE-1024 — the Triumviratus 8.0 network
+## Consilium — the Triumviratus 8.0 network
 
 > **Status: training finished on 29 September 2026.** The final network is the **average of the last five epochs of
 > the second fine-tune (F4), with the feature transformer permuted**. With its network-dependent parameters re-tuned
 > by SPSA, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** (15+0.15, 2,000 games):
-> see [the result](#the-result). Name still open. The sections below record the design, the choices and every
+> see [the result](#the-result). **Consilium**, the council: four experts, one per phase of the game, that decide together. The sections below record the design, the choices and every
 > measurement in the order they happened.
 
 ### Why a new network
@@ -60,11 +60,11 @@ L1 — is expensive at game time. Measured on our engine with random nets of eac
 
 <sub>L1 must be a multiple of 256 for the sparse affine path, so between 1024 and 1536 the only width available is
 1280. It was considered and not measured: the choice was the cheapest option in NPS, with a MoE-1280 kept as the next
-step if the MoE-1024 gains little.</sub>
+step if the Consilium gains little.</sub>
 
 ### The idea: a mixture of experts on the king-relative block
 
-![TRANN3 architecture: MoE-1024](docs/TRANN3_architecture_moe.svg)
+![TRANN3 architecture: Consilium](docs/TRANN3_architecture_moe.svg)
 
 The `HalfKAv2_hm` block gets **four weight sets**, one per material phase, chosen by the number of pieces on the
 board. Only one set is active per position, so evaluation costs almost the same as a single block. The network gets
@@ -75,7 +75,7 @@ What it is **not**: a network four times wider. The accumulator is still 1024 va
 unchanged (they already have 8 buckets by piece count). The experts specialise how those 1024 values are computed;
 they do not enlarge them.
 
-| | 7.0 — `legio-septima` | 8.0 — MoE-1024 |
+| | 7.0 — `legio-septima` | 8.0 — Consilium |
 |---|---|---|
 | Base architecture | SFNNv16 | SFNNv16 |
 | L1 / L2 / L3 | 1024 / 32 / 32 | 1024 / 32 / 32 |
@@ -132,7 +132,7 @@ Everything is **re-labelled with Leela's BT4**, so the whole run shares one labe
 size, so a small file would be read many times over. Anything under 5 GB is left out. Also excluded: T91
 ([`jshriver/t91-binpacks`](https://huggingface.co/datasets/jshriver/t91-binpacks), not re-labelled) and our own
 self-play. The download script, which resolves every file through the Hugging Face API, is
-[`recipes/06_moe-1024/download_bt4.sh`](https://github.com/Tors3/Triumviratus-Networks/blob/main/recipes/06_moe-1024/download_bt4.sh)
+[`recipes/06_consilium/download_bt4.sh`](https://github.com/Tors3/Triumviratus-Networks/blob/main/recipes/06_consilium/download_bt4.sh)
 in Triumviratus-Networks.
 
 <sub>The planned 790 GB turned out to be 701 GB, checked file by file against the Hugging Face API: one `test80`
