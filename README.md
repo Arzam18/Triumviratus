@@ -102,7 +102,10 @@ UHO 2024 (+0.85/+0.94), LOS 100% at both points, depths measured from the PGNs. 
 measurements, speed work and training: **[`DEVELOPMENT_7.0.md`](DEVELOPMENT_7.0.md)** ·
 **[`NETWORKS.md`](NETWORKS.md)**.</sub>
 
-#### Against other engines
+<details>
+<summary><b>Against other engines</b></summary>
+
+<br>
 
 | Opponent | Elo (7.0) | Games | TC · threads |
 |---|---:|---:|---|
@@ -119,6 +122,8 @@ measurements, speed work and training: **[`DEVELOPMENT_7.0.md`](DEVELOPMENT_7.0.
 Platino, i7-8700, Fritz 18, 1024 MB, ponder on, UHO 2024 (+1.10/+1.29); pawnocchio and PlentyChess
 met a 7.0 build from a month before the release. Games and details: **[`tests/`](tests/)**. Fast
 time controls and unbalanced books widen the gaps compared with a rating list.</sub>
+
+</details>
 
 #### Playing style
 
