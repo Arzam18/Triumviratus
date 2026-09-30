@@ -56,14 +56,21 @@ other.</sub>
 
 ## Triumviratus 8.0 — in development
 
-8.0 **started from speed**: same network as 7.0, and a first round of changes that make the code
-around it faster while leaving the search tree node-for-node identical. Where 8.0 ends up is still
-open. Measured against Stockfish 19 with the same compiler and the same network size, the engine
-now executes **fewer instructions per node (5,647 vs 6,087)** and has fewer branch mispredictions.
-Against the **official 7.0 binary**, measured with paired simultaneous runs on the same CPU cores:
-**+8.7% NPS with an identical search tree**, and **+11.5%** with the new transposition table. In
-games against the 7.0 release: **+14.7 ± 5.4 Elo** at 12+0.12 and **+11.7 ± 4.6 Elo at 60+0.6**
-(both SPRTs passed; the second with two search features switched off after ablation tests).
+8.0 is built in three steps: **speed, ablations, a new network**.
+
+**Current result:** the 8.0 release build beats the **official 7.0 binary** by **+27.3 ± 8.3 Elo** at
+15+0.15 (2,000 games, LOS 100%). The 8.0 side has its tuning frozen and no options set.
+
+| step | what changed | against 7.0 |
+|---|---|---:|
+| speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 at 12+0.12 |
+| ablations | two search features switched off after ablation tests | +11.7 ± 4.6 at 60+0.6 |
+| **new network** | **MoE-1024**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | **+27.3 ± 8.3 at 15+0.15** |
+
+Measured against Stockfish 19 with the same compiler and the same network size, the engine executes
+**fewer instructions per node (5,647 vs 6,087)** and has fewer branch mispredictions. A broader SPSA
+of the search parameters around the new network comes next, then the release. The network, its
+training and every intermediate measurement are in **[`NETWORKS.md`](NETWORKS.md)**.
 
 8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
 `UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
