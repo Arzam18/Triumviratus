@@ -60,14 +60,15 @@ jobs:
       # ============================================================
       # OBTAIN THE OFFICIAL TRIUMVIRATUS NETWORK
       #
-      # NETWORKS.md in this repository explicitly points to:
+      # Current source uses:
       #
-      #   https://github.com/Tors3/Triumviratus-Networks
+      #   nn-consilium.nnue
+      #
+      # The network repository stores it under:
+      #
+      #   nets/nn-consilium.nnue
       #
       # The network repository uses Git LFS.
-      #
-      # We disable automatic LFS downloading during clone so that
-      # we do NOT download every network in the repository.
       # ============================================================
       - name: Obtain Triumviratus NNUE network
         shell: bash
@@ -76,6 +77,7 @@ jobs:
 
           NETWORK_REPO="https://github.com/Tors3/Triumviratus-Networks.git"
           NETWORK_DIR="$RUNNER_TEMP/Triumviratus-Networks"
+          NET_NAME="nn-consilium.nnue"
 
           rm -rf "$NETWORK_DIR"
 
@@ -90,15 +92,10 @@ jobs:
 
           git lfs install
 
-          echo "Searching for nn-legio-septima.nnue..."
+          NET_PATH="nets/$NET_NAME"
 
-          NET_PATH=$(git ls-tree -r --name-only HEAD | \
-            grep -E '(^|/)nn-legio-septima\.nnue$' | \
-            head -n 1 || true)
-
-          if [ -z "$NET_PATH" ]; then
-            echo "ERROR: nn-legio-septima.nnue was not found in"
-            echo "Tors3/Triumviratus-Networks."
+          if ! git ls-tree -r --name-only HEAD | grep -Fx "$NET_PATH" >/dev/null; then
+            echo "ERROR: $NET_PATH was not found."
             exit 1
           fi
 
@@ -118,10 +115,10 @@ jobs:
 
           cp \
             "$NETWORK_DIR/$NET_PATH" \
-            "$GITHUB_WORKSPACE/source/nn-legio-septima.nnue"
+            "$GITHUB_WORKSPACE/source/$NET_NAME"
 
           echo "Network copied to:"
-          echo "$GITHUB_WORKSPACE/source/nn-legio-septima.nnue"
+          echo "$GITHUB_WORKSPACE/source/$NET_NAME"
 
       # ============================================================
       # VERIFY NNUE BEFORE BUILD
@@ -132,7 +129,7 @@ jobs:
         run: |
           set -euxo pipefail
 
-          NET="nn-legio-septima.nnue"
+          NET="nn-consilium.nnue"
 
           test -f "$NET"
 
@@ -151,12 +148,8 @@ jobs:
       # ============================================================
       # BUILD TRIUMVIRATUS ARM64 NEON
       #
-      # Because nn-legio-septima.nnue now exists at the Makefile
-      # build root, the existing Makefile will NOT define:
-      #
-      #   -DNNUE_EMBEDDING_OFF
-      #
-      # and INCBIN will embed the network.
+      # Because nn-consilium.nnue now exists at the Makefile
+      # build root, the current source can embed the network.
       # ============================================================
       - name: Build Triumviratus ARM64 NEON
         working-directory: source
@@ -197,10 +190,10 @@ jobs:
       # ============================================================
       # VERIFY NNUE WAS EMBEDDED
       #
-      # Your previous networkless binary was about 684 KB.
+      # The previous networkless binary was about 684 KB.
       # The embedded-network binary must be vastly larger.
       # ============================================================
-      - name: Verify embedded NNUE
+      - name: Verify NNUE was embedded
         working-directory: source
         shell: bash
         run: |
