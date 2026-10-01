@@ -292,9 +292,11 @@ enum Rank : u8 {
 
 // Keep track of what a move changes on the board (used by NNUE)
 // Triumviratus 28/09/2026: HalfKA a esperti per fase (MoE nel feature transformer). Numero di fasce di materiale;
-// 1 = HalfKA normale (default: codice e rete di sempre). Vedi features/half_ka_v2_hm.h.
+// 1 = HalfKA normale (reti fino alla 7.0). Vedi features/half_ka_v2_hm.h.
+// 01/10/2026: default 4, perche' la 8.0 usa solo Consilium (4 esperti di fase). Prima il default era 1 e ogni build
+// doveva passare -DTRIUMV_PSQ_PHASES=4: chi compilava dai sorgenti senza il flag otteneva un motore che non legge la rete.
 #ifndef TRIUMV_PSQ_PHASES
-    #define TRIUMV_PSQ_PHASES 1
+    #define TRIUMV_PSQ_PHASES 4
 #endif
 
 struct DirtyPiece {

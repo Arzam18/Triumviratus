@@ -19,6 +19,8 @@ void nn_init_tables(void);
 // Esposto qui perche' il resto del motore NON include gli header Stockfish: un solo
 // punto di verita' per il nome, niente stringhe duplicate da tenere in sync.
 const char* nn_default_net_name(void);
+// Rete condivisa fra processi (-DTRIUMV_SHARED_NET): esito della attach, "" nelle altre build.
+const char* nn_net_memory_status(void);
 
 // Load the TRANN1 network from a file path. Returns 1 on success (file opened +
 // arch-hash verified), 0 otherwise. Must be called once at startup before any
@@ -61,8 +63,9 @@ void nn_set_lazy_mirror(int on);
 // this re-aligns the two. UCI option "EvalScale". Diagnostic sweep at fixed depth.
 void nn_set_eval_scale(int pct);          // scrive TUTTI gli 8 bucket (comportamento storico)
 // EvalScale per bucket di output (15/08/2026). bucket = (pezzi - 1) / 4, 0..7, come
-// network.cpp:170. Default tutti a 60 = byte-identico al vecchio scalare globale.
+// network.cpp:170. Dal BAKE MOE1 (30/09/2026) i default sono per fascia (rete MoE-1024), non piu' tutti 60.
 void nn_set_eval_scale_bucket(int bucket, int pct);
+int  nn_get_eval_scale_bucket(int bucket);   // valore corrente (all'avvio = default), per la riga UCI
 
 // --- Costanti del blend dell'eval (15/08/2026) -------------------------------
 // Le sette costanti che trasformano le due uscite della rete (psqt, positional) in

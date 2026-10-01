@@ -50,7 +50,8 @@ void launch_search(int depth) {
   // Needs .rtbz (DTZ) files; with WDL-only tables it simply fails and we fall
   // through to a normal search (whose in-search WDL probe already fixes the
   // evaluation of covered endgames).
-  if (!g_go_infinite) {
+  // In ponder niente scorciatoia: stamperebbe bestmove prima del ponderhit (la ricerca la trova comunque con la WDL).
+  if (!g_go_infinite && !g_go_ponder) {
     int tb_move = 0, tb_score = 0;
     if (syzygy_probe_root(tb_move, tb_score)) {
       new_search();
@@ -66,7 +67,38 @@ void launch_search(int depth) {
 
   stop_threads.store(false, std::memory_order_relaxed); // clear before spawning
   g_uci_stop.store(false, std::memory_order_relaxed);
+  // Dopo il join della ricerca precedente: la sua chiusura azzera g_pondering e non deve cancellare questo.
+  g_pondering.store(g_go_ponder, std::memory_order_relaxed);
   search_master = std::thread(search_position_mt, depth);
+}
+
+// `go ponder`: parse_go ha appena calcolato il budget (timeset, soft_time_limit, stoptime); lo si mette da parte e la
+// ricerca parte senza limiti di tempo. Con `go ponder infinite` o senza orologio timeset resta 0 anche al ponderhit.
+void ponder_park_time() {
+  g_ponder_timeset = timeset;
+  g_ponder_soft = soft_time_limit;
+  g_ponder_stop = stoptime;
+  timeset = 0;
+  g_go_ponder = true;
+}
+
+// `ponderhit`: l'avversario ha giocato la mossa prevista, la ricerca diventa normale con il budget parcheggiato.
+// timeset si accende per ultimo, dopo una barriera: chi lo vede acceso legge gia' i limiti giusti.
+void ponder_hit() {
+  if (!g_pondering.load(std::memory_order_acquire))
+    return;
+  if (g_ponder_timeset) {
+    soft_time_limit = g_ponder_soft;
+    stoptime = g_ponder_stop;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    timeset = 1;
+  }
+  g_pondering.store(false, std::memory_order_release);
+  // Budget morbido gia' consumato in ponder (come stopOnPonderhit di Stockfish): si muove subito con l'ultima iterazione
+  // completata. Senza, l'iterazione in corso, profonda perche' il ponder non aveva limiti, andava avanti fino al limite
+  // duro: misurato 82 ms di mediana dopo il ponderhit contro 46 ms di una mossa normale a 5+0.05.
+  if (g_ponder_timeset && get_time_ms() >= g_ponder_soft && thread_data[0].best_move)
+    stop_threads.store(true, std::memory_order_relaxed);
 }
 
 // ============================================================================
@@ -123,6 +155,7 @@ void search_position_mt(int depth) {
     thread_data[i].nodes = 0;
     thread_data[i].tb_hits = 0;
     thread_data[i].best_move = 0;
+    thread_data[i].best_reply = 0;
     thread_data[i].best_score = -infinity;
     thread_data[i].depth = 0;
     thread_data[i].fh_nodes = 0;
@@ -151,8 +184,12 @@ void search_position_mt(int depth) {
   // Main thread search
   thread_search(0, depth);
 
-  while (g_go_infinite && !g_uci_stop.load(std::memory_order_relaxed))
+  // infinite, o ponder finito prima del ponderhit (profondita' massima, matto): la bestmove aspetta stop/ponderhit.
+  while ((g_go_infinite || g_pondering.load(std::memory_order_acquire)) &&
+         !g_uci_stop.load(std::memory_order_relaxed))
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  // Prima della bestmove: dopo averla vista la GUI puo' mandare subito il prossimo `go ponder`.
+  g_pondering.store(false, std::memory_order_relaxed);
 
   stop_threads.store(true, std::memory_order_relaxed);
   wait_for_threads();
@@ -440,6 +477,22 @@ void search_position_mt(int depth) {
   printf("bestmove ");
   if (best_move) {
     print_move(best_move);
+    // Ponder (01/10/2026): la risposta prevista e', in ordine, quella dell'ultima iterazione completata del thread
+    // della PV (pv_src) o di un altro thread con la stessa bestmove; poi la seconda mossa della PV corrente (che a
+    // ricerca fermata a meta' iterazione puo' essere parziale). Senza nessuna delle due la GUI non pondera.
+    int reply = 0;
+    if (pv_src >= 0 && thread_data[pv_src].best_move == best_move)
+      reply = thread_data[pv_src].best_reply;
+    for (int i = 0; i < num_threads && !reply; i++)
+      if (thread_data[i].best_move == best_move)
+        reply = thread_data[i].best_reply;
+    if (!reply && pv_src >= 0 && thread_data[pv_src].pv_length[0] >= 2 &&
+        thread_data[pv_src].pv_table[0][0] == best_move)
+      reply = thread_data[pv_src].pv_table[0][1];
+    if (reply) {
+      printf(" ponder ");
+      print_move(reply);
+    }
   } else if (thread_data[0].pv_table[0][0]) {
     print_move(thread_data[0].pv_table[0][0]);
   } else {

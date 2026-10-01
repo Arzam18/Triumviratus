@@ -179,6 +179,10 @@ struct ThreadData {
     int best_move;
     int best_score;
     int depth;
+    // Ponder (01/10/2026): risposta prevista a best_move, dalla PV dell'ultima iterazione COMPLETATA (0 = nessuna).
+    // Serve quando la ricerca e' fermata a meta' iterazione (tipico al ponderhit oltre il budget): la PV di radice
+    // e' allora parziale e non da' la seconda mossa.
+    int best_reply = 0;
     // F-018.6c (SingularPlyGuard): depth dell'iterazione ID in corso (per il gate ply < 2*rootDepth).
     int root_depth = 0;
 
@@ -338,6 +342,9 @@ extern void search_position_mt(int depth);
 // stays responsive to "stop" / "go infinite".
 extern std::thread search_master;
 extern void launch_search(int depth);
+// Ponder (search/14_smp.inc): parse_go parcheggia il budget di tempo prima di launch_search; "ponderhit" lo accende.
+extern void ponder_park_time();
+extern void ponder_hit();
 extern void wait_for_search_done();
 // Q-26 HistPrior: riempie le history col prior positivo dopo un azzeramento (no-op se 0).
 extern void apply_history_priors(ThreadData& td);

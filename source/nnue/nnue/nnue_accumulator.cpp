@@ -1164,6 +1164,16 @@ void update_accumulator_refresh_cache(Color                     perspective,
     entry.pieceBB = pos.pieces();
     entry.pieces  = pos.piece_array();
 
+#ifdef TRIUMV_REFRESH_PREFETCH
+    // 01/10/2026 (Consilium, HalfKA a 4 esperti): prefetch delle righe HalfKA del refresh, stessa forma di
+    // prefetch_psq_rows nel percorso incrementale (+1,3% misurato il 3/08): UNA linea per riga, emessa PRIMA
+    // dell'enumerazione completa delle threat qui sotto, che ne copre la latenza; il ciclo dei tile le
+    // consuma per prime. Pesa soprattutto sul cambio di fascia: la entry della finny table della fascia
+    // nuova e' spesso vecchia di molte mosse, quindi removed/added sono le liste piu' lunghe del motore,
+    // e con 184 MB di HalfKA (4 x 46) quelle righe sono quasi sempre fuori cache. Albero identico.
+    prefetch_psq_rows(featureTransformer, removed, added);
+#endif
+
     // --- cache del refresh per i blocchi PEDONI (PawnPair + PassedPawns) ----------------
     // La finny table copre solo HalfKAv2_hm: gli altri blocchi si ricostruivano da zero a
     // OGNI refresh. Threats no (dipendono dalla posizione intera), ma PawnPair e PassedPawns

@@ -34,7 +34,9 @@ namespace Eval {
 // Windows) quando nessun file con questo nome e' trovato accanto all'exe;
 // l'opzione UCI "EvalFile" con un path esplicito carica sempre dal disco.
 // (Vincolo SF sul formato nn-[sha].nnue non applicabile: niente fishtest.)
-#define EvalFileDefaultName "nn-legio-septima.nnue"
+// 30/09/2026: la 8.0 usa solo Consilium (MoE-1024, TRANN3); prima "nn-legio-septima.nnue" (7.0).
+// Il nome va tenuto uguale in Triumviratus_8.0.rc (risorsa RCDATA) e in build_pgo_clang_80.ps1 ($netName).
+#define EvalFileDefaultName "nn-consilium.nnue"
 
 namespace NNUE {
 class Network;

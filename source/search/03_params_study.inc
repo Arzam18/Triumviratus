@@ -118,7 +118,7 @@ int g_lmrdepth_histdiv = 4509;
 // -g_see_quiet_margin*depth*depth (quiets). Exposed so SPSA can tune them (UCI:
 // SEECaptureMargin / SEEQuietMargin).
 int g_see_cap_margin = 81; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
-int g_see_quiet_margin = 116; // [3.7 BAKE 98->96; BAKED #1 era 50]
+int g_see_quiet_margin = 104; // [M20 116->104] [3.7 BAKE 98->96; BAKED #1 era 50]
 int g_see_depth = 3; // gate profondita' del SEE pruning (alzare = potare piu'
                      // in profondita'). UCI SEEPruneDepth, tunabile.
 // BadCapSkipAfter (default 1 = byte-identico): quante bad capture SEE-potate

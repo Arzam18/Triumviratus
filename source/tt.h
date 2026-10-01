@@ -218,9 +218,14 @@ inline void init_hash_table(int mb) {
     g_tt_pow2    = false;   // non usato da TT16 (indice via mulhi)
 
     const int actual_mb = (int)(buckets * sizeof(tt_bucket) / (1024 * 1024));
-    const char* lp = !g_large_pages          ? "off (disabled)"
-                   : tt_on_large_pages       ? "ON"
-                                             : "off (unavailable)";
+    // 🔴 FIX 01/10/2026: tt_on_large_pages dice solo da QUALE allocatore viene la tabella (serve al free).
+    // aligned_large_pages_alloc su Windows non torna mai null: senza SeLockMemoryPrivilege ripiega in silenzio
+    // su pagine da 4 KB, e qui si stampava "ON" lo stesso. Sullo Xeon il privilegio non c'e': nessun motore ha
+    // mai avuto large pages, e la riga diceva il contrario. has_large_pages() prova un'allocazione vera da 2 MB.
+    static const bool lp_real = Triumviratus::has_large_pages();
+    const char* lp = !g_large_pages                  ? "off (disabled)"
+                   : tt_on_large_pages && lp_real    ? "ON"
+                                                     : "off (unavailable: no 'Lock pages in memory' privilege)";
     printf("info string Hash: %d MB, large pages %s\n", actual_mb, lp);
 }
 

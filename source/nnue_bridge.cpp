@@ -90,6 +90,26 @@ using Triumviratus::Eval::NNUE::AccumulatorCaches;
 // ---------------------------------------------------------------------------
 static LargePagePtr<Network>& g_net = *new LargePagePtr<Network>();
 
+// Rete condivisa fra processi (01/10/2026, solo -DTRIUMV_SHARED_NET; vedi shared_net.h). La ricerca legge la rete
+// da g_net_view: la copia locale (g_net) o l'oggetto in memoria condivisa, e in quel caso g_net viene liberata.
+// Senza il flag NET_REF e' *g_net: codice identico a prima.
+#ifdef TRIUMV_SHARED_NET
+    #include "shared_net.h"
+static const Network* g_net_view = nullptr;
+static std::string    g_net_mem_status;   // esito dell'ultima attach, per nn_net_memory_status()
+    #define NET_REF (*g_net_view)
+#else
+    #define NET_REF (*g_net)
+#endif
+// "" nelle build senza TRIUMV_SHARED_NET: uci_mt stampa la riga solo se c'e' qualcosa da dire.
+const char* nn_net_memory_status(void) {
+#ifdef TRIUMV_SHARED_NET
+    return g_net_mem_status.c_str();
+#else
+    return "";
+#endif
+}
+
 // Generation counter, bumped on every (re)load of g_net. AccumulatorCaches
 // (finny) are seeded from the NET'S BIASES: caches built from an older net
 // silently corrupt every refresh after an EvalFile reload (bug found
@@ -138,7 +158,9 @@ static int g_eval_scale_pct = 60;   // BAKE 2026-07-16: vettore iter1800 (era 56
 // `EvalScale` resta e scrive TUTTI gli otto, cosi' il vecchio comportamento e le
 // vecchie ricette continuano a valere; i B0..B7 lo raffinano per fase.
 // ⚠️ ORDINE: chi setta `EvalScale` DOPO i B0..B7 li sovrascrive tutti.
-static int g_eval_scale_b[8] = {60, 60, 60, 60, 60, 60, 60, 60};
+// BAKE MOE1 (30/09/2026): scala per fascia tarata sulla rete MoE-1024 (calibrazione 64/53/62/60/60/59/59/60,
+// poi SPSA MOE1 a iterazione 5410). Tutti 60 era la scala della legio-septima.
+static int g_eval_scale_b[8] = {60, 54, 60, 57, 59, 58, 59, 58};
 // 5.1 EvalTTWrite: ultimo valore UNADJUSTED (pre-rule50, pre-EvalScale) calcolato da nn_scale
 // su QUESTO thread = lo "unadjustedStaticEval" di SF, fifty-independent -> si cacha questo e si
 // ri-finalizza col fifty corrente (hit su TUTTE le trasposizioni, sempre esatto).
@@ -198,12 +220,26 @@ int g_opt_per_thread = 0;
 //    avrebbe sprecato un parametro su una degenerazione. Si e' mosso solo il RAPPORTO.
 // Canary: 252074 -> 242956.
 int g_ev_psqt_w    = 125;    // peso psqt        (/128)  — non tarato (degenere con pos_w)
-int g_ev_pos_w     = 126;    // peso positional  (/128)  [BAKE 131->126]
-int g_ev_cplx_div  = 19139;  // smorzamento per disaccordo fra le due teste [BAKE 18236->19139]
-int g_ev_pawn_mat  = 551;    // valore del pedone nel termine material      [BAKE 534->551]
-int g_ev_mat_base  = 84768;  // base materiale della scala nnue             [BAKE 77871->84768]
-int g_ev_opt_cplx  = 461;    // blend optimism <-> complessita'             [BAKE 476->461]
-int g_ev_opt_base  = 6456;   // base materiale del termine optimism         [BAKE 7191->6456]
+// BAKE MOE1 (30/09/2026): SPSA MOE1 sulla rete MoE-1024 F4_avg5_perm, iterazione 5410, 20+0.2, 25 leve
+// legate alla rete (Tuning_SPSA/spsa_lab/runs/20260930_004814_SPSA_MoE-1024_...). Vettore a 4363 contro
+// vettore iniziale: +8,6 +- 11,5 su 928 partite a 10+0.1. Valori precedenti fra parentesi.
+int g_ev_pos_w     = 131;    // peso positional  (/128)  [BAKE MOE1 126->131]
+// EvalPosWEnd (01/10/2026): peso positional nei FINALI (<= 15 pezzi, i due esperti di finale della Consilium).
+// Misura senza ricerca (65.947 posizioni CCRL, correlazione di rango con la valutazione profonda di un terzo):
+// con 125/131 la miscela inverte il segno nei finali in cui psqt (+X) e positional (-X) si compensano, perche'
+// resta solo (125-131)*X/128. Correlazione <= 9 pezzi: -0,067 con 131, 0,252 con 125 (rete grezza 0,257, SF19
+// 0,301); 10-15 pezzi: 0,457 -> 0,515. Default = g_ev_pos_w: BYTE-IDENTICO.
+// CHIUSA 01/10/2026, resta 131. SPRT EvalPosWEnd=125 vs 131 a 20+0.2: -6,6 +- 8,3 su 1.638 partite (fermato).
+// SPSA congiunto con EvalScaleB0..B3 su libro di finali (run 20261001_203201_SPSA_finali, 1.517 iterazioni a 12-16 s):
+// nessun gradiente, tutti i valori entro 0,2 c dai default (PosWEnd ~129). Le scale per fascia non possono cambiare
+// l'ordinamento dentro una fascia, quindi non correggono la correlazione. Diagnosi contro SF19 a 20+0.2: dal libro di
+// finali -55 (338 partite), dal libro UHO_4060 -127 (261): il distacco da SF non nasce nei finali.
+int g_ev_pos_w_end = 131;    // peso positional con <= 15 pezzi (/128)
+int g_ev_cplx_div  = 18198;  // smorzamento per disaccordo fra le due teste [BAKE MOE1 19139->18198]
+int g_ev_pawn_mat  = 680;    // valore del pedone nel termine material      [BAKE MOE1 551->680]
+int g_ev_mat_base  = 102051; // base materiale della scala nnue             [BAKE MOE1 84768->102051]
+int g_ev_opt_cplx  = 432;    // blend optimism <-> complessita'             [BAKE MOE1 461->432]
+int g_ev_opt_base  = 5831;   // base materiale del termine optimism         [BAKE MOE1 6456->5831]
 
 // ⭐ EvalOptSimple — port di SF de948f0f "Simplify optimism scaling formula" (10/08/2026).
 // SF ha tolto la dipendenza dal MATERIALE al termine optimism, rendendolo una costante,
@@ -238,12 +274,13 @@ int g_ev_opt_const  = 7675;   // coefficiente optimism, ora COSTANTE (SF: 7675)
 // letterali a ogni ricerca, dicendolo se qualcuno li cambia.
 #ifdef TRIUMV_FROZEN
 #define g_ev_psqt_w 125
-#define g_ev_pos_w 126
-#define g_ev_cplx_div 19139
-#define g_ev_pawn_mat 551
-#define g_ev_mat_base 84768
-#define g_ev_opt_cplx 461
-#define g_ev_opt_base 6456
+#define g_ev_pos_w 131
+#define g_ev_pos_w_end 131
+#define g_ev_cplx_div 18198
+#define g_ev_pawn_mat 680
+#define g_ev_mat_base 102051
+#define g_ev_opt_cplx 432
+#define g_ev_opt_base 5831
 #define g_ev_opt_simple 0
 #define g_ev_mat_base2 91000
 #define g_ev_opt_const 7675
@@ -252,7 +289,9 @@ int g_ev_opt_const  = 7675;   // coefficiente optimism, ora COSTANTE (SF: 7675)
 
 static inline int nn_scale(const Position& pos, Value psqt, Value positional, int rule50,
                            NnLast* last = nullptr, const int* opt_local = nullptr) {
-    int nnue           = (g_ev_psqt_w * int(psqt) + g_ev_pos_w * int(positional)) / 128;
+    const int pieces   = pos.count<ALL_PIECES>();
+    const int pos_w    = pieces <= 15 ? g_ev_pos_w_end : g_ev_pos_w;   // EvalPosWEnd (vedi la dichiarazione)
+    int nnue           = (g_ev_psqt_w * int(psqt) + pos_w * int(positional)) / 128;
     int nnueComplexity = std::abs(int(psqt) - int(positional));
     nnue -= nnue * nnueComplexity / g_ev_cplx_div;
 
@@ -284,7 +323,7 @@ static inline int nn_scale(const Position& pos, Value psqt, Value positional, in
     // Il coeff include GIA' EvalScale, cosi' il consumatore lo somma direttamente a un
     // valore gia' scalato. Resta fuori solo il rule50, che la cache smorza per conto suo.
     // Stesso bucket che network.cpp:170 usa per scegliere lo stack di output.
-    const int scale_pct = g_eval_scale_b[(pos.count<ALL_PIECES>() - 1) / 4];
+    const int scale_pct = g_eval_scale_b[(pieces - 1) / 4];
 
     if (last) {
         last->opt_base  = int(std::int64_t(nnue) * (g_ev_mat_base + material) / g_ev_mat_base);
@@ -346,6 +385,23 @@ static int load_net_impl(const char* path) {
         }
     });
     g_net = std::move(net);
+#ifdef TRIUMV_SHARED_NET
+    {
+        g_net_view = g_net.get();
+        std::string st;
+        const void* sh = TriumvShm::attach(g_net.get(), sizeof(Network),
+                                           std::uint64_t(g_net->get_content_hash()) ^ std::uint64_t(sizeof(Network)), st);
+        if (sh) {
+            g_net_view = static_cast<const Network*>(sh);
+            g_net.reset();   // la copia locale non serve piu': ~245 MB restituiti
+        }
+        g_net_mem_status = st;
+        if (!g_startup_quiet) {
+            std::printf("info string NNUE weights: %s\n", st.c_str());
+            std::fflush(stdout);
+        }
+    }
+#endif
     ++g_net_gen;   // invalidate every AccumulatorCaches built from the old net
     return 1;
 }
@@ -392,6 +448,7 @@ void        nn_set_eval_scale(int pct) {
 void        nn_set_eval_scale_bucket(int b, int pct) {
     if (b >= 0 && b < 8) g_eval_scale_b[b] = pct < 1 ? 1 : pct;
 }
+int         nn_get_eval_scale_bucket(int b) { return (b >= 0 && b < 8) ? g_eval_scale_b[b] : 60; }
 
 // Costanti del blend, in UNA tabella: il nome sta qui e non sparso in uci_mt.cpp, cosi'
 // aggiungerne una non richiede di toccare due file e non si puo' dichiarare in UCI
@@ -404,6 +461,7 @@ namespace Triumviratus::Eval::NNUE { extern int g_eval_bucket_override; }
 #ifdef TRIUMV_FROZEN
 #undef g_ev_psqt_w
 #undef g_ev_pos_w
+#undef g_ev_pos_w_end
 #undef g_ev_cplx_div
 #undef g_ev_pawn_mat
 #undef g_ev_mat_base
@@ -418,6 +476,7 @@ struct EvalConst { const char* name; int* var; int lo; int hi; };
 const EvalConst g_eval_consts[] = {
     {"EvalPsqtW",         &g_ev_psqt_w,    40,   260},
     {"EvalPosW",          &g_ev_pos_w,     40,   260},
+    {"EvalPosWEnd",       &g_ev_pos_w_end, 40,   260},   // peso positional con <= 15 pezzi (01/10/2026)
     {"EvalComplexDiv",    &g_ev_cplx_div, 4000, 60000},
     {"EvalPawnMat",       &g_ev_pawn_mat, 200,  1200},
     {"EvalMatBase",       &g_ev_mat_base, 20000, 200000},
@@ -444,12 +503,13 @@ void nn_frozen_check() {
     struct FzRef { const int* p; int val; const char* name; };
     static const FzRef fz[] = {
         {&g_ev_psqt_w, 125, "g_ev_psqt_w"},
-        {&g_ev_pos_w, 126, "g_ev_pos_w"},
-        {&g_ev_cplx_div, 19139, "g_ev_cplx_div"},
-        {&g_ev_pawn_mat, 551, "g_ev_pawn_mat"},
-        {&g_ev_mat_base, 84768, "g_ev_mat_base"},
-        {&g_ev_opt_cplx, 461, "g_ev_opt_cplx"},
-        {&g_ev_opt_base, 6456, "g_ev_opt_base"},
+        {&g_ev_pos_w, 131, "g_ev_pos_w"},
+        {&g_ev_pos_w_end, 131, "g_ev_pos_w_end"},
+        {&g_ev_cplx_div, 18198, "g_ev_cplx_div"},
+        {&g_ev_pawn_mat, 680, "g_ev_pawn_mat"},
+        {&g_ev_mat_base, 102051, "g_ev_mat_base"},
+        {&g_ev_opt_cplx, 432, "g_ev_opt_cplx"},
+        {&g_ev_opt_base, 5831, "g_ev_opt_base"},
         {&g_ev_opt_simple, 0, "g_ev_opt_simple"},
         {&g_ev_mat_base2, 91000, "g_ev_mat_base2"},
         {&g_ev_opt_const, 7675, "g_ev_opt_const"},
@@ -466,12 +526,13 @@ void nn_frozen_check() {
 #endif
 #ifdef TRIUMV_FROZEN
 #define g_ev_psqt_w 125
-#define g_ev_pos_w 126
-#define g_ev_cplx_div 19139
-#define g_ev_pawn_mat 551
-#define g_ev_mat_base 84768
-#define g_ev_opt_cplx 461
-#define g_ev_opt_base 6456
+#define g_ev_pos_w 131
+#define g_ev_pos_w_end 131
+#define g_ev_cplx_div 18198
+#define g_ev_pawn_mat 680
+#define g_ev_mat_base 102051
+#define g_ev_opt_cplx 432
+#define g_ev_opt_base 5831
 #define g_ev_opt_simple 0
 #define g_ev_mat_base2 91000
 #define g_ev_opt_const 7675
@@ -541,7 +602,7 @@ struct SfPos {
 
     SfPos() : stm(WHITE), rule50(0), ply(0) {
         accStack = std::make_unique<AccumulatorStack>();
-        caches   = std::make_unique<AccumulatorCaches>(*g_net);
+        caches   = std::make_unique<AccumulatorCaches>(NET_REF);
         netGen   = g_net_gen;
     }
 };
@@ -550,7 +611,7 @@ struct SfPos {
 // built. Called at root set (never mid-search: EvalFile reload stops search first).
 inline void ensure_caches_fresh(SfPos* p) {
     if (p->netGen != g_net_gen) {
-        p->caches = std::make_unique<AccumulatorCaches>(*g_net);
+        p->caches = std::make_unique<AccumulatorCaches>(NET_REF);
         p->netGen = g_net_gen;
     }
 }
@@ -582,7 +643,7 @@ inline int eval_full_from_bb(const unsigned long long* bb, Color stm, int rule50
     int    n = build_pl_from_bb(bb, pcs, sqs);
     pos.set_pieces(pcs, sqs, n, stm, &si);
     acc.reset();
-    auto [psqt, positional] = g_net->evaluate(pos, acc, cch);
+    auto [psqt, positional] = NET_REF.evaluate(pos, acc, cch);
     return nn_scale(pos, psqt, positional, rule50);
 }
 
@@ -844,7 +905,7 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
         nn_catch_up(p);  // N-1: replay any moves nn_pos_do left pending before evaluating
     }
     // Incremental: the maintained pos + accumulator chain are walked by Network::evaluate.
-    auto [psqt, positional] = g_net->evaluate(p->pos, *p->accStack, *p->caches);
+    auto [psqt, positional] = NET_REF.evaluate(p->pos, *p->accStack, *p->caches);
     int  inc                = nn_scale(p->pos, psqt, positional, p->rule50, &p->last,
                                        g_opt_per_thread ? p->opt : nullptr);
 
@@ -858,7 +919,7 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
         thread_local int                                sGen = 0;
         if (!sAcc || sGen != g_net_gen) {
             if (!sAcc) sAcc = std::make_unique<AccumulatorStack>();
-            sCch = std::make_unique<AccumulatorCaches>(*g_net);
+            sCch = std::make_unique<AccumulatorCaches>(NET_REF);
             sGen = g_net_gen;
         }
         int full = eval_full_from_bb(bb, p->stm, p->rule50, sPos, sSi, *sAcc, *sCch);
@@ -891,7 +952,7 @@ int nn_eval(int side_white, const int* pieces, const int* squares, int count, in
     static int                                s_gen = 0;
     if (!s_acc || s_gen != g_net_gen) {
         if (!s_acc) s_acc = std::make_unique<AccumulatorStack>();
-        s_cch = std::make_unique<AccumulatorCaches>(*g_net);
+        s_cch = std::make_unique<AccumulatorCaches>(NET_REF);
         s_gen = g_net_gen;
     }
     Piece  pcs[64];
@@ -902,7 +963,7 @@ int nn_eval(int side_white, const int* pieces, const int* squares, int count, in
     }
     s_pos.set_pieces(pcs, sqs, count, side_white ? WHITE : BLACK, &s_si);
     s_acc->reset();
-    auto [psqt, positional] = g_net->evaluate(s_pos, *s_acc, *s_cch);
+    auto [psqt, positional] = NET_REF.evaluate(s_pos, *s_acc, *s_cch);
     if (raw_out)
         *raw_out = int(psqt) + int(positional);
     return nn_scale(s_pos, psqt, positional, rule50);
