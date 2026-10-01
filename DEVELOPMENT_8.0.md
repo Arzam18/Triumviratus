@@ -340,7 +340,23 @@ A second round (27/09), again with the same 1-thread tree:
 - castling rights that do not match the board are dropped;
 - `UCI_ShowWDL`, `SyzygyProbeDepth` and `SyzygyProbeLimit` are honoured by the release build.
 
-Still open: ponder is not implemented.
+**Ponder** (added 1 October): the `Ponder` option, `go ponder`, `ponderhit`, and `bestmove … ponder …`.
+- Time follows Stockfish: the budget is counted from `go ponder`. If it is already spent at
+  `ponderhit`, the engine plays at once with its last completed iteration.
+- The move to ponder comes from the PV of the last completed iteration, so it is there even when the
+  search is stopped mid-iteration.
+- Bench is unchanged.
+
+Checked in 50 games with ponder on for both sides, refereed by python-chess (which drives `go ponder`,
+`ponderhit` and `stop` like a GUI):
+
+| TC | games | moves | ponderhits |
+|---|---:|---:|---:|
+| 5+0.05 | 30 | 4,044 | 59.5% |
+| 1+0.01 | 20 | 2,723 | 59.8% |
+
+In those games there were no time losses, no illegal moves and no illegal ponder moves. After a
+ponderhit the move takes less time than a normal move (median 57 against 65 ms at 5+0.05).
 
 **SMP.** With threads pinned one per core, NPS scaling matches Stockfish. On CCRL 40/15, the step
 from 1 to 4 CPUs is worth +27 (6.0) and +33 (5.0) for us, against +20..+23 for Stockfish and
