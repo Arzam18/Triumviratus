@@ -148,8 +148,10 @@ jobs:
       # ============================================================
       # BUILD TRIUMVIRATUS ARM64 NEON
       #
-      # Because nn-consilium.nnue now exists at the Makefile
-      # build root, the current source can embed the network.
+      # IMPORTANT:
+      # The Makefile's default NET_NAME still points to the older
+      # network. Explicitly override it here so NNUE_EMBEDDING_OFF
+      # is NOT defined.
       # ============================================================
       - name: Build Triumviratus ARM64 NEON
         working-directory: source
@@ -161,6 +163,7 @@ jobs:
 
           make android \
             NDK="$NDK_ROOT" \
+            NET_NAME=nn-consilium.nnue \
             EXE=Triumviratus-android-arm64-neon
 
       # ============================================================
@@ -190,8 +193,10 @@ jobs:
       # ============================================================
       # VERIFY NNUE WAS EMBEDDED
       #
-      # The previous networkless binary was about 684 KB.
-      # The embedded-network binary must be vastly larger.
+      # The previous networkless binary was:
+      #   1,980,408 bytes
+      #
+      # A network-embedded binary must be substantially larger.
       # ============================================================
       - name: Verify NNUE was embedded
         working-directory: source
