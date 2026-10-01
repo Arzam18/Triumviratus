@@ -51,9 +51,9 @@ int g_qfut_vic_scale = 500;
 static bool g_hist_bonus_sf = true;
 void set_hist_bonus_sf(bool v) { g_hist_bonus_sf = v; }
 int g_hist_bonus_mult =
-    490; // [4.1 BAKE 282->326] SPSA co-tune history/LMR @12+0.12 (+5-7 Elo)
-int g_hist_bonus_sub = 299;  // [4.1 BAKE 59->35]
-int g_hist_bonus_max = 2946; // [4.1 BAKE 1247->2439]
+    471; // [M20 490->471] [4.1 BAKE 282->326] SPSA co-tune history/LMR @12+0.12 (+5-7 Elo)
+int g_hist_bonus_sub = 255;  // [M20 299->255] [4.1 BAKE 59->35]
+int g_hist_bonus_max = 2785; // [M20 2946->2785] [4.1 BAKE 1247->2439]
 
 // CaptureHist (UCI option "CaptureHist"). Capture history: tabella
 // [piece][to][victim] che impara quali catture producono cutoff, e ne bias-a
@@ -406,11 +406,11 @@ int g_hist_init_capt = 249; // [0,2000]
 // Q-19 (Caissa Search.cpp:1897-1954): addenda al blocco LMRFine, in millesimi
 // di ply. (a) ply-scaled PV: riduci MENO vicino alla radice — LMRFine non ha
 // NESSUN termine di ply.
-int g_lmrf_ply = 524; // [0,2048]  (Caissa: 1024)
+int g_lmrf_ply = 485; // [M20 524->485] [0,2048]  (Caissa: 1024)
 // (b) killer/counter: Caissa le riduce ~2.6 ply in meno. Qui in millesimi,
 // additivo al
 //     `reduction--` intero di KillerLMRFix (che resta).
-int g_lmrf_killer = 797; // [0,4000]
+int g_lmrf_killer = 801; // [M20 797->801] [0,4000]
 
 // Q-18 helper: bonus piatto -> scalato sul numero di mosse cercate prima della
 // best.
@@ -437,17 +437,19 @@ void set_aggr_lmr(bool v) { g_aggr_lmr = v; }
 // external SPSA tuner (fastchess) can set them per-game without recompiling.
 // Defaults = the current hand-set values. After a tuning run, bake the
 // converged values in.
-int g_rfp_margin = 53;  // reverse futility: static_eval - g*depth >= beta
-                        // [SPSA-tuned: 30->21]
-int g_razor_base = 272; // razoring: base + mult*depth below alpha -> qsearch
-int g_razor_mult = 118;  // [SPSA-tuned: 102->139]
-int g_fut_base = 181;   // futility: base + mult*depth (+improving bonus)
-                        // [SPSA-tuned: 82->111]
-int g_fut_mult = 138;    // [3.7 BAKE 53->41; BAKED #1 66->53]
+// BAKE MOE1 (30/09/2026): i valori marcati [MOE1] vengono dallo SPSA MOE1 sulla rete MoE-1024 F4_avg5_perm
+// (iterazione 5410, 20+0.2; vedi il commento in nnue_bridge.cpp accanto a g_ev_pos_w).
+int g_rfp_margin = 61;  // [M20 60->61] reverse futility: static_eval - g*depth >= beta
+                        // [SPSA-tuned: 30->21] [MOE1 53->60]
+int g_razor_base = 205; // [M20 245->205] razoring: base + mult*depth below alpha -> qsearch [MOE1 272->245]
+int g_razor_mult = 108;  // [M20 118->108] [SPSA-tuned: 102->139]
+int g_fut_base = 161;   // [M20 152->161] futility: base + mult*depth (+improving bonus)
+                        // [SPSA-tuned: 82->111] [MOE1 181->152]
+int g_fut_mult = 120;    // [M20 137->120] [3.7 BAKE 53->41; BAKED #1 66->53] [MOE1 138->137]
 int g_fut_depth =
     7; // gate profondita' del futility pruning (alzare = potare a nodi piu'
        // profondi = albero piu' stretto). UCI FutilityDepth, tunabile.
-int g_fut_improving = 145; // extra futility margin when improving [SPSA-tuned:
+int g_fut_improving = 117; // [M20 145->117] extra futility margin when improving [SPSA-tuned:
                            // 60->93]
 // Capture futility pruning (SF master Step 14, ported 2026-06-23). Default OFF
 // (A/B). SF prunes a capture at low (reduced) depth when even winning the
@@ -457,11 +459,11 @@ int g_fut_improving = 145; // extra futility margin when improving [SPSA-tuned:
 // g_capfut_depth is a small-int GATE kept fixed (small ints round to noise
 // under SPSA).
 static bool g_cap_futility = true; // CaptureFutility (UCI spin 0/1)
-int g_capfut_base = 156;           // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+int g_capfut_base = 159;           // [M20 156->159] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 int g_capfut_mult =
-    203; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+    231; // [M20 203->231] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 int g_capfut_chist =
-    358; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+    362; // [M20 358->362] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
          // [F-002 audit 2026-07-02: 125->123, SPSA+SPRT] capture-history
          // contribution, /1024 (SF=131; our capt-hist clamp +/-7000 -> max
          // ~896cp). Extremi testati: 60=-45 Elo, 140=-25 Elo (LOS 0.4%/2%,
@@ -487,7 +489,7 @@ int g_capfut_depth =
 // (NORM_CP era 392 con la rete della 5.1; dal 10/09/2026 il DISPLAY usa 449 per
 // legio-septima. Questo e' un parametro di RICERCA e non cambia con quello.) E'
 // spin perche' l'SPSA lo assesti nel blocco CapFut*.
-int g_capfut_vic_scale = 582; // CapFutVicScale, /10000 insieme a EvalScale
+int g_capfut_vic_scale = 570; // [M20 582->570] CapFutVicScale, /10000 insieme a EvalScale
 // --- Other missing SF-master cut features (ported 2026-06-23, ALL default
 // OFF/legacy = byte-identical).
 //     SPSA targets = the cp MARGINS (wide range); toggles + small-int gates are
@@ -500,7 +502,7 @@ int g_opp_worse_margin =
 static bool g_triple_ext =
     true; // TripleExt (SF :1244): +3 singular extension beyond the double
 int g_singular_tmargin =
-    319; // triple-ext margin below singular_beta (> dmargin) (SPSA target)
+    285; // [M20 319->285] triple-ext margin below singular_beta (> dmargin) (SPSA target)
 // Negative extensions as CONTINUOUS tunable amounts (reach off=0). Default
 // (1,0) = legacy
 // (-1 on ttMove>=beta, nothing on cutNode). SF = (3,2). SPSA-tunable
@@ -824,7 +826,7 @@ int g_bad_noisy_count = 7; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 static bool g_lmr_enrich = true;
 int g_lmr_enrich_amount =
     2; // ply extra di riduzione quando la TT-move è noisy (SPSA target)
-int g_razor_quad_coef = 82; // RazorQuadCoef (SF :967): quadratic razor term
+int g_razor_quad_coef = 79; // [M20 82->79] RazorQuadCoef (SF :967): quadratic razor term
                             // (base + mult*d + coef*d^2); 0 = linear/off
 int g_rfp_depth_cap = 7; // RFPDepth: >0 overrides RFP depth cap (0=legacy 6/8);
                          // widen toward SF=17
@@ -860,7 +862,7 @@ static bool g_follow_pv = false;
 // ⚠️ Il vettore COSTA nodi: bench 251.855 -> 261.287 (+3,74%), ~2,9 Elo di debito a
 // 55 Elo/raddoppio, quindi il guadagno lordo del meccanismo e' piu' alto del misurato.
 // ⚠️ Il bisect fra le due leve NON e' stato fatto: non sappiamo quale delle due paghi.
-int g_qs_delta = 1525; // F-002: delta-pruning qsearch (era const DELTA=1000; a
+int g_qs_delta = 1801; // [M20 1595->1801] [MOE1 1525->1595] F-002: delta-pruning qsearch (era const DELTA=1000; a
                        // scala-56 ~1785cp reali)
 int g_singular_mpd =
     1; // F-002: margine singular PER-DEPTH (era hardcoded 2*depth, unita'-eval)
@@ -916,7 +918,7 @@ static bool g_lmr_captures =
 int g_lmr_check_exempt = 0;
 int g_lmr_cap_scale = 52; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g). F-004: % della lmr_table applicata alle catture (50
                           // = dimezzata; SPSA confermo' ~50)
-int g_singular_dmargin = 59; // double-extension margin below singular_beta
+int g_singular_dmargin = 62; // [M20 57->62] double-extension margin below singular_beta [MOE1 59->57]
                              // [SPSA-tuned: 63->43]
 int g_hist_red_div = 3190;   // LMR history-reduction divisor [SPSA-tuned:
                              // 3500->1041]
@@ -995,7 +997,7 @@ int g_cmhc_scale =
 //   difetti che non hanno parametri tarati sopra — es. CorrTBGuard.
 int g_cmhc_ply1 = 0;
 int g_probcut_margin =
-    234; // ProbCut: capture verification must beat beta by this margin
+    221; // [M20 190->221] ProbCut: capture verification must beat beta by this margin [MOE1 234->190]
 int g_probcut_improve = 4; // Q-20b (Alexandria): abbassa probcut_beta di questo
                            // quando improving (probcut piu' facile). 0 = OFF
 
@@ -1125,7 +1127,7 @@ void set_caphist_threat(bool v) { g_caphist_threat = v; }
 // enfasi butterfly. [BAKE 2026-07-04: 100->75, SPRT +13.90 Elo per il
 // candidato, LOS 94.46% @400g 10+0.1]
 int g_threat_hist_weight =
-    130; // /100, scala extra del termine threat-history in td_score_move [BAKE
+    135; // [M20 130->135] /100, scala extra del termine threat-history in td_score_move [BAKE
          // 2026-07-04 75->60, SPRT -9.39 Elo base LOS82.13% @296g + gradiente
          // SPSA concorde (discesa 75->68-73)]
 int g_threat_scale =
@@ -1256,7 +1258,7 @@ static bool g_ttcut_refine =
     true; // #3a-c cutoff TT: depth+1 sui fail-high, coerenza cutnode,
           // fifty<soglia [BAKE 2026-07-03]
 int g_ttcut_fifty =
-    89; //    soglia fifty oltre cui il cutoff TT non e' affidabile (patta-50
+    92; // [M20 89->92]    soglia fifty oltre cui il cutoff TT non e' affidabile (patta-50
         //    vicina) [BAKE 2026-07-04 blocco secondaudit_block SPSA, SPRT +8.34
         //    Elo LOS79.4% @500g (non conclusivo ma leaning+)]
 // Q-14 TTResearchMargin (Ethereal, tecnica di Grant): fail-low anticipato a
@@ -1279,10 +1281,10 @@ int g_rdr_probcut = 0;    // ProbCut: beta di probcut += over * RDRProbCut (cp)
 // (2) TTNearMiss (Coda FEAT_TT_NEARMISS): taglio da TT con entry di UN ply piu' corta, se lo score supera il
 //     bound di almeno TTNearMiss cp (non-PV, niente score decisivi, niente patta-50 vicina). 0 = off; Coda 80.
 //     Il lato fail-low esiste gia' da solo (TTResearch/TTResearchMargin, Ethereal): questo fa entrambi.
-int g_tt_nearmiss = 0;
+int g_tt_nearmiss = 100; // [M20 0->100]
 // (3) TTDamp (Coda TT_DAMP_TT_WEIGHT_10X): nel taglio TT non-PV con bound inferiore, restituisce
 //     (W*tt_score + 10*beta) / (W+10) invece di tt_score (score meno gonfiati). W in decimi; 0 = off; Coda 31.
-int g_tt_damp = 0;
+int g_tt_damp = 41; // [M20 0->41]
 // ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_8.0/K_RIFERIMENTI_LTC.md) =====
 // PvTTMinDepth: nella PV la mossa TT non scende in quiescenza (SF, Reckless, Caissa, PlentyChess). Default off.
 static bool g_pv_tt_min_depth = false;
@@ -1388,7 +1390,7 @@ int g_fhboost_margin =
 static bool g_hist_triv_guard = false; // #10b niente bonus al cutoff "gratis"
                                        // (depth<=3, nessun quiet prima)
 int g_malus_pct =
-    69; // #10c malus = bonus * pct/100 (costanti malus separate dal bonus)
+    58; // [M20 69->58] #10c malus = bonus * pct/100 (costanti malus separate dal bonus)
 static bool g_easycap_gate =
     false; // #11 niente NMP se abbiamo un pezzo in presa "facile" (Berserk)
 int g_rfp_hist_thresh =
@@ -1472,14 +1474,14 @@ int g_cutnode_lmr_extra = 1; // CutNodeLMR: ply extra di riduzione sui cut-node
 int g_nmp_base = 5; // null-move reduction: R = g_nmp_base + depth/g_nmp_div
 int g_nmp_div = 3;
 int g_lmr_eval_margin =
-    43; // [F-004/005 BAKE 2026-07-02: 33->20, SPSA in blocco LMR] LMR: reduce
+    33; // [M20 41->33] [F-004/005 BAKE 2026-07-02: 33->20, SPSA in blocco LMR] [MOE1 43->41] LMR: reduce
         // +1 more when static_eval + margin < alpha
 int g_lmr_ttdepth =
     1; // LMR: reduce LESS by this when TT depth >= depth   [SPSA-tuned: 0->2]
 // CORE LMR formula coefficients (*100).
-int g_lmr_base_x100 = 22; // baseline reduction floor [3.7 BAKE 41->37; SPSA
+int g_lmr_base_x100 = 19; // [M20 22->19] baseline reduction floor [3.7 BAKE 41->37; SPSA
                           // 75->47; BAKED #1 47->41]
-int g_lmr_div_x100 = 447; // bigger divisor = LESS reduction [3.7 BAKE 345->310;
+int g_lmr_div_x100 = 452; // [M20 447->452] bigger divisor = LESS reduction [3.7 BAKE 345->310;
                           // SPSA 225->270; BAKED #1 270->345]
 // LMRSFBase: vedi il commento accanto a lmr_sf_table (init_lmr_table).
 int g_lmr_sf_base = 0;
@@ -1510,14 +1512,14 @@ static bool g_lmr_fine = true; // 5.1 BAKE (spsa_struct iter1216, media ultimi
 // Vettore SPSA rifiutato: SS=695 All=557 Cut=4629 Cutoff=1655 Improv=356
 //                         Corr=897 Ply=426 Killer=764
 int g_lmrf_cut =
-    3687; // [5.1 BAKE 3995->3184] cut-node: riduzione forte (il divario #1)
+    3284; // [M20 3687->3284] [5.1 BAKE 3995->3184] cut-node: riduzione forte (il divario #1)
 int g_lmrf_cut_nott =
-    2397; // [5.1 BAKE 1059->2092] extra sui cut-node senza TT move
+    2142; // [M20 2397->2142] [5.1 BAKE 1059->2092] extra sui cut-node senza TT move
 int g_lmrf_ttcap =
-    200; // [5.1 BAKE 1039->390]  ttMove e' una cattura -> riduci di piu'
+    189; // [M20 200->189] [5.1 BAKE 1039->390]  ttMove e' una cattura -> riduci di piu'
 int g_lmrf_ttpv =
-    617; // [5.1 BAKE 2766->2210] ttPv: riduci MENO (protezione del ramo ex-PV)
-int g_lmrf_pv = 437; // [5.1 BAKE 1017->1551] PV node: riduci MENO
+    640; // [M20 617->640] [5.1 BAKE 2766->2210] ttPv: riduci MENO (protezione del ramo ex-PV)
+int g_lmrf_pv = 356; // [M20 437->356] [5.1 BAKE 1017->1551] PV node: riduci MENO
 // ⭐ BAKED ON (2026-09-07): vettore SPSA a 8 parametri, SPRT +2,08 +/- 3,13 su 13.192
 // partite a 12+0.12 hash 64 (LLR 0,64, stabile su dodici report consecutivi fra +1,63 e
 // +2,74). Tarato da uno SPSA a 10.006 iterazioni / ~40.000 partite, 8 parametri con
@@ -1527,16 +1529,16 @@ int g_lmrf_pv = 437; // [5.1 BAKE 1017->1551] PV node: riduci MENO
 // 🔴 QUESTO CAMBIA LA FIRMA DEL BENCH: 252074 non e' piu' il canary.
 // ⚠️ Tarato E misurato entrambi a 12+0.12 hash 64. La regola di regime (§1.11) vuole la
 //    conferma a hash 256: TTTwoLevel valeva +4,55 a hash 64 e zero a 256.
-int g_lmrf_ss = 664; // [5.1 BAKE 445->923]   statScore (history continua): r -=
+int g_lmrf_ss = 616; // [M20 664->616] [5.1 BAKE 445->923]   statScore (history continua): r -=
                      // statScore*g/4096
 int g_lmrf_corr =
-    866; // [5.1 BAKE 160->478]   correctionValue (eval incerta -> riduci meno)
-int g_lmrf_all = 618;     // [5.1 BAKE 272->723]   scaling ALL-node: r +=
+    730; // [M20 972->730] [5.1 BAKE 160->478] [MOE1 866->972]  correctionValue (eval incerta -> riduci meno)
+int g_lmrf_all = 652;     // [M20 618->652] [5.1 BAKE 272->723]   scaling ALL-node: r +=
                           // r*g/(256*depth+285)  [ci mancava]
-int g_lmrf_improv = 489;  // [5.1 BAKE 1024->411]  non-improving
-int g_lmrf_evalcut = 979; // [5.1 BAKE 1024->1517] eval+margin < alpha
+int g_lmrf_improv = 450;  // [M20 489->450] [5.1 BAKE 1024->411]  non-improving
+int g_lmrf_evalcut = 1025; // [M20 1012->1025] [5.1 BAKE 1024->1517] [MOE1 979->1012] eval+margin < alpha
 int g_lmrf_cutoff =
-    1520; // [5.1 BAKE 1100->1626] figlio con cutoffCnt alto: riduci di piu'
+    1199; // [M20 1520->1199] [5.1 BAKE 1100->1626] figlio con cutoffCnt alto: riduci di piu'
 // ⭐ LmrAlphaGap (port SF `5f7348f0`, 19/08/2026 — "Reduce LMR less
 // aggressively in loose alpha windows"). SF: STC LLR 2.95 su 90.784 partite
 // <0.00,2.00>, LTC LLR 2.94 su 209.640 <0.50,2.50> — l'unica patch da GUADAGNO

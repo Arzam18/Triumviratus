@@ -45,11 +45,11 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_brilliant_sac_lmr_amt", (const void*)&g_brilliant_sac_lmr_amt, 0, 2},
     {"g_brilliant_sac_margin", (const void*)&g_brilliant_sac_margin, 0, 5000},
     {"g_cap_futility", (const void*)&g_cap_futility, 1, 1},
-    {"g_capfut_base", (const void*)&g_capfut_base, 0, 156},
-    {"g_capfut_chist", (const void*)&g_capfut_chist, 0, 358},
+    {"g_capfut_base", (const void*)&g_capfut_base, 0, 159},
+    {"g_capfut_chist", (const void*)&g_capfut_chist, 0, 362},
     {"g_capfut_depth", (const void*)&g_capfut_depth, 0, 8},
-    {"g_capfut_mult", (const void*)&g_capfut_mult, 0, 203},
-    {"g_capfut_vic_scale", (const void*)&g_capfut_vic_scale, 0, 582},
+    {"g_capfut_mult", (const void*)&g_capfut_mult, 0, 231},
+    {"g_capfut_vic_scale", (const void*)&g_capfut_vic_scale, 0, 570},
     {"g_caphist_div", (const void*)&g_caphist_div, 0, 21},
     {"g_caphist_threat", (const void*)&g_caphist_threat, 1, 0},
     {"g_capture_hist", (const void*)&g_capture_hist, 1, 1},
@@ -67,11 +67,11 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_corr_major", (const void*)&g_corr_major, 1, 1},
     {"g_conthist_prune_depth", (const void*)&g_conthist_prune_depth, 0, 2},
     {"g_conthist_red_div", (const void*)&g_conthist_red_div, 0, 3684},
-    {"g_conthist_weight", (const void*)&g_conthist_weight, 0, 135},
+    {"g_conthist_weight", (const void*)&g_conthist_weight, 0, 144},
     {"g_corr_asym", (const void*)&g_corr_asym, 0, 137},
     {"g_corr_cap", (const void*)&g_corr_cap, 0, 48},
     {"g_corr_cont", (const void*)&g_corr_cont, 1, 1},
-    {"g_corr_cont_weight", (const void*)&g_corr_cont_weight, 0, 85},
+    {"g_corr_cont_weight", (const void*)&g_corr_cont_weight, 0, 77},
     {"g_corr_faillow_all", (const void*)&g_corr_faillow_all, 0, 0},
     {"g_corr_hist", (const void*)&g_corr_hist, 1, 1},
     {"g_corr_lr_div", (const void*)&g_corr_lr_div, 0, 303},
@@ -118,10 +118,10 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_fh_t_rfp", (const void*)&g_fh_t_rfp, 0, 512},
     {"g_fhboost_margin", (const void*)&g_fhboost_margin, 0, 2},
     {"g_follow_pv", (const void*)&g_follow_pv, 1, 0},
-    {"g_fut_base", (const void*)&g_fut_base, 0, 181},
+    {"g_fut_base", (const void*)&g_fut_base, 0, 161},
     {"g_fut_depth", (const void*)&g_fut_depth, 0, 7},
-    {"g_fut_improving", (const void*)&g_fut_improving, 0, 145},
-    {"g_fut_mult", (const void*)&g_fut_mult, 0, 138},
+    {"g_fut_improving", (const void*)&g_fut_improving, 0, 117},
+    {"g_fut_mult", (const void*)&g_fut_mult, 0, 120},
     {"g_fut_spare_quiet", (const void*)&g_fut_spare_quiet, 1, 0},
     {"g_goodcap_hist_div", (const void*)&g_goodcap_hist_div, 0, 32},
     {"g_goodcap_ttquiet", (const void*)&g_goodcap_ttquiet, 1, 0},
@@ -130,10 +130,10 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_hindsight_red", (const void*)&g_hindsight_red, 1, 0},
     {"g_hindsight_red_margin", (const void*)&g_hindsight_red_margin, 0, 2},
     {"g_hindsight_red_thresh", (const void*)&g_hindsight_red_thresh, 0, 113},
-    {"g_hist_bonus_max", (const void*)&g_hist_bonus_max, 0, 2946},
-    {"g_hist_bonus_mult", (const void*)&g_hist_bonus_mult, 0, 490},
+    {"g_hist_bonus_max", (const void*)&g_hist_bonus_max, 0, 2785},
+    {"g_hist_bonus_mult", (const void*)&g_hist_bonus_mult, 0, 471},
     {"g_hist_bonus_sf", (const void*)&g_hist_bonus_sf, 1, 1},
-    {"g_hist_bonus_sub", (const void*)&g_hist_bonus_sub, 0, 299},
+    {"g_hist_bonus_sub", (const void*)&g_hist_bonus_sub, 0, 255},
     {"g_hist_red_div", (const void*)&g_hist_red_div, 0, 3190},
     {"g_hist_triv_guard", (const void*)&g_hist_triv_guard, 1, 0},
     {"g_histprune_margin", (const void*)&g_histprune_margin, 0, 2097},
@@ -152,7 +152,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_lmp_base", (const void*)&g_lmp_base, 0, 16},
     {"g_lmp_check_guard", (const void*)&g_lmp_check_guard, 1, 0},
     {"g_lmp_improving", (const void*)&g_lmp_improving, 1, 1},
-    {"g_lmp_quad", (const void*)&g_lmp_quad, 0, 138},
+    {"g_lmp_quad", (const void*)&g_lmp_quad, 0, 141},
     {"g_lmp_scale", (const void*)&g_lmp_scale, 0, 35},
     {"g_lmr_alpha_gap", (const void*)&g_lmr_alpha_gap, 0, 0},
     {"g_lmr_alpha_hi", (const void*)&g_lmr_alpha_hi, 0, 96},
@@ -164,7 +164,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_lmr_decisive_beta", (const void*)&g_lmr_decisive_beta, 1, 1},
     {"g_lmr_enrich", (const void*)&g_lmr_enrich, 1, 1},
     {"g_lmr_enrich_amount", (const void*)&g_lmr_enrich_amount, 0, 2},
-    {"g_lmr_eval_margin", (const void*)&g_lmr_eval_margin, 0, 43},
+    {"g_lmr_eval_margin", (const void*)&g_lmr_eval_margin, 0, 33},
     {"g_lmr_expect", (const void*)&g_lmr_expect, 0, 0},
     {"g_lmr_fine", (const void*)&g_lmr_fine, 1, 1},
     {"g_lmr_min_depth", (const void*)&g_lmr_min_depth, 0, 3},
@@ -175,24 +175,24 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_lmr_ttdepth", (const void*)&g_lmr_ttdepth, 0, 1},
     {"g_lmrdepth_histdiv", (const void*)&g_lmrdepth_histdiv, 0, 4509},
     {"g_lmrdepth_prune", (const void*)&g_lmrdepth_prune, 0, 1},
-    {"g_lmrf_all", (const void*)&g_lmrf_all, 0, 618},
+    {"g_lmrf_all", (const void*)&g_lmrf_all, 0, 652},
     {"g_lmrf_cont4", (const void*)&g_lmrf_cont4, 0, 0},
-    {"g_lmrf_corr", (const void*)&g_lmrf_corr, 0, 866},
-    {"g_lmrf_cut", (const void*)&g_lmrf_cut, 0, 3687},
-    {"g_lmrf_cut_nott", (const void*)&g_lmrf_cut_nott, 0, 2397},
-    {"g_lmrf_cutoff", (const void*)&g_lmrf_cutoff, 0, 1520},
-    {"g_lmrf_evalcut", (const void*)&g_lmrf_evalcut, 0, 979},
-    {"g_lmrf_improv", (const void*)&g_lmrf_improv, 0, 489},
-    {"g_lmrf_killer", (const void*)&g_lmrf_killer, 0, 797},
-    {"g_lmrf_ply", (const void*)&g_lmrf_ply, 0, 524},
-    {"g_lmrf_pv", (const void*)&g_lmrf_pv, 0, 437},
-    {"g_lmrf_ss", (const void*)&g_lmrf_ss, 0, 664},
-    {"g_lmrf_ttcap", (const void*)&g_lmrf_ttcap, 0, 200},
-    {"g_lmrf_ttpv", (const void*)&g_lmrf_ttpv, 0, 617},
+    {"g_lmrf_corr", (const void*)&g_lmrf_corr, 0, 730},
+    {"g_lmrf_cut", (const void*)&g_lmrf_cut, 0, 3284},
+    {"g_lmrf_cut_nott", (const void*)&g_lmrf_cut_nott, 0, 2142},
+    {"g_lmrf_cutoff", (const void*)&g_lmrf_cutoff, 0, 1199},
+    {"g_lmrf_evalcut", (const void*)&g_lmrf_evalcut, 0, 1025},
+    {"g_lmrf_improv", (const void*)&g_lmrf_improv, 0, 450},
+    {"g_lmrf_killer", (const void*)&g_lmrf_killer, 0, 801},
+    {"g_lmrf_ply", (const void*)&g_lmrf_ply, 0, 485},
+    {"g_lmrf_pv", (const void*)&g_lmrf_pv, 0, 356},
+    {"g_lmrf_ss", (const void*)&g_lmrf_ss, 0, 616},
+    {"g_lmrf_ttcap", (const void*)&g_lmrf_ttcap, 0, 189},
+    {"g_lmrf_ttpv", (const void*)&g_lmrf_ttpv, 0, 640},
     {"g_lowply", (const void*)&g_lowply, 1, 1},
     {"g_lowply_weight", (const void*)&g_lowply_weight, 0, 179},
     {"g_mainhist_weight", (const void*)&g_mainhist_weight, 0, 93},
-    {"g_malus_pct", (const void*)&g_malus_pct, 0, 69},
+    {"g_malus_pct", (const void*)&g_malus_pct, 0, 58},
     {"g_malus_quad", (const void*)&g_malus_quad, 1, 0},
     {"g_malus_quad_coef", (const void*)&g_malus_quad_coef, 0, 45},
     {"g_malus_scale_coef", (const void*)&g_malus_scale_coef, 0, 59},
@@ -227,7 +227,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_opp_worse_margin", (const void*)&g_opp_worse_margin, 0, 23},
     {"g_opp_worsening", (const void*)&g_opp_worsening, 1, 1},
     {"g_pawn_hist", (const void*)&g_pawn_hist, 1, 1},
-    {"g_pawn_hist_weight", (const void*)&g_pawn_hist_weight, 0, 187},
+    {"g_pawn_hist_weight", (const void*)&g_pawn_hist_weight, 0, 211},
     {"g_pawn_key_incr", (const void*)&g_pawn_key_incr, 1, 1},
     {"g_pb_base", (const void*)&g_pb_base, 0, 88},
     {"g_pb_ev", (const void*)&g_pb_ev, 0, 144},
@@ -249,7 +249,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_probcut_improve", (const void*)&g_probcut_improve, 0, 4},
     {"g_probcut_improving", (const void*)&g_probcut_improving, 1, 1},
     {"g_probcut_incheck_margin", (const void*)&g_probcut_incheck_margin, 0, 331},
-    {"g_probcut_margin", (const void*)&g_probcut_margin, 0, 234},
+    {"g_probcut_margin", (const void*)&g_probcut_margin, 0, 221},
     {"g_probcut_min_depth", (const void*)&g_probcut_min_depth, 0, 5},
     {"g_probcut_tt", (const void*)&g_probcut_tt, 1, 1},
     {"g_probcut_tt_all", (const void*)&g_probcut_tt_all, 0, 0},
@@ -262,7 +262,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_qs_capthist", (const void*)&g_qs_capthist, 1, 1},
     {"g_qs_capthist_scale", (const void*)&g_qs_capthist_scale, 0, 72},
     {"g_qs_checks", (const void*)&g_qs_checks, 1, 0},
-    {"g_qs_delta", (const void*)&g_qs_delta, 0, 1525},
+    {"g_qs_delta", (const void*)&g_qs_delta, 0, 1801},
     {"g_qs_delta_bestcase", (const void*)&g_qs_delta_bestcase, 1, 0},
     {"g_qs_draw_check", (const void*)&g_qs_draw_check, 1, 0},
     {"g_qs_move_cap", (const void*)&g_qs_move_cap, 0, 3},
@@ -270,11 +270,11 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_qs_tt_quiets", (const void*)&g_qs_tt_quiets, 0, 0},
     {"g_qsearch_corr", (const void*)&g_qsearch_corr, 1, 1},
     {"g_quiet_offense", (const void*)&g_quiet_offense, 1, 0},
-    {"g_razor_base", (const void*)&g_razor_base, 0, 272},
+    {"g_razor_base", (const void*)&g_razor_base, 0, 205},
     {"g_razor_depth4", (const void*)&g_razor_depth4, 1, 0},
     {"g_razor_depth_cap", (const void*)&g_razor_depth_cap, 0, 6},
-    {"g_razor_mult", (const void*)&g_razor_mult, 0, 118},
-    {"g_razor_quad_coef", (const void*)&g_razor_quad_coef, 0, 82},
+    {"g_razor_mult", (const void*)&g_razor_mult, 0, 108},
+    {"g_razor_quad_coef", (const void*)&g_razor_quad_coef, 0, 79},
     {"g_razor_ttlower", (const void*)&g_razor_ttlower, 1, 0},
     {"g_razor_ttquiet", (const void*)&g_razor_ttquiet, 1, 0},
     {"g_recapture_ext", (const void*)&g_recapture_ext, 1, 0},
@@ -283,7 +283,7 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_rfp_depth8", (const void*)&g_rfp_depth8, 1, 0},
     {"g_rfp_depth_cap", (const void*)&g_rfp_depth_cap, 0, 7},
     {"g_rfp_hist_thresh", (const void*)&g_rfp_hist_thresh, 0, 64},
-    {"g_rfp_margin", (const void*)&g_rfp_margin, 0, 53},
+    {"g_rfp_margin", (const void*)&g_rfp_margin, 0, 61},
     {"g_rfp_ttmove_gate", (const void*)&g_rfp_ttmove_gate, 0, 0},
     {"g_see_cap_margin", (const void*)&g_see_cap_margin, 0, 81},
     {"g_see_depth", (const void*)&g_see_depth, 0, 3},
@@ -292,12 +292,12 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_see_lmr_linear_coef", (const void*)&g_see_lmr_linear_coef, 0, 368},
     {"g_see_lmr_prune_cap", (const void*)&g_see_lmr_prune_cap, 0, 27},
     {"g_see_lmr_quiet_margin", (const void*)&g_see_lmr_quiet_margin, 0, 193},
-    {"g_see_quiet_margin", (const void*)&g_see_quiet_margin, 0, 116},
+    {"g_see_quiet_margin", (const void*)&g_see_quiet_margin, 0, 104},
     {"g_see_stalemate_guard", (const void*)&g_see_stalemate_guard, 1, 1},
     {"g_seo_mult", (const void*)&g_seo_mult, 0, 27},
     {"g_singular_de_cap", (const void*)&g_singular_de_cap, 0, 1},
     {"g_singular_depth_div", (const void*)&g_singular_depth_div, 0, 2},
-    {"g_singular_dmargin", (const void*)&g_singular_dmargin, 0, 59},
+    {"g_singular_dmargin", (const void*)&g_singular_dmargin, 0, 62},
     {"g_singular_exact_decouple", (const void*)&g_singular_exact_decouple, 1, 0},
     {"g_singular_exact_margin", (const void*)&g_singular_exact_margin, 1, 0},
     {"g_singular_exact_maxdepth", (const void*)&g_singular_exact_maxdepth, 0, 0},
@@ -305,12 +305,12 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_singular_mindepth", (const void*)&g_singular_mindepth, 0, 6},
     {"g_singular_mpd", (const void*)&g_singular_mpd, 0, 1},
     {"g_singular_plyguard", (const void*)&g_singular_plyguard, 1, 0},
-    {"g_singular_tmargin", (const void*)&g_singular_tmargin, 0, 319},
+    {"g_singular_tmargin", (const void*)&g_singular_tmargin, 0, 285},
     {"g_singular_ttmargin", (const void*)&g_singular_ttmargin, 0, 3},
     {"g_statscore_lmr", (const void*)&g_statscore_lmr, 1, 1},
     {"g_tb_tt_store", (const void*)&g_tb_tt_store, 1, 1},
     {"g_threat_hist", (const void*)&g_threat_hist, 1, 1},
-    {"g_threat_hist_weight", (const void*)&g_threat_hist_weight, 0, 130},
+    {"g_threat_hist_weight", (const void*)&g_threat_hist_weight, 0, 135},
     {"g_threat_ordering", (const void*)&g_threat_ordering, 1, 1},
     {"g_threat_scale", (const void*)&g_threat_scale, 0, 4212},
     {"g_triple_ext", (const void*)&g_triple_ext, 1, 1},
@@ -324,8 +324,8 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_rdr_rfp", (const void*)&g_rdr_rfp, 0, 0},
     {"g_rdr_lmp", (const void*)&g_rdr_lmp, 0, 0},
     {"g_rdr_probcut", (const void*)&g_rdr_probcut, 0, 0},
-    {"g_tt_nearmiss", (const void*)&g_tt_nearmiss, 0, 0},
-    {"g_tt_damp", (const void*)&g_tt_damp, 0, 0},
+    {"g_tt_nearmiss", (const void*)&g_tt_nearmiss, 0, 100},
+    {"g_tt_damp", (const void*)&g_tt_damp, 0, 41},
     {"g_pv_tt_min_depth", (const void*)&g_pv_tt_min_depth, 1, 0},
     {"g_rr_red_pct", (const void*)&g_rr_red_pct, 0, 100},
     {"g_null_threat_ext", (const void*)&g_null_threat_ext, 0, 0},
@@ -334,10 +334,10 @@ static const TriumvFrozenRef g_frozen_refs[] = {
     {"g_tm_drift_moves", (const void*)&g_tm_drift_moves, 0, 8},
     {"g_tt_static_eval", (const void*)&g_tt_static_eval, 1, 1},
     {"g_ttcut_bonus", (const void*)&g_ttcut_bonus, 1, 1},
-    {"g_ttcut_bonus_scale", (const void*)&g_ttcut_bonus_scale, 0, 111},
+    {"g_ttcut_bonus_scale", (const void*)&g_ttcut_bonus_scale, 0, 122},
     {"g_ttcut_depth_override", (const void*)&g_ttcut_depth_override, 0, 0},
     {"g_ttcut_exact", (const void*)&g_ttcut_exact, 0, 0},
-    {"g_ttcut_fifty", (const void*)&g_ttcut_fifty, 0, 89},
+    {"g_ttcut_fifty", (const void*)&g_ttcut_fifty, 0, 92},
     {"g_ttcut_malus", (const void*)&g_ttcut_malus, 1, 0},
     {"g_ttcut_malus_seen", (const void*)&g_ttcut_malus_seen, 0, 3},
     {"g_ttcut_refine", (const void*)&g_ttcut_refine, 1, 1},
@@ -361,11 +361,11 @@ void triumv_frozen_check();
 #define g_brilliant_sac_lmr_amt 2
 #define g_brilliant_sac_margin 5000
 #define g_cap_futility true
-#define g_capfut_base 156
-#define g_capfut_chist 358
+#define g_capfut_base 159
+#define g_capfut_chist 362
 #define g_capfut_depth 8
-#define g_capfut_mult 203
-#define g_capfut_vic_scale 582
+#define g_capfut_mult 231
+#define g_capfut_vic_scale 570
 #define g_caphist_div 21
 #define g_caphist_threat false
 #define g_capture_hist true
@@ -383,11 +383,11 @@ void triumv_frozen_check();
 #define g_corr_major true
 #define g_conthist_prune_depth 2
 #define g_conthist_red_div 3684
-#define g_conthist_weight 135
+#define g_conthist_weight 144
 #define g_corr_asym 137
 #define g_corr_cap 48
 #define g_corr_cont true
-#define g_corr_cont_weight 85
+#define g_corr_cont_weight 77
 #define g_corr_faillow_all 0
 #define g_corr_hist true
 #define g_corr_lr_div 303
@@ -434,10 +434,10 @@ void triumv_frozen_check();
 #define g_fh_t_rfp 512
 #define g_fhboost_margin 2
 #define g_follow_pv false
-#define g_fut_base 181
+#define g_fut_base 161
 #define g_fut_depth 7
-#define g_fut_improving 145
-#define g_fut_mult 138
+#define g_fut_improving 117
+#define g_fut_mult 120
 #define g_fut_spare_quiet false
 #define g_goodcap_hist_div 32
 #define g_goodcap_ttquiet false
@@ -446,10 +446,10 @@ void triumv_frozen_check();
 #define g_hindsight_red false
 #define g_hindsight_red_margin 2
 #define g_hindsight_red_thresh 113
-#define g_hist_bonus_max 2946
-#define g_hist_bonus_mult 490
+#define g_hist_bonus_max 2785
+#define g_hist_bonus_mult 471
 #define g_hist_bonus_sf true
-#define g_hist_bonus_sub 299
+#define g_hist_bonus_sub 255
 #define g_hist_red_div 3190
 #define g_hist_triv_guard false
 #define g_histprune_margin 2097
@@ -468,7 +468,7 @@ void triumv_frozen_check();
 #define g_lmp_base 16
 #define g_lmp_check_guard false
 #define g_lmp_improving true
-#define g_lmp_quad 138
+#define g_lmp_quad 141
 #define g_lmp_scale 35
 #define g_lmr_alpha_gap 0
 #define g_lmr_alpha_hi 96
@@ -480,7 +480,7 @@ void triumv_frozen_check();
 #define g_lmr_decisive_beta true
 #define g_lmr_enrich true
 #define g_lmr_enrich_amount 2
-#define g_lmr_eval_margin 43
+#define g_lmr_eval_margin 33
 #define g_lmr_expect 0
 #define g_lmr_fine true
 #define g_lmr_min_depth 3
@@ -491,24 +491,24 @@ void triumv_frozen_check();
 #define g_lmr_ttdepth 1
 #define g_lmrdepth_histdiv 4509
 #define g_lmrdepth_prune 1
-#define g_lmrf_all 618
+#define g_lmrf_all 652
 #define g_lmrf_cont4 0
-#define g_lmrf_corr 866
-#define g_lmrf_cut 3687
-#define g_lmrf_cut_nott 2397
-#define g_lmrf_cutoff 1520
-#define g_lmrf_evalcut 979
-#define g_lmrf_improv 489
-#define g_lmrf_killer 797
-#define g_lmrf_ply 524
-#define g_lmrf_pv 437
-#define g_lmrf_ss 664
-#define g_lmrf_ttcap 200
-#define g_lmrf_ttpv 617
+#define g_lmrf_corr 730
+#define g_lmrf_cut 3284
+#define g_lmrf_cut_nott 2142
+#define g_lmrf_cutoff 1199
+#define g_lmrf_evalcut 1025
+#define g_lmrf_improv 450
+#define g_lmrf_killer 801
+#define g_lmrf_ply 485
+#define g_lmrf_pv 356
+#define g_lmrf_ss 616
+#define g_lmrf_ttcap 189
+#define g_lmrf_ttpv 640
 #define g_lowply true
 #define g_lowply_weight 179
 #define g_mainhist_weight 93
-#define g_malus_pct 69
+#define g_malus_pct 58
 #define g_malus_quad false
 #define g_malus_quad_coef 45
 #define g_malus_scale_coef 59
@@ -543,7 +543,7 @@ void triumv_frozen_check();
 #define g_opp_worse_margin 23
 #define g_opp_worsening true
 #define g_pawn_hist true
-#define g_pawn_hist_weight 187
+#define g_pawn_hist_weight 211
 #define g_pawn_key_incr true
 #define g_pb_base 88
 #define g_pb_ev 144
@@ -565,7 +565,7 @@ void triumv_frozen_check();
 #define g_probcut_improve 4
 #define g_probcut_improving true
 #define g_probcut_incheck_margin 331
-#define g_probcut_margin 234
+#define g_probcut_margin 221
 #define g_probcut_min_depth 5
 #define g_probcut_tt true
 #define g_probcut_tt_all 0
@@ -578,7 +578,7 @@ void triumv_frozen_check();
 #define g_qs_capthist true
 #define g_qs_capthist_scale 72
 #define g_qs_checks false
-#define g_qs_delta 1525
+#define g_qs_delta 1801
 #define g_qs_delta_bestcase false
 #define g_qs_draw_check false
 #define g_qs_move_cap 3
@@ -586,11 +586,11 @@ void triumv_frozen_check();
 #define g_qs_tt_quiets 0
 #define g_qsearch_corr true
 #define g_quiet_offense false
-#define g_razor_base 272
+#define g_razor_base 205
 #define g_razor_depth4 false
 #define g_razor_depth_cap 6
-#define g_razor_mult 118
-#define g_razor_quad_coef 82
+#define g_razor_mult 108
+#define g_razor_quad_coef 79
 #define g_razor_ttlower false
 #define g_razor_ttquiet false
 #define g_recapture_ext false
@@ -599,7 +599,7 @@ void triumv_frozen_check();
 #define g_rfp_depth8 false
 #define g_rfp_depth_cap 7
 #define g_rfp_hist_thresh 64
-#define g_rfp_margin 53
+#define g_rfp_margin 61
 #define g_rfp_ttmove_gate 0
 #define g_see_cap_margin 81
 #define g_see_depth 3
@@ -608,12 +608,12 @@ void triumv_frozen_check();
 #define g_see_lmr_linear_coef 368
 #define g_see_lmr_prune_cap 27
 #define g_see_lmr_quiet_margin 193
-#define g_see_quiet_margin 116
+#define g_see_quiet_margin 104
 #define g_see_stalemate_guard true
 #define g_seo_mult 27
 #define g_singular_de_cap 1
 #define g_singular_depth_div 2
-#define g_singular_dmargin 59
+#define g_singular_dmargin 62
 #define g_singular_exact_decouple false
 #define g_singular_exact_margin false
 #define g_singular_exact_maxdepth 0
@@ -621,12 +621,12 @@ void triumv_frozen_check();
 #define g_singular_mindepth 6
 #define g_singular_mpd 1
 #define g_singular_plyguard false
-#define g_singular_tmargin 319
+#define g_singular_tmargin 285
 #define g_singular_ttmargin 3
 #define g_statscore_lmr true
 #define g_tb_tt_store true
 #define g_threat_hist true
-#define g_threat_hist_weight 130
+#define g_threat_hist_weight 135
 #define g_threat_ordering true
 #define g_threat_scale 4212
 #define g_triple_ext true
@@ -640,8 +640,8 @@ void triumv_frozen_check();
 #define g_rdr_rfp 0
 #define g_rdr_lmp 0
 #define g_rdr_probcut 0
-#define g_tt_nearmiss 0
-#define g_tt_damp 0
+#define g_tt_nearmiss 100
+#define g_tt_damp 41
 #define g_pv_tt_min_depth false
 #define g_rr_red_pct 100
 #define g_null_threat_ext 0
@@ -650,10 +650,10 @@ void triumv_frozen_check();
 #define g_tm_drift_moves 8
 #define g_tt_static_eval true
 #define g_ttcut_bonus true
-#define g_ttcut_bonus_scale 111
+#define g_ttcut_bonus_scale 122
 #define g_ttcut_depth_override 0
 #define g_ttcut_exact 0
-#define g_ttcut_fifty 89
+#define g_ttcut_fifty 92
 #define g_ttcut_malus false
 #define g_ttcut_malus_seen 3
 #define g_ttcut_refine true

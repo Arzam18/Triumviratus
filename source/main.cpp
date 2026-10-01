@@ -193,7 +193,7 @@ int main()
         return 1;
     }
     if (!g_startup_quiet) {
-        printf("info string Net: %s (%s; TRANN2 = SFNNv16-derived + PassedPawns)\n",
+        printf("info string Net: %s (%s; Consilium = TRANN3, SFNNv16-derived, 4 phase experts + PassedPawns)\n",
                netName, netPath.empty() ? "embedded" : netPath.c_str());
         fflush(stdout);
     }

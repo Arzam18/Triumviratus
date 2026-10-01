@@ -441,6 +441,7 @@ static void thread_search(int thread_id, int max_depth) {
         td.best_move = td.pv_table[0][0];
         td.best_score = score;
         td.depth = current_depth;
+        td.best_reply = td.pv_length[0] >= 2 ? td.pv_table[0][1] : 0;   // ponder
 
         // Q-15 FollowPV: salva la PV di QUESTA iterazione completata; la
         // prossima iterazione la riseguira' (niente IIR/shallow-pruning su
@@ -522,6 +523,7 @@ static void thread_search(int thread_id, int max_depth) {
       if (base == 1 && done > 0) {
         td.best_move = mpv_buf[ord[0]].pv[0];
         td.best_score = mpv_buf[ord[0]].score;
+        td.best_reply = mpv_buf[ord[0]].len >= 2 ? mpv_buf[ord[0]].pv[1] : 0;
       }
       td.mpv_count =
           0; // le iterazioni/ricerche successive ripartono senza esclusioni
@@ -561,6 +563,7 @@ static void thread_search(int thread_id, int max_depth) {
           td.pv_length[0] = save_len;
           if (!stop_threads.load(std::memory_order_relaxed) && v >= target) {
             td.best_move = cand;
+            td.best_reply = 0;   // la risposta salvata era quella alla mossa scartata
             // ristampa l'info-line con la mossa scambiata in testa alla PV:
             // le GUI/fastchess confrontano bestmove col primo move della PV
             // (senza questa riga: warning "Bestmove does not match last PV").

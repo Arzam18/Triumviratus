@@ -85,6 +85,14 @@ static U64 g_node_limit_thread = 0;
 // g_uci_stop distingue lo `stop` venuto da fuori (stop_search_threads) dagli stop interni della ricerca.
 bool g_go_infinite = false;
 static std::atomic<bool> g_uci_stop{false};
+// PONDER (01/10/2026). `go ponder`: la ricerca parte sulla posizione dopo la risposta prevista, col budget di tempo
+// gia' calcolato da parse_go ma SPENTO (timeset = 0, istanti parcheggiati qui da ponder_park_time). `ponderhit` lo
+// riaccende con gli STESSI istanti assoluti, misurati dal `go ponder` come in Stockfish: il tempo pensato in ponder
+// conta, e se ha gia' superato il budget la mossa esce subito (orologio risparmiato). Finche' g_pondering e' vero la
+// bestmove non si stampa (come `go infinite`): esce solo dopo ponderhit o stop.
+bool g_go_ponder = false;                 // da parse_go per la prossima launch_search; azzerato da reset_time_control
+static std::atomic<bool> g_pondering{false};
+static int g_ponder_timeset = 0, g_ponder_soft = 0, g_ponder_stop = 0;
 // searchmoves (analisi, UCI "go searchmoves m1 m2 ..."): whitelist di mosse di
 // root. count>0 => alla root si cercano SOLO queste (le altre saltate nel move
 // loop). Vale anche per le linee MultiPV. Riempita da parse_go, azzerata a ogni

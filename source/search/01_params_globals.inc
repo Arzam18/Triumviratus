@@ -64,7 +64,7 @@ void set_draw_dither(bool v) { g_draw_dither = v; }
 static bool g_ttcut_bonus = true;
 void set_ttcut_bonus(bool v) { g_ttcut_bonus = v; }
 int g_ttcut_bonus_scale =
-    111; // /100 del td_stat_bonus(depth); spin "TTCutBonusScale"
+    122; // [M20 111->122] /100 del td_stat_bonus(depth); spin "TTCutBonusScale"
 
 // P1.10a TT age-refresh al probe-hit: un hit rinfresca l'age dell'entry, cosi'
 // le posizioni CALDE ma scritte in search vecchie non vengono evictate per
@@ -347,7 +347,7 @@ void set_lmp_improving(bool v) { g_lmp_improving = v; }
 // byte-identico.
 static bool g_lmp_check_guard = false;
 int g_lmp_base = 16;  // spin "LMPBase"
-int g_lmp_quad = 138; // spin "LMPQuad" (/100: 100 = d^2 pieno)
+int g_lmp_quad = 141; // [M20 138->141] spin "LMPQuad" (/100: 100 = d^2 pieno)
 
 // P1.9 (spin "CheckExtDepth"): gate sulla check-extension incondizionata.
 // ✅ BAKATO A 0 (2026-07-19) = estensione da scacco DISATTIVATA, come SF (che
@@ -477,7 +477,7 @@ void set_corr_major(bool v) { g_corr_major = v; }
 static bool g_corr_cont = true;
 void set_corr_cont(bool v) { g_corr_cont = v; }
 int g_corr_cont_weight =
-    85;   // BAKED 6/08/2026 col blocco corrections (SPSA TC30 + SPRT +2,65) // /100 del contributo cont alla somma corr. Spin CorrContWeight.
+    77;   // [MOE1 85->77, 30/09/2026] BAKED 6/08/2026 col blocco corrections (SPSA TC30 + SPRT +2,65) // /100 del contributo cont alla somma corr. Spin CorrContWeight.
 
 // Non-pawn correction history PER-LATO (port Pawnocchio/SF
 // nonPawnCorrectionHistory, 2026-07-03). Due tabelle extra, chiave = Zobrist
@@ -549,20 +549,20 @@ static bool g_pawn_hist =
     true; // BAKED #1 2026-06-07 (era false): co-tune neutro@8 / +3@20+0.08
 void set_pawn_hist(bool v) { g_pawn_hist = v; }
 int g_pawn_hist_weight =
-    187; // [4.1 BAKE 126->139]   // [3.7 BAKE 195->83] peso pawn-history /100
+    211; // [M20 187->211] [4.1 BAKE 126->139]   // [3.7 BAKE 195->83] peso pawn-history /100
          // (200 = 2.0x come SF). Spin PawnHistoryWeight (granularita' /100,
          // SPSA-friendly + permette frazioni <1).
 // Peso della main (butterfly) history nello scoring quiet. SF la pesa 2x (come
 // la pawn); noi storicamente 1x -> con pawn a 2x la pawn DOMINA la main =
 // sbilanciato. Spin MainHistWeight per copiare il rapporto SF (main 2x, pawn
 // 2x). Default 1 = byte-identico.
-int g_mainhist_weight = 93; // [4.1 BAKE 122->168]   // [3.7 BAKE 209->131] /100
+int g_mainhist_weight = 93; // [M20 93->93] [4.1 BAKE 122->168]   // [3.7 BAKE 209->131] /100
                             // (100 = 1.0x; SF usa 2.0x=200)
 // Peso della continuation-history nello scoring quiet (ordering). Default 1 =
 // invariato. Manopola del CO-TUNE: bilancia conthist vs main/pawn. NON tocca
 // conthist in LMR/pruning.
 int g_conthist_weight =
-    135; // [4.1 BAKE 80->96]   // [3.7 BAKE 134->150] /100 (100 = 1.0x)
+    144; // [M20 135->144] [4.1 BAKE 80->96]   // [3.7 BAKE 134->150] /100 (100 = 1.0x)
 // Scala % della soglia LMP (late-move-pruning). Default 100 = invariato. <100
 // pota prima (albero più stretto), >100 pota dopo. Co-tune: si ri-equilibra con
 // l'ordering nuovo.
