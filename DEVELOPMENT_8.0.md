@@ -34,7 +34,9 @@
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
 > **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **Consilium network** and its SPSA baked
 > into the code, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** at 15+0.15 over
-> 2,000 games (section 9). A broader search SPSA is next, then the release.
+> 2,000 games (section 9). The broader search SPSA (45 parameters, section 13) then gained
+> **+9.9 ± 6.6** against its own defaults; with it baked, the release build beats the official 7.0 by
+> **+27.6 ± 7.0 Elo** at 15+0.15 over 2,760 games, the same as before within error.
 
 ---
 
@@ -204,6 +206,7 @@ release build.
 | engine | against | TC | games | pentanomial | Elo |
 |---|---|---|---:|---|---:|
 | **8.0 release**, PGO, MoE F4 (average of the last 5 epochs, permuted), SPSA MOE1 baked | **official 7.0 binary** (AVX-512) | 15+0.15 | 2,000 | [10, 180, 471, 321, 18] | **+27.3 ± 8.3** |
+| the same, plus the 45-parameter search SPSA M20 baked (1 October, section 13) | **official 7.0 binary** (AVX-512) | 15+0.15 | 2,760 | [10, 254, 644, 451, 21] | **+27.6 ± 7.0** |
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side is the build we would ship: tuning
 options frozen, no option set by the test. `NullThreatExt` is **off** (its SPRT, +2.75 ± 5.5, never
@@ -301,6 +304,8 @@ block, after the next network.
   block (Consilium, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
   data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
   The mobility block planned as a graft was measured and dropped (section 5).
+- **Search SPSA M20** (45 parameters, 20+0.2) baked on 1 October: +9.9 ± 6.6 against its defaults;
+  the release against the official 7.0 gives +27.6 ± 7.0 (section 13). Bench is now **402358**.
 - Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
   generated castling moves from the wrong squares). Now supported: see section 14.
 
@@ -396,6 +401,31 @@ ply for fail-highs, while the near-miss accepts one ply less. So the continuous 
 **switched on**, to be retuned together with their neighbours, and each has a continuous path back to
 "off". The verdict is still the SPRT of the tuned vector against the defaults. The SPSA runs at
 20+0.2, without the root-depth terms, which only act at long time control.
+
+**Result (1 October 2026).** The run that went ahead, M20, is the plan above on the Consilium network.
+It has 45 parameters: five levers were dropped because their switches are off in the code, so they could
+not move the tree. Every engine was pinned to one socket. The run was paused at 13,104 iterations, once
+the trajectories had flattened. The vector is the mean of the last 1,100 iterations.
+
+The gate is an SPRT of that vector against the defaults, same binary, run as one pinned half per
+socket. The second socket has only two memory channels and saturated its memory at 20+0.2, so its half
+ran at 10+0.1. The two halves agree:
+
+| half | TC | games | pentanomial | Elo |
+|---|---|---:|---|---:|
+| socket 0 | 20+0.2 | 1,426 | [3, 163, 344, 198, 5] | +9.5 ± 9.5 |
+| socket 1 | 10+0.1 | 1,552 | [12, 159, 385, 211, 9] | +10.3 ± 9.3 |
+| **pooled** | | **2,978** | [15, 322, 729, 409, 14] | **+9.9 ± 6.6** |
+
+The SPRT had not concluded (LLR 1.27 of 2.94), but the pooled interval excludes zero, and the vector was
+baked. Near-miss and damping are now **on** (100 and 41). Bench is now **402358**, and it equals the
+pre-bake dev build with the 45 options set by hand.
+
+Against the official 7.0 (section 9), the release with M20 baked gives **+27.6 ± 7.0** over 2,760 games.
+The release without it gave +27.3 ± 8.3. Against 7.0, then, the SPSA's gain does not show: the two
+numbers differ by much less than their errors. The two sockets agree (+28.0 ± 9.8 and +27.3 ± 10.0). One
+game out of 2,760 was lost on time by 8.0, with 152 engines on the machine. On a short clock the engine
+reached only depth 1 in 0.27 s, which points to a starved process rather than to the time management.
 
 ## 14. Chess960 (Fischer Random Chess)
 
