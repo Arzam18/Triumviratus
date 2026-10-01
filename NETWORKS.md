@@ -34,10 +34,13 @@ The full record of each one — data, recipe, epoch-by-epoch measurements — is
 
 ---
 
-## MoE-1024 — the Triumviratus 8.0 network (in training)
+## Consilium — the Triumviratus 8.0 network
 
-> **Status: in training since 28 September 2026, 13:39 UTC.** Not released, name still open. This section records the
-> design, the choices and every measurement as they happen, so the result can be read against them.
+> **Status: training finished on 29 September 2026.** The final network is the **average of the last five epochs of
+> the second fine-tune (F4), with the feature transformer permuted**. With its network-dependent parameters re-tuned
+> by SPSA, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** (15+0.15, 2,000 games):
+> see [the result](#the-result). **Consilium**, the council: four experts, one per phase of the game, that decide together. The sections below record the design, the choices and every
+> measurement in the order they happened.
 
 ### Why a new network
 
@@ -57,11 +60,11 @@ L1 — is expensive at game time. Measured on our engine with random nets of eac
 
 <sub>L1 must be a multiple of 256 for the sparse affine path, so between 1024 and 1536 the only width available is
 1280. It was considered and not measured: the choice was the cheapest option in NPS, with a MoE-1280 kept as the next
-step if the MoE-1024 gains little.</sub>
+step if the Consilium gains little.</sub>
 
 ### The idea: a mixture of experts on the king-relative block
 
-![TRANN3 architecture: MoE-1024](docs/TRANN3_architecture_moe.svg)
+![TRANN3 architecture: Consilium](docs/TRANN3_architecture_moe.svg)
 
 The `HalfKAv2_hm` block gets **four weight sets**, one per material phase, chosen by the number of pieces on the
 board. Only one set is active per position, so evaluation costs almost the same as a single block. The network gets
@@ -72,7 +75,7 @@ What it is **not**: a network four times wider. The accumulator is still 1024 va
 unchanged (they already have 8 buckets by piece count). The experts specialise how those 1024 values are computed;
 they do not enlarge them.
 
-| | 7.0 — `legio-septima` | 8.0 — MoE-1024 |
+| | 7.0 — `legio-septima` | 8.0 — Consilium |
 |---|---|---|
 | Base architecture | SFNNv16 | SFNNv16 |
 | L1 / L2 / L3 | 1024 / 32 / 32 | 1024 / 32 / 32 |
@@ -129,7 +132,7 @@ Everything is **re-labelled with Leela's BT4**, so the whole run shares one labe
 size, so a small file would be read many times over. Anything under 5 GB is left out. Also excluded: T91
 ([`jshriver/t91-binpacks`](https://huggingface.co/datasets/jshriver/t91-binpacks), not re-labelled) and our own
 self-play. The download script, which resolves every file through the Hugging Face API, is
-[`recipes/06_moe-1024/download_bt4.sh`](https://github.com/Tors3/Triumviratus-Networks/blob/main/recipes/06_moe-1024/download_bt4.sh)
+[`recipes/06_consilium/download_bt4.sh`](https://github.com/Tors3/Triumviratus-Networks/blob/main/recipes/06_consilium/download_bt4.sh)
 in Triumviratus-Networks.
 
 <sub>The planned 790 GB turned out to be 701 GB, checked file by file against the Hugging Face API: one `test80`
@@ -140,17 +143,25 @@ not ~33. No data is missing.</sub>
 
 Stockfish's SFNNv16 recipe (`vondele/nettest`, `threats.yaml`), scaled to the batch and the budget.
 
-| | pretraining (P) | fine-tune (F) |
-|---|---|---|
-| Length | **450 epochs × 1 G positions** | **30 epochs**, resumed from P's weights |
-| Batch | **524,288** | 262,144 |
-| lr | **8e-4** (SFNNv16's 4e-4 at batch 131,072, × √4) | **6.5e-5** peak |
-| Schedule | one-cycle, 5 % warmup, final divisor 1000 | one-cycle, 10 % warmup, final divisor 1000 |
+As run (the plan changed twice during training, see the notes below the table):
 
-<sub>The fine-tune was changed on 29 September, before it started. As launched it followed SFNNv16: 22 epochs
-re-warmed to 5.66e-4 — 70 % of P's peak, right after P has taken the rate to almost zero — with the lambda cycle
-restarting from 1.0. Now it is a gentle one: a slow rise to about 8 % of P's peak, lambda 0.75 throughout. P's
-final network and F's are both kept and will be compared directly.</sub>
+| | pretraining (P) | fine-tune F3 | fine-tune F4 |
+|---|---|---|---|
+| Length | **374 epochs × 1 G positions** (planned 450, stopped after epoch 373) | **80 epochs**, from P's weights | **60 epochs**, from F3's final weights |
+| Batch | **524,288** | 524,288 | 524,288 |
+| lr | **8e-4** (SFNNv16's 4e-4 at batch 131,072, × √4) | **1.6e-4** peak | **6e-5** peak |
+| Schedule | one-cycle, 5 % warmup, final divisor 1000 | one-cycle, 1 % warmup | one-cycle, 1 % warmup, new seed |
+| Lambda | see below | 0.75 fixed | 0.75 fixed |
+
+**Final network:** the arithmetic mean of the model weights of F4 epochs 55–59, serialised, then the feature
+transformer **permuted** (`serialize.py --ft-optimize`, 1 M positions): L1 neurons reordered so that zero activations
+fall in contiguous blocks the sparse layer skips. The evaluation is bit-identical (same `bench` before and after).
+
+<sub>The fine-tune was first planned as SFNNv16's (22 epochs re-warmed to 5.66e-4, lambda cycle restarting from 1.0),
+then as a gentle 30 epochs at 6.5e-5 (F2, never run). On 29 September the tail of P was stopped at epoch 373, where
+Elo and loss had gone flat with the rate still at ≈ 20 % of peak, and replaced by F3: a short second cycle at a fifth
+of P's peak, the way a restart can move a network out of a plateau. F3's loss flattened after epoch ≈ 70 and F4, a
+lower cycle from its end, took the validation loss below F3's.</sub>
 
 - **Lambda, as launched:** **1.0 with a cycle** that dips by 0.3 (25 % warmup), plus jitter (0.0035 per sample,
   0.0070 per batch, decay 0.999), as in SFNNv16. That cycle dips to 0.7 at epoch ≈ 112 and **climbs back to 1.0**
@@ -189,7 +200,7 @@ final network and F's are both kept and will be compared directly.</sub>
 - **Batch:** 131,072 → 262,144 → 524,288 gains about 7 % per doubling. At 262,144 with the full recipe the run
   measured 3.28 M positions/s — too slow for the budget, so the run was restarted at 524,288.
 - **Cost:** about **0.17 $ per billion positions**, the same as the `legio-septima` machine (4× RTX 5060 Ti) but about
-  six times faster; ≈ 80 $ for the whole run. An 8× RTX 3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot
+  six times faster. The whole run, P, F3 and F4 included, cost **105 $**. An 8× RTX 3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot
   feed the loader.
 
 Steady state: 201–212 s per epoch, GPUs at 97–99 %, 63–68 °C, well below their power limit. The last 3 % of speed
@@ -318,10 +329,49 @@ details of the resume, both handled:
 The loss rises while lambda descends (a noisier target), as it did between epochs 39 and 119 while the network gained
 70 Elo. The first test of the fix is at epoch ≈ 335, with lambda settled.
 
-### How it will be judged
+### Fine-tunes F3 and F4
 
-The final network (end of F), net-isolated against `legio-septima` at 20+0.2, then at a longer time control, with
-the same search on both sides. It ships in 8.0 only if it wins clearly.
+Validation loss (× 10⁻³, λ 0.75, same validation set):
+
+| | F3 ep. 49 | F3 ep. 59 | F3 ep. 69 | F3 ep. 79 | F4 ep. 9 | F4 ep. 39 | F4 ep. 49 | F4 ep. 59 |
+|---|---|---|---|---|---|---|---|---|
+| val loss | 3.42 | 3.40 | 3.37 | 3.37 | 3.39 | **3.35** | 3.38 | 3.44 |
+
+<sub>The validation set is a single batch, so single points move by about ±0.05; F4's training loss per epoch fell
+steadily from 3.43–3.44 to 3.39–3.40.</sub>
+
+A second measurement lesson came with F3. For weeks the matches ran **75 games at a time on 40 physical cores**, so
+most engines shared a core (and its caches) with another, and the MoE, whose first layer is almost twice the size of
+`legio-septima`'s, lost more from it. The same F3 network with the same settings against `legio-septima`:
+
+| F3 + first SPSA vector, against `legio-septima` 8.0 | concurrency | games | Elo |
+|---|---:|---:|---:|
+| epoch 42, 90+0.9 | 75 | 720 | +14.5 ± 12.6 |
+| epoch 77, **12+0.12** | **38** | 922 | **+23.4 ± 12.0** |
+
+A third came the next night: the two Xeons are two NUMA nodes, one of them had no memory of its own, and engines
+moved between sockets. With memory on both CPUs and every fastchess pinned to one socket, 76 games at a time give the
+same result as 38. Details in [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §9.
+
+**Choosing the final network**, MoE against MoE on the same engine, same scale on both sides: F4's
+average-and-permute against the end of F3 (epoch 79), 8+0.08, **+19.3 ± 13.9** over 686 games. The eval scale
+of the two is the same within 1 % in every piece-count bucket (correlation ≥ 0.999), so F4 refined F3 without
+changing its character.
+
+### The result
+
+The per-phase eval scale, the eval blend and the pruning margins that depend on the network's scale (25 parameters)
+were re-tuned by SPSA on the final network (20+0.2, 5,410 iterations; the vector at 4,363 iterations beat its
+starting point by +8.6 ± 11.5 over 928 games) and baked into the code. Against the **official 7.0 binary**, the 8.0
+**release build** (PGO, tuning frozen, no options set):
+
+| TC | games | pentanomial | Elo |
+|---|---:|---|---:|
+| **15+0.15** | 2,000 | [10, 180, 471, 321, 18] | **+27.3 ± 8.3** |
+
+1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), 76 games at a time pinned to the two sockets, LOS 100%. This number
+includes 8.0's speed work and ablations (+11.7 ± 4.6 at 60+0.6 on the old network, see
+[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)), so the network with its SPSA accounts for roughly +15 of it.
 
 ---
 

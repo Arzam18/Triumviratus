@@ -4,7 +4,7 @@
 
 # Triumviratus 8.0 — development log
 
-**Started as a speed project.** The code around the network made faster · ablations · then a new network, MoE-1024 · still in progress
+**Started as a speed project.** The code around the network made faster · ablations · then a new network, Consilium · still in progress
 
 **by Francesco Torsello**
 
@@ -19,7 +19,7 @@
 [Why speed](#1-why-speed) · [How it is measured](#2-how-it-is-measured) ·
 [Where we started](#3-where-we-started) · [What changed](#4-what-changed-identical-tree) ·
 [Tried and dropped](#5-tried-and-dropped) · [TT16](#6-tt16-the-one-change-that-alters-the-tree) ·
-[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [MoE network](#9-the-80-network-moe-1024-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) · [7.0 log](DEVELOPMENT_7.0.md)
+[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [MoE network](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) · [7.0 log](DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -32,9 +32,9 @@
 > official 7.0 binary, the same tree now runs **+8.7% faster**, and **+11.5%** with the new
 > transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
 > 12+0.12 and, with two search features switched off after ablation tests (section 8), by
-> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the new **MoE-1024 network** and a first partial SPSA,
-> the first release-level test gives **+22.1 ± 8.1 Elo** against the official 7.0 at 20+0.2 (section 9,
-> provisional: final network and full SPSA still to come).
+> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **Consilium network** and its SPSA baked
+> into the code, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** at 15+0.15 over
+> 2,000 games (section 9). A broader search SPSA is next, then the release.
 
 ---
 
@@ -121,7 +121,7 @@ in counter terms.
   it a playing-strength question for an SPRT, not a speed one.
 - **A mobility input block** ("threats on empty squares": one feature per knight, bishop, rook and
   queen — oriented square × four mobility buckets, 2,048 inputs), meant as a graft on the 8.0 network.
-  Measured on the MoE-1024 with paired simultaneous runs (480 samples): **−16.2 % NPS**
+  Measured on the Consilium with paired simultaneous runs (480 samples): **−16.2 % NPS**
   (95 % interval −17.1 / −15.3). Mobility changes with every move, so the block recomputes about 28
   attack sets per node before and after the move. On top of the MoE's −7.5 % it would have needed
   more than 15 Elo just to break even; the PassedPawns graft gave 7. Removed from the engine on
@@ -191,12 +191,40 @@ correction history keyed by the last move in context (Coda, Cinder), −7.6 ± 7
 time-management fix for rising evaluations does not apply here: our eval-stability factor is already
 symmetric.
 
-## 9. The 8.0 network: MoE-1024, against 7.0
+## 9. The 8.0 network: Consilium, against 7.0
 
 After the speed work (sections 4–7) and the ablations (section 8), the third step of 8.0 is a new
-network: **MoE-1024**, the `legio-septima` architecture with the king-relative block split into four
+network: **Consilium**, the `legio-septima` architecture with the king-relative block split into four
 experts by game phase. Design, data, training and every intermediate measurement are in
-[NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
+[NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
+
+**Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
+release build.
+
+| engine | against | TC | games | pentanomial | Elo |
+|---|---|---|---:|---|---:|
+| **8.0 release**, PGO, MoE F4 (average of the last 5 epochs, permuted), SPSA MOE1 baked | **official 7.0 binary** (AVX-512) | 15+0.15 | 2,000 | [10, 180, 471, 321, 18] | **+27.3 ± 8.3** |
+
+1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side is the build we would ship: tuning
+options frozen, no option set by the test. `NullThreatExt` is **off** (its SPRT, +2.75 ± 5.5, never
+confirmed it). The two sockets of the test machine, measured as separate halves, agree: +26.8 ± 11.7 and
++27.9 ± 11.8.
+
+How the pieces were chosen, all on the same day:
+
+| step | test | TC | games | Elo |
+|---|---|---|---:|---:|
+| final network: F4 average-and-permute against the end of F3 (same engine, same settings) | MoE vs MoE | 8+0.08 | 686 | +19.3 ± 13.9 |
+| SPSA MOE1 (25 network-dependent parameters: per-phase eval scale, eval blend, pruning margins), vector at 4,363 iterations against its starting point, same network | 8.0 vs 8.0 | 10+0.1 | 928 | +8.6 ± 11.5 |
+| the SPSA vector was then baked at iteration 5,410; release bench **362367** equals the dev build with the 25 options set by hand | | | | |
+
+**Second measurement lesson: NUMA.** The two Xeons are two NUMA nodes, and Windows showed every engine
+of a match as able to run on both. One socket also had **no memory of its own** (all six DIMMs sat on
+the other CPU), so any engine scheduled there read its network through the socket link. We moved two
+DIMMs to the second CPU (4 + 2, both memory controllers balanced) and now pin each fastchess instance,
+and the engines it starts, to one socket (`start /NODE`). With pinning the saturation problem described
+below largely goes away: 8.0 against 7.0 at 10+0.1 gave +20 ± 11 at concurrency 74, in line with the
+concurrency-38 results, and the release test above ran at 76.
 
 **First release-level number** (29 September 2026, provisional: the
 network is the end of the F3 fine-tune, epoch 79, not yet the final one):
@@ -206,8 +234,8 @@ network is the end of the F3 fine-tune, epoch 79, not yet the final one):
 | 8.0 MoE, PGO, network F3 ep. 79 | **official 7.0 binary** (AVX-512, checksum verified) | 20+0.2 | 2,000 | [4, 203, 467, 314, 12] | **+22.1 ± 8.1** |
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), LOS 100%. The 8.0 side carries everything so far: the
-speed work and TT16, the two ablations, `NullThreatExt=300` (closed as neutral-to-positive in the SPRT
-queue, +2.75 ± 5.5 on 7,070 games, and switched on), the new network, and a first, partial SPSA of the
+speed work and TT16, the two ablations, `NullThreatExt=300` (its SPRT gave +2.75 ± 5.5 on 7,070 games,
+not conclusive; it is off in the release above), the new network, and a first, partial SPSA of the
 25 search and evaluation parameters that depend on the network's scale (1,691 of 6,000 iterations,
 +6 ± 10 on its own). The final network and the full SPSA are still to come.
 
@@ -270,8 +298,8 @@ block, after the next network.
 - **Ablation campaign closed:** nine tests, two features switched off (about +7 Elo together), the rest
   needed or neutral.
 - **Network:** instead of a wider L1, the 8.0 network is a **mixture of experts** on the king-relative
-  block (MoE-1024, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
-  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#moe-1024--the-triumviratus-80-network-in-training).
+  block (Consilium, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
+  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
   The mobility block planned as a graft was measured and dropped (section 5).
 - Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
   generated castling moves from the wrong squares). Now supported: see section 14.
