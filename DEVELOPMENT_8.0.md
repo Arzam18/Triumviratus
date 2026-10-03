@@ -493,6 +493,9 @@ object file is identical byte for byte.
 
 ## 16. Where the gap to Stockfish comes from, and a pruning rework (3 October 2026)
 
+To find weaknesses in Triumviratus' search, the Stockfish code was studied and some of its logic was implemented
+from there (Stockfish is GPLv3, like Triumviratus).
+
 **Decomposing the gap.** Against Stockfish 19, single thread:
 
 | Test | Result |
