@@ -579,7 +579,8 @@ alone, is gone; the number of UCI options in development builds drops from about
 moves or crashes. Nodes needed to complete a fixed depth on 100 UHO positions, against Stockfish 19 (median ratio
 ours/SF): depth 8 **0.90**, depth 12 **1.11**, depth 16 **0.97**, down from 1.5–1.7. New bench **172833**.
 
-**Result** (in progress): against the 8.0 of section 16, 10+0.1, after 810 games **+66.9 ± 13.4 Elo**.
+**Result:** SPRT against the 8.0 of section 16, 10+0.1, bounds [0, 3]: **+61.6 ± 10.2 Elo over 1,390 games**,
+LLR 3.85, accepted (H1).
 
 **Next:** calibrate the evaluation scale against the search margins, a short SPSA of the parameters on our network,
 then our own techniques on top of the new search, each measured on its own.
