@@ -546,17 +546,17 @@ bench unchanged. Diagnostic tools stay (`sstats.h`, DataLog, TMLog, CutoffStats,
 levers still in use.
 
 
-## 17. The search rewritten (4 October 2026)
+## 17. The search restructured (4 October 2026)
 
 Section 16 left the engine needing 1.5–1.7× Stockfish's nodes to finish the same depth, and every single
-Stockfish rule brought over on its own lost or stayed neutral (its pruning structure −35, a larger history cap −41):
+rule changed on its own lost or stayed neutral (a different pruning structure −35, a larger history cap −41):
 each rule only works tuned together with the others.
 
-Triumviratus' search was rewritten in October 2026. To find the weaknesses of the old search, it was necessary to
-study the searches of Stockfish and Reckless in depth. Inconsistencies were found in Triumviratus' search, partly
-due to parameters and tests accumulated since version 5.0. The new search is based on the logic and mechanisms of
-Stockfish 19's search (GPLv3); its established techniques are implemented in Triumviratus' own code, with our own
-data structures, move generation, evaluation and network.
+Triumviratus' search was restructured in October 2026. Most of its techniques were already in the engine, added one
+at a time since version 5.0 and tuned separately, with accumulated inconsistencies. After studying the searches of
+Stockfish and Reckless, the search was reorganised following the logic of Stockfish 19's search (GPLv3); several
+techniques that did not pay off before now do. It is Triumviratus' own code, with our own data structures, move
+generation, evaluation and network.
 
 **What changed.** `source/search/` now holds:
 
