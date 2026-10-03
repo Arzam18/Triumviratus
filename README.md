@@ -161,7 +161,7 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). Triumviratus' search was rewritten in October 2026. To find the weaknesses of the old search, it was necessary to study the searches of Stockfish and Reckless in depth. Inconsistencies were found in Triumviratus' search, partly due to parameters and tests accumulated since version 5.0. The new search is based on the logic and mechanisms of Stockfish 19's search (GPLv3); its established techniques are implemented in Triumviratus' own code, with our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 
@@ -186,6 +186,7 @@ Ideas for search, move-ordering, time management and pruning were studied from �
 ported and then **re-tuned against the project's own data and network** — a number of open-source
 engines. Credit and thanks to all of them:
 
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the search was rewritten in October 2026 after studying the searches of Stockfish and Reckless in depth: it is based on the logic and mechanisms of Stockfish 19's search, with its established techniques implemented in Triumviratus' own code, data structures, move generation, evaluation and network (see [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
 - **[Reckless](https://github.com/codedeliveryservice/Reckless)** — quiet move-ordering (offense-square and king-shield-pawn terms), TT prefetch, capture-ordering ideas.
 - **[Caissa](https://github.com/Witek902/Caissa)** — node-count move cache, quiescence capture history, moves-left time curve.
 - **[Alexandria](https://github.com/PGG106/Alexandria)** — the multiplicative, stateless time-management factors.

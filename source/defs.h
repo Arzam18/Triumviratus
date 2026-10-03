@@ -109,12 +109,9 @@ extern int starttime;
 extern int stoptime;
 extern int timeset;
 extern int stopped;
-extern U64 g_node_limit;   // "go nodes N": hard node budget (0 = off). For datagen at fixed nodes.
 extern int g_searchmoves[256];   // "go searchmoves ...": root move whitelist (analisi).
 extern int g_searchmoves_count;  // 0 = off (cerca tutte le mosse di root).
-extern bool g_go_infinite;      // "go infinite": niente bestmove prima di "stop" (AUDIT D T4).
-extern bool g_go_ponder;        // "go ponder": niente bestmove prima di "ponderhit"/"stop" (search/05_datalog.inc).
-extern int g_mate_in;            // "go mate N": stop al matto in <= N mosse (0 = off).
+// Gli altri limiti di "go" (nodi, matto, infinite, ponder) sono in SearchLimits (threads.h).
 
 // Bit manipulations macros
 #define set_bit(bitboard, square) ((bitboard) |= (1ULL << (square)))

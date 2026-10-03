@@ -291,7 +291,7 @@ inline tt_entry* tt_find(U64 key) {
     return nullptr;
 }
 
-// Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 2*distanza d'eta'
+// Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 8*distanza d'eta'
 // (stessa regola della vecchia tt_victim, ora su 4 vie dentro una sola linea).
 inline tt_entry* tt_victim(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
@@ -302,11 +302,7 @@ inline tt_entry* tt_victim(U64 key) {
         if (e->kw == 0 && e->data == 0) return e;
         int rel_age = (current_age - unpack_age(e->data)) & 0x1F;
         int depth = unpack_depth(e->data);
-        if (false && depth >= 5 && unpack_flag(e->data) != hash_flag_exact) {
-            int sc = unpack_score(e->data);
-            if (sc > 30000 || sc < -30000) depth -= 8;
-        }
-        int val = depth - 2 * rel_age;
+        int val = depth - 8 * rel_age;   // 04/10/2026: era 2; ogni ricerca di eta' vale 8 ply, come SF
         if (val < best_val) { best_val = val; best = e; }
     }
     return best;

@@ -200,7 +200,9 @@ std::atomic<int> g_optimism[2] = {0, 0};
 // OptPerThread (SMP, 26/09/2026): con 1 ogni thread usa l'optimism della PROPRIA posizione NNUE (SfPos::opt),
 // calcolato dal proprio score di radice, come i worker di SF. 0 = g_optimism globale (storico). A 1 thread le due
 // forme coincidono (il thread 0 scrive entrambi): bench identico.
-int g_opt_per_thread = 0;
+// 04/10/2026: dalla riscrittura della ricerca e' sempre 1 (ogni thread imposta il suo optimism a ogni iterazione,
+// search/14_deepen.inc).
+int g_opt_per_thread = 1;
 
 // --- COSTANTI DEL BLEND, ESPOSTE (15/08/2026) --------------------------------
 // Sono tutte di Stockfish, ereditate col wrapper e MAI tarate su questa rete. E non

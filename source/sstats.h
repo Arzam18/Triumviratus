@@ -37,6 +37,8 @@ enum Key {
     FH_QUIET,   // fail-high fatti da una quieta
     // solo Triumviratus: perche' la futility quiet non scatta (quiete dalla 2a mossa in poi)
     QCONS, FUT_PV, FUT_INCHECK, FUT_DEEP, FUT_EVALUP, FUT_TRY, FUT_PDSUM, FUT_GAPSUM,
+    TT_HIT, TT_MOVE,   // nodi principali (ply > 0) con entry TT trovata / con mossa TT
+    FH_FIRST_CAP,      // fail-high fatti da una cattura giocata come prima mossa
     NKEYS
 };
 inline const char* const kName[NKEYS] = {
@@ -44,7 +46,8 @@ inline const char* const kName[NKEYS] = {
     "MADE_CHK", "LMR_N", "LMR_SUM", "LMR_NEG", "LMR_RES", "RED_Q", "RED_C", "RED_CHK", "PR_LMP", "PR_FUT", "PR_SEE",
     "PR_HIST", "PR_CAPFUT", "SING_TRY", "EXT1", "EXT2", "EXT3", "EXTNEG", "MULTICUT", "FH", "FH_FIRST",
     "FH_MOVESUM", "FH_HASTT", "FH_TT", "FH_CAP", "FH_QUIET",
-    "QCONS", "FUT_PV", "FUT_INCHECK", "FUT_DEEP", "FUT_EVALUP", "FUT_TRY", "FUT_PDSUM", "FUT_GAPSUM"};
+    "QCONS", "FUT_PV", "FUT_INCHECK", "FUT_DEEP", "FUT_EVALUP", "FUT_TRY", "FUT_PDSUM", "FUT_GAPSUM",
+    "TT_HIT", "TT_MOVE", "FH_FIRST_CAP"};
 inline std::uint64_t c[NKEYS][64];
 inline void add(int k, int d, std::int64_t v = 1) { c[k][d < 0 ? 0 : d > 63 ? 63 : d] += std::uint64_t(v); }
 inline void dump() {

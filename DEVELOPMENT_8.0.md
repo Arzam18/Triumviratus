@@ -545,3 +545,41 @@ setter, frozen entry and declaration, then the branches they guarded. About 1,55
 bench unchanged. Diagnostic tools stay (`sstats.h`, DataLog, TMLog, CutoffStats, SeeGEVerify, EvalOff), as do
 levers still in use.
 
+
+## 17. The search rewritten (4 October 2026)
+
+Section 16 left the engine needing 1.5–1.7× Stockfish's nodes to finish the same depth, and every single
+Stockfish rule brought over on its own lost or stayed neutral (its pruning structure −35, a larger history cap −41):
+each rule only works tuned together with the others.
+
+Triumviratus' search was rewritten in October 2026. To find the weaknesses of the old search, it was necessary to
+study the searches of Stockfish and Reckless in depth. Inconsistencies were found in Triumviratus' search, partly
+due to parameters and tests accumulated since version 5.0. The new search is based on the logic and mechanisms of
+Stockfish 19's search (GPLv3); its established techniques are implemented in Triumviratus' own code, with our own
+data structures, move generation, evaluation and network.
+
+**What changed.** `source/search/` now holds:
+
+- `01_params.inc`: the search parameters as one table (UCI spin options in development builds, constants in the
+  release build); `02_state.inc` and `03_tables.inc`: search state and the statistics tables, some shared by all
+  threads and sized by the thread count;
+- `09_history.inc`: static evaluation in the units of the search margins, move statistics and the evaluation
+  correction (pawn structure, minor pieces, non-pawn pieces of each side, and the pair of moves into the node);
+- `10_order.inc` and `11_queue.inc`: move validation, repetitions, and a new move orderer;
+- `12_quiesce.inc`, `13_search.inc`: quiescence and the main search, a node going through four phases (entry,
+  evaluation and pruning before the moves, the move loop, learning at the end of the node);
+- `14_deepen.inc`, `15_threads.inc`: iterative deepening with a new time manager, thread voting, bestmove.
+
+Unchanged: the move generator, make/unmake (only the non-pawn keys re-wired), SEE (piece values now in the search
+units), the transposition table, the network and the evaluation. The old search, about 3,700 lines of parameters
+alone, is gone; the number of UCI options in development builds drops from about 380 to about 100.
+
+**Checks.** Per-thread perft with key verification unchanged (4,865,609 at depth 5 from the start position,
+4,085,603 at depth 4 from Kiwipete, no key mismatch). 74 fast games against the previous engine without illegal
+moves or crashes. Nodes needed to complete a fixed depth on 100 UHO positions, against Stockfish 19 (median ratio
+ours/SF): depth 8 **0.90**, depth 12 **1.11**, depth 16 **0.97**, down from 1.5–1.7. New bench **172833**.
+
+**Result** (in progress): against the 8.0 of section 16, 10+0.1, after 810 games **+66.9 ± 13.4 Elo**.
+
+**Next:** calibrate the evaluation scale against the search margins, a short SPSA of the parameters on our network,
+then our own techniques on top of the new search, each measured on its own.

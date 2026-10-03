@@ -8,710 +8,176 @@
 #include <vector>
 #include <new>
 #include <cstddef>
+#include <cstdint>
 #include <atomic>
 #include <mutex>
 
-// 🔴 2026-09-07: era 64, cioe' MENO dei 80 thread del rig di test — su questa
-// macchina non si potevano usare tutti i core, e le macchine da torneo (TCEC) ne
-// hanno di piu'. thread_data e' un std::vector ridimensionato in init_threads,
-// quindi la costante NON costa memoria a riposo: alzarla non alloca niente
-// (ogni ThreadData pesa 21,25 MB e nasce solo quando `Threads` la chiede).
-// Le sole tabelle statiche dimensionate qui sono vote_moves/vote_w del voto fra
-// thread, 6 KB di stack. Il massimo ANNUNCIATO in UCI resta comunque
-// min(hardware_concurrency, MAX_THREADS), quindi sulle macchine piccole non
-// cambia nulla.
+// ============================================================================
+// Ricerca di Triumviratus, riscritta il 04/10/2026 sulla logica della ricerca di Stockfish 19 (GPLv3).
+// Strutture, nomi e codice sono nostri; le regole e i numeri seguono SF19 (vedi
+// docs/audit_8.0/L_RISCRITTURA_RICERCA.md). La ricerca precedente e' in
+// _backup/Triumviratus_8.0_pre_riscrittura_ricerca_2026-10-04.
+// ============================================================================
+
 #define MAX_THREADS 512
 
-// Thread-local data structure
+// Dimensioni delle tabelle di history.
+constexpr int QH_SIZE       = 64 * 64 * 5;   // indice della mossa: da | a<<6 | tipo di promozione<<12
+constexpr int LOW_PLY_SIZE  = 5;             // ply vicini alla radice con la history dedicata
+constexpr int NO_PC         = 12;            // "nessun pezzo": blocco sentinella delle continuation
+constexpr int CAPT_NONE     = 6;             // tipo catturato per le promozioni senza cattura e l'e.p.
+
+// Una tabella pezzo x casa d'arrivo: e' la "riga" a cui puntano le continuation history.
+typedef int16_t PieceToRow[12][64];
+
+// Stato di un ply del cammino corrente.
+struct NodeFrame {
+    PieceToRow* cont_hist;        // continuation history scelta dalla mossa che porta al figlio
+    PieceToRow* cont_corr;        // continuation correction history, stessa chiave
+    int  ply;
+    int  move;                    // mossa fatta a questo ply (0 = nessuna, NULL_MOVE = mossa nulla)
+    int  captured;                // pezzo catturato da quella mossa (P..k), -1 = nessuno
+    int  excluded;                // mossa esclusa (ricerca singolare)
+    int  static_eval;
+    int  stat_score;
+    int  move_count;
+    int  cutoff_cnt;
+    int  reduction;
+    bool in_check;
+    bool tt_pv;
+    bool tt_hit;
+    bool follow_pv;
+};
+
+// Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
+struct RootLine {
+    int       pv[max_ply + 4];
+    int       pv_len;
+    int       prev_pv[max_ply + 4];
+    int       prev_pv_len;
+    int       score;
+    int       prev_score;
+    int       avg_score;
+    long long mean_sq;
+    int       uci_score;
+    bool      lower;              // lo score e' solo un limite inferiore (fail-high in finestra)
+    bool      upper;              // solo un limite superiore
+    bool      prev_exact;
+    int       sel_depth;
+    U64       effort;             // nodi spesi sotto questa mossa
+};
+
+// Limiti della ricerca, scritti da parse_go (uci_mt.cpp).
+struct SearchLimits {
+    int  time[2];
+    int  inc[2];
+    int  movestogo;
+    int  movetime;
+    int  depth;
+    int  mate;
+    U64  nodes;
+    bool infinite;
+    bool ponder;
+    int  start_ms;
+    bool use_tm() const { return time[0] || time[1]; }
+};
+extern SearchLimits g_limits;
+
+constexpr int FRAME_OFFSET = 7;   // frame[FRAME_OFFSET] e' la radice; 7 frame sentinella prima
+
 struct ThreadData {
     int thread_id;
-    int lmr_bias;    // DiverseSMP: per-thread LMR reduction offset (helpers only; 0 for main)
-    int lmr_bias_units; // DiverseSMPFine: stesso bias in 1/1024 di ply (= lmr_bias*1024 se fine=0)
 
-    // Board state copy
+    // Scacchiera del thread
     U64 bitboards[12];
     U64 occupancies[3];
-    // Mailbox: pezzo su ogni casa (P..k), -1 = vuota. Init in copy_board_to_thread,
-    // mantenuta nei TRE siti di td_occ_update (make-forward, rollback della mossa
-    // illegale, unmake). Toglie i due cicli che cercavano il pezzo catturato
-    // scandendo fino a 6 bitboard con altrettanti branch imprevedibili, uno in
-    // td_score_move e uno in td_make_move.
-    int piece_on[64];
+    int piece_on[64];             // pezzo su ogni casa (P..k), -1 = vuota
     int side;
     int enpassant;
     int castle;
     U64 hash_key;
-    U64 pawn_key;        // P2.1: Zobrist solo-pedoni, mantenuta incrementale in make/unmake
-    U64 mm_key[2];       // NPS 25/09/2026: Zobrist [0]=minori (N,B,n,b) [1]=maggiori (R,Q,r,q), incrementale in make/unmake
-    U64 np_key[2];       // CorrNonPawn: Zobrist NON-pedoni per colore [white,black] (re incluso), incrementale in make/unmake
+    U64 pawn_key;
+    U64 mm_key[2];                // [0] = pezzi minori (N,B,n,b)
+    U64 np_key[2];                // non-pedoni per colore, re compreso
     int fifty;
-    int plies_from_null; // P2.2: mosse reali dall'ultima null nel cammino corrente
-    bool in_nmp_verif;   // P1.6: dentro una verification search (null disattivata)
-    int seldepth;        // max ply raggiunto (info UCI)
+    int plies_from_null;
+    int seldepth;
 
-    // Repetition detection
-    U64 repetition_table[2048];   // 2026-06-12: era 1000, OOB su partite 440+ mosse (vedi defs.h)
+    U64 repetition_table[2048];
     int repetition_index;
 
-    // Search state
     int ply;
     U64 nodes;
-    U64 tb_hits;   // Syzygy probe riusciti (WDL in-search) -> campo UCI "tbhits" (= "TBAs" in Fritz)
+    U64 tb_hits;
 
-    // Move that led to each ply (0 = root / null move). Used by the
-    // counter-move heuristic to know the "previous move" at a node.
-    int move_stack[max_ply + 8];
-    // Captured piece of the move that led to each ply (-1 if quiet). Parallel to
-    // move_stack; set together. Used by V2 (PriorBonus) capture-history extension to
-    // know the victim of the prior move (already made, gone from the board).
-    int captured_stack[max_ply + 8];
-
-    // Move ordering. +8 slack on the ply dimension: a node entering at
-    // ply == max_ply-1 increments td.ply (and reads pv_length[ply+1]), so the
-    // ply index can transiently reach max_ply. Without the slack that is an OOB
-    // write that aliases pv_table[0][0] -> wild loop bound -> access violation.
-    int killer_moves[2][max_ply + 8];
-    // ThreatHist (UCI "ThreatHist", default OFF) — REPLACE: la main quiet history E' threat-indexed.
-    // Primo indice = threat-bucket = from_tier*3 + to_tier, dove tier(casa) = 0 safe / 1 attaccata da
-    // pawn-o-minore / 2 attaccata da rook+ (cheapest-attacker, VALUE-AWARE, usa i nostri tier
-    // threat_by_minor/threat_all). Bucket 0 quando il toggle e' OFF -> byte-identico alla vecchia [12][64].
-    // Schema nostro (piece-to + tier d'attaccante, piu' granulare del binario from/to di SF/Reckless).
-    int history_moves[9][12][64];
-    // Threat-bucket della mossa ENTRATA in ogni ply (calcolato nel padre, al make): serve a seo /
-    // prior-bonus che aggiornano la history della mossa-precedente nel contesto-minacce del padre.
-    int hbucket_stack[max_ply + 8] = {0};
-    // Counter-move heuristic: counter_moves[prev_piece][prev_to] = the quiet
-    // reply that most recently caused a beta cutoff after that previous move.
-    int counter_moves[12][64];
-    // Continuation history: [prev_piece][prev_to][piece][to]. A 2-ply history
-    // that scores a quiet move in the context of the move that led to this
-    // node. int16_t keeps it ~1.1 MB/thread (values are bounded to +/-HISTORY_MAX).
-    int16_t continuation_history[12][64][12][64];
-    // Extra continuation histories at 2-ply and 4-ply back (only used when
-    // ContHistMulti is on): same layout, keyed on the move 2 / 4 plies earlier.
-    // Like continuation_history, NOT reset per-search (persist across moves).
-    int16_t cont_hist_2[12][64][12][64];
-    int16_t cont_hist_4[12][64][12][64];
-    // Extra continuation histories at 3-ply and 6-ply back (only used when ContHist36
-    // is on): same layout. Like the others, NOT reset per-search (persist across moves;
-    // zeroed by value-init on thread creation, same as continuation_history).
-    int16_t cont_hist_3[12][64][12][64];
-    int16_t cont_hist_6[12][64][12][64];
-    // Capture history: [moving piece][to square][captured piece].
-    // CapHistThreat (2026-07-25): ultimo indice = bucket-minaccia della casa di
-    // ARRIVO (0 = safe, 1 = attaccata dal nemico). Con il toggle OFF td_cbucket
-    // ritorna sempre 0 -> si usa solo [..][0] = la vecchia tabella piatta =
-    // byte-identico. 12*64*12*2*4 B = 72 KB/thread (era 36).
-    int capture_history[12][64][12][2];
-
-    // Q-11 NodeCache (port da Caissa NodeCache.hpp): per i nodi VICINI ALLA RADICE
-    // (ply < NC_MAX_PLY) memorizza quanti nodi e' costata OGNI mossa. Tabella
-    // keyed-by-position (256 slot, index = hash & 255, verifica chiave piena):
-    // le entry sopravvivono cross-iterazione E cross-move (l'entry di ply-2 della
-    // ricerca precedente e' la radice di questa) -> l'ordering quiet vicino alla
-    // radice impara dai nodi realmente spesi. ~100KB/thread.
-    static constexpr int NC_SIZE    = 256;   // slot (potenza di 2: index = key & (NC_SIZE-1))
-    static constexpr int NC_MOVES   = 32;    // mosse tracciate per entry (Caissa: MaxMoves=32)
-    static constexpr int NC_MAX_PLY = 3;     // solo ply 0,1,2 (Caissa: node->ply < 3)
-    struct NCEntry {
-        U64      key;                  // chiave piena della posizione (0 = slot vuoto)
-        U64      nodes_sum;            // somma dei nodi di tutte le mosse tracciate
-        unsigned gen;                  // generazione della search che ha allocato/toccato
-        int      mv[NC_MOVES];         // mosse (0 = slot libero)
-        U64      mv_nodes[NC_MOVES];   // nodi spesi sotto ciascuna
-    };
-    NCEntry  node_cache[NC_SIZE];
-    unsigned nc_gen;                   // incrementata a ogni nuova ricerca (rimpiazzo age-based)
-
-    // PV table. +8 slack on the ply dimension for the same reason as
-    // killer_moves above (pv_length[ply+1] / pv_table[ply+1] lookahead at the
-    // deepest searched node).
+    // Cammino corrente
+    NodeFrame frames[max_ply + 16];
     int pv_length[max_ply + 8];
     int pv_table[max_ply + 8][max_ply + 8];
-    // Q-15 FollowPV: PV della root dell'iterazione PRECEDENTE (mosse per ply). Un nodo
-    // "segue la PV" se il cammino root->nodo coincide con prev_pv[0..ply-1].
-    int prev_pv[max_ply + 8];
-    int prev_pv_len;
+    signed char chk_hint[max_ply + 8];   // scacco al figlio gia' calcolato dal padre (-1 = ignoto)
 
-    // Static eval at each ply, for the "improving" heuristic: compare this
-    // node's static eval to our own eval two plies ago (our previous turn).
-    // A rising eval lets the search prune/reduce more aggressively.
-    int eval_stack[max_ply + 8];
-    // cutoffCnt per-ply (SF): quante volte un nodo a questo ply ha fatto fail-high
-    // di recente. Letto nella LMR (riduci di piu' se il figlio cutta molto). +8 slack
-    // come gli altri stack ply-indicizzati. Tracciato sempre; usato solo se penalty>0.
-    int cutoff_cnt[max_ply + 8];
-    // 5.1 HindsightExt (Pawnocchio): riduzione LMR con cui QUESTO nodo e' stato cercato
-    // (settata dal padre prima della recursione). Se >= margine e l'eval e' girata male,
-    // il nodo ri-estende (la riduzione era un errore "col senno di poi"). +8 slack.
-    int reduction_stack[max_ply + 8];
-    // F-018.3d (TTCutMalus): mosse gia' esaminate al nodo di ogni ply (scritto dal padre
-    // prima della recursione); il figlio che cutta subito su TT raffredda la mossa del
-    // padre solo se il padre aveva visto poche mosse. +8 slack come gli altri.
-    int seen_stack[max_ply + 8] = {0};
-    // F-018.6b (SingularDECap): lunghezza della catena di double-extension singular sul
-    // path fino a questo ply (Berserk ss->de). Slot figlio scritto al make.
-    int de_stack[max_ply + 8] = {0};
-    // R-PB (PriorBonusFactor): mossa TT del nodo a ogni ply, scritta una volta prima del
-    // move loop. Serve al figlio per sapere se la mossa che l'ha generato era la TT-move
-    // del padre — uno dei quattro segnali con cui Reckless scala il prior bonus.
-    int ttmove_stack[max_ply + 8] = {0};
-    // NPS 25/09/2026: scacco al nodo figlio gia' calcolato dal padre (gives_check dopo
-    // la make). -1 = sconosciuto. Valido SOLO fra make e unmake del ciclo mosse di
-    // td_negamax, che lo scrive e lo riazzera; ogni altro ingresso lo trova a -1.
-    signed char chk_hint[max_ply + 8];
-    // TTPvInherit (2026-09-07): store_pv del nodo a ogni ply, letto dal figlio
-    // fail-low per ereditare il flag (SF: ss->ttPv |= (ss-1)->ttPv).
-    bool ttpv_stack[max_ply + 8] = {false};
+    // Radice
+    RootLine root[256];
+    int  root_count;
+    int  pv_idx;
+    int  pv_last;
+    int  root_depth;
+    int  completed_depth;
+    int  root_delta;
+    int  sel_depth;
+    int  nmp_min_ply;
+    U64  best_move_changes;
+    int  last_pv[max_ply + 4];        // linea dell'iterazione precedente per la mossa pv_idx
+    int  last_pv_len;
+    int  opt[2];                      // optimism di questo thread (lato bianco, nero)
 
-    // P4 TroubleMaking: se != 0, alla root si cerca SOLO questa mossa (verifica
-    // null-window del candidato "trouble"). Per-thread -> SMP-safe.
-    int root_only_move = 0;
-
-    // MultiPV (analisi): best move di root gia' assegnate alle linee precedenti
-    // dell'iterazione corrente — il move loop di td_negamax le SALTA alla root
-    // quando mpv_count > 0. In gioco normale (MultiPV=1) mpv_count resta 0 e il
-    // flusso e' identico. 64 = stesso cap dell'opzione UCI.
-    int mpv_excluded[64];
-    int mpv_count = 0;
-
-    // Results
+    // Risultato, letto dal driver e dal voto fra thread
     int best_move;
     int best_score;
     int depth;
-    // Ponder (01/10/2026): risposta prevista a best_move, dalla PV dell'ultima iterazione COMPLETATA (0 = nessuna).
-    // Serve quando la ricerca e' fermata a meta' iterazione (tipico al ponderhit oltre il budget): la PV di radice
-    // e' allora parziale e non da' la seconda mossa.
-    int best_reply = 0;
-    // F-018.6c (SingularPlyGuard): depth dell'iterazione ID in corso (per il gate ply < 2*rootDepth).
-    int root_depth = 0;
+    int best_reply;
 
-    // Node-based time management: nodes spent on the current best root move in
-    // the last completed iteration. Compared to the iteration's total nodes to
-    // gauge confidence (best move dominating nodes => stop sooner).
-    U64 root_bestmove_nodes = 0;
+    // History di questo thread (le continuation, pawn e correction sono condivise: vedi 09_history.inc)
+    int16_t    quiet_hist[2][QH_SIZE];
+    int16_t    low_ply_hist[LOW_PLY_SIZE][QH_SIZE];
+    int16_t    capt_hist[12][64][7];
+    PieceToRow cont_corr[NO_PC + 1][64];
+    int        tt_move_hist;
 
-    // Move-ordering diagnostic (gated da g_cutoff_stats, default off). Contati per-thread
-    // sui beta-cutoff della main search: fh_nodes = nodi fail-high; fh_first = cutoff sulla
-    // 1a mossa cercata; fh_move_sum = somma indici-mossa al cutoff (per indice medio).
-    // first-move-cutoff rate = fh_first/fh_nodes (84.76% storico; gap vs SF = ordering).
-    U64 fh_nodes = 0;
-    U64 fh_first = 0;
-    U64 fh_move_sum = 0;
-    U64 fh_tt = 0;        // cut-node con tt_move presente
-    U64 fh_tt_first = 0;  // cut-node con tt_move presente E cutoff sulla 1a mossa
-    U64 fh_probe = 0;     // cut-node con ENTRY TT presente (a prescindere dalla mossa) -> disambigua move-rate vs entry-hit
-    // TTAVAIL (CutoffStats, 2026-09-07): statistiche TT all'INGRESSO di ogni nodo
-    // della main search (ply>0, depth>=1), per profondita' [depth clampata a 63].
-    // Serve a misurare la disponibilita' della TT-move (tt_move != 0) e l'hit-rate
-    // dell'entry, confrontabili con lo stesso contatore patchato in Stockfish.
-    U64 tt_probe_n[64] = {0};
-    U64 tt_probe_hit[64] = {0};
-    U64 tt_probe_mv[64] = {0};
-
-    // Correction history: learned (search - static_eval) gap bucketed by
-    // [side][pawn-structure key]. Size MUST match CORR_SIZE (1<<14) in threads.cpp.
-    // ~128 KB/thread. Cleared in init_threads.
-    int corr_hist[2][1 << 14];
-
-    // Extra correction tables (only used when CorrHistMulti is on): keyed by
-    // [side][minor-piece key] and [side][major-piece key]. Same size as corr_hist.
-    int corr_hist_minor[2][1 << 14];
-    int corr_hist_major[2][1 << 14];
-    int corr_hist_material[2][1 << 14]; // SF #5556: keyed by material key (piece counts)
-    int corr_hist_trans[2][1 << 14];    // TransCorr (25/09/2026): keyed by hash(ply-1)^hash(ply)
-
-    // Non-pawn correction PER-LATO (CorrNonPawn, default OFF — port Pawnocchio/SF
-    // nonPawnCorrectionHistory): [colore-della-chiave][side-to-move][bucket], chiave
-    // = Zobrist dei non-pedoni (re incluso) di QUEL colore. ~256 KB/thread.
-    int corr_hist_np[2][2][1 << 14];
-
-    // Continuation correction history (CorrHistCont, default OFF): SF-style learned
-    // (search - static_eval) gap keyed by the TWO moves that led INTO this node —
-    // the move 1-ply back and 2-ply back: [piece2ply][to2ply][piece1ply][to1ply].
-    // Same shape as continuation_history but BOTH coords are already-played moves
-    // (the path into the node), because it corrects the node's static eval, not a
-    // candidate move. Stored in cp*CORR_GRAIN like the other corr tables; int16
-    // keeps it ~1.1 MB/thread (clamp g_corr_cap*CORR_GRAIN < 32767 fits int16).
-    int16_t cont_corr_hist[12][64][12][64];
-
-    // Pawn history (PawnHistory toggle, default off): quiet-move ordering keyed by
-    // pawn structure -> [pawn-key bucket][piece][to]. SF weights this 2x (as much as
-    // main history); it was a whole missing dimension for us. int16 keeps it ~12.6
-    // MB/thread. Per-thread (here) = SMP-safe. Cleared in init_threads.
-    static constexpr int PAWN_HIST_SIZE = 1 << 13;          // 8192 pawn-structure buckets
-    static constexpr int PAWN_HIST_MASK = PAWN_HIST_SIZE - 1;
-    int16_t pawn_history[PAWN_HIST_SIZE][12][64];
-
-    // Threat-ordering cache (ThreatOrdering, default OFF). Squares attacked by enemy
-    // pieces grouped by the cheapest attacker's value. Computed once per node (keyed
-    // by hash_key) and read in td_score_move. Unused/untouched when the toggle is off.
-    U64 threat_key      = 0;   // hash_key the three bitboards below are valid for
-    U64 threat_by_pawn  = 0;   // squares attacked by enemy pawns
-    U64 threat_by_minor = 0;   // + enemy knights/bishops
-    U64 threat_by_rook  = 0;   // + enemy rooks
-    U64 threat_all      = 0;   // ALL enemy attacks (P..K) — ThreatHist from/to-threatened bits
-
-    // Check-ordering cache (CheckOrdering, default OFF). check_sq[piece type] = squares
-    // from which a piece of that type gives a DIRECT check to the enemy king. Computed
-    // once per node (keyed by hash_key). Unused/untouched when the toggle is off.
-    U64 check_key   = 0;
-    U64 check_sq[6] = { 0, 0, 0, 0, 0, 0 };   // index by piece type 0=P 1=N 2=B 3=R 4=Q 5=K
-
-    // Offense-ordering cache (QuietOffense, default OFF; port Reckless movepick
-    // score_quiet). offense_sq[pt] = SAFE squares from which a piece of type pt would
-    // attack a vulnerable enemy piece (pawn->any, knight->safe-bishop/rook/queen,
-    // bishop->rook, rook->enemy-king-file, queen->orth-bishop/diag-rook). wall_pawns =
-    // our own king-shield pawns (moving one is penalized). Keyed by hash_key; untouched
-    // when the toggle is off.
-    U64 offense_key   = 0;
-    U64 offense_sq[6] = { 0, 0, 0, 0, 0, 0 };  // index by piece type 0=P 1=N 2=B 3=R 4=Q 5=K
-    U64 wall_pawns    = 0;
-
-    // Low-ply history (#5, LowPlyHistory, default OFF): [ply][piece][target], used only
-    // in the first LOW_PLY_MAX plies for quiet ordering near the root. Cleared per-search
-    // when the toggle is on (ply-indexed => transient, must NOT persist across moves).
-    static constexpr int LOW_PLY_MAX = 4;
-    int lowply_history[LOW_PLY_MAX][12][64];
-
-    // Opaque per-thread handle for the incremental NNUE mirror (see nnue_bridge).
-    // Owned here: created in init_threads, destroyed on re-init / shutdown.
+    // Rete incrementale e cache della valutazione
     void* nnpos = nullptr;
-    int opt[2] = {0, 0};   // OptPerThread: optimism di questo thread (per lato)
-
-    // Per-thread static-eval cache. Maps a position to its NNUE eval so we can
-    // skip the (expensive ~60% of node time) nn_pos_eval forward pass when the
-    // SAME position is evaluated again — aspiration / PVS re-searches and
-    // transpositions hit this a lot. Safe because the NNUE accumulator is lazy:
-    // nn_pos_do/undo keep the dirty chain regardless, so a skipped eval is just
-    // computed later by the first descendant that needs it.
-    //   Key = hash_key mixed with fifty: SF's eval is dampened by the 50-move
-    //   counter, which hash_key does NOT encode, so fifty MUST be in the key or
-    //   we'd return a stale eval for the same position at a different fifty.
-    // N-2 (2026-07-05): tried 16->18 bits (1->4 MB/thread), TESTED AND REJECTED.
-    // Since g_evalcache_undamp's key excludes fifty, a hit round-trips through
-    // tt_eval_undamp/redamp (~+-2-3cp rounding, see the comment above tt_eval_undamp
-    // in threads.cpp) -> a bigger cache changes the hit RATE of an already-lossy
-    // cache, perturbing node counts (not a bug, same effect as FastRepScan/dither).
-    // Measured on 200 real positions/depth13, 2 seeds: node-count delta ~0,
-    // time-to-depth delta -2.41%/+0.51% -- straddles zero, no reliable signal,
-    // and it costs +3 MB/thread for it. Reverted to 16.
-    static constexpr int EVAL_CACHE_BITS = 16;          // 65536 entries
+    static constexpr int EVAL_CACHE_BITS = 16;
     static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    // `opt`: valore di g_optimism[stm] con cui questa eval e' stata calcolata. Serve
-    // perche' nn_scale mescola l'optimism DENTRO il valore ritornato (nnue_bridge.cpp:153)
-    // e g_optimism viene riscritto a ogni iterazione ID (thread_search, search/13_iterdeep.inc): senza tag, la
-    // cache serve valutazioni calcolate con un contempt diverso da quello corrente.
-    struct EvalCacheEntry { U64 key; int eval; int opt; int coeff; };
-    EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];          // ~1 MB / thread
-
+    struct EvalCacheEntry { U64 key; int eval; };
+    EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
 };
-
-// (ThreadData su pagine grandi: provato e RIMOSSO il 09/09/2026.
-//  sizeof(ThreadData) e' 21,31 MB, quasi tutto tabelle di storia, e Stockfish il
-//  suo Worker lo mette su pagine grandi. Sembrava spiegare i nostri 0,46 mancati
-//  accessi alla TLB dati per nodo contro i loro 0,012.
-//  🔑 Due misure hanno chiuso la questione. Primo: il binario attuale ha GIA' 393
-//  MB su pagine enormi contro i 397 della versione modificata, perche' su questa
-//  macchina le pagine trasparenti sono su "always" e il kernel le assegna gia' al
-//  primo accesso, senza aspettare khugepaged. Secondo, e decisivo: l'intera
-//  ricerca fa circa 138.000 mancati accessi alla TLB, cioe' 0,07 per nodo, che a
-//  ~30 cicli l'uno valgono DUE cicli per nodo su un divario di 958. Il rapporto
-//  38x con Stockfish e' vero e irrilevante: era una percentuale grande di un
-//  numero minuscolo.)
 
 // Global thread management
 extern std::vector<std::thread> search_threads;
 extern std::vector<ThreadData> thread_data;
 extern std::atomic<bool> stop_threads;
-extern std::atomic<U64> total_nodes;
 extern int num_threads;
 
-// Thread management functions
 extern void init_threads(int thread_count);
 extern void copy_board_to_thread(ThreadData& td);
-extern void start_search_threads(int depth);
 extern void stop_search_threads();
 extern void wait_for_threads();
-
-// Multi-threaded search
 extern void search_position_mt(int depth);
-
-// Asynchronous driver: run the search on a background thread so the UCI loop
-// stays responsive to "stop" / "go infinite".
 extern std::thread search_master;
 extern void launch_search(int depth);
-// Ponder (search/14_smp.inc): parse_go parcheggia il budget di tempo prima di launch_search; "ponderhit" lo accende.
-extern void ponder_park_time();
 extern void ponder_hit();
 extern void wait_for_search_done();
-// Q-26 HistPrior: riempie le history col prior positivo dopo un azzeramento (no-op se 0).
-extern void apply_history_priors(ThreadData& td);
+extern void search_clear();            // ucinewgame: azzera history e stato della partita
 
-// Soft time limit (absolute ms, like stoptime). The main thread stops starting
-// new iterative-deepening iterations once it passes this; stoptime stays the
-// hard cap checked inside the search. Set by parse_go alongside stoptime.
-extern int soft_time_limit;
-
-// Self-play data logging (Phase 1: policy-net training data). When enabled, the
-// engine appends "FEN<TAB>bestmove<TAB>score<TAB>depth" for each completed root
-// search to the dataset file. Controlled via the DataLog / DataFile UCI options.
 extern void set_data_log_enabled(bool enabled);
 extern void set_data_log_file(const char* path);
 
-// (Policy-net: RIMOSSA 2026-06-11 — capitolo chiuso con misure conclusive, vedi
-//  notes/ANALISI_CODICE_OTTIMIZZAZIONI.md §P5. Il codice vive nella storia git.)
-
-// ---- Bundle 3.9 (2026-06-11): micro-fix dietro toggle default ON --------------
-extern void set_mate_dist(bool enabled);       // P1.4  mate-distance pruning
-extern void set_draw_dither(bool enabled);     // P1.11 draw = ±1cp (anti shuffle-blindness)
-extern void set_ttcut_bonus(bool enabled);     // P1.13 history bonus al ttMove sul TT-cutoff
-extern int  g_ttcut_bonus_scale;               //       spin TTCutBonusScale (/100, SPSA)
-extern void set_tt_age_refresh(bool enabled);  // P1.10a age refresh al probe-hit (def. threads.cpp, usato in tt.h)
-extern void set_pawn_key_incr(bool enabled);   // P2.1  pawn key incrementale (node-identical)
-extern void set_np_key_incr(bool enabled);     // CorrNonPawn: np_key incrementale (node-identical)
-// ---- Wave 3b (2026-06-11) ------------------------------------------------------
-extern void set_tt_static_eval(bool enabled);  // P1.1  eval statica in TT (salva la forward NNUE)
-extern void set_fast_rep_scan(bool enabled);   // P2.2  repetition scan a finestra min(fifty, plies_from_null)
-extern void set_evasion_gen(bool enabled);     // P2.3  generazione evasioni mascherata (node-identical)
-// ---- Toggle da co-tune (default OFF, si accendono nel mega-SPSA 4.0) ------------
-extern void set_nmp_verif(bool enabled);
-extern int g_nmp_verif_depth;
-extern bool g_nmp_improving;
-extern int g_nmp_improv_margin;
-extern int g_nmp_improv_verif;
-extern void set_nmp_improving(bool enabled);
-extern void set_lmp_improving(bool enabled);   // P1.7 LMP SF-style (spins LMPBase/LMPQuad), no cap d8
-extern void set_evalcache_undamp(bool enabled);// N1 eval-cache senza fifty in chiave (default ON)
-extern void set_probcut_tt(bool enabled);      // N2 probcut fail-high salvato in TT (default ON)
-
-// DIAGNOSTIC ("eval" UCI command): static NNUE eval (cp, side-to-move relative)
-// of the current global board. For cross-checking the NNUE port vs official SF.
 extern int debug_eval_position();
-// Uscita GREZZA della rete (psqt + positional, pre-nn_scale): l'unica grandezza
-// confrontabile col trainer in un cross-check.
 extern int debug_eval_position_raw();
 
-// Eval-off diagnostic (UCI option "EvalOff") — NPS profiling only, not for play.
-extern void set_eval_off(bool enabled);
-
-// Static-eval cache on/off (UCI option "EvalCache") — A/B the eval cache.
-extern void set_eval_cache(bool enabled);
-
-// FinnyTables (NNUE accumulator refresh cache) on/off (UCI option "FinnyTables").
-extern void set_finny(bool enabled);
-
-// SingleBoard (single-board eval) and OccIncr (incremental occupancies) were
-// consolidated into the code (2026-06-07): both unconditional now, no toggle.
-// See nnue_bridge.cpp (nn_pos_eval sync) and td_occ_update in threads.cpp.
-
-// Time-management tunables (defined in threads.cpp; used by parse_go in uci_mt.cpp).
-extern int g_tm_movestogo;
-extern int g_tm_inc_frac;
-extern int g_tm_max_mult;
-
-// TM v2 (quarto audit Q-05/Q-06): allocazione pool+moves-left e fattore
-// predicted-move, letti da parse_go in uci_mt.cpp. Definiti in threads.cpp.
-extern bool g_tmv2_alloc;
-extern int  g_tmv2_mtg_base, g_tmv2_mtg_slope, g_tmv2_mtg_min, g_tmv2_opt_pct;
-extern bool g_tmv2_pred;
-extern int  g_tmv2_pred_hit, g_tmv2_pred_miss;
-extern U64  g_tm_pred_hash;   // hash della posizione prevista (0 = nessuna predizione)
-// Gate per-TC del blocco TMv2 (definiti in threads.cpp, settati in parse_go).
-extern bool g_tmv2_tc_ok;
-
-// "Improving" heuristic on/off (UCI option "Improving") — A/B the eval-trend
-// based pruning/reduction. Default on.
-extern void set_improving(bool enabled);
-
-// Node-based time management on/off (UCI option "NodeTM") — scale the optimum
-// time DOWN when the best root move dominates the node count. Default on.
-extern void set_node_tm(bool enabled);
-
-// Advanced singular extensions on/off (UCI option "SingularExt") — double (+2)
-// and negative (-1) extensions on top of the base singular extension. Default on.
-extern void set_singular_ext(bool enabled);
-
-// Correction history on/off (UCI option "CorrHist") — learned static-eval
-// correction bucketed by pawn structure + side. Default off.
-extern void set_corr_hist(bool enabled);
-
-// Multi-table correction history on/off (UCI option "CorrHistMulti") — adds minor
-// (N/B) and major (R/Q) material-keyed correction tables. Default off.
-extern void set_corr_multi(bool enabled);
-extern void set_corr_major(bool enabled);   // CorrHistMajor, vedi threads.cpp
-
-// Continuation correction history on/off (UCI option "CorrHistCont") — corrects the
-// static eval by the learned gap keyed by the last two moves into the node. Default off.
-extern void set_corr_cont(bool enabled);
-
-// Non-pawn correction per-lato on/off (UCI "CorrNonPawn", port Pawnocchio/SF). Default off.
-
-// Pawn history on/off (UCI option "PawnHistory") — quiet-move ordering term keyed by
-// pawn structure (SF-style, weighted 2x). Default off (byte-identical when off).
-extern void set_pawn_hist(bool enabled);
-
-// ProbCut on/off (UCI option "ProbCut") — prune when a capture's reduced
-// verification search beats beta + ProbCutMargin. Default on (SPRT-validated +Elo).
-extern void set_probcut(bool enabled);
-
-// Continuation-history pruning/reduction on/off (UCI option "ContHistPrune") —
-// uses continuation history in the LMR reduction and to prune bad late quiets.
-// Default off (pending SPRT validation).
-extern void set_cont_hist_prune(bool enabled);
-
-// Multi-ply continuation history on/off (UCI option "ContHistMulti") — adds 2-ply
-// and 4-ply continuation histories to ordering + updates. Default off.
-
-// Staged MovePicker on/off (UCI option "MovePicker") — lazy staged move generation
-// (TT / good captures / killers / counter / quiets / bad captures) vs the default
-// generate-all + pick-next. Default off (behaviour-preserving when off).
-extern void set_move_picker(bool enabled);
-
-// DiverseSMP (#2): give Lazy-SMP helper threads a small per-thread LMR reduction
-// bias to diversify their search trees (cuts redundant work at high thread counts).
-// Default off (behaviour-preserving). Magnitude = DiverseSMPAmount spin.
-extern void set_diverse_smp(bool enabled);
-
-// (TripleExt −75 / LMREnrich −25 / DeeperShallower: morti, RIMOSSI 2026-06-11.)
-extern void set_multicut(bool enabled);       // BAKED on: conservative singular multi-cut
-
-// ttPv (UCI spin "TTPvAmount", 0..2) — bit PV nella TT (bit 63): i nodi non-PV ricordati
-// ex-PV vengono ridotti di `amount` ply in meno in LMR. 0=off (behaviour-preserving).
-// Wired via set_search_param (generic spin handler), niente setter dedicato.
-
-// Candidati "notte" (2026-06-04) — tutti default OFF = byte-identico.
-extern void set_nmp_eval_scale(bool enabled);  // NMPEvalScale: R null-move += min((eval-beta)/div,3)
-extern void set_hist_bonus_sf(bool enabled);   // HistBonusSF: bonus history lineare-clampato
-
-// CaptureHist (UCI "CaptureHist") — capture history [piece][to][victim] nell'ordering
-// di good/bad captures (main + qsearch). Sempre stata attiva, mai validata in isolamento.
-// Default ON (= comportamento attuale). OFF = contributo 0 + niente update (A/B pulito).
-// Scaling via spin CaptureHistDiv (default 1 = byte-identico; >1 = caphist pesato meno).
-extern void set_capture_hist(bool enabled);
-
-// 4-way set-associative TT on/off (UCI option "TT4Way") — bucket of 4 entries
-// with age-aware replacement, vs the direct-mapped default. Default off.
-
-// TTEvalImprove (UCI "TTEvalImprove") — P1.1: use a bound-consistent tt_score in
-// place of the static eval for pruning decisions (RFP/NMP/razor/futility/probcut/
-// LMR-margin + qsearch stand-pat). Default ON.
-extern void set_tt_eval_improve(bool enabled);
-
-// UpcomingRep (UCI "UpcomingRep") — P1.2: cuckoo upcoming-repetition detection
-// (SF has_game_cycle): raise alpha to draw when a reversible move can repeat a
-// known position. Default ON.
-extern void set_upcoming_rep(bool enabled);
-
-// Toggle di ABLAZIONE dei fix 3.8 (default ON; OFF = comportamento 3.7). Con tutti
-// OFF (incluso TTEvalImprove/UpcomingRep) la search e' identica alla 3.7.
-extern void set_ttmove24(bool enabled);        // P0.1 TT move 24 bit
-extern void set_see_fix(bool enabled);         // P0.2 SEE quiet + e.p.
-extern void set_killer_lmr_fix(bool enabled);  // P0.3 sconto LMR killer
-extern void set_qsearch_corr(bool enabled);    // P0.4 corr in qsearch
-extern void set_improving_fix(bool enabled);   // P0.6 sentinel improving
-
-// Lazy eval (UCI "LazyEval") — skip the NNUE static eval while in check. Default off.
-extern void set_lazy_eval(bool enabled);
-
-// Extra time management (UCI "TimeMgmt") — score-drop time extension. Default off.
-extern void set_time_mgmt(bool enabled);
-
-// Aggressive LMR (UCI "AggrLMR") — multi-ply history/conthist reductions via a
-// smaller divisor + wider clamp (AggrLMRDiv / AggrLMRClamp spins). Default off.
-
-// StatScore-LMR levers (2026-06-06) — fix per la SOTTO-RIDUZIONE vs SF15.1. Tre
-// toggle indipendenti, default OFF = byte-identico. Tarabili via gli spin
-// LMRStatScoreDiv / LMRStatScoreOffset / LMRContHistDiv / CutNodeLMRExtra.
-extern void set_statscore_lmr(bool enabled);  // butterfly history -> riduzione continua (no clamp +/-1)
-extern void set_conthist_lmr(bool enabled);   // conthist 1/2/4 ply -> riduzione continua nella LMR
-extern void set_cutnode_lmr(bool enabled);    // riduzione extra sui cut-node
-extern void set_threat_ordering(bool enabled); // ThreatOrdering: bonus/malus quiet per pezzo minacciato da uno di valore inferiore (SF-style)
-extern void set_threat_hist(bool enabled);     // ThreatHist (5.1): history quiet condizionata dalle minacce (from/to attaccata)
-extern void set_check_ordering(bool enabled);  // CheckOrdering: bonus quiet che danno scacco diretto, filtrati SEE>=-75 (SF-style)
-extern void set_conthist36(bool enabled);      // ContHist36: aggiunge conthist 3-ply e 6-ply all'ordering quiet (SF #4)
-extern void set_prior_bonus(bool enabled);     // PriorBonus (V2): su fail-low, bonus alla mossa precedente (conthist/main + capture-hist se cattura)
-extern void set_lowply(bool enabled);          // LowPlyHistory (#5): history per-ply near-root nell'ordering quiet
-
-// SPSA-tunable search parameters: set one by name (UCI spin option). Returns true
-// if the name matched a known tunable. Used by an external SPSA tuner (fastchess).
-extern bool set_search_param(const char* name, int value);
-// (Policy-net: RIMOSSA 2026-06-11 — capitolo chiuso con misure conclusive, vedi
-//  notes/ANALISI_CODICE_OTTIMIZZAZIONI.md §P5. Il codice vive nella storia git.)
-
-// ---- Bundle 3.9 (2026-06-11): micro-fix dietro toggle default ON --------------
-extern void set_mate_dist(bool enabled);       // P1.4  mate-distance pruning
-extern void set_draw_dither(bool enabled);     // P1.11 draw = ±1cp (anti shuffle-blindness)
-extern void set_ttcut_bonus(bool enabled);     // P1.13 history bonus al ttMove sul TT-cutoff
-extern int  g_ttcut_bonus_scale;               //       spin TTCutBonusScale (/100, SPSA)
-extern void set_tt_age_refresh(bool enabled);  // P1.10a age refresh al probe-hit (def. threads.cpp, usato in tt.h)
-extern void set_pawn_key_incr(bool enabled);   // P2.1  pawn key incrementale (node-identical)
-extern void set_np_key_incr(bool enabled);     // CorrNonPawn: np_key incrementale (node-identical)
-// ---- Wave 3b (2026-06-11) ------------------------------------------------------
-extern void set_tt_static_eval(bool enabled);  // P1.1  eval statica in TT (salva la forward NNUE)
-extern void set_fast_rep_scan(bool enabled);   // P2.2  repetition scan a finestra min(fifty, plies_from_null)
-extern void set_evasion_gen(bool enabled);     // P2.3  generazione evasioni mascherata (node-identical)
-// ---- Toggle da co-tune (default OFF, si accendono nel mega-SPSA 4.0) ------------
-extern void set_nmp_verif(bool enabled);
-extern int g_nmp_verif_depth;
-extern bool g_nmp_improving;
-extern int g_nmp_improv_margin;
-extern int g_nmp_improv_verif;
-extern void set_nmp_improving(bool enabled);
-extern void set_lmp_improving(bool enabled);   // P1.7 LMP SF-style (spins LMPBase/LMPQuad), no cap d8
-extern void set_evalcache_undamp(bool enabled);// N1 eval-cache senza fifty in chiave (default ON)
-extern void set_probcut_tt(bool enabled);      // N2 probcut fail-high salvato in TT (default ON)
-
-// DIAGNOSTIC ("eval" UCI command): static NNUE eval (cp, side-to-move relative)
-// of the current global board. For cross-checking the NNUE port vs official SF.
-extern int debug_eval_position();
-// Uscita GREZZA della rete (psqt + positional, pre-nn_scale): l'unica grandezza
-// confrontabile col trainer in un cross-check.
-extern int debug_eval_position_raw();
-
-// Eval-off diagnostic (UCI option "EvalOff") — NPS profiling only, not for play.
-extern void set_eval_off(bool enabled);
-
-// Static-eval cache on/off (UCI option "EvalCache") — A/B the eval cache.
-extern void set_eval_cache(bool enabled);
-
-// FinnyTables (NNUE accumulator refresh cache) on/off (UCI option "FinnyTables").
-extern void set_finny(bool enabled);
-
-// SingleBoard (single-board eval) and OccIncr (incremental occupancies) were
-// consolidated into the code (2026-06-07): both unconditional now, no toggle.
-// See nnue_bridge.cpp (nn_pos_eval sync) and td_occ_update in threads.cpp.
-
-// Time-management tunables (defined in threads.cpp; used by parse_go in uci_mt.cpp).
-extern int g_tm_movestogo;
-extern int g_tm_inc_frac;
-extern int g_tm_max_mult;
-
-// TM v2 (quarto audit Q-05/Q-06): allocazione pool+moves-left e fattore
-// predicted-move, letti da parse_go in uci_mt.cpp. Definiti in threads.cpp.
-extern bool g_tmv2_alloc;
-extern int  g_tmv2_mtg_base, g_tmv2_mtg_slope, g_tmv2_mtg_min, g_tmv2_opt_pct;
-extern bool g_tmv2_pred;
-extern int  g_tmv2_pred_hit, g_tmv2_pred_miss;
-extern U64  g_tm_pred_hash;   // hash della posizione prevista (0 = nessuna predizione)
-// Gate per-TC del blocco TMv2 (definiti in threads.cpp, settati in parse_go).
-extern bool g_tmv2_tc_ok;
-
-// "Improving" heuristic on/off (UCI option "Improving") — A/B the eval-trend
-// based pruning/reduction. Default on.
-extern void set_improving(bool enabled);
-
-// Node-based time management on/off (UCI option "NodeTM") — scale the optimum
-// time DOWN when the best root move dominates the node count. Default on.
-extern void set_node_tm(bool enabled);
-
-// Advanced singular extensions on/off (UCI option "SingularExt") — double (+2)
-// and negative (-1) extensions on top of the base singular extension. Default on.
-extern void set_singular_ext(bool enabled);
-
-// Correction history on/off (UCI option "CorrHist") — learned static-eval
-// correction bucketed by pawn structure + side. Default off.
-extern void set_corr_hist(bool enabled);
-
-// Multi-table correction history on/off (UCI option "CorrHistMulti") — adds minor
-// (N/B) and major (R/Q) material-keyed correction tables. Default off.
-extern void set_corr_multi(bool enabled);
-
-// Continuation correction history on/off (UCI option "CorrHistCont") — corrects the
-// static eval by the learned gap keyed by the last two moves into the node. Default off.
-extern void set_corr_cont(bool enabled);
-
-// Non-pawn correction per-lato on/off (UCI "CorrNonPawn", port Pawnocchio/SF). Default off.
-
-// Pawn history on/off (UCI option "PawnHistory") — quiet-move ordering term keyed by
-// pawn structure (SF-style, weighted 2x). Default off (byte-identical when off).
-extern void set_pawn_hist(bool enabled);
-
-// ProbCut on/off (UCI option "ProbCut") — prune when a capture's reduced
-// verification search beats beta + ProbCutMargin. Default on (SPRT-validated +Elo).
-extern void set_probcut(bool enabled);
-
-// Continuation-history pruning/reduction on/off (UCI option "ContHistPrune") —
-// uses continuation history in the LMR reduction and to prune bad late quiets.
-// Default off (pending SPRT validation).
-extern void set_cont_hist_prune(bool enabled);
-
-// Multi-ply continuation history on/off (UCI option "ContHistMulti") — adds 2-ply
-// and 4-ply continuation histories to ordering + updates. Default off.
-
-// Staged MovePicker on/off (UCI option "MovePicker") — lazy staged move generation
-// (TT / good captures / killers / counter / quiets / bad captures) vs the default
-// generate-all + pick-next. Default off (behaviour-preserving when off).
-extern void set_move_picker(bool enabled);
-
-// DiverseSMP (#2): give Lazy-SMP helper threads a small per-thread LMR reduction
-// bias to diversify their search trees (cuts redundant work at high thread counts).
-// Default off (behaviour-preserving). Magnitude = DiverseSMPAmount spin.
-extern void set_diverse_smp(bool enabled);
-
-// (TripleExt −75 / LMREnrich −25 / DeeperShallower: morti, RIMOSSI 2026-06-11.)
-extern void set_multicut(bool enabled);       // BAKED on: conservative singular multi-cut
-
-// ttPv (UCI spin "TTPvAmount", 0..2) — bit PV nella TT (bit 63): i nodi non-PV ricordati
-// ex-PV vengono ridotti di `amount` ply in meno in LMR. 0=off (behaviour-preserving).
-// Wired via set_search_param (generic spin handler), niente setter dedicato.
-
-// Candidati "notte" (2026-06-04) — tutti default OFF = byte-identico.
-extern void set_nmp_eval_scale(bool enabled);  // NMPEvalScale: R null-move += min((eval-beta)/div,3)
-extern void set_hist_bonus_sf(bool enabled);   // HistBonusSF: bonus history lineare-clampato
-
-// CaptureHist (UCI "CaptureHist") — capture history [piece][to][victim] nell'ordering
-// di good/bad captures (main + qsearch). Sempre stata attiva, mai validata in isolamento.
-// Default ON (= comportamento attuale). OFF = contributo 0 + niente update (A/B pulito).
-// Scaling via spin CaptureHistDiv (default 1 = byte-identico; >1 = caphist pesato meno).
-extern void set_capture_hist(bool enabled);
-
-// 4-way set-associative TT on/off (UCI option "TT4Way") — bucket of 4 entries
-// with age-aware replacement, vs the direct-mapped default. Default off.
-
-// TTEvalImprove (UCI "TTEvalImprove") — P1.1: use a bound-consistent tt_score in
-// place of the static eval for pruning decisions (RFP/NMP/razor/futility/probcut/
-// LMR-margin + qsearch stand-pat). Default ON.
-extern void set_tt_eval_improve(bool enabled);
-
-// UpcomingRep (UCI "UpcomingRep") — P1.2: cuckoo upcoming-repetition detection
-// (SF has_game_cycle): raise alpha to draw when a reversible move can repeat a
-// known position. Default ON.
-extern void set_upcoming_rep(bool enabled);
-
-// Toggle di ABLAZIONE dei fix 3.8 (default ON; OFF = comportamento 3.7). Con tutti
-// OFF (incluso TTEvalImprove/UpcomingRep) la search e' identica alla 3.7.
-extern void set_ttmove24(bool enabled);        // P0.1 TT move 24 bit
-extern void set_see_fix(bool enabled);         // P0.2 SEE quiet + e.p.
-extern void set_killer_lmr_fix(bool enabled);  // P0.3 sconto LMR killer
-extern void set_qsearch_corr(bool enabled);    // P0.4 corr in qsearch
-extern void set_improving_fix(bool enabled);   // P0.6 sentinel improving
-
-// Lazy eval (UCI "LazyEval") — skip the NNUE static eval while in check. Default off.
-extern void set_lazy_eval(bool enabled);
-
-// Extra time management (UCI "TimeMgmt") — score-drop time extension. Default off.
-extern void set_time_mgmt(bool enabled);
-
-// Aggressive LMR (UCI "AggrLMR") — multi-ply history/conthist reductions via a
-// smaller divisor + wider clamp (AggrLMRDiv / AggrLMRClamp spins). Default off.
-
-// StatScore-LMR levers (2026-06-06) — fix per la SOTTO-RIDUZIONE vs SF15.1. Tre
-// toggle indipendenti, default OFF = byte-identico. Tarabili via gli spin
-// LMRStatScoreDiv / LMRStatScoreOffset / LMRContHistDiv / CutNodeLMRExtra.
-extern void set_statscore_lmr(bool enabled);  // butterfly history -> riduzione continua (no clamp +/-1)
-extern void set_conthist_lmr(bool enabled);   // conthist 1/2/4 ply -> riduzione continua nella LMR
-extern void set_cutnode_lmr(bool enabled);    // riduzione extra sui cut-node
-extern void set_threat_ordering(bool enabled); // ThreatOrdering: bonus/malus quiet per pezzo minacciato da uno di valore inferiore (SF-style)
-extern void set_threat_hist(bool enabled);     // ThreatHist (5.1): history quiet condizionata dalle minacce (from/to attaccata)
-extern void set_check_ordering(bool enabled);  // CheckOrdering: bonus quiet che danno scacco diretto, filtrati SEE>=-75 (SF-style)
-extern void set_conthist36(bool enabled);      // ContHist36: aggiunge conthist 3-ply e 6-ply all'ordering quiet (SF #4)
-extern void set_prior_bonus(bool enabled);     // PriorBonus (V2): su fail-low, bonus alla mossa precedente (conthist/main + capture-hist se cattura)
-extern void set_lowply(bool enabled);          // LowPlyHistory (#5): history per-ply near-root nell'ordering quiet
-
-// SPSA-tunable search parameters: set one by name (UCI spin option). Returns true
-// if the name matched a known tunable. Used by an external SPSA tuner (fastchess).
+// Opzioni UCI della ricerca: stampa e impostazione (01_params.inc).
+extern void print_search_options();
 extern bool set_search_param(const char* name, int value);
 
 #endif

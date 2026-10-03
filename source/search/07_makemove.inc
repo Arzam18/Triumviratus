@@ -330,10 +330,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
   }
   if (td.enpassant != no_sq)
     pf_key ^= enpassant_keys[td.enpassant];
-  if (g_tt_prefetch) {
-    TT_PREFETCH(&hash_table[tt_base_index(pf_key)]);
-    TT_PREFETCH(&td.eval_cache[pf_key & ThreadData::EVAL_CACHE_MASK]);
-  }
+  TT_PREFETCH(&hash_table[tt_base_index(pf_key)]);
+  TT_PREFETCH(&td.eval_cache[pf_key & ThreadData::EVAL_CACHE_MASK]);
 
   pop_bit(td.bitboards[piece], source);
   set_bit(td.bitboards[piece], target);
@@ -386,7 +384,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     // trasposizioni a2a3+a3a4 vs a2a4 hanno la stessa chiave = piu' TT-hit.
     // Nessun effetto sul movegen: senza capturer la casella ep era comunque
     // inusabile.
-    if (!g_ep_key_fix || (pawn_attacks[td.side][ep_sq] &
+    if ((pawn_attacks[td.side][ep_sq] &
                           td.bitboards[(td.side == white) ? p : P])) {
       td.enpassant = ep_sq;
       td.hash_key ^= enpassant_keys[ep_sq];
@@ -410,9 +408,10 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
 
   td_occ_update(td, td.side, source, target, undo.captured_square,
                 undo.captured_piece, castling);
-  if (g_pawn_key_incr)
-    td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                       undo.captured_square);
+  td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
+                     undo.captured_square);
+  td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
+                   undo.captured_square, castling);
   td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                    undo.captured_square, castling);
   td_mailbox_apply(td, piece, source, target, promoted, undo.captured_piece,
@@ -453,9 +452,10 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
 
     td_occ_update(td, td.side, source, target, undo.captured_square,
                   undo.captured_piece, castling);
-    if (g_pawn_key_incr)
-      td_pawn_key_update(td, piece, source, target, promoted,
-                         undo.captured_piece, undo.captured_square);
+    td_pawn_key_update(td, piece, source, target, promoted,
+                       undo.captured_piece, undo.captured_square);
+    td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
+                     undo.captured_square, castling);
     td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                      undo.captured_square, castling);
     td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
@@ -465,46 +465,16 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     return 0;
   }
 
-  // (TT + eval-cache prefetch tried here 2026-06-07: NODE-IDENTICAL but
-  // NPS-neutral
-  //  — we are eval-bound, not TT-memory-bound, so hiding TT latency doesn't
-  //  help. Removed. The T0/pre-legality variant was -2.5% from L1 pollution.
-  //  RIPROVATO 2026-07-13 dietro toggle "TTPrefetch" (default OFF =
-  //  byte-identico, Reckless #1085): da giugno e' stato bakato TTTwoLevel
-  //  (bucket 2 slot), il pattern di accesso TT e' cambiato -> vale una
-  //  ri-misura NPS.)
-  // NPS 25/09/2026 — prefetch delle entry di correction history che il figlio legge per
-  // prime (td_corr_value): pawn, minor, major con le chiavi GIA' aggiornate qui sopra, e la
-  // continuation correction indicizzata da (mossa di ingresso al padre, questa mossa).
-  // td.side e' gia' quello del figlio. Stockfish fa lo stesso in do_move. Il 09/09 era
-  // stato giudicato neutro su 14 coppie a tempo; si rimisura con nps_pair.
-  // 1 << 14 = CORR_SIZE (definita piu' sotto).
-  if (g_tt_prefetch) {
-    const int cmask = (1 << 14) - 1;
-    TT_PREFETCH(&td.corr_hist[td.side][td.pawn_key & cmask]);
-    TT_PREFETCH(&td.corr_hist_minor[td.side][td.mm_key[0] & cmask]);
-    TT_PREFETCH(&td.corr_hist_major[td.side][td.mm_key[1] & cmask]);
-    const int m2 = td.move_stack[td.ply - 1];  // td.ply e' gia' il ply del figlio
-    if (m2)
-      TT_PREFETCH(&td.cont_corr_hist[get_move_piece(m2)][get_move_target(m2)][piece][target]);
-    // TransCorr: in cima alla repetition_table c'e' la chiave del padre (spinta prima di make)
-  }
+  // Prefetch delle correzioni che il figlio legge per prime: struttura pedonale e pezzi minori (chiavi gia'
+  // aggiornate qui sopra). td.side e' gia' quello del figlio. Dal 04/10/2026 le tabelle sono condivise fra i
+  // thread e grandi (1 MB per thread), non piu' 64 KB in L2: il prefetch qui ha di nuovo dei miss da nascondere.
+  TT_PREFETCH(&g_stats.corr[td.pawn_key & g_stats.corr_mask][td.side]);
+  TT_PREFETCH(&g_stats.corr[td.mm_key[0] & g_stats.corr_mask][td.side]);
 
-  if (g_tt_prefetch && td.hash_key != pf_key) { // stima sbagliata (arrocco, promozione, e.p.)
+  if (td.hash_key != pf_key) { // stima sbagliata (arrocco, promozione, e.p.)
     TT_PREFETCH(&hash_table[tt_base_index(td.hash_key)]);
     TT_PREFETCH(&td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK]);
   }
-
-  // (PREFETCH delle tabelle di correzione, provato e RIMOSSO il 09/09/2026.
-  //  Stockfish ne fa sei in do_move: TT, pawn history e quattro entry di
-  //  correzione. Noi ne facciamo uno solo, e sembrava una lacuna da colmare,
-  //  visto che il nostro IPC e' piu' basso del loro a parita' di lavoro.
-  //  Misurato: 5.627,8 +- 18,8 cicli/nodo contro 5.644,9 +- 30,0 senza, e tempo
-  //  identico (1.541 contro 1.543 ms). NEUTRO, 14 coppie alternate.
-  //  🔑 Il motivo, che vale piu' del risultato: le nostre corr_hist stanno in L2
-  //  (64 KB per lato), quindi non c'erano miss da nascondere. Le loro sono
-  //  CONDIVISE fra i thread e piu' grandi, e li' il prefetch paga. Copiare una
-  //  contromisura senza copiarne il problema non serve.)
 
   // Mirror the (now legal) move on the incremental NNUE position, in
   // Stockfish encoding. The moving piece is dirtyPiece[0] (king-refresh).
@@ -583,9 +553,10 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
 
   td_occ_update(td, td.side, source, target, undo.captured_square,
                 undo.captured_piece, castling);
-  if (g_pawn_key_incr)
-    td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                       undo.captured_square);
+  td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
+                     undo.captured_square);
+  td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
+                   undo.captured_square, castling);
   td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                    undo.captured_square, castling);
   td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
