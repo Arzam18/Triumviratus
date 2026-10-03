@@ -9,6 +9,7 @@
  */
 
 #include "threads.h"
+#include "sstats.h"   // contatori di diagnosi, solo con -DTRIUMV_SSTATS (03/10/2026)
 #include "attacks.h"
 #include "chess960.h"
 #include "evaluation.h"

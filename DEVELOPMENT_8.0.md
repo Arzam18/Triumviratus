@@ -491,3 +491,54 @@ be compiled together with their callers, and the frozen-parameter `#define`s app
 that follows them. The split has its own commit, and it is a pure move: compiled before and after, the
 object file is identical byte for byte.
 
+## 16. Where the gap to Stockfish comes from, and a pruning rework (3 October 2026)
+
+**Decomposing the gap.** Against Stockfish 19, single thread:
+
+| Test | Result |
+|---|---|
+| Speed, one core, 30 positions | SF searches 1.24× our nodes per second; in 3 s it reaches depth 23, we reach 20 |
+| Fixed depth 6 / 8 | **+35 / +25** Elo for us |
+| Fixed depth 10 / 14 | −22 / −67 |
+| Fixed nodes (300k per move) | −98 |
+| Time (20+0.2) | −127 |
+| Nodes needed to complete the same depth | 1.5–1.7× SF's |
+
+So the network is not the problem: at low depth, where evaluation dominates, we are ahead. Speed explains
+about 25–30 Elo. The rest is search selectivity: Stockfish turns each nominal ply into more real depth.
+
+**Same counters in both engines.** `source/sstats.h` adds per-depth counters to the search (only with
+`-DTRIUMV_SSTATS`; without it the code is identical). The same header went into a local copy of Stockfish 19,
+and both engines searched the same 300 positions to depth 16. The main finding:
+
+- at remaining depth 8, Stockfish's futility prunes about 720,000 quiet moves per 100 positions, ours about
+  1,000; we play 7.9 quiet moves per node, Stockfish 2.9;
+- the reason is the depth used to decide pruning. Ours came from our own reduction table, which reduces about
+  half of Stockfish's, and was floored at 0; Stockfish's averages −1.5 because history pushes bad quiets below
+  zero. Our history values are also capped at 7,000 against Stockfish's ~30,000, so they weigh less. And we did
+  not prune at PV nodes;
+- move ordering: near the leaves the first move cuts in 81% of fail-highs against Stockfish's 88%, and fewer
+  of our shallow nodes have a TT move (33% against 48% at depth 2). None of our history weights moves this.
+
+**The rework.** New options compute the pruning depth the Stockfish way (`PruneSFDepth`, `PruneNegDepth`),
+use the corrected static eval for quiet futility (`FutStaticEval`), allow futility at PV nodes outside the
+previous PV (`FutPVNodes`), and apply quiet SEE pruning at that depth (`SEELmrDepth`). Switched on together with
+aggressive history weighting, they matched Stockfish's quiet moves per node but cost −35 ± 20 Elo: the rest of
+the search was tuned for a wider tree. An SPSA over 29 coupled parameters (futility, pruning depth, capture
+futility, SEE, LMP, LMR, RFP, the TT cut parameters, ProbCut, null move, singular double extensions, history size
+and four depth thresholds), 15+0.15, stopped on a plateau at 3,509 iterations. It kept the new structure, brought
+history back to its old weight, and moved pruning elsewhere: more RFP and ProbCut, more double extensions, null
+move verification from depth 3 instead of 1.
+
+**Result:** the tuned engine against the previous one, 20+0.2: **+6.3 ± 6.0 Elo over 3,366 games**. Baked as the
+new defaults; bench **337035**.
+
+**Open:** quiet futility still skips all remaining quiets once one is pruned (Stockfish decides move by move);
+the history cap; TT moves at shallow nodes; the same SPSA at a longer time control, since short games bias it
+toward pruning less.
+
+**Cleanup.** 69 options that were measured and closed, or off for months with no plan, were retired: UCI line,
+setter, frozen entry and declaration, then the branches they guarded. About 1,550 lines fewer in the search,
+bench unchanged. Diagnostic tools stay (`sstats.h`, DataLog, TMLog, CutoffStats, SeeGEVerify, EvalOff), as do
+levers still in use.
+

@@ -18,21 +18,10 @@ void set_nmp_eval_scale(bool v) { g_nmp_eval_scale = v; }
 //   R = 7 + depth/3 + max((ss->staticEval - beta) / 256, 0)
 // Prima era /100 CON cap a 3 e sulla `eval` corretta dalla TT: cioe' la variante
 // che SF aveva REVERTATO per mate-finding dopo 290k partite verdi.
-int g_nmp_eval_div = 256;
+int g_nmp_eval_div = 253; // [PR1 256->253]
 
-// (2) RFPDepth8: estende la reverse-futility da depth<=6 a depth<=8.
-static bool g_rfp_depth8 = false;
-void set_rfp_depth8(bool v) { g_rfp_depth8 = v; }
 
-// (3) RazorDepth4: estende il razoring da depth<=3 a depth<=4.
-static bool g_razor_depth4 = false;
-void set_razor_depth4(bool v) { g_razor_depth4 = v; }
 
-// (4) QFutility: futility per-mossa in quiescence — salta le catture che non
-//     possono alzare best_score fino ad alpha nemmeno incassando il pezzo
-//     catturato (escluse ep/promo per sicurezza). Margine = QFutMargin.
-static bool g_qfutility = false;
-void set_qfutility(bool v) { g_qfutility = v; }
 int g_qfut_margin = 199;
 // QFutVicScale (2026-07-24): ponte cp->eval-net del termine-vittima, /10000
 // INSIEME a EvalScale — gemello di g_capfut_vic_scale. Sostituisce il vecchio
@@ -53,7 +42,7 @@ void set_hist_bonus_sf(bool v) { g_hist_bonus_sf = v; }
 int g_hist_bonus_mult =
     471; // [M20 490->471] [4.1 BAKE 282->326] SPSA co-tune history/LMR @12+0.12 (+5-7 Elo)
 int g_hist_bonus_sub = 255;  // [M20 299->255] [4.1 BAKE 59->35]
-int g_hist_bonus_max = 2785; // [M20 2946->2785] [4.1 BAKE 1247->2439]
+int g_hist_bonus_max = 3192; // [PR1 2785->3192] [M20 2946->2785] [4.1 BAKE 1247->2439]
 
 // CaptureHist (UCI option "CaptureHist"). Capture history: tabella
 // [piece][to][victim] che impara quali catture producono cutoff, e ne bias-a
@@ -84,12 +73,6 @@ int g_caphist_div = 21; // REVERT 2026-07-23: bake SPSA B1 (15) evaporato a 4452
 // independently (shared TT only) and diversify via per-thread depth skipping
 // (see LSMP_Skip* below). The legacy ABDADA busy-node coordination was removed.
 
-// 4-way set-associative TT on/off (UCI option "TT4Way"). Default OFF reproduces
-// the direct-mapped table; defined here, declared extern in tt.h (the bucket
-// logic lives in tt.h). Matters more now that Lazy SMP has many threads
-// hammering the TT. Toggle for a clean A/B.
-bool g_tt_4way = false;
-void set_tt_4way(bool v) { g_tt_4way = v; }
 bool g_tt_twolevel =
     true; // 5.1 BAKE ON (TT2L on vs off: +4.55 LOS 86%% @1758g 12+0.12, mai
           // neg, -4%% nodi). bucket 2-slot depth-preferred + always-replace
@@ -176,15 +159,6 @@ int g_tm_drop_div =
     508; // divisore dell'estensione su score-drop (minore = piu' tempo) [BAKE
          // 2026-07-03 TM post-F-003: 570->508]
 
-// T-01 TMStability (default OFF): riduzione del soft-time quando la best move a
-// root resta INVARIATA per piu' iterazioni consecutive (SF: bestMove stabile =
-// confidenza = si spende meno). Complementare al NodeTM (che guarda i nodi di
-// QUESTA iterazione): la stabilita' guarda la persistenza TRA iterazioni.
-// Segnale diverso, SF usa entrambi. Curva: dopo `thresh` iterazioni stabili,
-// scala la DURATA optimum di -step/1000 per ogni iterazione stabile in piu',
-// con pavimento `floor`% (mai sotto). Solo main thread, timeset. Toggle via
-// set_search_param (UCI check "TMStability"), come AspAvg/QSDrawCheck.
-static bool g_tm_stability = false;
 int g_tm_stab_thresh =
     4; // iterazioni stabili prima che la riduzione inizi (SPSA)
 int g_tm_stab_step =
@@ -257,13 +231,6 @@ int g_tmv2_opt_pct = 124; // optimum = pool/mtg * questo/100
 bool g_tmv2_pred = true;
 int g_tmv2_pred_hit = 945;   // per-mille
 int g_tmv2_pred_miss = 1157; // per-mille
-// TMPredBestThread: la predizione TM prende la PV dal thread CHE HA VINTO invece che
-// sempre dal thread 0. A 1 thread e' identico (il vincitore e' sempre lo 0); a >1 thread
-// riaccende una parte di TMv2 che oggi si spegne da sola ogni volta che vince un helper
-// (536 volte su 5598 partite a 4 thread, misurato il 3/08/2026). Default OFF finche' non
-// e' misurato: e' un cambio di comportamento nel regime multi-thread, che e' quello di
-// CCRL (4 CPU nella 40/15 alta, 8 nella Blitz).
-bool g_tm_pred_best_thread = false;
 U64 g_tm_pred_hash = 0;
 // Q-07 root-singularity stop (Caissa, search-based — NON il PolicyEasyMove
 // bocciato): dopo timefrac% dell'optimum, a fine iterazione (depth>=9,
@@ -297,16 +264,6 @@ int g_tmv2_mate_iters = 7;
 // sull'incremento (mai testato separatamente, prudenza invariata: TMv2 usa
 // formule pool-increment che presuppongono un inc>0).
 bool g_tmv2_tc_ok = true; // ricalcolato ogni parse_go (in uci_mt.cpp)
-// TMv2IncGate (2026-08-02): se true (default storico) TMv2 e' spento a incremento zero.
-// CCRL 40/15 e' 40 mosse in 15 minuti RIPETUTO, cioe' inc=0: il rating che ci misurano
-// gira quindi sul TM v1 additivo, non sul TMv2 che vale +23,8 Elo. False = sempre attivo.
-// BAKATO 2026-08-02 true -> false: TMv2 resta attivo anche a incremento zero.
-// Misura: +27,55 ± 18,22 su 278 partite @40/40 inc=0 Hash 128 (regime CCRL), LLR 0,66
-// in salita, intervallo [+9,3, +45,8] tutto sopra lo zero. SPRT non chiuso, ma il prior
-// e' fortissimo: non e' una feature nuova, e' TMv2 (+23,8 Elo misurati nel regime con
-// incremento) che questo gate spegneva in TUTTO il regime a inc=0, cioe' in CCRL 40/15.
-bool g_tmv2_inc_gate = false;
-void set_tmv2_inc_gate(bool v) { g_tmv2_inc_gate = v; }
 
 // ---- Quarto audit, correttezza §D — BAKATI default-ON 2026-07-10
 // ---------------- Giustificati su CORRETTEZZA (lettura + matetrack spot-check
@@ -331,7 +288,6 @@ static bool g_tt_decisive_clamp = true;
 // matto stantii. Complementare a TTDecisiveClamp (quello declassa lo score
 // letto, questo declassa il RANKING di rimpiazzo). Letto da tt_victim() in
 // tt.h.
-bool g_tt_secondary_age = false;
 
 static inline int tt_clamp_decisive(int s, int fifty) {
   if (s > mate_score) {
@@ -362,11 +318,6 @@ int g_qs_capthist_scale = 72; // % di td_stat_bonus(1)/malus — leva SPSA
                               // dedicata (bonus/malus qsearch fissi altrimenti)
 // Q-16 (Caissa): extension=1 ai nodi PV se la mossa e' la ttMove ED e' una
 // ricattura sulla casa dell'ultima mossa avversaria (gate strettissimo).
-static bool g_recapture_ext =
-    false; // Q-16 (Caissa): +2.05 Elo LOS 71.9% @2538g 15+0.15, ma LLR mai
-           // concluso e raddoppia i nodi (bench 377398->780972) -> evidenza
-           // troppo debole per il costo-albero, resta OFF. Riconsiderare dentro
-           // il batch C con conferma piu' solida.
 // Filtro di TENSIONE (2026-07-12): estende solo se lo scambio e' ~pari (|SEE|
 // <= soglia), non ogni ricattura. Uno scambio nettamente sbilanciato (es.
 // donna-per-pedone) e' gia' ovvio, l'estensione li' e' spreco puro di nodi; il
@@ -424,13 +375,6 @@ static inline int td_hist_bonus_moves(int bonus, int moves_searched) {
                1024);
 }
 
-// Aggressive LMR on/off (UCI "AggrLMR"). Default OFF. When ON, the history- and
-// continuation-history-based LMR reductions use a SMALLER divisor and a WIDER
-// clamp (g_aggr_lmr_div / g_aggr_lmr_clamp), so a very bad-history quiet can be
-// reduced by several plies instead of just 1. Off reproduces the baseline
-// exactly.
-static bool g_aggr_lmr = false;
-void set_aggr_lmr(bool v) { g_aggr_lmr = v; }
 
 // ---- SPSA-tunable search parameters -----------------------------------------
 // Exposed as UCI spin options (see set_search_param + uci_mt.cpp) so an
@@ -439,17 +383,17 @@ void set_aggr_lmr(bool v) { g_aggr_lmr = v; }
 // converged values in.
 // BAKE MOE1 (30/09/2026): i valori marcati [MOE1] vengono dallo SPSA MOE1 sulla rete MoE-1024 F4_avg5_perm
 // (iterazione 5410, 20+0.2; vedi il commento in nnue_bridge.cpp accanto a g_ev_pos_w).
-int g_rfp_margin = 61;  // [M20 60->61] reverse futility: static_eval - g*depth >= beta
+int g_rfp_margin = 53;  // [PR1 61->53] [M20 60->61] reverse futility: static_eval - g*depth >= beta
                         // [SPSA-tuned: 30->21] [MOE1 53->60]
 int g_razor_base = 205; // [M20 245->205] razoring: base + mult*depth below alpha -> qsearch [MOE1 272->245]
 int g_razor_mult = 108;  // [M20 118->108] [SPSA-tuned: 102->139]
-int g_fut_base = 161;   // [M20 152->161] futility: base + mult*depth (+improving bonus)
+int g_fut_base = 165;   // [PR1 161->165] [M20 152->161] futility: base + mult*depth (+improving bonus)
                         // [SPSA-tuned: 82->111] [MOE1 181->152]
-int g_fut_mult = 120;    // [M20 137->120] [3.7 BAKE 53->41; BAKED #1 66->53] [MOE1 138->137]
+int g_fut_mult = 124;    // [PR1 120->124] [M20 137->120] [3.7 BAKE 53->41; BAKED #1 66->53] [MOE1 138->137]
 int g_fut_depth =
-    7; // gate profondita' del futility pruning (alzare = potare a nodi piu'
+    6; // [PR1 7->6] gate profondita' del futility pruning (alzare = potare a nodi piu'
        // profondi = albero piu' stretto). UCI FutilityDepth, tunabile.
-int g_fut_improving = 117; // [M20 145->117] extra futility margin when improving [SPSA-tuned:
+int g_fut_improving = 112; // [PR1 117->112] [M20 145->117] extra futility margin when improving [SPSA-tuned:
                            // 60->93]
 // Capture futility pruning (SF master Step 14, ported 2026-06-23). Default OFF
 // (A/B). SF prunes a capture at low (reduced) depth when even winning the
@@ -459,11 +403,11 @@ int g_fut_improving = 117; // [M20 145->117] extra futility margin when improvin
 // g_capfut_depth is a small-int GATE kept fixed (small ints round to noise
 // under SPSA).
 static bool g_cap_futility = true; // CaptureFutility (UCI spin 0/1)
-int g_capfut_base = 159;           // [M20 156->159] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+int g_capfut_base = 148;           // [PR1 159->148] [M20 156->159] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 int g_capfut_mult =
-    231; // [M20 203->231] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+    232; // [PR1 231->232] [M20 203->231] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 int g_capfut_chist =
-    362; // [M20 358->362] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+    366; // [PR1 362->366] [M20 358->362] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
          // [F-002 audit 2026-07-02: 125->123, SPSA+SPRT] capture-history
          // contribution, /1024 (SF=131; our capt-hist clamp +/-7000 -> max
          // ~896cp). Extremi testati: 60=-45 Elo, 140=-25 Elo (LOS 0.4%/2%,
@@ -508,11 +452,6 @@ int g_singular_tmargin =
 // (-1 on ttMove>=beta, nothing on cutNode). SF = (3,2). SPSA-tunable
 // (small-int, calibrated step).
 int g_negext_tt = 2;  // NegExtTT (SF=3): -extension when ttMove fails high over
-                      // beta; 0=off, 1=legacy
-// CutNodeProp: propaga il tipo di nodo al primo figlio (`!is_cut_node` sui non-PV,
-// come SF) invece di passare sempre `false`. Spin 0/1 e non `check`: il gestore
-// generico fa `atoi`, quindi una `check` nuova non si accenderebbe mai.
-int g_cutnode_prop = 0;
 // LMRNegative: permette alla riduzione LMR di andare negativa (= estendere le mosse
 // molto ben ordinate), come SF/Hobbes. Spin 0/1: il gestore generico fa atoi.
 int g_lmr_negative = 0;
@@ -566,14 +505,6 @@ int g_promo_qs = 6;
 // di TTCutRefine. Un'entry EXACT non ha direzione di bound.
 int g_ttcut_exact = 0;
 int g_negext_cut = 3; // NegExtCut (SF=2): -extension on a cutNode (ttMove not
-                      // fail-high); 0=legacy/off
-// NegExtOrder (spin 0/1, default 0 = ordine storico, byte-identico). Riordina la
-// catena delle estensioni negative alla maniera di SF: cut node PRIMA del test su
-// alpha. Con 0 il ramo NegExtCut e' IRRAGGIUNGIBILE (i due rami sopra partizionano
-// tutto lo spazio in finestra nulla) — dettaglio al sito d'uso, ~:8184. 1 lo rende
-// vivo. ⚠️ Finche' resta 0, NegExtCut va tenuto FUORI dallo spazio SPSA: tararlo
-// significa misurare rumore, ed e' gia' successo (default 3 = massimo del range).
-int g_negext_order = 0;
 // ExclPruneGate (audit 8.0 P1, 24/09/2026; spin 0..2, default 0 = byte-identico).
 // Dentro la ricerca singolare (excluded_move != 0) si cerca la stessa posizione senza la
 // TT move, a finestra singular_beta-1/singular_beta. Una null move o una static eval che
@@ -583,31 +514,6 @@ int g_negext_order = 0;
 // Stormphrax, Viridithas, Caissa, Integral e Reckless anche RFP/razoring.
 // 1 = niente NMP nella ricerca singolare; 2 = niente anche RFP e razoring.
 int g_excl_prune_gate = 0;
-// FHBlend (audit 8.0 P2, 24/09/2026; check, default false = byte-identico).
-// Su un fail-high non decisivo il valore restituito (e scritto in TT) viene tirato
-// verso beta: best = (best*depth + beta)/(depth+1). SF, PlentyChess, Stormphrax,
-// Viridithas e Caissa lo fanno a fine nodo; da noi esisteva solo su RFP e qsearch
-// (FailHighSmooth). Un fail-high lontano da beta e' spesso gonfiato da potature a
-// valle: un bound TT meno ottimista costa meno re-search ai padri. Il peso di beta cala
-// con la profondita' (piu' ricerca = valore piu' fidato).
-bool g_fh_blend = false;
-// ---- Audit 8.0 gruppo 1, P3..P7 (24/09/2026). Tutti default OFF = byte-identico. ----
-// P3 PrevRefuteMalus (SF update_all_stats "extra penalty for a quiet early move"): quando
-// un nodo fa cutoff e la mossa QUIET del padre era la prima non-TT che il padre ha
-// cercato, quella mossa e' stata confutata subito -> malus alla sua conthist (1 ply).
-// Valore = percentuale di td_stat_bonus(depth); 0 = off. SF usa circa 70%.
-int g_prev_refute_malus = 0;
-// P4 ProbCutAdj (SF): il cutoff ProbCut ritorna pc_score - (probcut_beta - beta) invece
-// del valore gonfiato di +margine (lo store TT resta a pc_score, come SF).
-bool g_probcut_adj = false;
-// P5 RFPNoTTPv (SF, Reckless): niente RFP sui nodi che la TT ricorda come PV.
-bool g_rfp_no_ttpv = false;
-// P6 PruneNPMGate (SF, Plenty): se il lato al tratto ha solo pedoni e re, niente LMP,
-// futility, SEE e history pruning nel ciclo mosse (finali di pedoni: eval inaffidabile).
-bool g_prune_npm_gate = false;
-// P7 FutFailSoft (SF, Reckless): quando la futility quiet pota, il nodo fail-low
-// restituisce almeno il valore di futility invece del best delle sole mosse cercate.
-bool g_fut_fail_soft = false;
 // ⛔ SingularNoPollute — PROVATO E SCARTATO il 12/08/2026, non rifarlo.
 // L'idea: la ricerca singular rientra allo STESSO ply con `excluded_move` impostato, e
 // sul suo beta-cutoff scrive `cutoff_cnt`, killer, counter-move e TUTTE le history —
@@ -672,43 +578,16 @@ int g_cu_rfp = 60; // RFP:      margine += uncert * g/64
 int g_cu_fut = 71; // futility: margine += uncert * g/64
 int g_cu_cap = 70; // cap (cp) del segnale di disaccordo
 
-// ⭐ P4 TroubleMaking (2026-07-14, IDEA ORIGINALE, default OFF): in posizione
-// PERSA (score < -Score), se un'altra mossa di root e' costata all'avversario
-// uno sforzo COMPARABILE alla best (NodeCache root: nodi >= best*Effort% =
-// difficile da refutare) e una verifica null-window a depth/2 conferma che vale
-// quasi quanto la best (>= score-Margin), gioca QUELLA: massimizza le chances
-// pratiche ("complica la vita") a costo teorico limitato e verificato.
-static bool g_trouble = false;
 int g_trouble_score = 150; // "persa" = score < -N (unita' search)
 int g_trouble_effort = 60; // candidato se nodi >= best_nodes * N%
 int g_trouble_margin = 40; // verifica: cand >= score - N
 
-// BrilliantSac (6.0, default OFF): estende (+1) le catture PERDENTI di materiale
-// (SEE < 0) ma con capture_history altissima -> sacrifici strutturali che il
-// motore ha imparato essere buoni, da proteggere dalle riduzioni LMR pesanti.
-// v1 FIX 2026-07-23: il default 10000 non scattava MAI (supera HISTORY_MAX=7000).
-// STORIA (2026-07-23): v1 (soglia FISSA 5000) = +2.70+-7.25 LOS 77% @2190g, lean
-// troppo debole per chiudere. v2 (soglia SCALATA sull'entita' del sac + !in_check)
-// = -17.83 LOS 1.3% @390g, NEGATIVO NETTO (la scalatura estendeva su rumore).
-// Ripristinata la v1 come RESTING STATE (default OFF) e candidato co-tune:
-// `BrilliantSacMargin` gia' SPSA-ready. Non bakare standalone (+25% albero per un
-// lean non confermato); lo SPSA decidera' margine + coordinamento coi margini vicini.
-// STORIA SPSA B1_capture_brilliant (2026-07-23, VM trium-eu-96, mirror 16+0.16):
-// bakato IN ANTICIPO su due checkpoint concordi (theta1 iter780 +5.82+-12.75 LOS81%;
-// theta2 iter1090 +5.95+-10.35 LOS87%, LLR in salita). RICONFERMA a piu' partite:
-// a 4452 games l'effetto e' EVAPORATO (+1.64+-5.18, LOS73%, LLR piatto 4.6%) ->
-// classico regression-to-mean/winner's-curse. REVERT completo (2026-07-23) a tutti
-// i default pre-bake. L'intero blocco (11 param + BrilliantSac) resta candidato
-// SOLO per un mega co-tune con kill-switch a metà-run rispettato fino in fondo
-// (non un bake anticipato su un trend a 2 checkpoint), non per un retest isolato.
-static bool g_brilliant_sac = false;
 int g_brilliant_sac_margin = 5000; // caphist >= N (max utile = HISTORY_MAX 7000)
 // BrilliantSac-B (reduction-cap, 2026-07-23): invece di ESTENDERE (v1, che tocca
 // solo la 1a mossa e gonfia l'albero +25%), protegge il sac strutturale dalla
 // RIDUZIONE LMR (reduce-less). Complementare a v1: agisce sui sac ordinati TARDI
 // (il caso comune) a costo albero molto minore -> piu' fedele all'intento
 // "proteggere dalle riduzioni pesanti". Stesso trigger di v1 (is_brilliant).
-static bool g_brilliant_sac_lmr = false;
 int g_brilliant_sac_lmr_amt = 2; // plies di riduzione LMR risparmiati sul sac
 
 // MalusScaled (5.0-B, default OFF): il malus history alle quiet
@@ -717,75 +596,10 @@ int g_brilliant_sac_lmr_amt = 2; // plies di riduzione LMR risparmiati sul sac
 static bool g_malus_scaled = true;
 int g_malus_scale_coef =
     59; // denom = 1024 + coef*indice -> malus = bonus*1024/denom
-// ⭐ MalusQuad (2026-07-18, scan Reckless 5e669a6 "Apply decay to quiet move
-// malus", STC +4.67 / LTC +5.18): stessa idea del decay che abbiamo gia', ma la
-// caduta col move-order e' QUADRATICA invece che lineare -> le quiet molto
-// tardive prendono un malus quasi nullo. E' l'unica patch dello scan che sia un
-// upgrade diretto di codice nostro gia' presente e gia' positivo. Reckless usa
-// coef 45 per il quadratico (il nostro 59 e' tunato per il LINEARE, non
-// riusarlo). OFF = decay lineare attuale = byte-identico.
-static bool g_malus_quad = false;
 int g_malus_quad_coef =
     45; // denom = 1024 + coef*indice -> malus = bonus*(1024/denom)^2
-// ⭐ Guard di razoring (scan Reckless: la famiglia "guard di pruning" aggrega
-// ~+35 Elo LTC). Il razoring butta il nodo in qsearch quando l'eval e' molto
-// sotto alpha. Ma la qsearch vede SOLO catture: se la posizione non e'
-// tatticamente ovvia, quel giudizio non vale niente.
-//   [1] RazorTTQuiet (2b0812d, STC +3.64 / LTC +2.49): razora SOLO se la TT
-//   move e' rumorosa
-//       (cattura/promozione). TT move quiet -> la posizione non e' tattica ->
-//       NON razorare.
-//       ⚠️ Fedele a Reckless: NESSUNA tt move = niente razoring (per loro
-//       Move::NULL e' "quiet"). Il nostro razor e' gia' VERIFICATO (giriamo la
-//       qsearch e torniamo solo se conferma), quindi e' gia' piu' sicuro del
-//       loro: il guard potrebbe rendere meno. Da misurare.
-//   [2] RazorTTLower (b2ad933, STC +1.10 / LTC +1.85): in piu', non razorare se
-//   il bound in TT
-//       e' LOWER (hash_flag_beta = ha gia' fallito alto qui) -> l'eval bassa e'
-//       sospetta.
-// Entrambi OFF = byte-identico.
-static bool g_razor_ttquiet = false;
-static bool g_razor_ttlower = false;
-// ⭐ SingularExactMargin (3461653, STC +2.58 / LTC +4.94; con 00a31a7 la
-// famiglia fa ~+8 LTC): il margine singular oggi e' uguale per tutti i nodi.
-// Reckless lo DIMEZZA quando il bound in TT e' EXACT: score esatto = piu'
-// affidabile = si puo' essere piu' generosi nel dichiarare singolare una mossa
-// (singular_beta piu' alto -> piu' estensioni proprio dove il valore e'
-// fidato). ⛔ SBAKATA 2026-07-19 dopo essere stata bakata il 18/07. STORIA
-// COMPLETA, da non ripetere:
-//    +8.60 +/- 7.62 (LOS 98.65%, 2304g @10+0.1)  ->  -8.60 +/- 10.54 (LOS 5.5%,
-//    1010g @20+0.2) Le due misure NON erano in disaccordo: sono la stessa patch
-//    sui DUE LATI DI UN CROSSOVER. Bench a profondita' variabile (l'unico
-//    strumento che l'ha spiegato):
-//        depth 13: -7.4%   depth 17: -11.1%   depth 19: +15.6%   depth 20:
-//        +42.7%
-//    MECCANISMO: il margine e' `mpd*depth` con mpd=1, quindi dimezzarlo toglie
-//    depth/2 e l'aggressivita' SCALA con la profondita'. Peggio: le soglie di
-//    doppia/tripla estensione sono misurate DA singular_beta, quindi alzandolo
-//    diventa piu' facile anche il doppio e il triplo
-//    -> cascata che esplode in profondita'.
-//    TENTATIVI DI SALVATAGGIO, entrambi FALLITI in partita:
-//      * SingularExactDecouple (doppia/tripla ancorate al margine pieno): d20
-//      da +42.7% a +8.5%
-//      * SingularExactMaxDepth=18 (cap): d20 a +0.006%, meccanicamente
-//      PERFETTO...
-//        ...ma SPRT CAP18 vs OFF @20+0.2 = -2.07 +/- 8.79, LOS 32%, 1508g ->
-//        nemmeno il cap paga.
-//    Conclusione: il beneficio a bassa profondita' non sopravvive quando la
-//    ricerca passa il grosso del tempo sopra il crossover. Codice e toggle
-//    TENUTI come documentazione della misura. LEZIONE: benchare a piu'
-//    profondita' PRIMA di bakare qualsiasi patch di estensioni/riduzioni.
-static bool g_singular_exact_margin = false;
 // Vedi il commento al sito d'uso: ancora doppia/tripla estensione al margine
 // PIENO.
-static bool g_singular_exact_decouple = false;
-int g_singular_exact_maxdepth =
-    0; // 0 = nessun cap. Vedi il sito d'uso: sopra ~18 il dimezzamento esplode.
-// DoDeeper/DoShallower (5.0-B, audit SF-master, default OFF): dopo che la
-// re-search LMR a piena profondita' fallisce alto, aggiusta la profondita' in
-// base a QUANTO batte il best corrente (molto sopra -> +1 ply; appena sopra ->
-// -1 ply). OFF = full_depth invariato = byte-identico.
-static bool g_do_deeper = false;
 int g_dodeeper_base =
     43; // do_deeper se score > best + base + 2*full_depth (SPSA target)
 int g_doshallower_margin =
@@ -799,15 +613,6 @@ static bool g_hindsight_ext =
           // vs 5.0). Pawnocchio-style.
 int g_hindsight_margin =
     3; // [F-006 audit 2026-07-02: 3->4, SPRT +5.96 Elo LOS75% @408g] ply minimi
-       // di riduzione perche' scatti l'hindsight (soglia piu' selettiva = meno
-       // ri-estensioni sprecate)
-// 5.1 HindsightRed (Stormphrax #300, complemento dell'extend): se un nodo
-// non-PV e' stato RIDOTTO
-// >= margine plies e l'eval e' girata BENE (static_eval + prev_eval >= soglia),
-// RIDUCI (-1): la posizione regge nonostante la riduzione -> risparmia nodi.
-// Default OFF (in test). Soglia in scala EvalScale-compressa (Stormphrax usa
-// 202 in scala piena ~= 113 nostra).
-static bool g_hindsight_red = false;
 int g_hindsight_red_margin = 2; // ply minimi di riduzione (Stormphrax usa 2)
 int g_hindsight_red_thresh =
     113; // static_eval + prev_eval >= soglia (co-tunabile)
@@ -828,18 +633,9 @@ int g_lmr_enrich_amount =
     2; // ply extra di riduzione quando la TT-move è noisy (SPSA target)
 int g_razor_quad_coef = 79; // [M20 82->79] RazorQuadCoef (SF :967): quadratic razor term
                             // (base + mult*d + coef*d^2); 0 = linear/off
-int g_rfp_depth_cap = 7; // RFPDepth: >0 overrides RFP depth cap (0=legacy 6/8);
+int g_rfp_depth_cap = 7; // [PR1 7->7] RFPDepth: >0 overrides RFP depth cap (0=legacy 6/8);
                          // widen toward SF=17
 int g_razor_depth_cap = 6; // RazorDepth: >0 overrides razor depth cap (0=legacy
-                           // 3/4); widen toward SF (uncapped)
-// IID — Internal Iterative DEEPENING (5.1, default OFF). L'IIR economico
-// (depth-- senza TT move, linea ~2803) NASCONDE il problema dell'ordinamento
-// scadente; l'IID lo RISOLVE: senza TT move fa una mini-ricerca ridotta PRIMA
-// per OTTENERE una hash move (ordinamento ~SF), cosi' il taglio "morde"
-// (chicken-egg col cut-block). Solo su pv/cut node, con freno anti-cascata (no
-// IID dentro IID). OFF = byte-identico (blocco saltato). Costa +nodi (la
-// mini-ricerca) ma ordina molto meglio.
-static bool g_iid = false;
 int g_iid_depth = 4; // IIDDepth: profondita' minima per attivare l'IID
 int g_iid_reduction =
     2; // IIDReduction: ply tolti alla mini-ricerca (iid_depth = depth - r)
@@ -918,23 +714,25 @@ static bool g_lmr_captures =
 int g_lmr_check_exempt = 0;
 int g_lmr_cap_scale = 52; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g). F-004: % della lmr_table applicata alle catture (50
                           // = dimezzata; SPSA confermo' ~50)
-int g_singular_dmargin = 62; // [M20 57->62] double-extension margin below singular_beta [MOE1 59->57]
+// LMRCheckDisc / LMRCapHistDiv (03/10/2026, 0 = albero identico). Diagnosi contro SF19 con gli stessi contatori
+// (sstats.h, 300 posizioni UHO a depth 16): a profondita' 8-10 giochiamo il doppio delle mosse di SF. Le mosse che
+// danno scacco non sono MAI ridotte (LMRCheckExempt 0) e le catture tardive solo con la tabella al 52%, senza la loro
+// history. SF riduce entrambe: gli scacchi con uno sconto, le catture con lo statScore della capture history.
+int g_lmr_check_disc = 0;   // >0: riduci anche chi da' scacco, togliendo questo sconto (1/1024 di ply)
+int g_lmr_cap_hist_div = 0; // >0: riduzione delle catture -= capture_history / questo (al massimo +-2 ply)
+// PruneSFDepth (03/10/2026, 0 = albero identico): profondita' di potatura (futility quiet e catture, SEE quiet) dalla
+// riduzione alla SF invece che dalla nostra lmr_table. Vedi il commento in 12_negamax.inc al calcolo di prune_depth.
+int g_prune_sf_depth = 1; // [PR1 0->1]
+int g_prune_sf_ttpv = 890;  // [PR1 929->890] 1/1024 di ply in piu' sui nodi ex-PV (SF: r += 929 se ttPv)
+int g_prune_sf_extra = -169;   // [PR1 0->-169] 1/1024 di ply aggiunti alla riduzione stimata (piu' alto = si pota di piu')
+int g_prune_neg_depth = 1;  // [PR1 0->1] PruneNegDepth: profondita' di potatura anche < 0 per la futility (SF)
+int g_fut_pv_nodes = 1;     // [PR1 0->1] FutPVNodes: futility anche nei nodi PV fuori dalla PV precedente (SF)
+int g_fut_static_eval = 1;  // [PR1 0->1] FutStaticEval: futility quiet sulla static eval corretta, non su quella TT (SF)
+int g_singular_dmargin = 54; // [PR1 62->54] [M20 57->62] double-extension margin below singular_beta [MOE1 59->57]
                              // [SPSA-tuned: 63->43]
 int g_hist_red_div = 3190;   // LMR history-reduction divisor [SPSA-tuned:
                              // 3500->1041]
 int g_asp_init_delta = 19; // aspiration: initial window half-width [SPSA-tuned:
-                           // 25->31]
-// ⭐ AspStableShrink (2026-07-18, scan Reckless 4192617 "Shrink initial
-// aspiration window if our search has been stable", STC +4.58 / LTC +2.08). Se
-// la ricerca e' stata stabile (stessa best move E score fermo per N iterazioni
-// consecutive), la finestra iniziale puo' partire piu' STRETTA: una finestra
-// stretta che non fallisce = ricerca piu' economica; se poi fallisce si
-// riallarga comunque. Loro: delta 23 - min(eval_stab, pv_stab, 7). Noi delta 19
-// -> cap 4 (= il cap del nostro eval_stab_iters) e' la scala equivalente.
-// ⚠️ Vive nel ramo TM (thread 0 + timeset) -> a profondita' fissa NON
-// scatta: il BENCH NON CAMBIA, non e' un errore. La verifica byte-identica va
-// fatta per costruzione, non col bench.
-static bool g_asp_stable_shrink = false;
 int g_asp_stable_cap =
     4;               // massimo restringimento del delta iniziale (AspStableCap)
 int g_asp_grow = 34; // aspiration: growth % on fail [SPSA-tuned: 100->31]
@@ -949,55 +747,8 @@ int g_asp_score_mult =
     38; // >> 20 scale; SPSA range [0,2000], init-when-ON ~100
 int g_cmhc_scale =
     6; // Q-12 CMHC: bonus conthist *= (100 + scale*consistenza)/100. 0 = neutro
-// CMHCPly1 (spin 0/1, default 0 = comportamento attuale, byte-identico).
-// 🔴 DIFETTO trovato il 7/08/2026. Dei cinque lookup di `td_cmhc_factor` quattro
-// sono corretti e uno no — proprio il termine 1-ply, che e' l'unico SEMPRE attivo.
-// La convenzione del move stack e' documentata a :6618-6620 e imposta dalla
-// scrittura: `move_stack[td.ply]` e' la mossa che porta IN questo nodo (1 ply
-// indietro), `move_stack[td.ply-1]` sono 2 ply indietro.
-//   SCRITTURA (:8675-8677, :8714):  continuation_history[ move_stack[ply] ][mossa]
-//   LETTURA   (:6869, oggi):        continuation_history[ move_stack[ply-1] ][mossa]
-// Non e' "un contesto diverso": e' una cella che nessuno ha mai scritto con quel
-// significato, quindi il bit di consistenza che ne esce e' rumore. Con scale=6 e
-// consistent in [0,5], un contributo su cinque casuale = ±6% di rumore sul bonus
-// conthist a ogni beta-cutoff quiet.
-// 🔴 MISURATO il 7/08/2026 e lasciato a 0 — NON perche' il fix sia sbagliato.
-//   in pacchetto con Rule50Formula, 20+0.2 : -20,33 +/- 16,74 su 462 partite
-//   da solo, 40+0.4                        : negativo anche li'
-// Due TC opposti concordi ⇒ non e' una questione di regime.
-// 🔑 Il fix RESTA CORRETTO: scrittura (:8675/:8714) e lettura ora usano la stessa
-// chiave, mentre prima la lettura interrogava una cella che nessuno aveva mai
-// scritto con quel significato. Cio' che perde non e' la correttezza — e' che
-// `CMHCScale=6` era stato tarato ATTORNO al lookup rotto. Col bug il termine 1-ply
-// era un bit ~casuale (positivo circa meta' delle volte); corretto diventa il piu'
-// informativo dei cinque e sara' positivo molto piu' spesso, quindi il fattore sale
-// sistematicamente e i bonus conthist si gonfiano oltre quanto la taratura
-// prevedesse. Il difetto era stato ASSORBITO dalla taratura fatta sopra di esso.
-// ⇒ SEGUITO: serviva un SPSA su `CMHCScale` e sui parametri conthist che ci stanno
-//   sopra, con CMHCPly1=1 FISSO. FATTO l'8/08/2026 — e NON ha sbloccato niente.
-//
-// 🔴 ESITO DELLA RITARATURA (8/08/2026). SPSA a 13 parametri, 2141 iterazioni,
-// TC 20+0.2, Hash 64. Il vettore trovato abbassa il peso della conthist ovunque,
-// che e' la direzione prevista dalla teoria: CMHCScale 6 -> 1,5 (un quarto),
-// ContHistWeight -33%, ContHistDiv +79%, LMRContHistDiv +132%. Ma ai gate non
-// produce niente, in NESSUNO dei tre regimi provati:
-//     pacchetto (fix+vettore)  Hash 128 @30+0.3 :  -1,63 +/-  9,98  su 1064
-//     soli parametri, no fix   Hash 128 @30+0.3 :  -8,36 +/- 14,41  su  582
-//     pacchetto                Hash 256 @30+0.3 : -10,24 +/- 10,89  su 1018
-// ⚠️ Il tuning e' stato fatto a 20+0.2/Hash 64 e gattato a 30+0.3/Hash 128-256:
-//   la differenza di regime e' una spiegazione plausibile del fallimento, e non
-//   e' stata separata (il log.csv del run e' andato perso con la VM, quindi non
-//   si e' potuto nemmeno verificare la convergenza ne' le derive per parametro).
-// ⇒ STATO: CMHCPly1 resta 0. Il fix e' corretto e non paga. Per riaprirlo servono
-//   un tuning fatto DIRETTAMENTE a 30+0.3, con meno parametri e il log conservato.
-//   Non e' una priorita': tre gate su tre dicono che li' dentro non c'e' Elo.
-// 🔑 Lezione generale, valida oltre questo caso: un difetto che vive nel codice
-//   abbastanza a lungo viene assorbito dalle tarature che gli si costruiscono
-//   sopra, e correggerlo ISOLATAMENTE puo' peggiorare il motore. Non vale per i
-//   difetti che non hanno parametri tarati sopra — es. CorrTBGuard.
-int g_cmhc_ply1 = 0;
 int g_probcut_margin =
-    221; // [M20 190->221] ProbCut: capture verification must beat beta by this margin [MOE1 234->190]
+    210; // [PR1 221->210] [M20 190->221] ProbCut: capture verification must beat beta by this margin [MOE1 234->190]
 int g_probcut_improve = 4; // Q-20b (Alexandria): abbassa probcut_beta di questo
                            // quando improving (probcut piu' facile). 0 = OFF
 
@@ -1014,8 +765,6 @@ int g_probcut_improve = 4; // Q-20b (Alexandria): abbassa probcut_beta di questo
 int g_iir_min_depth =
     4; // IIR: depth minima perche' scatti il depth-- senza TT move (:3894)
 int g_iir_amount = 1; // IIR: di quanto riduce
-static bool g_iir_not_in_check =
-    false; // fix bug: IIR NON spara in scacco. Testato -5.79 -> resta OFF
 // ⭐ SCREENING 2026-07-17 (12+0.12): gate 5->7 = +12.54 +/-9.52 (LOS 99.5%,
 // 1330g) = PRIMO HIT VERO.
 //   ProbCut deve sparare MENO (a depth 5-6 la verifica ridotta e'
@@ -1027,7 +776,7 @@ static bool g_iir_not_in_check =
 //   ProbCut gia' affidabile.
 //   -> gate=5 RESTA. L'hit STC vale solo a blitz. Search-side confermato tunato
 //   al TC di release.
-int g_probcut_min_depth = 5; // ProbCut: depth minima del gate (:4157)
+int g_probcut_min_depth = 5; // [PR1 5->5] ProbCut: depth minima del gate (:4157)
 // SCREENING 2026-07-17 (12+0.12): off=4 e' gia' ottimo. off=3 (verifica piu'
 // profonda) -1.57 neutro;
 //   off=5 (verifica piu' bassa) -8.92 (LOS 5%) fa male. Chiuso: pc_depth =
@@ -1047,12 +796,10 @@ int g_rfp_badnode = 4; // rfp_margin -= questo se !tt_move. 0 = OFF
 // Q-20c (Caissa Search.cpp:1786): la futility NON pota mai la PRIMA quiet del
 // nodo (quietIndex>1): almeno una quiet va sempre guardata, il segnale statico
 // da solo non basta a chiudere il nodo. Toggle. OFF = comportamento storico.
-static bool g_fut_spare_quiet = false;
 // Q-20d (Ethereal search.c:872 + move.c:576): delta-pruning qsearch col
 // BEST-CASE reale (vittima piu' grossa presente + potenziale promozione) invece
 // del margine fisso: se nemmeno il colpo migliore possibile porta sopra alpha,
 // il nodo e' morto.
-static bool g_qs_delta_bestcase = false;
 int g_qs_bc_margin = 183; // cuscino sopra il best-case (scala-56, SPSA)
 // Correction-history tunables (only active when CorrHist is on).
 int g_corr_cap =
@@ -1108,16 +855,6 @@ static bool g_threat_hist =
     true; // [BAKE 2026-07-03 secondo audit: combo ThreatHist+flow, -30.48 base
           // LOS0.06% @320g 12+0.12]
 void set_threat_hist(bool v) { g_threat_hist = v; }
-// CapHistThreat (UCI "CapHistThreat", default OFF): l'analogo di ThreatHist sulla
-// CAPTURE history. La nostra capture_history era [pezzo][arrivo][vittima] senza
-// nessuna dimensione di minaccia, mentre Reckless (history.rs:40-56) e Stormphrax
-// (history.h:217) la indicizzano anche sulla casa d'arrivo difesa: la stessa
-// cattura vale in modo diverso se il pezzo che arriva puo' essere ripreso.
-// ⚠️ Idea genuinamente NON-SF (SF non ce l'ha) — il prior forte e' interno: e'
-// l'analogo esatto di ThreatHist sulle quiet, che da noi e' bakata ON.
-// OFF = byte-identico (td_cbucket ritorna 0 -> solo il piano [..][0]).
-static bool g_caphist_threat = false;
-void set_caphist_threat(bool v) { g_caphist_threat = v; }
 // ThreatHistWeight (2026-07-04 CABLATO): scala EXTRA sul contributo della
 // threat-history nell'ordering (td_score_move), applicata SOPRA MainHistWeight.
 // 100 = identita' (byte-identico al release SPRT +30 combo). Cablato e
@@ -1143,33 +880,6 @@ int g_threat_scale =
 static bool g_check_ordering = true; // BAKED FULL 2026-06-07
 void set_check_ordering(bool v) { g_check_ordering = v; }
 int g_check_bonus = 13357; // bonus ordering per quiet che da scacco diretto
-                           // (SF=16384). Spin CheckBonus (SPSA).
-// ---- Offense-ordering (port Reckless movepick score_quiet, 2026-07-24) -------
-// Reckless ordina i quiet premiando le mosse che portano un pezzo su una casa
-// SICURA da cui ATTACCA un pezzo nemico vulnerabile (offense[pt]), e penalizzando
-// lo spostamento di un pedone-scudo del proprio re (wall_pawns). ThreatOrdering
-// (escape/entra-in-minaccia) e CheckOrdering (scacco diretto) li abbiamo GIA';
-// questi due termini sono l'unica parte NUOVA del loro rework. Le case-offense
-// sono calcolate 1x/nodo (cache offense_key). Le due magnitudini sono spin SPSA
-// separate (isolabili: l'uno a 0 isola l'altro). Costanti iniziali riportate sulla
-// NOSTRA scala history dal rapporto col nostro g_check_bonus (Reckless: offense
-// 3446 / check 10723; wall 4494) — poi RI-MISURATE separatamente:
-// - OffenseBonus: isolato a 4300 = NEGATIVO e stabile (-9.70 +/- 10.41 Elo,
-//   LOS 3.38% @1290g, 12+0.12) -> spento (0) in attesa di un peso "molto grosso"
-//   da ri-testare con WallPawnPenalty gia' attivo (prossimo esperimento).
-// - WallPawnPenalty: la magnitudine conta. 1x(5600)=+3.24 nElo LOS85% @12778g
-//   (mai chiuso, ma affidabile); 2x(11200)=identico (+3.25 @1426g, non sensibile
-//   in questo range); 3x(16800)=**+8.43 +/- 6.93 nElo, LOS 99.14%, LLR 80.5%
-//   verso [0,5] @9652g (12+0.12)** — segnale nettamente piu' forte. BAKATO
-//   2026-07-24 sul trend (LOS>99%, mai chiuso ma non evapora, l'opposto del
-//   pattern B1) in attesa di chiusura SPRT formale e di un mega co-tune finale
-//   di 6.0 per la magnitudine esatta.
-// ABLAZIONE A1 (audit 8.0, 25/09/2026): senza la penalita' wall-pawn il motore NON perde, anzi:
-// QuietOffense=false contro base, SPRT [-1.75, 0.25] a 10+0.1 Hash 64, +1,21 ± 2,12 Elo su 30.440
-// partite (LLR ~1,5 verso H1, fermata e accettata dall'utente). Bakata a luglio sul trend con la rete di
-// allora, con `legio-septima` non serve piu'. SPENTA di default; il codice resta.
-static bool g_quiet_offense = false; // BAKED OFF 2026-09-25 (ablazione A1); era true dal 24/07
-int g_offense_bonus = 0;       // spento: isolato NEGATIVO, vedi nota sopra
 int g_wallpawn_penalty = 16800; // BAKED 2026-07-24 (3x, vedi nota sopra); era 5600
 // ---- ContHist 3/6-ply (#4 SF, 2026-06-07) -----------------------------------
 // SF somma la continuation-history a 1/2/3/4/6 ply; noi avevamo 1/2/4. #4
@@ -1191,28 +901,6 @@ static bool g_prior_bonus = true;
 void set_prior_bonus(bool v) { g_prior_bonus = v; }
 int g_prior_bonus_scale =
     189; // /100 del td_stat_bonus(depth). Spin PriorBonusScale.
-// ---- R-PB: il prior bonus di Reckless (src/search.rs:1123) in due pezzi separabili.
-// Oggi noi premiamo la mossa precedente su OGNI all-node e con un bonus PIATTO. Loro
-// fanno due cose diverse, e sono indipendenti, quindi qui sono due toggle distinti da
-// misurare uno per volta. Entrambi default OFF = byte-identico.
-//
-// (1) g_prior_bonus_gate — premia solo gli all-node INATTESI (`cut_node || pv_node`).
-//     Se il nodo doveva fallire basso e ha fallito basso, la mossa precedente non ci ha
-//     detto niente di nuovo: il bonus e' rumore. E' anche il finding B7 del nostro audit
-//     ("PriorBonus non gated"), rimasto aperto.
-//
-// (2) g_prior_bonus_factor — scala il bonus su QUANTO il fail-low e' stato una sorpresa:
-//     quante mosse aveva gia' provato il padre, se la mossa era la sua TT-move, e due
-//     misure di quanto lo score e' crollato sotto l'eval.
-//     ⚠️ La scala non e' la loro: applicare `factor/128` sopra il nostro bonus attuale
-//     (~5568 su HISTORY_MAX 7000) manderebbe OGNI update contro il clamp, cancellando
-//     proprio la scalatura che si vuole introdurre. `g_pb_scale` e' tarato perche' il
-//     bonus MEDIO resti quello di oggi: fattore medio ~480, 480*50/(100*128) = 1,88 volte
-//     td_stat_bonus contro le 1,89 attuali. Cambia la FORMA, non il livello.
-static bool g_prior_bonus_gate = false;
-void set_prior_bonus_gate(bool v) { g_prior_bonus_gate = v; }
-static bool g_prior_bonus_factor = false;
-void set_prior_bonus_factor(bool v) { g_prior_bonus_factor = v; }
 int g_pb_scale = 50;       // /100, poi /128 col fattore: preserva il bonus medio
 int g_pb_base = 88;        // termine costante del fattore
 int g_pb_mc = 17;          // per mossa gia' esaminata dal padre
@@ -1258,7 +946,7 @@ static bool g_ttcut_refine =
     true; // #3a-c cutoff TT: depth+1 sui fail-high, coerenza cutnode,
           // fifty<soglia [BAKE 2026-07-03]
 int g_ttcut_fifty =
-    92; // [M20 89->92]    soglia fifty oltre cui il cutoff TT non e' affidabile (patta-50
+    90; // [PR1 92->90] [M20 89->92]    soglia fifty oltre cui il cutoff TT non e' affidabile (patta-50
         //    vicina) [BAKE 2026-07-04 blocco secondaudit_block SPSA, SPRT +8.34
         //    Elo LOS79.4% @500g (non conclusivo ma leaning+)]
 // Q-14 TTResearchMargin (Ethereal, tecnica di Grant): fail-low anticipato a
@@ -1267,7 +955,7 @@ int g_ttcut_fifty =
 // TTCutRefine (+1ply ai fail-high). Margine 141 Ethereal ~= 79 alla nostra
 // scala-56 (init SPSA). Default OFF.
 static bool g_tt_research = false;
-int g_tt_research_margin = 74;
+int g_tt_research_margin = 81; // [PR1 74->81]
 // ===== IDEE DA CODA 0.9.4 (27/09/2026, docs/audit_8.0/J_CODA.md). Tutte spente di default: albero identico. =====
 // (1) RootDepthRelax: potare MENO quando la ricerca complessiva e' profonda. Guarda td.root_depth (l'iterazione
 //     in corso), non la profondita' del nodo: e' la differenza con LMRDeepK/LMRSFBase, che erano neutri/negativi.
@@ -1281,10 +969,10 @@ int g_rdr_probcut = 0;    // ProbCut: beta di probcut += over * RDRProbCut (cp)
 // (2) TTNearMiss (Coda FEAT_TT_NEARMISS): taglio da TT con entry di UN ply piu' corta, se lo score supera il
 //     bound di almeno TTNearMiss cp (non-PV, niente score decisivi, niente patta-50 vicina). 0 = off; Coda 80.
 //     Il lato fail-low esiste gia' da solo (TTResearch/TTResearchMargin, Ethereal): questo fa entrambi.
-int g_tt_nearmiss = 100; // [M20 0->100]
+int g_tt_nearmiss = 104; // [PR1 100->104] [M20 0->100]
 // (3) TTDamp (Coda TT_DAMP_TT_WEIGHT_10X): nel taglio TT non-PV con bound inferiore, restituisce
 //     (W*tt_score + 10*beta) / (W+10) invece di tt_score (score meno gonfiati). W in decimi; 0 = off; Coda 31.
-int g_tt_damp = 41; // [M20 0->41]
+int g_tt_damp = 37; // [PR1 41->37] [M20 0->41]
 // ===== Dallo studio dei riferimenti sulla profondita' di radice (27/09/2026, docs/audit_8.0/K_RIFERIMENTI_LTC.md) =====
 // PvTTMinDepth: nella PV la mossa TT non scende in quiescenza (SF, Reckless, Caissa, PlentyChess). Default off.
 static bool g_pv_tt_min_depth = false;
@@ -1301,12 +989,6 @@ int g_tm_drift_moves = 8;
 // (BucketUncert, incertezza dal bucket vicino della rete: rimandata. Serve portare la divergenza attraverso eval
 // cache e TT, che oggi salvano solo la eval; senza, il segnale manca a ogni hit. Sonda EvalBucketOverride del
 // 17/08: salto mediano 14 cp fra bucket adiacenti, max 49, misura su aperture.)
-static bool g_ttcut_malus =
-    false; // #3d malus alla quiet AVVERSARIA che porta a un TT-cut (duale di
-           // TTCutBonus). BAKE 2026-07-06 (true/7) REVERTITO: SPRT +15.55 Elo
-           // era falsato da oversubscription/TC senza incremento; retest pulito
-           // (10+0.1, 258g) = -17.52 Elo, LOS 4.89%, LLR non conclusivo.
-           // Riaperto, serve retest pulito prima di ridecidere.
 int g_ttcut_malus_seen = 3; //    solo se il padre aveva visto <= N mosse
 // #4 split good/bad capture a soglia -(mvv+caphist)/div (0=off, Obsidian 32).
 // STORIA (2026-07-13/14): screening VM +6.96 @10+0.1 (LOS 97%) → bakato 32 →
@@ -1315,11 +997,6 @@ int g_ttcut_malus_seen = 3; //    solo se il padre aveva visto <= N mosse
 // il training v2 (serie epoca-vs-epoca non piu' comparabile). Resta candidato
 // del MEGA CO-TUNE post-v2 (li' i margini si ri-coordinano attorno allo split).
 int g_goodcap_hist_div = 32; // BAKED 2026-07-24 (bundle lean SPRT +10.43 Elo; era 18)
-static bool g_asp_avg =
-    false; // #5a aspiration centrata sulla MEDIA degli score. Bake 2026-07-07
-           // REVERTITO: -9.04 Elo era singolo draw + winner's curse; pacchetto
-           // cumulativo pulito = +0.62 NULLO. OFF, re-ispezione a TC lungo
-           // (TC-dipendente?)
 static bool g_asp_fhred =
     true; // #5b root: depth-1 per ogni fail-high consecutivo (evita re-search
           // piene) [BAKE 2026-07-03]
@@ -1377,8 +1054,6 @@ static bool g_nmp_static_margin =
     false; // #8a NMP solo se static_eval >= beta - mult*depth + bias (SF)
 int g_nmp_sm_mult = 23;
 int g_nmp_sm_bias = 414;
-static bool g_nmp_ttnoisy =
-    false; // #8b R+1 se la TT move e' una cattura (Obsidian)
 static bool g_alpha_depth_dec =
     true; // #9 depth-- per le mosse restanti quando una mossa alza alpha
           // (2<=depth<=11) [BAKE 2026-07-03]
@@ -1387,12 +1062,8 @@ int g_fhboost_margin =
        // Berserk 75). Bake 2026-07-07 (margin=50) REVERTITO: i "conferma" 2x
        // avevano AspAvg ON; retest ISOLATO vs baseline pura = +1.74 NULLO. OFF
        // (0), re-ispezione a TC lungo
-static bool g_hist_triv_guard = false; // #10b niente bonus al cutoff "gratis"
-                                       // (depth<=3, nessun quiet prima)
 int g_malus_pct =
     58; // [M20 69->58] #10c malus = bonus * pct/100 (costanti malus separate dal bonus)
-static bool g_easycap_gate =
-    false; // #11 niente NMP se abbiamo un pezzo in presa "facile" (Berserk)
 int g_rfp_hist_thresh =
     64; // #12 RFP solo se hash-move non-quiet o con history > soglia (0=off)
 static bool g_killer_reset =
@@ -1408,14 +1079,6 @@ static bool g_killer_reset =
 // aggiungere no" (10 patch, 9 bocciate; l'unica vincente +7.98 toglieva la
 // check-extension obsoleta).
 static bool g_countermove = true;
-// QSCapRecap (spin 0/1, default 0 = byte-identico). Oltre il cap di QSMoveCap la
-// RICATTURA sulla casa appena mossa dall'avversario non viene piu' tagliata.
-// Le altre due potature-per-volume dello stesso move loop hanno gia' questa
-// esenzione (BadNoisy, QFutility); QSMoveCap e' la piu' aggressiva delle tre
-// (3 contro 7) ed e' l'unica senza. Sulla QFutility la sua assenza costava
-// -17 Elo. Ortogonale a PromoQS: quello decide chi CONSUMA uno slot, questo
-// decide chi PASSA a slot esauriti.
-int g_qs_cap_recap = 0;
 int g_qs_move_cap =
     3; // #14 cap mosse esaminate in qsearch non-in-check (0=off; Obsidian 3).
        // BAKED 2026-07-25: era 1, cioe' la qsearch cercava UNA sola mossa per
@@ -1423,11 +1086,6 @@ int g_qs_move_cap =
        // Portato a 3 (il valore di Obsidian): **+5.21 +/- 6.47 Elo, LOS 94.28%,
        // 2868 partite @15+0.15**. Bakato su LOS, non su bound SPRT chiuso.
 // ==== Bug-fix a toggle (cambiano i node-count -> SPRT prima di bakare ON) ====
-static bool g_qs_draw_check =
-    false; // F-015: draw-detection (ripetizione/50 mosse) in qsearch. Bake
-           // 2026-07-07 REVERTITO: -10.73 Elo era singolo draw + winner's
-           // curse; pacchetto cumulativo pulito = NULLO. OFF, re-ispezione a TC
-           // lungo
 bool g_ep_key_fix = true; // F-017: ep nella hash key SOLO se la cattura ep e'
                           // pseudo-legale (anche movegen.cpp) SPRT 16+0.16 1t
                           // 128MB UHO_4060_v4: +4.31 ±4.37 Elo, LOS 97.35%,
@@ -1481,7 +1139,7 @@ int g_lmr_ttdepth =
 // CORE LMR formula coefficients (*100).
 int g_lmr_base_x100 = 19; // [M20 22->19] baseline reduction floor [3.7 BAKE 41->37; SPSA
                           // 75->47; BAKED #1 47->41]
-int g_lmr_div_x100 = 452; // [M20 447->452] bigger divisor = LESS reduction [3.7 BAKE 345->310;
+int g_lmr_div_x100 = 471; // [PR1 452->471] [M20 447->452] bigger divisor = LESS reduction [3.7 BAKE 345->310;
                           // SPSA 225->270; BAKED #1 270->345]
 // LMRSFBase: vedi il commento accanto a lmr_sf_table (init_lmr_table).
 int g_lmr_sf_base = 0;
@@ -1539,21 +1197,3 @@ int g_lmrf_improv = 450;  // [M20 489->450] [5.1 BAKE 1024->411]  non-improving
 int g_lmrf_evalcut = 1025; // [M20 1012->1025] [5.1 BAKE 1024->1517] [MOE1 979->1012] eval+margin < alpha
 int g_lmrf_cutoff =
     1199; // [M20 1520->1199] [5.1 BAKE 1100->1626] figlio con cutoffCnt alto: riduci di piu'
-// ⭐ LmrAlphaGap (port SF `5f7348f0`, 19/08/2026 — "Reduce LMR less
-// aggressively in loose alpha windows"). SF: STC LLR 2.95 su 90.784 partite
-// <0.00,2.00>, LTC LLR 2.94 su 209.640 <0.50,2.50> — l'unica patch da GUADAGNO
-// della finestra 01/08-06/09, passata su ENTRAMBI i regimi.
-//
-// Il meccanismo: la riduzione diventa funzione CONTINUA del divario fra alpha e
-// la eval statica. Noi qui abbiamo solo il GRADINO `g_lmrf_evalcut` (binario:
-// eval+margine < alpha), che e' lo stesso segnale quantizzato a un bit. Questa
-// e' la rampa.
-//
-// Il clamp e' ASIMMETRIC0 apposta (SF: -64 / +96): punisce la mossa quiet la cui
-// eval sta sotto alpha piu' di quanto premi quella che ci sta sopra.
-//
-// ⚠️ Le tre costanti sono tarate sulla rete e sulla scala di eval di SF: da noi
-// vanno RITARATE, non ereditate (e' l'errore gia' pagato con `de948f0f`). Per
-// questo sono spin e non costanti.
-// 0 = OFF = byte-identico (canary bench 252074).
-int g_lmr_alpha_gap = 0;  // moltiplicatore in 1/1024 di ply. SF usa 3.

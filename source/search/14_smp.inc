@@ -199,68 +199,7 @@ void search_position_mt(int depth) {
   int best_score = thread_data[0].best_score;
   int best_depth = thread_data[0].depth;
 
-  if (g_thread_voting && num_threads > 1) {
-    // P1.12: voto pesato stile SF. Un matto provato salta il voto (vince il
-    // piu' corto = score piu' alto); altrimenti ogni thread vota la sua mossa
-    // con peso (score - minScore + 14) * depth e vince il consenso.
-    int mate_thread = -1;
-    int min_score = infinity;
-    for (int i = 0; i < num_threads; i++) {
-      if (!thread_data[i].best_move)
-        continue;
-      if (thread_data[i].best_score < min_score)
-        min_score = thread_data[i].best_score;
-      if (thread_data[i].best_score >= mate_score &&
-          (mate_thread < 0 ||
-           thread_data[i].best_score > thread_data[mate_thread].best_score))
-        mate_thread = i;
-    }
-    if (mate_thread >= 0) {
-      best_move = thread_data[mate_thread].best_move;
-      best_score = thread_data[mate_thread].best_score;
-      best_depth = thread_data[mate_thread].depth;
-    } else if (min_score < infinity) {
-      int vote_moves[MAX_THREADS];
-      long long vote_w[MAX_THREADS];
-      int nv = 0;
-      for (int i = 0; i < num_threads; i++) {
-        if (!thread_data[i].best_move)
-          continue;
-        long long w = (long long)(thread_data[i].best_score - min_score + 14) *
-                      (thread_data[i].depth > 0 ? thread_data[i].depth : 1);
-        int j;
-        for (j = 0; j < nv; j++)
-          if (vote_moves[j] == thread_data[i].best_move)
-            break;
-        if (j == nv) {
-          vote_moves[nv] = thread_data[i].best_move;
-          vote_w[nv] = 0;
-          nv++;
-        }
-        vote_w[j] += w;
-      }
-      int win = 0;
-      for (int j = 1; j < nv; j++)
-        if (vote_w[j] > vote_w[win])
-          win = j;
-      // fra i thread che votano la vincitrice: depth max, tie score max
-      int bt = -1;
-      for (int i = 0; i < num_threads; i++) {
-        if (thread_data[i].best_move != vote_moves[win])
-          continue;
-        if (bt < 0 || thread_data[i].depth > thread_data[bt].depth ||
-            (thread_data[i].depth == thread_data[bt].depth &&
-             thread_data[i].best_score > thread_data[bt].best_score))
-          bt = i;
-      }
-      if (bt >= 0) {
-        best_move = thread_data[bt].best_move;
-        best_score = thread_data[bt].best_score;
-        best_depth = thread_data[bt].depth;
-      }
-    }
-  } else {
-    // Legacy: vince il thread piu' profondo (tie: score piu' alto).
+      // Legacy: vince il thread piu' profondo (tie: score piu' alto).
     // AUDIT D (S3, 27/09/2026): un matto NOSTRO provato ha la precedenza sulla profondita', come nel ramo
     // del voto e in SF (vince il matto piu' corto). Prima un helper piu' profondo che non vedeva il matto
     // poteva scavalcare il thread che l'aveva trovato, anche in `go mate`. A 1 thread il ciclo non gira.
@@ -285,7 +224,7 @@ void search_position_mt(int depth) {
         }
       }
     }
-  }
+  
 
   // FIX 2026-07-26 — "Bestmove does not match beginning of last PV".
   // La bestmove puo' venire da un thread != 0 (sia col voting, sia col legacy
@@ -364,9 +303,6 @@ void search_position_mt(int depth) {
     // solo come predizione che non scatta mai. Si confronta l'hash con quello del
     // thread 0 e, se non coincide, si ricade sul comportamento attuale.
     int tsrc = 0;
-    if (g_tm_pred_best_thread && pv_src > 0 &&
-        thread_data[pv_src].hash_key == thread_data[0].hash_key)
-      tsrc = pv_src;
     ThreadData &tdp = thread_data[tsrc];
     if (best_move && tdp.pv_length[0] >= 2 && tdp.pv_table[0][0] == best_move) {
       int mv0 = tdp.pv_table[0][0], mv1 = tdp.pv_table[0][1];

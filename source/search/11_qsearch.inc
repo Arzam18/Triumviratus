@@ -45,6 +45,7 @@ struct TtProbeData {
 
 static int td_quiescence(ThreadData &td, int alpha, int beta,
                          int qs_depth = 0, const TtProbeData *pre = nullptr) {
+  SSTAT(QNODES, 0);
   // Illegal-position / king-capture guard (see td_negamax for the full
   // rationale): never search a position where the side not to move is in check,
   // because making the king capture desyncs the NNUE accumulator and crashes.
@@ -64,8 +65,6 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
   // 8 posizioni dava +17.6% (781516 vs 664743): scarto troppo grande per essere
   // solo "posizioni diverse", da capire prima di ri-proporre l'hardening.
   // Default OFF finche' non e' chiarito il meccanismo.
-  if (g_qs_draw_check && td.ply && (td_is_repetition(td) || td.fifty >= 100))
-    return g_draw_dither ? (1 - (int)(td.nodes & 2)) : 0;
 
   if ((td.nodes & 4095) == 0) {
     if (stop_threads.load(std::memory_order_relaxed))
@@ -179,33 +178,7 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
     // vittima piu' grossa sul board + potenziale promozione (pedone in 7a
     // relativa). Se nemmeno il colpo migliore possibile + cuscino arriva ad
     // alpha, il nodo e' morto.
-    if (g_qs_delta_bestcase) {
-      int maxvic;
-      if (td.side == white) {
-        maxvic = td.bitboards[q]                       ? 900
-                 : td.bitboards[r]                     ? 500
-                 : (td.bitboards[b] | td.bitboards[n]) ? 330
-                 : td.bitboards[p]                     ? 100
-                                                       : 0;
-        if (td.bitboards[P] & 0xFF00ULL)
-          maxvic += 800; // promo: +Q-P
-      } else {
-        maxvic = td.bitboards[Q]                       ? 900
-                 : td.bitboards[R]                     ? 500
-                 : (td.bitboards[B] | td.bitboards[N]) ? 330
-                 : td.bitboards[P]                     ? 100
-                                                       : 0;
-        if (td.bitboards[p] & 0x00FF000000000000ULL)
-          maxvic += 800; // promo: +Q-P
-      }
-      // maxvic e' in cp classici (900/500/330/100), ma stand_pat/alpha sono
-      // in unita'-motore COMPRESSE (EvalScale ~56-62%). Riportalo sulla stessa
-      // scala, altrimenti sovrastima il guadagno-cattura e pota di meno del
-      // dovuto (bug direzione-sicura, era near-noop col path default-OFF).
-      maxvic = maxvic * nn_get_eval_scale() / 100;
-      if (stand_pat + maxvic + g_qs_bc_margin < alpha)
-        return stand_pat;
-    } else if (stand_pat + g_qs_delta < alpha)
+    if (stand_pat + g_qs_delta < alpha)
       return stand_pat;
 
     if (stand_pat > alpha)
@@ -216,13 +189,13 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
   // Se non siamo sotto scacco (!in_check), passa true per generare SOLO le
   // catture. P1.3 QSChecks (default OFF): alla prima ply di qsearch genera
   // TUTTO, poi il loop tiene solo catture + quiet che danno SCACCO DIRETTO.
-  const bool qs_checks_here = g_qs_checks && qs_depth == 0 && !in_check;
+  const bool qs_checks_here = false && qs_depth == 0 && !in_check;
   // QSTTQuiets (Stormphrax search.cpp:1557): genera anche le quiete quando la TT
   // dice che la best e' quieta E il bound e' affidabile. `hash_flag_alpha` e' il
   // nostro upper bound (fail-low), quindi escluderlo = il loro
   // `flag != UpperBound`. Nessun cap di qs_depth: la condizione TT e' gia' molto
   // piu' stretta di "prima ply". OFF -> byte-identico.
-  const bool qs_tt_quiets = g_qs_tt_quiets && !pv_node && !in_check && tt_hit &&
+  const bool qs_tt_quiets = 0 && !pv_node && !in_check && tt_hit &&
                             tt_move && tt_flag != hash_flag_alpha &&
                             !get_move_capture(tt_move) &&
                             !get_move_promoted(tt_move);
@@ -266,8 +239,7 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
         g_qs_move_cap && !in_check &&
         (g_promo_qs >= 5 ? qs_cap_count : legal_moves) >= g_qs_move_cap;
     if (qs_over_cap) {
-      if (!g_qs_cap_recap)
-        break;
+      break;
       if (qcr_sq == -2) {
         int qcr_prev = td.move_stack[td.ply];
         qcr_sq = -1;
@@ -339,7 +311,7 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
         // modo 1 = tutte le quiete ammesse (Stormphrax). modo 2 = ammesse solo
         // quelle che danno scacco, cioe' il filtro qui sotto resta attivo ma il
         // gate d'ingresso e' la condizione TT invece di "prima ply".
-        if (g_qs_tt_quiets != 1) {
+        if (0 != 1) {
           // P1.3 QSChecks: tieni il quiet SOLO se da' scacco diretto e non
           // e' un check-blunder (SEE >= -75, stesso filtro del CheckOrdering).
           if (!qs_checks_here && !qs_tt_quiets)
@@ -379,26 +351,6 @@ static int td_quiescence(ThreadData &td, int alpha, int beta,
         //     EvalScale=56, mai ri-seguito) -> ora g_qfut_vic_scale *
         //     nn_get_eval_scale() / 10000, come il gemello capfut: byte-identico
         //     oggi (500*60/10000=3.0) ma auto-ricalibrante ai bake della rete.
-        if (g_qfutility && !get_move_promoted(move) &&
-            !get_move_enpassant(move)) {
-          int vic = td_captured_piece(td, get_move_target(move));
-          // SF: NON potare la RICATTURA sulla casa appena mossa dall'avversario
-          // (to_sq != prevSq) — potarla = perdere la valutazione del recupero
-          // (era il −17).
-          int prev_mv = td.move_stack[td.ply];
-          int prev_sq = prev_mv ? get_move_target(prev_mv) : -1;
-          if (vic >= 0 && vic < 12 && get_move_target(move) != prev_sq) {
-            int fv = best_score +
-                     (int)((long long)see_piece_values[vic] * g_qfut_vic_scale *
-                           nn_get_eval_scale() / 10000) +
-                     g_qfut_margin;
-            if (fv <= alpha) {
-              if (fv > best_score)
-                best_score = fv; // SF fail-soft: bestValue = max(bestValue, fv)
-              continue;
-            }
-          }
-        }
         if (!get_move_promoted(move) && !td_see_at_least(td, move, 0))
           continue;
       }

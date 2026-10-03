@@ -375,9 +375,7 @@ extern void set_np_key_incr(bool enabled);     // CorrNonPawn: np_key incrementa
 extern void set_tt_static_eval(bool enabled);  // P1.1  eval statica in TT (salva la forward NNUE)
 extern void set_fast_rep_scan(bool enabled);   // P2.2  repetition scan a finestra min(fifty, plies_from_null)
 extern void set_evasion_gen(bool enabled);     // P2.3  generazione evasioni mascherata (node-identical)
-extern void set_thread_voting(bool enabled);   // P1.12 selezione SMP per voto pesato (default off)
 // ---- Toggle da co-tune (default OFF, si accendono nel mega-SPSA 4.0) ------------
-extern void set_qs_checks(bool enabled);       // P1.3 quiet check alla prima ply di qsearch
 extern void set_nmp_verif(bool enabled);
 extern int g_nmp_verif_depth;
 extern bool g_nmp_improving;
@@ -422,11 +420,6 @@ extern int  g_tmv2_pred_hit, g_tmv2_pred_miss;
 extern U64  g_tm_pred_hash;   // hash della posizione prevista (0 = nessuna predizione)
 // Gate per-TC del blocco TMv2 (definiti in threads.cpp, settati in parse_go).
 extern bool g_tmv2_tc_ok;
-extern bool g_tmv2_inc_gate;
-extern void set_tmv2_inc_gate(bool v);  // false = TMv2 attivo anche a inc=0 (regime CCRL 40/15)
-extern void set_evalcache_opt_split(bool v);  // tag della eval-cache con l'optimism (bug: hit con contempt stantio)
-extern bool g_tmv2_inc_gate;
-extern void set_tmv2_inc_gate(bool v);  // false = TMv2 attivo anche a incremento zero (regime CCRL)
 
 // "Improving" heuristic on/off (UCI option "Improving") — A/B the eval-trend
 // based pruning/reduction. Default on.
@@ -454,7 +447,6 @@ extern void set_corr_major(bool enabled);   // CorrHistMajor, vedi threads.cpp
 extern void set_corr_cont(bool enabled);
 
 // Non-pawn correction per-lato on/off (UCI "CorrNonPawn", port Pawnocchio/SF). Default off.
-extern void set_corr_nonpawn(bool enabled);
 
 // Pawn history on/off (UCI option "PawnHistory") — quiet-move ordering term keyed by
 // pawn structure (SF-style, weighted 2x). Default off (byte-identical when off).
@@ -471,7 +463,6 @@ extern void set_cont_hist_prune(bool enabled);
 
 // Multi-ply continuation history on/off (UCI option "ContHistMulti") — adds 2-ply
 // and 4-ply continuation histories to ordering + updates. Default off.
-extern void set_conthist_multi(bool enabled);
 
 // Staged MovePicker on/off (UCI option "MovePicker") — lazy staged move generation
 // (TT / good captures / killers / counter / quiets / bad captures) vs the default
@@ -492,9 +483,6 @@ extern void set_multicut(bool enabled);       // BAKED on: conservative singular
 
 // Candidati "notte" (2026-06-04) — tutti default OFF = byte-identico.
 extern void set_nmp_eval_scale(bool enabled);  // NMPEvalScale: R null-move += min((eval-beta)/div,3)
-extern void set_rfp_depth8(bool enabled);      // RFPDepth8: reverse-futility a depth<=8 (vs 6)
-extern void set_razor_depth4(bool enabled);    // RazorDepth4: razoring a depth<=4 (vs 3)
-extern void set_qfutility(bool enabled);       // QFutility: futility per-mossa in quiescence
 extern void set_hist_bonus_sf(bool enabled);   // HistBonusSF: bonus history lineare-clampato
 
 // CaptureHist (UCI "CaptureHist") — capture history [piece][to][victim] nell'ordering
@@ -505,7 +493,6 @@ extern void set_capture_hist(bool enabled);
 
 // 4-way set-associative TT on/off (UCI option "TT4Way") — bucket of 4 entries
 // with age-aware replacement, vs the direct-mapped default. Default off.
-extern void set_tt_4way(bool enabled);
 
 // TTEvalImprove (UCI "TTEvalImprove") — P1.1: use a bound-consistent tt_score in
 // place of the static eval for pruning decisions (RFP/NMP/razor/futility/probcut/
@@ -533,7 +520,6 @@ extern void set_time_mgmt(bool enabled);
 
 // Aggressive LMR (UCI "AggrLMR") — multi-ply history/conthist reductions via a
 // smaller divisor + wider clamp (AggrLMRDiv / AggrLMRClamp spins). Default off.
-extern void set_aggr_lmr(bool enabled);
 
 // StatScore-LMR levers (2026-06-06) — fix per la SOTTO-RIDUZIONE vs SF15.1. Tre
 // toggle indipendenti, default OFF = byte-identico. Tarabili via gli spin
@@ -543,13 +529,9 @@ extern void set_conthist_lmr(bool enabled);   // conthist 1/2/4 ply -> riduzione
 extern void set_cutnode_lmr(bool enabled);    // riduzione extra sui cut-node
 extern void set_threat_ordering(bool enabled); // ThreatOrdering: bonus/malus quiet per pezzo minacciato da uno di valore inferiore (SF-style)
 extern void set_threat_hist(bool enabled);     // ThreatHist (5.1): history quiet condizionata dalle minacce (from/to attaccata)
-extern void set_caphist_threat(bool enabled);  // CapHistThreat: l'analogo sulla CAPTURE history (casa di arrivo difesa). Reckless/Stormphrax; SF non ce l'ha
-extern void set_qs_tt_quiets(int mode);        // QSTTQuiets: 0=off · 1=tutte le quiete (Stormphrax fedele) · 2=solo quiete che danno scacco (QSChecks TT-gated)
 extern void set_check_ordering(bool enabled);  // CheckOrdering: bonus quiet che danno scacco diretto, filtrati SEE>=-75 (SF-style)
 extern void set_conthist36(bool enabled);      // ContHist36: aggiunge conthist 3-ply e 6-ply all'ordering quiet (SF #4)
 extern void set_prior_bonus(bool enabled);     // PriorBonus (V2): su fail-low, bonus alla mossa precedente (conthist/main + capture-hist se cattura)
-extern void set_prior_bonus_gate(bool enabled);   // R-PB: solo sugli all-node INATTESI (cut_node||pv) -- audit B7
-extern void set_prior_bonus_factor(bool enabled); // R-PB: bonus scalato su quanto il fail-low e' stato una sorpresa
 extern void set_lowply(bool enabled);          // LowPlyHistory (#5): history per-ply near-root nell'ordering quiet
 
 // SPSA-tunable search parameters: set one by name (UCI spin option). Returns true
@@ -570,9 +552,7 @@ extern void set_np_key_incr(bool enabled);     // CorrNonPawn: np_key incrementa
 extern void set_tt_static_eval(bool enabled);  // P1.1  eval statica in TT (salva la forward NNUE)
 extern void set_fast_rep_scan(bool enabled);   // P2.2  repetition scan a finestra min(fifty, plies_from_null)
 extern void set_evasion_gen(bool enabled);     // P2.3  generazione evasioni mascherata (node-identical)
-extern void set_thread_voting(bool enabled);   // P1.12 selezione SMP per voto pesato (default off)
 // ---- Toggle da co-tune (default OFF, si accendono nel mega-SPSA 4.0) ------------
-extern void set_qs_checks(bool enabled);       // P1.3 quiet check alla prima ply di qsearch
 extern void set_nmp_verif(bool enabled);
 extern int g_nmp_verif_depth;
 extern bool g_nmp_improving;
@@ -617,11 +597,6 @@ extern int  g_tmv2_pred_hit, g_tmv2_pred_miss;
 extern U64  g_tm_pred_hash;   // hash della posizione prevista (0 = nessuna predizione)
 // Gate per-TC del blocco TMv2 (definiti in threads.cpp, settati in parse_go).
 extern bool g_tmv2_tc_ok;
-extern bool g_tmv2_inc_gate;
-extern void set_tmv2_inc_gate(bool v);  // false = TMv2 attivo anche a inc=0 (regime CCRL 40/15)
-extern void set_evalcache_opt_split(bool v);  // tag della eval-cache con l'optimism (bug: hit con contempt stantio)
-extern bool g_tmv2_inc_gate;
-extern void set_tmv2_inc_gate(bool v);  // false = TMv2 attivo anche a incremento zero (regime CCRL)
 
 // "Improving" heuristic on/off (UCI option "Improving") — A/B the eval-trend
 // based pruning/reduction. Default on.
@@ -648,7 +623,6 @@ extern void set_corr_multi(bool enabled);
 extern void set_corr_cont(bool enabled);
 
 // Non-pawn correction per-lato on/off (UCI "CorrNonPawn", port Pawnocchio/SF). Default off.
-extern void set_corr_nonpawn(bool enabled);
 
 // Pawn history on/off (UCI option "PawnHistory") — quiet-move ordering term keyed by
 // pawn structure (SF-style, weighted 2x). Default off (byte-identical when off).
@@ -665,7 +639,6 @@ extern void set_cont_hist_prune(bool enabled);
 
 // Multi-ply continuation history on/off (UCI option "ContHistMulti") — adds 2-ply
 // and 4-ply continuation histories to ordering + updates. Default off.
-extern void set_conthist_multi(bool enabled);
 
 // Staged MovePicker on/off (UCI option "MovePicker") — lazy staged move generation
 // (TT / good captures / killers / counter / quiets / bad captures) vs the default
@@ -686,9 +659,6 @@ extern void set_multicut(bool enabled);       // BAKED on: conservative singular
 
 // Candidati "notte" (2026-06-04) — tutti default OFF = byte-identico.
 extern void set_nmp_eval_scale(bool enabled);  // NMPEvalScale: R null-move += min((eval-beta)/div,3)
-extern void set_rfp_depth8(bool enabled);      // RFPDepth8: reverse-futility a depth<=8 (vs 6)
-extern void set_razor_depth4(bool enabled);    // RazorDepth4: razoring a depth<=4 (vs 3)
-extern void set_qfutility(bool enabled);       // QFutility: futility per-mossa in quiescence
 extern void set_hist_bonus_sf(bool enabled);   // HistBonusSF: bonus history lineare-clampato
 
 // CaptureHist (UCI "CaptureHist") — capture history [piece][to][victim] nell'ordering
@@ -699,7 +669,6 @@ extern void set_capture_hist(bool enabled);
 
 // 4-way set-associative TT on/off (UCI option "TT4Way") — bucket of 4 entries
 // with age-aware replacement, vs the direct-mapped default. Default off.
-extern void set_tt_4way(bool enabled);
 
 // TTEvalImprove (UCI "TTEvalImprove") — P1.1: use a bound-consistent tt_score in
 // place of the static eval for pruning decisions (RFP/NMP/razor/futility/probcut/
@@ -727,7 +696,6 @@ extern void set_time_mgmt(bool enabled);
 
 // Aggressive LMR (UCI "AggrLMR") — multi-ply history/conthist reductions via a
 // smaller divisor + wider clamp (AggrLMRDiv / AggrLMRClamp spins). Default off.
-extern void set_aggr_lmr(bool enabled);
 
 // StatScore-LMR levers (2026-06-06) — fix per la SOTTO-RIDUZIONE vs SF15.1. Tre
 // toggle indipendenti, default OFF = byte-identico. Tarabili via gli spin
@@ -737,13 +705,9 @@ extern void set_conthist_lmr(bool enabled);   // conthist 1/2/4 ply -> riduzione
 extern void set_cutnode_lmr(bool enabled);    // riduzione extra sui cut-node
 extern void set_threat_ordering(bool enabled); // ThreatOrdering: bonus/malus quiet per pezzo minacciato da uno di valore inferiore (SF-style)
 extern void set_threat_hist(bool enabled);     // ThreatHist (5.1): history quiet condizionata dalle minacce (from/to attaccata)
-extern void set_caphist_threat(bool enabled);  // CapHistThreat: l'analogo sulla CAPTURE history (casa di arrivo difesa). Reckless/Stormphrax; SF non ce l'ha
-extern void set_qs_tt_quiets(int mode);        // QSTTQuiets: 0=off · 1=tutte le quiete (Stormphrax fedele) · 2=solo quiete che danno scacco (QSChecks TT-gated)
 extern void set_check_ordering(bool enabled);  // CheckOrdering: bonus quiet che danno scacco diretto, filtrati SEE>=-75 (SF-style)
 extern void set_conthist36(bool enabled);      // ContHist36: aggiunge conthist 3-ply e 6-ply all'ordering quiet (SF #4)
 extern void set_prior_bonus(bool enabled);     // PriorBonus (V2): su fail-low, bonus alla mossa precedente (conthist/main + capture-hist se cattura)
-extern void set_prior_bonus_gate(bool enabled);   // R-PB: solo sugli all-node INATTESI (cut_node||pv) -- audit B7
-extern void set_prior_bonus_factor(bool enabled); // R-PB: bonus scalato su quanto il fail-low e' stato una sorpresa
 extern void set_lowply(bool enabled);          // LowPlyHistory (#5): history per-ply near-root nell'ordering quiet
 
 // SPSA-tunable search parameters: set one by name (UCI spin option). Returns true

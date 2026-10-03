@@ -326,16 +326,6 @@ static void thread_search(int thread_id, int max_depth) {
     // del prev_score secco -> il rumore iterazione-su-iterazione non sposta la
     // finestra.
     int alpha = -infinity, beta = infinity, delta = g_asp_init_delta;
-    if (g_asp_stable_shrink) { // ricerca stabile -> parti piu' stretto
-                               // (Reckless 4192617)
-      int stab =
-          eval_stab_iters < stable_iters ? eval_stab_iters : stable_iters;
-      if (stab > g_asp_stable_cap)
-        stab = g_asp_stable_cap;
-      delta -= stab;
-      if (delta < 1)
-        delta = 1;
-    }
     // Q-28 AspScoreMult: allarga il delta iniziale col quadrato-EMA dello score
     // (i64: |avgSq| fino a ~9e8, *mult sfora i32). 0 = OFF.
     if (g_asp_score_mult > 0 && avg_score != infinity) {
@@ -346,7 +336,7 @@ static void thread_search(int thread_id, int max_depth) {
     }
     if (current_depth >= 4) {
       int center =
-          (g_asp_avg && avg_score != infinity) ? avg_score : prev_score;
+          (false && avg_score != infinity) ? avg_score : prev_score;
       alpha = (center - delta > -infinity) ? center - delta : -infinity;
       beta = (center + delta < infinity) ? center + delta : infinity;
     }
@@ -535,43 +525,6 @@ static void thread_search(int thread_id, int max_depth) {
     // e' comparabile (>= Effort% della best) una verifica null-window a depth/2
     // conferma che vale >= score-Margin -> best_move scambiata (score/PV
     // restano quelli teorici: cambio solo la mossa GIOCATA, non il display).
-    if (g_trouble && thread_id == 0 && mpv_nlines == 1 && current_depth >= 8 &&
-        td.best_move && score < -g_trouble_score && score > -mate_score &&
-        !stop_threads.load(std::memory_order_relaxed)) {
-      ThreadData::NCEntry *e = nc_try(td, td.hash_key);
-      if (e) {
-        int cand = 0;
-        U64 cn = 0, bn = 0;
-        for (int i = 0; i < ThreadData::NC_MOVES && e->mv[i]; i++) {
-          if (e->mv[i] == td.best_move)
-            bn = e->mv_nodes[i];
-          else if (e->mv_nodes[i] > cn) {
-            cand = e->mv[i];
-            cn = e->mv_nodes[i];
-          }
-        }
-        if (cand && bn && cn * 100 >= bn * (U64)g_trouble_effort) {
-          int save_pv[max_ply + 8];
-          int save_len = td.pv_length[0];
-          memcpy(save_pv, td.pv_table[0], sizeof(save_pv));
-          nn_root_sync(td);
-          td.root_only_move = cand;
-          int target = score - g_trouble_margin;
-          int v = td_negamax(td, target - 1, target, current_depth / 2, false);
-          td.root_only_move = 0;
-          memcpy(td.pv_table[0], save_pv, sizeof(save_pv));
-          td.pv_length[0] = save_len;
-          if (!stop_threads.load(std::memory_order_relaxed) && v >= target) {
-            td.best_move = cand;
-            td.best_reply = 0;   // la risposta salvata era quella alla mossa scartata
-            // ristampa l'info-line con la mossa scambiata in testa alla PV:
-            // le GUI/fastchess confrontano bestmove col primo move della PV
-            // (senza questa riga: warning "Bestmove does not match last PV").
-            print_search_info(td, current_depth, score, 0, &cand, 1);
-          }
-        }
-      }
-    }
 
     // "go mate N": un'iterazione completata conferma un matto NOSTRO in <= N
     // mosse -> il compito e' assolto, stop (convenzione UCI; GUI/solver di
@@ -700,17 +653,6 @@ static void thread_search(int thread_id, int max_depth) {
         // REDUCE-ONLY (scale <= 1.0), si compone col NodeTM. Segnale diverso
         // dal NodeTM (persistenza tra iterazioni vs quota-nodi di questa
         // iterazione). Solo riduce, mai spinge soft oltre stoptime.
-        if (g_tm_stability && stable_iters > g_tm_stab_thresh) {
-          int over = stable_iters - g_tm_stab_thresh;
-          double sscale = 1.0 - over * (g_tm_stab_step / 1000.0);
-          double sfloor = g_tm_stab_floor / 100.0;
-          if (sscale < sfloor)
-            sscale = sfloor;
-          int dur = soft - starttime;
-          if (dur < 0)
-            dur = 0;
-          soft = starttime + (int)(dur * sscale);
-        }
 
       } // fine path TM v1 (additivo)
 

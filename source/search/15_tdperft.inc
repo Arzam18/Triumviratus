@@ -33,7 +33,7 @@ static void tdp_check_keys(ThreadData &td) {
   h ^= castle_keys[td.castle];
   if (td.side == black) h ^= side_key;
   tdp_nodes_checked++;
-  const bool np_bad = g_corr_nonpawn && (npw != td.np_key[white] || npb != td.np_key[black]);
+  const bool np_bad = false && (npw != td.np_key[white] || npb != td.np_key[black]);
   U64 occ_w = 0, occ_b = 0;
   for (int pc = P; pc <= K; pc++) occ_w |= td.bitboards[pc];
   for (int pc = p; pc <= k; pc++) occ_b |= td.bitboards[pc];

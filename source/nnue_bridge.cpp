@@ -93,6 +93,13 @@ static LargePagePtr<Network>& g_net = *new LargePagePtr<Network>();
 // Rete condivisa fra processi (01/10/2026, solo -DTRIUMV_SHARED_NET; vedi shared_net.h). La ricerca legge la rete
 // da g_net_view: la copia locale (g_net) o l'oggetto in memoria condivisa, e in quel caso g_net viene liberata.
 // Senza il flag NET_REF e' *g_net: codice identico a prima.
+// 03/10/2026: ACCESA DI DEFAULT su Windows (come SF, che la usa sempre). Misura del 01/10, due build PGO release dallo
+// stesso sorgente, socket pieno: +15,2% NPS con 20 motori sul socket 0, +24,6% sul socket 1 (32 GB, 2 canali),
+// +34,9% con 38 motori; un motore solo non cambia. -DTRIUMV_NO_SHARED_NET la spegne. shared_net.h esiste solo per
+// Windows: altrove resta la copia privata.
+#if defined(_WIN32) && !defined(TRIUMV_NO_SHARED_NET) && !defined(TRIUMV_SHARED_NET)
+    #define TRIUMV_SHARED_NET
+#endif
 #ifdef TRIUMV_SHARED_NET
     #include "shared_net.h"
 static const Network* g_net_view = nullptr;

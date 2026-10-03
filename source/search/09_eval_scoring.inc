@@ -128,15 +128,13 @@ static inline int td_evaluate(ThreadData &td) {
         // buttare l'entry si CORREGGE il delta. `ce.coeff` e' d(eval)/d(optimism) in
         // millesimi (gia' comprensivo di EvalScale), invariante della posizione.
         int e = ce.eval;
-        if (g_evalcache_opt_split)
-          e += (opt_now - ce.opt) * ce.coeff / 1000;
         return tt_eval_redamp(e, td.fifty);
       }
       const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
       ce.key = td.hash_key;
       ce.eval = tt_eval_undamp(v, td.fifty);
       ce.opt = opt_now;
-      ce.coeff = g_evalcache_opt_split ? nn_last_opt_coeff(td.nnpos) : 0; // letto solo con OptSplit
+      ce.coeff = false ? nn_last_opt_coeff(td.nnpos) : 0; // letto solo con OptSplit
       return v;
     }
     const U64 ck = td.hash_key ^ (0x9E3779B97F4A7C15ULL * (U64)(td.fifty + 1));
@@ -144,12 +142,12 @@ static inline int td_evaluate(ThreadData &td) {
         td.eval_cache[ck & ThreadData::EVAL_CACHE_MASK];
     const int opt_now = g_opt_per_thread ? td.opt[td.side] : (int)g_optimism[td.side];
     if (ce.key == ck)
-      return g_evalcache_opt_split ? ce.eval + (opt_now - ce.opt) * ce.coeff / 1000 : ce.eval;
+      return false ? ce.eval + (opt_now - ce.opt) * ce.coeff / 1000 : ce.eval;
     const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
     ce.key = ck;
     ce.eval = v;
     ce.opt = opt_now;
-    ce.coeff = g_evalcache_opt_split ? nn_last_opt_coeff(td.nnpos) : 0; // letto solo con OptSplit
+    ce.coeff = false ? nn_last_opt_coeff(td.nnpos) : 0; // letto solo con OptSplit
     return v;
   }
   // Incremental: the accumulator is updated only for the pieces that changed
@@ -328,8 +326,7 @@ static inline int td_hbucket(ThreadData &td, int move) {
 // Ritorna 0 quando il toggle e' OFF -> tabella piatta = byte-identico.
 // Da chiamare col board del nodo dove la cattura viene fatta.
 static inline int td_cbucket(ThreadData &td, int target) {
-  if (!g_caphist_threat)
-    return 0;
+  return 0;
   if (td.threat_key != td.hash_key)
     td_compute_threats(td);
   return get_bit(td.threat_all, target) ? 1 : 0;
@@ -397,8 +394,8 @@ static inline void td_compute_offense(ThreadData &td) {
   td.offense_key = td.hash_key;
 
   // NPS 2026-07-25: le offense_sq costano ~10 loop di attacchi scorrevoli PER
-  // NODO, e il loro UNICO consumatore e' `h += g_offense_bonus` (:4762). Con
-  // g_offense_bonus = 0 — che e' il default, perche' il termine offense-squares
+  // NODO, e il loro UNICO consumatore e' `h += 0` (:4762). Con
+  // 0 = 0 — che e' il default, perche' il termine offense-squares
   // e' risultato NEGATIVO in isolamento (−9.70 ± 10.41, LOS 3.38% @1290g) —
   // era lavoro interamente buttato a ogni nodo, incluso il td_compute_threats
   // che serviva solo a loro.
@@ -408,11 +405,10 @@ static inline void td_compute_offense(ThreadData &td) {
   // Gate 2026-07-25: con questo early-return disattivato il bench resta
   // 205566, identico -> byte-identita' provata empiricamente, non solo per
   // costruzione.
-  if (!g_offense_bonus) {
-    for (int i = 0; i < 6; i++)
+      for (int i = 0; i < 6; i++)
       td.offense_sq[i] = 0;
     return;
-  }
+  
 
   if (td.threat_key != td.hash_key)
     td_compute_threats(td); // need threat_all / threat_by_pawn
@@ -585,13 +581,6 @@ static inline int td_score_move(ThreadData &td, int move, int tt_move) {
     // vincere materiale NETTO (SEE >= +1; pari e perdenti scendono tra le bad).
     // Bypassa anche il lazy-shortcut equal-capture qui sotto (QxQ = SEE 0 =
     // bad).
-    if (g_goodcap_ttquiet && tt_move && !get_move_capture(tt_move) &&
-        !get_move_promoted(tt_move)) {
-      if (td_see_at_least(td, move, 1))
-        return SCORE_GOOD_CAPTURE + mvv_lva[piece][victim] + caphist;
-      else
-        return SCORE_BAD_CAPTURE + mvv_lva[piece][victim] + caphist;
-    }
 
     // Lazy SEE: capturing a piece of equal-or-greater value is good by
     // definition (no SEE needed). Only run SEE for "attacker > victim"
@@ -639,20 +628,6 @@ static inline int td_score_move(ThreadData &td, int move, int tt_move) {
                                  [piece][target];
   // Longer-range continuation history: the same quiet scored in the context of
   // the move 2 and 4 plies back. Off by default (ContHistMulti).
-  if (g_conthist_multi) {
-    if (td.ply >= 1) {
-      int p2 = td.move_stack[td.ply - 1];
-      if (p2)
-        ch += td.cont_hist_2[get_move_piece(p2)][get_move_target(p2)][piece]
-                            [target];
-    }
-    if (td.ply >= 3) {
-      int p4 = td.move_stack[td.ply - 3];
-      if (p4)
-        ch += td.cont_hist_4[get_move_piece(p4)][get_move_target(p4)][piece]
-                            [target];
-    }
-  }
   // ContHist36 (#4): continuation history a 3-ply (ply-2) e 6-ply (ply-5),
   // scalata da ContHist36Weight, sommata in ch. Default OFF = byte-identico.
   if (g_conthist36) {
@@ -729,14 +704,6 @@ static inline int td_score_move(ThreadData &td, int move, int tt_move) {
   // +bonus se la quiet porta il pezzo su una casa-offense (attacca sicuro un
   // pezzo nemico vulnerabile), -malus se muove un pedone-scudo del re. offense_sq
   // e wall_pawns calcolate 1x/nodo (cache offense_key).
-  if (g_quiet_offense) {
-    if (td.offense_key != td.hash_key)
-      td_compute_offense(td);
-    if (get_bit(td.offense_sq[piece % 6], target))
-      h += g_offense_bonus;
-    if (get_bit(td.wall_pawns, get_move_source(move)))
-      h -= g_wallpawn_penalty;
-  }
   // Low-ply history (#5, default OFF -> byte-identico): segnale per-ply
   // near-root, peso che decade con la profondita' (1+2*ply), come SF.
   if (g_lowply && td.ply < ThreadData::LOW_PLY_MAX) {
@@ -811,16 +778,6 @@ static inline void td_quiet_ctx_init(ThreadData &td, QuietCtx &q, int tt_move) {
   q.c1 = prev ? td.continuation_history[get_move_piece(prev)][get_move_target(prev)]
               : nullptr;
   q.c2 = q.c4 = q.c3 = q.c6 = nullptr;
-  if (g_conthist_multi) {
-    if (td.ply >= 1) {
-      const int p2 = td.move_stack[td.ply - 1];
-      if (p2) q.c2 = td.cont_hist_2[get_move_piece(p2)][get_move_target(p2)];
-    }
-    if (td.ply >= 3) {
-      const int p4 = td.move_stack[td.ply - 3];
-      if (p4) q.c4 = td.cont_hist_4[get_move_piece(p4)][get_move_target(p4)];
-    }
-  }
   if (g_conthist36) {
     if (td.ply >= 2) {
       const int p3 = td.move_stack[td.ply - 2];
@@ -844,8 +801,6 @@ static inline void td_quiet_ctx_init(ThreadData &td, QuietCtx &q, int tt_move) {
     td_compute_threats(td);
   if (g_check_ordering && td.check_key != td.hash_key)
     td_compute_checks(td);
-  if (g_quiet_offense && td.offense_key != td.hash_key)
-    td_compute_offense(td);
   q.nc = nullptr;
   if (g_node_cache && td.ply < ThreadData::NC_MAX_PLY) {
     ThreadData::NCEntry *e = nc_try(td, td.hash_key);
@@ -913,12 +868,6 @@ static inline int td_score_quiet(ThreadData &td, const QuietCtx &q, int move) {
   if (g_check_ordering) {
     if (get_bit(td.check_sq[piece % 6], target) && td_see_at_least(td, move, -75))
       h += g_check_bonus;
-  }
-  if (g_quiet_offense) {
-    if (get_bit(td.offense_sq[piece % 6], target))
-      h += g_offense_bonus;
-    if (get_bit(td.wall_pawns, get_move_source(move)))
-      h -= g_wallpawn_penalty;
   }
   if (q.lp)
     h += g_lowply_weight * q.lp[piece][target] / q.lp_div;

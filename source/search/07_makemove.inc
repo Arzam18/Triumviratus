@@ -413,9 +413,6 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
   if (g_pawn_key_incr)
     td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
                        undo.captured_square);
-  if (g_corr_nonpawn) // np_key serve solo a CorrNonPawn (spenta): niente lavoro a vuoto
-    td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square, castling);
   td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                    undo.captured_square, castling);
   td_mailbox_apply(td, piece, source, target, promoted, undo.captured_piece,
@@ -459,9 +456,6 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     if (g_pawn_key_incr)
       td_pawn_key_update(td, piece, source, target, promoted,
                          undo.captured_piece, undo.captured_square);
-    if (g_corr_nonpawn)
-      td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                       undo.captured_square, castling);
     td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                      undo.captured_square, castling);
     td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
@@ -494,8 +488,6 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
     if (m2)
       TT_PREFETCH(&td.cont_corr_hist[get_move_piece(m2)][get_move_target(m2)][piece][target]);
     // TransCorr: in cima alla repetition_table c'e' la chiave del padre (spinta prima di make)
-    if (g_corr_trans_weight)
-      TT_PREFETCH(&td.corr_hist_trans[td.side][(td.hash_key ^ td.repetition_table[td.repetition_index]) & cmask]);
   }
 
   if (g_tt_prefetch && td.hash_key != pf_key) { // stima sbagliata (arrocco, promozione, e.p.)
@@ -594,9 +586,6 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
   if (g_pawn_key_incr)
     td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
                        undo.captured_square);
-  if (g_corr_nonpawn) // np_key serve solo a CorrNonPawn (spenta): niente lavoro a vuoto
-    td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square, castling);
   td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
                    undo.captured_square, castling);
   td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,

@@ -64,7 +64,7 @@ void set_draw_dither(bool v) { g_draw_dither = v; }
 static bool g_ttcut_bonus = true;
 void set_ttcut_bonus(bool v) { g_ttcut_bonus = v; }
 int g_ttcut_bonus_scale =
-    122; // [M20 111->122] /100 del td_stat_bonus(depth); spin "TTCutBonusScale"
+    115; // [PR1 122->115] [M20 111->122] /100 del td_stat_bonus(depth); spin "TTCutBonusScale"
 
 // P1.10a TT age-refresh al probe-hit: un hit rinfresca l'age dell'entry, cosi'
 // le posizioni CALDE ma scritte in search vecchie non vengono evictate per
@@ -102,11 +102,6 @@ void set_np_key_incr(bool v) { g_np_key_incr = v; }
 // SPRT.
 static bool g_tt_static_eval = true;
 void set_tt_static_eval(bool v) { g_tt_static_eval = v; }
-bool g_eval_tt_write =
-    false; // [5.1 PROVATO E SCARTATO] cache static eval su MISS (SF
-           // search.cpp:830): su TT 1-via RADDOPPIA l'albero (2.12M->3.96M
-           // @bench14, NON node-neutral) = regressione. SF lo ha gratis col
-           // cluster 3-vie; noi no. Default OFF.
 
 // P1.1 FIX fifty-staleness (2026-06-11): l'eval del wrapper SF e' SMORZATA dal
 // rule50 (evaluate.cpp: v*(200-fifty)/214) -> salvarla cruda in TT (chiave
@@ -253,15 +248,6 @@ static inline int tt_store_eval(int raw_eval, int tt_eval, int tt_flag,
 static bool g_fast_rep_scan = true;
 void set_fast_rep_scan(bool v) { g_fast_rep_scan = v; }
 
-// P1.12 (UCI "ThreadVoting", default OFF): selezione del risultato SMP per VOTO
-// pesato stile SF invece di "vince il thread piu' profondo". Ogni thread vota
-// la sua best move con peso (score - minScore + 14) * depth; vince la mossa col
-// totale piu' alto (consenso fra thread > singolo thread profondo). Protezione
-// matti: un matto provato vince direttamente (il piu' corto). Inerte a 1
-// thread. Default OFF = selezione legacy identica; SPRT a Threads=8
-// (convenzione SMP).
-static bool g_thread_voting = false;
-void set_thread_voting(bool v) { g_thread_voting = v; }
 
 // ---- Toggle DA CO-TUNE per il mega-SPSA 4.0 (2026-06-12)
 // --------------------- Strutture SF implementate dietro toggle default OFF =
@@ -270,57 +256,6 @@ void set_thread_voting(bool v) { g_thread_voting = v; }
 // si accendono nel co-tune con le loro costanti nel vettore SPSA, insieme a
 // PriorBonus/LowPly.
 
-// P1.3 (UCI "QSChecks"): alla PRIMA ply di qsearch tieni anche i QUIET CHECK
-// diretti (check_sq + filtro SEE>=-75 anti-blunder). Tattica forzante vista
-// prima, meno mate-blindness (SF: DEPTH_QS_CHECKS).
-// QSChecks: scacchi QUIETI generati alla prima ply di qsearch.
-// BAKED OFF 2026-07-25: **+9.71 +/- 5.99 Elo, nElo +19.25, LOS 99.93%, LLR 2.96
-// (bound raggiunto), 3294 partite @20+0.2** spegnendoli. SF li ha rimossi nel
-// lug-2024 (PR #5498, STC 199k/LTC 120k) e da noi la rimozione paga ANCHE di
-// piu' di quanto valga per loro.
-// ⚠️ Nota metodologica: la misura precedente diceva il CONTRARIO ("da noi
-// tagliano: l'albero sul libro CRESCE del 19.2% se li togli") ed era stata fatta
-// con QSMoveCap=1, quando la qsearch esaminava UNA sola mossa per nodo: gli
-// scacchi quieti competevano con le catture per l'unico slot e potevano evincere
-// la miglior cattura. Rimosso quel vincolo (QSMoveCap 1->3, bakato lo stesso
-// giorno) il segno si e' ribaltato. Una misura vale solo nel regime in cui e'
-// stata fatta.
-static bool g_qs_checks = false;
-// QSTTQuiets (porta FEDELE di Stormphrax, search.cpp:1557) — default OFF.
-// Stormphrax non tiene gli scacchi quieti "sempre" come facevamo noi: genera
-// TUTTE le mosse quiete in qsearch, ma SOLO quando la TT ha gia' l'evidenza che
-// la mossa migliore e' quieta e il bound e' affidabile:
-//     !PvNode && ttMove && ttFlag != UpperBound && !isNoisy(ttMove)
-// Il movente da noi e' doppio, ed e' il motivo per cui questa e' l'ultima voce
-// aperta della search:
-//  (1) esterno: e' la forma che Stormphrax usa al posto del nostro vecchio
-//      QSChecks sempre-on;
-//  (2) interno: il 25/07 abbiamo spento QSChecks guadagnando +9.71 Elo (bound
-//      chiuso @20+0.2) ma la suite hard-position di Maurizio e' calata di 4
-//      posizioni. Statisticamente e' rumore (McNemar: servirebbero <=4 discordi
-//      totali), pero' il meccanismo e' plausibile — gli scacchi quieti sono cio'
-//      che trova le sequenze forzate — e abbiamo un precedente NOSTRO in cui
-//      l'SPRT non vedeva il danno: NMPEvalScale, che SF ha revertato per
-//      mate-finding dopo 290k partite verdi.
-// Una sequenza forzata e' PRECISAMENTE il caso in cui la TT, da una visita piu'
-// profonda, ha gia' memorizzato che la mossa chiave e' quieta. Questa condizione
-// riammette le quiete li' e solo li': recupera la tattica senza ricomprarsi il
-// 21.6% di albero che spegnere QSChecks ci ha fatto risparmiare.
-// MODALITA' (misurate sul bench, base 205566):
-//   0 = OFF, byte-identico.
-//   1 = porta FEDELE Stormphrax: quando la condizione TT vale, ammette TUTTE le
-//       quiete. Bench 371449 = +80.7%. Troppo caro da noi: la condizione TT e'
-//       rara ma quando scatta apre l'intero ventaglio quieto, mentre il nostro
-//       vecchio QSChecks teneva solo le quiete che danno SCACCO. (Stormphrax se
-//       lo permette perche' rompe a legalMoves>=2; noi abbiamo QSMoveCap=3 ma
-//       paghiamo comunque movegen+scoring di tutte le mosse.)
-//   2 = **scacchi quieti TT-gated**: la condizione TT di Stormphrax applicata al
-//       filtro NOSTRO (solo quiete che danno scacco diretto, SEE >= -75). E' la
-//       forma piu' stretta delle tre e quella che risponde alla domanda vera:
-//       recuperare le sequenze forzate SENZA ricomprare l'albero.
-static int g_qs_tt_quiets = 0;
-void set_qs_tt_quiets(int v) { g_qs_tt_quiets = v < 0 ? 0 : (v > 2 ? 2 : v); }
-void set_qs_checks(bool v) { g_qs_checks = v; }
 
 // P1.6 (UCI "NMPVerif"): robustezza null-move — (a) niente due null
 // consecutive; (b) a depth >= NMPVerifDepth un fail-high della null va
@@ -328,7 +263,7 @@ void set_qs_checks(bool v) { g_qs_checks = v; }
 // NMPVerifDepth.
 static bool g_nmp_verif = true;
 void set_nmp_verif(bool v) { g_nmp_verif = v; }
-int g_nmp_verif_depth = 1; // spin "NMPVerifDepth" (SPSA) // spin "NMPVerifDepth" (SPSA)
+int g_nmp_verif_depth = 3; // [PR1 1->3] spin "NMPVerifDepth" (SPSA) // spin "NMPVerifDepth" (SPSA)
 
 // P1.7 (UCI "LMPImproving"): move-count pruning SF-style (base + d^2*quad/100)
 // / (2 - improving), SENZA il cap depth<=8 della lmp_table (oggi oltre d8
@@ -337,40 +272,9 @@ int g_nmp_verif_depth = 1; // spin "NMPVerifDepth" (SPSA) // spin "NMPVerifDepth
 // copiate.
 static bool g_lmp_improving = true;
 void set_lmp_improving(bool v) { g_lmp_improving = v; }
-// ⭐ LMPCheckGuard (2026-07-18, da scan Reckless v0.9.0+): la LMP pota le quiet
-// per move-count SENZA guardare se danno SCACCO. Reckless 5e5443d ("Guard LMP
-// for moves that give check") vale +9.46 Elo LTC = il singolo patch piu' grosso
-// del loro scan; la stessa famiglia (guard di pruning) aggrega ~+35. Noi il
-// guard ce l'abbiamo GIA' sulla LMR (:4649, :4790) ma NON sulla LMP. Costo:
-// quando il guard e' ON non si puo' piu' fare skip dell'intero stage quiet (una
-// quiet tardiva puo' dare scacco) -> si testa mossa per mossa. Default OFF =
-// byte-identico.
-static bool g_lmp_check_guard = false;
 int g_lmp_base = 16;  // spin "LMPBase"
-int g_lmp_quad = 141; // [M20 138->141] spin "LMPQuad" (/100: 100 = d^2 pieno)
+int g_lmp_quad = 145; // [PR1 141->145] [M20 138->141] spin "LMPQuad" (/100: 100 = d^2 pieno)
 
-// P1.9 (spin "CheckExtDepth"): gate sulla check-extension incondizionata.
-// ✅ BAKATO A 0 (2026-07-19) = estensione da scacco DISATTIVATA, come SF (che
-// non ha
-//    alcuna check-extension: solo le singolari — verificato su search.cpp
-//    master). SPRT `CheckExtDepth=0` vs 30: **+7.98 +/- 8.14 Elo, nElo +16.43,
-//    LOS 97.3%, 1654 partite
-//    @30+0.3** (c3-88, conc 80, hash 128, UHO_4060_v4, stesso binario A/B).
-//    Segno stabile e positivo da ~1000 partite. Misurato a TC LUNGO, dove oggi
-//    abbiamo imparato che i risultati reggono (la singular brillava a STC e
-//    affondava a LTC: vedi g_singular_exact_margin). EFFETTO ALBERO —
-//    attenzione, il bench INGANNA su questa patch:
-//      bench 8 posizioni d18: -80.8%  <- MA l'80% e' UNA sola posizione (finale
-//      di promozioni) posizioni del LIBRO UHO d18:   -11.5%   d22: -7.0%   <-
-//      il risparmio VERO in partita finale promozioni d18: 9.148.851
-//      -> 1.062.876 (-88%), da 38x a 4.5x su SF18
-//    ⚠️ I valori INTERMEDI sono peggiori di entrambi gli estremi (su
-//    Kiwipete d22: 30 -> 2.33M, 8 -> 2.56M, 4 -> 4.59M (+97%!), 0 -> 1.96M):
-//    estendere solo sotto una soglia crea profondita' incoerenti che fanno
-//    saltare le corrispondenze in TT. La scelta e' BINARIA, niente da tunare.
-//    Il vecchio comportamento si riottiene con CheckExtDepth=30 (o qualunque
-//    valore >= depth max).
-int g_check_ext_depth = 0;
 
 // N1 (UCI "EvalCacheUndamp", default ON): eval-cache con chiave senza fifty e
 // valore undamped (vedi td_evaluate). Piu' hit nei finali; OFF = legacy.
@@ -385,8 +289,6 @@ static bool g_evalcache_undamp = true;
 // Con il tag, un hit con optimism diverso diventa un miss e si ricalcola.
 // ⚠️ E' un tradeoff: meno hit (piu' forward NNUE, che e' il 52% del wall) contro eval
 // corrette. Per questo e' un toggle e non una correzione secca.
-static bool g_evalcache_opt_split = false;
-void set_evalcache_opt_split(bool v) { g_evalcache_opt_split = v; }
 void set_evalcache_undamp(bool v) { g_evalcache_undamp = v; }
 
 // N2 (UCI "ProbCutTT", default ON): il fail-high di ProbCut viene SALVATO in TT
@@ -479,66 +381,10 @@ void set_corr_cont(bool v) { g_corr_cont = v; }
 int g_corr_cont_weight =
     77;   // [MOE1 85->77, 30/09/2026] BAKED 6/08/2026 col blocco corrections (SPSA TC30 + SPRT +2,65) // /100 del contributo cont alla somma corr. Spin CorrContWeight.
 
-// Non-pawn correction history PER-LATO (port Pawnocchio/SF
-// nonPawnCorrectionHistory, 2026-07-03). Due tabelle extra, chiave = Zobrist
-// dei NON-pedoni di UN SOLO colore (re incluso): traccia l'errore-eval della
-// configurazione bianca SEPARATAMENTE da quella nera (le esistenti minor/major
-// mescolano i due colori in una chiave sola). Era una delle DUE uniche tecniche
-// dei rivali studiati assenti da noi (l'altra, HindsightExt, ha pagato +12.7).
-// Default OFF = byte-identico; A/B via UCI CorrNonPawn, contributo pesato /100
-// via CorrNonPawnWeight (co-tunabile).
-static bool g_corr_nonpawn = false;
-void set_corr_nonpawn(bool v) { g_corr_nonpawn = v; }
 int g_corr_np_weight = 100; // /100 sul contributo delle due tabelle non-pawn
 
-// CorrMaterial (SF #5556 "Material Correction History", default OFF): tavola corr
-// indicizzata dalla MATERIAL KEY (hash dei CONTEGGI di pezzo, non posizioni) ->
-// generalizza su tutte le posizioni con lo stesso materiale. Segnale nuovo vs
-// pawn/minor/major/nonpawn (che sono keyed per POSIZIONE): l'errore di eval nei
-// finali/fortezze e' caratteristico del MATERIALE. SF: +Elo STC e LTC (bench
-// 1460966). Mira dritto al nostro buco promozioni-endgame (38x nodi vs SF).
-// SBAKATA 2026-07-25. Era stata bakata il 24/07 dentro il bundle lean (+10.43
-// Elo) misurato a **10+0.1**, con la conferma a TC lungo segnata "in corso" e mai
-// registrata. Rifatta a **20+0.2**: il bundle intero misura **-6.89 +/- 9.01,
-// LOS 6.70%, 1514 partite** = segno ROVESCIATO. Stesso profilo di MalusQuad
-// (+10.31 @10+0.1 -> -4.74 @20+0.2, famiglia poi chiusa): a TC corto questa
-// classe di patch e' inflazionata. Fra i tre membri del bundle e' il piu' debole
-// in isolamento (piatta @1290g, poi -3.17 LOS 30%) ed e' anche quello con il
-// movente peggiore: la correzione da materiale e' informazione che la RETE ha
-// gia'. Gli altri due restano ON (GoodCapHistDiv=32, QsStalemateCheck).
-// BAKED ON il 6/08/2026 (mattina): blocco corrections tarato via SPSA a TC 30+0.3 e poi
-// gate SPRT SUPERATO: +2,65 +/- 2,14 su 30.530 partite @30+0.3, LOS 99,25%, LLR 2,96.
-// A TC CORTO la stessa configurazione perdeva: -11,38 +/- 10,09 @2016g a 15+0.15.
-// Accenderlo costa +11,5% di albero (bench 225.898 -> 251.855) = ~8,8 Elo di debito.
-//
-// 🔴 SBAKATA il 6/08/2026 (pomeriggio). Il gate da 30.530 partite NON misurava
-// CorrMaterial: muoveva TRE cose insieme — material off->on, cont 100->85, cap 50->48 —
-// quindi il +2,65 e' del BLOCCO, e puo' venire tutto dalla ritaratura cont/cap. Isolata
-// non era mai stata misurata, ne' li' ne' altrove.
-// Misura ISOLATA (cont 85 e cap 48 IDENTICI sui due lati, cambia solo CorrMaterial):
-//     -18,49 +/- 11,43 Elo, LOS 0,07%, PairsRatio 0,67, 1298 partite @20+0.2.
-// Un secondo run a 40+0.4 e' stato interrotto a 598 partite (-6,97 +/- 15,69): resta
-// INCONCLUSO, la banda non separa nulla. La decisione si regge sul punto a 20+0.2.
-// ⇒ Serviva una prova positiva per giustificare l'11,5% di albero, e non esiste.
-//    Spegnerla non e' una scommessa: toglie un meccanismo non dimostrato e restituisce
-//    i nodi. Il movente era gia' il piu' debole del blocco (la correzione da materiale
-//    e' informazione che la RETE ha gia').
-// ⚠️ `cont 85 / cap 48` restano quelli co-tunati da SPSA CON material acceso. Il test
-//    dice "OFF@85/48 batte ON@85/48", NON dice quale sia il miglior OFF: i default
-//    pre-blocco erano 100 / 50, e il confronto OFF@85/48 vs OFF@100/50 non e' stato
-//    fatto. In coda, non urgente.
-static bool g_corr_material = false;
 int g_corr_material_weight = 67; // /100 sul contributo della tabella material
 
-// TransCorr (audit 8.0, piano F §2, 25/09/2026; idea di Cinder, in Coda 0.9.4 con peso 108/194
-// rispetto alla continuation, _reference/Coda/src/search.rs:409). Tavola corr indicizzata da
-// hash(padre) ^ hash(nodo): la mossa di ingresso NEL SUO CONTESTO (pezzo, case, catturato,
-// diritti, e.p.), piu' ricca della cont_corr che vede solo [pezzo][casa]. Impara "questo
-// cambiamento strutturale tende a essere valutato male". Il valore e' il peso /100 del
-// contributo; 0 = spenta, tavola mai letta ne' scritta = byte-identico (bench 240500).
-// ⚠️ Stessa famiglia di CorrMaterial: a TC corto le patch di correzione si gonfiano (vedi
-// sopra, +10 @10+0.1 -> -7 @20+0.2). Va misurata a 20+0.2 o piu'.
-int g_corr_trans_weight = 0;
 
 // PawnHistory (UCI "PawnHistory", default OFF = byte-identico). Termine di
 // ordering per i quiet, pesato 2x come in SF, keyed sulla struttura pedonale.
@@ -566,7 +412,7 @@ int g_conthist_weight =
 // Scala % della soglia LMP (late-move-pruning). Default 100 = invariato. <100
 // pota prima (albero più stretto), >100 pota dopo. Co-tune: si ri-equilibra con
 // l'ordering nuovo.
-int g_lmp_scale = 35; // [3.7 BAKE 93->116]
+int g_lmp_scale = 38; // [PR1 35->38] [3.7 BAKE 93->116]
 // Forward-decl: td_corr_index (pawn-only Zobrist bucket) e' definita piu'
 // sotto, ma serve qui sopra in td_score_move per la pawn-key.
 static inline int td_corr_index(ThreadData &td);
@@ -600,20 +446,6 @@ void set_probcut(bool v) { g_probcut = v; }
 static bool g_cont_hist_prune = false; // BAKED OFF 2026-09-26 (ablazione A4); era true (provvisorio)
 void set_cont_hist_prune(bool v) { g_cont_hist_prune = v; }
 
-// Multi-ply continuation history on/off (UCI option "ContHistMulti"). Default
-// OFF. When ON, move ordering and the cutoff history updates also use the move
-// 2 and 4 plies back (not just 1 ply), giving longer-range "this reply works
-// after that sequence" signal. Tables persist like the 1-ply continuation
-// history.
-static bool g_conthist_multi =
-    false; // BAKED OFF 10/09/2026. Il bake ON del 05/06 poggiava su +6,2 LOS 87,6% su 1.338
-           // partite. Rimisurato con SPRT [-3,1] su 36.620 partite a 10+0.1: spegnerlo vale
-           // +0,76 +- 1,89, H1 accettata. Stockfish usa gli stessi piani 2 e 4, quindi non e'
-           // che non servano: e' la NOSTRA versione che non rende, probabilmente perche' i
-           // pesi tarati attorno a loro ne hanno assorbito il contributo. Spento toglie
-           // lettura e aggiornamento di cont_hist_2/cont_hist_4: due tabelle da 1,125 MB e
-           // due letture casuali per mossa segnata.
-void set_conthist_multi(bool v) { g_conthist_multi = v; }
 
 // Staged MovePicker on/off (UCI option "MovePicker"). ADOPTED, default ON:
 // validated +16.6 Elo (LOS 96.6% @900 games, 5+0.1, vs the legacy path) once
@@ -674,13 +506,6 @@ int g_diverse_smp_fine = 96;
 static bool g_multicut =
     true; // BAKED ON: conservative singular multi-cut (+10.4 Elo @1100)
 void set_multicut(bool v) { g_multicut = v; }
-// ⭐ MulticutTTMalus (2026-07-20, port SF a47a1c1804, verde a STC+LTC+VLTC-SMP —
-// raro). Quando il multicut scatta, la ricerca di esclusione (SENZA la ttMove)
-// ha fallito alto DA SOLA: la posizione e' vinta anche senza la mossa che la TT
-// dichiarava migliore -> la ttMove non era poi cosi' speciale. Malus alla sua
-// history, cosi' le prossime iterazioni la estendono/ordinano meno in alto.
-// Default OFF = byte-identico (il ramo multicut gia' esistente e' invariato).
-static bool g_multicut_ttmalus = false;
 int g_multicut_ttmalus_scale =
     100; // % di td_stat_bonus(depth), come le altre scale malus/bonus
 // ⭐ MulticutCorr (16/08/2026, port SF 218c74ec — l'idea e' di PlentyChess). Quando

@@ -1,15 +1,3 @@
-// search/03_params_study.inc -- Switch di studio, set_search_param e setter UCI.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, nell'ordine
-// fissato li' (divisione del 27/09/2026, codice generato identico: vedi l'intestazione di threads.cpp).
-// ============================================================================
-// Switch di studio 2026-09-07 (tutti default = comportamento storico, bench
-// 279691 byte-identico). Uno per ipotesi, per SPRT separati. Vedi
-// STUDY_PLAN_7.0_2026-09-07.md §2.
-// ============================================================================
-// TTCutDepthOverride (SF step 6 `|| depth > 4`): il cutoff TT incoerente col tipo
-// di nodo (bound fail-high a un all-node o viceversa) viene comunque accettato
-// sopra questa profondita'. 0 = mai (storico).
-int g_ttcut_depth_override = 0;
 // TTFailLowMove: 1 = storico, lo store di un nodo fail-low porta la "migliore
 // delle fallite" come TT move. 0 = come SF: nessuna mossa sui bound UPPER
 // (TTMoveKeep conserva quella gia' presente per la stessa posizione).
@@ -19,26 +7,6 @@ int g_tt_faillow_move = 1;
 int g_ttpv_inherit = 0;
 // NMPCutNodeOnly (SF step 10 `cutNode &&`): null move solo ai cut-node.
 int g_nmp_cutnode_only = 0;
-// IIRNoAllNode (SF step 11 `!allNode`): niente IIR ai nodi ALL (ne' PV ne' cut).
-// I quattro switch qui sotto (IIRNoAllNode, ProbCutTTAll, CorrFailLowAll e
-// NMPVerifDepth) sono stati misurati insieme a 10+0.1 hash 64 su 11.207 partite:
-// il lato con gli switch accesi fa 49,23% contro 50,77%, cioe' **perdono ~5 Elo**.
-// Restano dichiarati per poterli riprovare singolarmente, spenti di default.
-// 📌 Convenzione di misura: fastchess riporta Elo/Points/LOS del PRIMO motore
-// elencato. `_rig_locale/run.sh` mette `test` per primo, quindi Elo positivo =
-// la patch guadagna. Se si legge un run vecchio, controllare l'ordine nel README.
-int g_iir_no_allnode = 0;
-// ProbCutTTAll (SF step 13): il probcut da TT (bound LOWER, depth >= depth-4,
-// score >= beta+margine) vale 1 = anche fuori scacco, 2 = anche con TT move
-// non-cattura, 3 = anche ai nodi PV. 0 = solo in scacco (storico).
-int g_probcut_tt_all = 0;
-// RFPTTMoveGate (SF step 9 `(!ttData.move || ttCapture)`): niente RFP quando la
-// TT move e' una quiet.
-int g_rfp_ttmove_gate = 0;
-// CorrFailLowAll (SF step 24): ai nodi fail-low la correction history si aggiorna
-// SEMPRE (SF non ha best move su un fail-low, quindi il gate "best quiet" non
-// esiste); 2 = anche col peso 18/12 di SF sui fail-low.
-int g_corr_faillow_all = 0;
 // AlphaDepthDecAmt (SF step 22 `depth -= 3` per 3 < depth < 12): quanto ridurre la
 // depth delle mosse restanti quando una mossa alza alpha. 1 = storico.
 // ⭐ BAKATO 08/09/2026 (run s10_alphadepthdec3): +8,64 ± 3,39 su 12.022 partite,
@@ -65,10 +33,6 @@ int g_lmr_alpha_hi = 96;  // clamp superiore
 // Paghiamo il costo e la LMR la ignora. Coefficiente SEPARATO (non dentro
 // sscore) per due motivi: 0 resta byte-identico, e SPSA puo' pesare la 4-ply
 // senza dover muovere LMRFSS, che governa main+cont1+cont2.
-int g_lmrf_cont4 =
-    0; // peso della conthist a 4 ply nella LMR fine (1/4096, come LMRFSS)
-int g_lmr_expect =
-    0; // LMRExpect (spin, 0=OFF byte-identico): bonus EXTRA al termine
        // cutoffCnt quando il nodo e' ALL (ne' PV ne' cut) = "aspettativa
        // rispettata". Reckless usa +256/+384 nelle stesse unita' (1/1024 ply).
 // EvalOptimism (5.1): alimenta g_optimism (nnue_bridge) dalla root col contempt
@@ -112,14 +76,14 @@ int g_lmrdepth_prune = 1;
 // history/g_lmrdepth_histdiv. History buona -> prune_depth sale (mossa
 // protetta); scarsa -> scende (potata di piu'). E' il pezzo che mancava al port
 // monco (potava le tardive alla cieca -> bloat). SF div=6437.
-int g_lmrdepth_histdiv = 4509;
+int g_lmrdepth_histdiv = 4619; // [PR1 4509->4619]
 // SEE-pruning margins (ALSO the Phase-2 skip_bad_caps lever): a move is
 // SEE-pruned at low depth if SEE < -g_see_cap_margin*depth (captures) or <
 // -g_see_quiet_margin*depth*depth (quiets). Exposed so SPSA can tune them (UCI:
 // SEECaptureMargin / SEEQuietMargin).
-int g_see_cap_margin = 81; // REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
+int g_see_cap_margin = 74; // [PR1 81->74] REVERT 2026-07-23 (SPSA B1 evaporato @4452g)
 int g_see_quiet_margin = 104; // [M20 116->104] [3.7 BAKE 98->96; BAKED #1 era 50]
-int g_see_depth = 3; // gate profondita' del SEE pruning (alzare = potare piu'
+int g_see_depth = 2; // [PR1 3->2] gate profondita' del SEE pruning (alzare = potare piu'
                      // in profondita'). UCI SEEPruneDepth, tunabile.
 // BadCapSkipAfter (default 1 = byte-identico): quante bad capture SEE-potate
 // servono, IN QUESTO NODO, prima di spegnere l'intero stage MPS_BAD_TACTICAL.
@@ -149,13 +113,13 @@ int g_badcap_skip_after = 1;
 // le catture prune_depth==depth, quindi ON questo toggle non le tocca) — usarlo
 // al posto di depth chiude il gap di DOMINIO (non di costanti) segnalato da SF
 // Step 14.
-static bool g_see_lmr_depth = false;
+static bool g_see_lmr_depth = true; // [PR1 false->true]
 // Dedicated margin for the SEELmrDepth quiet path: g_see_quiet_margin is shared
 // with the always-on capped path (depth<=g_see_depth), so tuning it would also
 // perturb that default behavior. This one only feeds the prune_depth-based
 // quadratic when the toggle is ON -> SPSA can search it independently. Same
 // starting value as g_see_quiet_margin (185) until tuned.
-int g_see_lmr_quiet_margin = 193;
+int g_see_lmr_quiet_margin = 193; // [PR1 193->193]
 // Dedicated cap on prune_depth for the SEELmrDepth path (separate from
 // SEEPruneDepth, which still gates the raw-depth/capture path). Without ANY cap
 // we pay a real td_see_at_least() call for every quiet move at every
@@ -164,19 +128,6 @@ int g_see_lmr_quiet_margin = 193;
 // is practically unbounded (prune_depth rarely reaches it), matching the tested
 // no-cap behavior; SPSA can search LOWER values to trade reach for NPS.
 int g_see_lmr_prune_cap = 27;
-// S-05 forma LINEARE (2026-07-12, default OFF): il margine quiet del path
-// SEELmr e' oggi quadratico (-coef*prune_depth^2), come il path di default. Il
-// vecchio SPSA S-05 si e' hard-stoppato a 178/300 con gradiente PIATTO:
-// l'ipotesi e' che il quadrato saturi il margine cosi' in fretta da rendere il
-// coefficiente quasi indistinguibile per SPSA (a prune_depth 3 gia'
-// -185*9=-1665, praticamente mai raggiungibile -> il gradiente non vede il
-// coef). La forma lineare -coef*prune_depth cresce piano -> il coef resta
-// nell'intervallo utile a piu' profondita' -> gradiente piu' pulito, e potatura
-// meno aggressiva alle prune_depth alte. Quando g_see_lmr_linear e' ON il path
-// SEELmr usa -g_see_lmr_linear_coef*prune_depth al posto del quadrato. Attiva
-// il path da solo (non serve anche SEELmrDepth). coef alto = soglia piu'
-// negativa = pota MENO (albero piu' grande).
-static bool g_see_lmr_linear = false;
 int g_see_lmr_linear_coef = 368; // center; gate 2-3 valori lato laptop
 // MultiPV (analisi, stile Stockfish, 2026-07-13): quante varianti di root
 // riportare. 1 = gioco normale, flusso INVARIATO (gate: bench identico). >1:
@@ -194,14 +145,6 @@ static int g_multipv = 1;
 // [1011790-1106739] vs ON 1081343 [1048327-1113268], range quasi disgiunti).
 // BAKED ON di default (option resta per un'eventuale ablazione A/B).
 static bool g_tt_prefetch = true;
-// GoodCapTTQuiet (Reckless 0.10.0 #1107, default OFF): se la TT-move del nodo
-// e' QUIET, la mossa migliore nota non e' una cattura -> per essere ordinata
-// "good" una cattura deve VINCERE materiale netto (SEE >= +1; le pari scendono
-// tra le bad). Reckless: +1.48 +-1.98 @30k games -> micro-gain, candidato
-// co-tune, da gatare ad alto N. (La loro condizione extra noisy_count>2 e' un
-// artefatto del loro picker a stadi; qui si usa la sola condizione
-// tt-move-quiet.)
-static bool g_goodcap_ttquiet = false;
 // UCI_ShowWDL (analisi): quando ON, le info-line riportano " wdl W D L"
 // (permille, stm-relative, somma 1000) accanto allo score. Modello logistico a
 // un parametro ancorato al punto di calibrazione (NORM_CP=449 intrinseco = +100cp
@@ -262,10 +205,6 @@ bool set_search_param(const char *name, int value) {
     g_see_lmr_prune_cap = value < 1 ? 1 : value;
     return true;
   }
-  if (!strcmp(name, "SEELmrLinear")) {
-    g_see_lmr_linear = value != 0;
-    return true;
-  }
   if (!strcmp(name, "SEELmrLinearCoef")) {
     g_see_lmr_linear_coef = value < 1 ? 1 : value;
     return true;
@@ -280,10 +219,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "TTPrefetch")) {
     g_tt_prefetch = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "GoodCapTTQuiet")) {
-    g_goodcap_ttquiet = value != 0;
     return true;
   }
   if (!strcmp(name, "QsStalemateCheck")) {
@@ -318,24 +253,12 @@ bool set_search_param(const char *name, int value) {
     g_cu_cap = value < 1 ? 1 : value;
     return true;
   }
-  if (!strcmp(name, "BrilliantSac")) {
-    g_brilliant_sac = value != 0;
-    return true;
-  }
   if (!strcmp(name, "BrilliantSacMargin")) {
     g_brilliant_sac_margin = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "BrilliantSacLMR")) {
-    g_brilliant_sac_lmr = value != 0;
-    return true;
-  }
   if (!strcmp(name, "BrilliantSacLMRAmt")) {
     g_brilliant_sac_lmr_amt = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "TroubleMaking")) {
-    g_trouble = value != 0;
     return true;
   }
   if (!strcmp(name, "TroubleScore")) {
@@ -366,10 +289,6 @@ bool set_search_param(const char *name, int value) {
     g_asp_init_delta = value;
     return true;
   }
-  if (!strcmp(name, "AspStableShrink")) {
-    g_asp_stable_shrink = value != 0;
-    return true;
-  }
   if (!strcmp(name, "AspStableCap")) {
     g_asp_stable_cap = value < 0 ? 0 : value;
     return true;
@@ -382,10 +301,6 @@ bool set_search_param(const char *name, int value) {
     g_asp_score_mult = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "CMHCPly1")) {
-    g_cmhc_ply1 = value != 0;
-    return true;
-  }
   if (!strcmp(name, "Rule50Formula")) {
     g_rule50_formula = value != 0;
     return true;
@@ -394,36 +309,8 @@ bool set_search_param(const char *name, int value) {
     g_corr_tb_guard = value != 0;
     return true;
   }
-  if (!strcmp(name, "PrevRefuteMalus")) {
-    g_prev_refute_malus = value < 0 ? 0 : (value > 200 ? 200 : value);
-    return true;
-  }
-  if (!strcmp(name, "ProbCutAdj")) {
-    g_probcut_adj = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "RFPNoTTPv")) {
-    g_rfp_no_ttpv = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "PruneNPMGate")) {
-    g_prune_npm_gate = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "FutFailSoft")) {
-    g_fut_fail_soft = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "FHBlend")) {
-    g_fh_blend = value != 0;
-    return true;
-  }
   if (!strcmp(name, "ExclPruneGate")) {
     g_excl_prune_gate = value < 0 ? 0 : (value > 2 ? 2 : value);
-    return true;
-  }
-  if (!strcmp(name, "NegExtOrder")) {
-    g_negext_order = value != 0;
     return true;
   }
   if (!strcmp(name, "CapturedMailbox")) {
@@ -440,14 +327,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "RFPBadNode")) {
     g_rfp_badnode = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "FutSpareQuiet")) {
-    g_fut_spare_quiet = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "QSDeltaBestCase")) {
-    g_qs_delta_bestcase = value != 0;
     return true;
   }
   if (!strcmp(name, "QSBCMargin")) {
@@ -482,16 +361,8 @@ bool set_search_param(const char *name, int value) {
     g_corr_np_weight = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "CorrMaterial")) {
-    g_corr_material = value != 0;
-    return true;
-  }
   if (!strcmp(name, "CorrMaterialWeight")) {
     g_corr_material_weight = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "TransCorr")) {
-    g_corr_trans_weight = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "ContHistDiv")) {
@@ -578,10 +449,6 @@ bool set_search_param(const char *name, int value) {
     g_negext_cut = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "CutNodeProp")) {
-    g_cutnode_prop = value != 0;
-    return true;
-  }
   if (!strcmp(name, "LMRNegative")) {
     g_lmr_negative = value != 0;
     return true;
@@ -626,10 +493,6 @@ bool set_search_param(const char *name, int value) {
     g_iir_amount = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "IIRNotInCheck")) {
-    g_iir_not_in_check = value != 0;
-    return true;
-  }
   if (!strcmp(name, "ProbCutMinDepth")) {
     g_probcut_min_depth = value < 1 ? 1 : value;
     return true;
@@ -654,36 +517,8 @@ bool set_search_param(const char *name, int value) {
     g_malus_scale_coef = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "MalusQuad")) {
-    g_malus_quad = value != 0;
-    return true;
-  }
   if (!strcmp(name, "MalusQuadCoef")) {
     g_malus_quad_coef = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "RazorTTQuiet")) {
-    g_razor_ttquiet = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "RazorTTLower")) {
-    g_razor_ttlower = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "SingularExactMargin")) {
-    g_singular_exact_margin = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "SingularExactDecouple")) {
-    g_singular_exact_decouple = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "SingularExactMaxDepth")) {
-    g_singular_exact_maxdepth = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "DoDeeper")) {
-    g_do_deeper = value != 0;
     return true;
   }
   if (!strcmp(name, "DoDeeperBase")) {
@@ -696,10 +531,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "HindsightMargin")) {
     g_hindsight_margin = value < 1 ? 1 : value;
-    return true;
-  }
-  if (!strcmp(name, "HindsightRed")) {
-    g_hindsight_red = value != 0;
     return true;
   }
   if (!strcmp(name, "HindsightRedMargin")) {
@@ -740,10 +571,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "RazorDepth")) {
     g_razor_depth_cap = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "IID")) {
-    g_iid = value != 0;
     return true;
   }
   if (!strcmp(name, "IIDDepth")) {
@@ -798,19 +625,10 @@ bool set_search_param(const char *name, int value) {
     g_lmrf_evalcut = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "TTCutDepthOverride")) { g_ttcut_depth_override = value < 0 ? 0 : value; return true; }
   if (!strcmp(name, "TTFailLowMove")) { g_tt_faillow_move = value != 0; return true; }
   if (!strcmp(name, "TTPvInherit")) { g_ttpv_inherit = value != 0; return true; }
   if (!strcmp(name, "NMPCutNodeOnly")) { g_nmp_cutnode_only = value != 0; return true; }
-  if (!strcmp(name, "IIRNoAllNode")) { g_iir_no_allnode = value != 0; return true; }
-  if (!strcmp(name, "ProbCutTTAll")) { g_probcut_tt_all = value < 0 ? 0 : (value > 3 ? 3 : value); return true; }
-  if (!strcmp(name, "RFPTTMoveGate")) { g_rfp_ttmove_gate = value != 0; return true; }
-  if (!strcmp(name, "CorrFailLowAll")) { g_corr_faillow_all = value < 0 ? 0 : (value > 2 ? 2 : value); return true; }
   if (!strcmp(name, "AlphaDepthDecAmt")) { g_alpha_depth_dec_amt = value < 1 ? 1 : (value > 6 ? 6 : value); return true; }
-  if (!strcmp(name, "LmrAlphaGap")) {
-    g_lmr_alpha_gap = value < 0 ? 0 : value;
-    return true;
-  }
   if (!strcmp(name, "LmrAlphaLo")) {
     g_lmr_alpha_lo = value < 0 ? 0 : value;
     return true;
@@ -821,14 +639,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "LMRFCutoff")) {
     g_lmrf_cutoff = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "LMRFCont4")) {
-    g_lmrf_cont4 = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "LMRExpect")) {
-    g_lmr_expect = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "OptPerThread")) {
@@ -903,6 +713,14 @@ bool set_search_param(const char *name, int value) {
     g_lmr_cap_scale = value < 0 ? 0 : value;
     return true;
   }
+  if (!strcmp(name, "LMRCheckDisc")) { g_lmr_check_disc = value < 0 ? 0 : value; return true; }
+  if (!strcmp(name, "LMRCapHistDiv")) { g_lmr_cap_hist_div = value < 0 ? 0 : value; return true; }
+  if (!strcmp(name, "PruneSFDepth")) { g_prune_sf_depth = value != 0; return true; }
+  if (!strcmp(name, "PruneSFTtPv")) { g_prune_sf_ttpv = value; return true; }
+  if (!strcmp(name, "PruneSFExtra")) { g_prune_sf_extra = value; return true; }
+  if (!strcmp(name, "PruneNegDepth")) { g_prune_neg_depth = value != 0; return true; }
+  if (!strcmp(name, "FutPVNodes")) { g_fut_pv_nodes = value != 0; return true; }
+  if (!strcmp(name, "FutStaticEval")) { g_fut_static_eval = value != 0; return true; }
   if (!strcmp(name, "LMRCheckExempt")) {
     g_lmr_check_exempt = value < 0 ? 0 : (value > 2 ? 2 : value);
     return true;
@@ -927,10 +745,6 @@ bool set_search_param(const char *name, int value) {
     g_tm_drop_div = value < 1 ? 1 : value;
     return true;
   }
-  if (!strcmp(name, "TMStability")) {
-    g_tm_stability = value != 0;
-    return true;
-  }
   if (!strcmp(name, "RootMateRestore")) {
     g_root_mate_restore = value != 0;
     return true;
@@ -941,10 +755,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "TTDecisiveClamp")) {
     g_tt_decisive_clamp = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "TTSecondaryAge")) {
-    g_tt_secondary_age = value != 0;
     return true;
   }
   if (!strcmp(name, "SEEStalemateGuard")) {
@@ -1003,10 +813,6 @@ bool set_search_param(const char *name, int value) {
     g_lmrf_killer = value < 0 ? 0 : value;
     return true;
   } // Q-19b
-  if (!strcmp(name, "RecaptureExt")) {
-    g_recapture_ext = value != 0;
-    return true;
-  }
   if (!strcmp(name, "RecaptureTension")) {
     g_recapture_tension = value < 0 ? 0 : value;
     return true;
@@ -1118,10 +924,6 @@ bool set_search_param(const char *name, int value) {
       g_tm_pred_hash = 0;
     return true;
   }
-  if (!strcmp(name, "TMPredBestThread")) {
-    g_tm_pred_best_thread = value != 0;
-    return true;
-  }
   if (!strcmp(name, "TMv2PredHit")) {
     g_tmv2_pred_hit = value < 100 ? 100 : value;
     return true;
@@ -1174,20 +976,12 @@ bool set_search_param(const char *name, int value) {
     g_nmp_verif_depth = value < 1 ? 1 : value;
     return true;
   }
-  if (!strcmp(name, "LMPCheckGuard")) {
-    g_lmp_check_guard = value != 0;
-    return true;
-  }
   if (!strcmp(name, "LMPBase")) {
     g_lmp_base = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "LMPQuad")) {
     g_lmp_quad = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "CheckExtDepth")) {
-    g_check_ext_depth = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "LMRStatScoreDiv")) {
@@ -1237,14 +1031,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "CheckBonus")) {
     g_check_bonus = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "QuietOffense")) {
-    g_quiet_offense = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "OffenseBonus")) {
-    g_offense_bonus = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "WallPawnPenalty")) {
@@ -1381,20 +1167,12 @@ bool set_search_param(const char *name, int value) {
     g_ttcut_fifty = value < 1 ? 1 : value;
     return true;
   }
-  if (!strcmp(name, "TTCutMalus")) {
-    g_ttcut_malus = value != 0;
-    return true;
-  }
   if (!strcmp(name, "TTCutMalusSeen")) {
     g_ttcut_malus_seen = value < 0 ? 0 : value;
     return true;
   }
   if (!strcmp(name, "GoodCapHistDiv")) {
     g_goodcap_hist_div = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "AspAvg")) {
-    g_asp_avg = value != 0;
     return true;
   }
   if (!strcmp(name, "AspFHRed")) {
@@ -1433,10 +1211,6 @@ bool set_search_param(const char *name, int value) {
     g_nmp_sm_bias = value;
     return true;
   }
-  if (!strcmp(name, "NMPTTNoisy")) {
-    g_nmp_ttnoisy = value != 0;
-    return true;
-  }
   if (!strcmp(name, "AlphaDepthDec")) {
     g_alpha_depth_dec = value != 0;
     return true;
@@ -1445,16 +1219,8 @@ bool set_search_param(const char *name, int value) {
     g_fhboost_margin = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "HistTrivGuard")) {
-    g_hist_triv_guard = value != 0;
-    return true;
-  }
   if (!strcmp(name, "MalusPct")) {
     g_malus_pct = value < 10 ? 10 : value;
-    return true;
-  }
-  if (!strcmp(name, "EasyCapGate")) {
-    g_easycap_gate = value != 0;
     return true;
   }
   if (!strcmp(name, "RFPHistThresh")) {
@@ -1473,24 +1239,12 @@ bool set_search_param(const char *name, int value) {
     g_qs_move_cap = value < 0 ? 0 : value;
     return true;
   }
-  if (!strcmp(name, "QSCapRecap")) {
-    g_qs_cap_recap = value > 0 ? 1 : 0;
-    return true;
-  }
-  if (!strcmp(name, "QSDrawCheck")) {
-    g_qs_draw_check = value != 0;
-    return true;
-  }
   if (!strcmp(name, "EPKeyFix")) {
     g_ep_key_fix = value != 0;
     return true;
   }
   if (!strcmp(name, "CutoffStats")) {
     g_cutoff_stats = value != 0;
-    return true;
-  }
-  if (!strcmp(name, "EvalTTWrite")) {
-    g_eval_tt_write = value != 0;
     return true;
   }
   if (!strcmp(name, "TTTwoLevel")) {
@@ -1597,10 +1351,6 @@ bool set_search_param(const char *name, int value) {
   }
   if (!strcmp(name, "MulticutCorrScale")) {
     g_multicut_corr_scale = value < 0 ? 0 : value;
-    return true;
-  }
-  if (!strcmp(name, "MulticutTTMalus")) {
-    g_multicut_ttmalus = value != 0;
     return true;
   }
   if (!strcmp(name, "MulticutTTMalusScale")) {

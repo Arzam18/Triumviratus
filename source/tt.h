@@ -126,7 +126,6 @@ extern int current_age;
 // the original direct-mapped (1-way) table for a clean A/B. When on, each index
 // maps to a bucket of 4 consecutive entries; probe scans the bucket, store picks
 // an age-aware victim (prefer empty -> oldest -> shallowest).
-extern bool g_tt_4way;
 
 // 5.1: TT "two-level" (UCI "TTTwoLevel") — schema #1 nei paper (Maastricht): ogni
 // indice = bucket di 2 slot, slot0 = DEPTH-PREFERRED (tieni le entry profonde),
@@ -140,7 +139,6 @@ extern bool g_tt_twolevel;
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
-extern bool g_tt_secondary_age;   // TTSecondaryAge (R-01): decisive non-EXACT depth>=5 invecchiano piu' in fretta nel replacement
 
 // P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
 // dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
@@ -304,7 +302,7 @@ inline tt_entry* tt_victim(U64 key) {
         if (e->kw == 0 && e->data == 0) return e;
         int rel_age = (current_age - unpack_age(e->data)) & 0x1F;
         int depth = unpack_depth(e->data);
-        if (g_tt_secondary_age && depth >= 5 && unpack_flag(e->data) != hash_flag_exact) {
+        if (false && depth >= 5 && unpack_flag(e->data) != hash_flag_exact) {
             int sc = unpack_score(e->data);
             if (sc > 30000 || sc < -30000) depth -= 8;
         }
@@ -384,7 +382,6 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
     entry->kw   = w ^ new_data;
 }
 
-extern bool g_eval_tt_write;   // 5.1: cache static eval su MISS (SF search.cpp:830) -> NPS
 
 // Cache-only dello static eval su un MISS (EvalTTWrite, default OFF): entry flag_none
 // nello slot vittima naturale, cosi' lo store reale la ritrova e la aggiorna in place.
