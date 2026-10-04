@@ -202,15 +202,14 @@ static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
 static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   td.repetition_table[++td.repetition_index] = td.hash_key;
   td.ply++;
-  // Ogni chiamante ha gia' deciso la legalita' con legal_before; l'arrocco del 960 resta alla make.
-  // -DTRIUMV_VERIFY_LEGAL: la make rifa' il test e ogni disaccordo viene stampato (mossa illegale giocata).
-#ifdef TRIUMV_VERIFY_LEGAL
+  // ⛔ 04/10/2026 — TOLTA la "legalita' decisa una volta" (make con known_legal = true quando legal_before aveva
+  // deciso): nessun guadagno misurabile, e legal_before NON e' completo sotto scacco. Vale per una mossa pseudo-legale
+  // a re non sotto scacco o per una parata del generatore delle parate; la mossa hash, le killer e la contromossa
+  // passano solo dalla pseudo-legalita', e una di loro che non parava lo scacco veniva giocata. Il re si catturava al
+  // ply dopo e la posizione della rete restava senza re: crash in release (1 motore su 16 nel training PGO, 3 partite
+  // perse per disconnessione su 197 contro SF19). La verifica con -DTRIUMV_VERIFY_LEGAL su 3,9 milioni di nodi non
+  // l'aveva trovato. La make rifa' il test del re attaccato, come prima.
   if (!td_make_move(td, m, u)) {
-    printf("info string LEGALITA' SBAGLIATA: mossa %d ritenuta legale (hash %llx)\n", m, (unsigned long long)u.old_hash);
-    fflush(stdout);
-#else
-  if (!td_make_move(td, m, u, !(g_chess960 && get_move_castling(m)))) {
-#endif
     td.ply--;
     td.repetition_index--;
     return false;

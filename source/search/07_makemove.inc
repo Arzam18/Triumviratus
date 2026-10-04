@@ -296,10 +296,7 @@ static inline void td_mm_key_update(ThreadData &td, int piece, int source,
   }
 }
 
-// known_legal (04/10/2026): la ricerca decide la legalita' prima di muovere (legal_before, 12_quiesce.inc) e allora il
-// test "il nostro re e' sotto attacco?" qui sotto e' lavoro doppio (1,06 test di attacco per nodo nel profilo).
-// Gli altri chiamanti (perft, radice, validazioni) lo lasciano a false.
-static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool known_legal = false) {
+static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
   PROF_GUARD(prof_make);
   undo.old_castle = td.castle;
   undo.old_enpassant = td.enpassant;
@@ -424,8 +421,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   td.side ^= 1;
   td.hash_key ^= side_key;
 
-  if (!known_legal &&
-      td_is_square_attacked(td, get_ls1b_index((td.side == white) ? td.bitboards[k] : td.bitboards[K]), td.side)) {
+  if (td_is_square_attacked(td, get_ls1b_index((td.side == white) ? td.bitboards[k] : td.bitboards[K]), td.side)) {
     td.side ^= 1;
 
     if (promoted) {

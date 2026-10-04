@@ -605,8 +605,10 @@ section 16, 20+0.2: **+85.8 ± 12.8 Elo over 694 games**, LLR 3.09, accepted (H1
 **Speed.** On one core, same gcc toolchain, 30 UHO positions at 3 s each, alternating: Stockfish 19 searches
 **1.18×** our nodes per second (median; 1.06–1.28), down from 1.24, median depth 22 against 23. Both engines now
 count nodes the same way (moves made). Our profile: evaluation 47% of the time (89% of it in accumulator updates),
-search 38%. One duplicated legality test was removed (now decided before the move, verified on 3.9 million nodes
-with no disagreement), with no measurable speed change.
+search 38%. Removing one duplicated legality test (deciding legality once, before the move) gave no measurable
+speed change and was later withdrawn: the test before the move is incomplete when the king is in check, and a
+hash move that did not answer the check could be played. That crashed the engine in about one game in seventy; the
+make-move test is back, and the search tree is unchanged (bench 141196).
 
 A third of the accumulator refreshes came from captures that move the position into another phase of the network
 (another of Consilium's four experts), not from king moves. Those refreshes rebuilt the threat and pawn blocks too,
