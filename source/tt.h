@@ -152,7 +152,7 @@ extern bool g_large_pages;
 
 // External variables needed for compatibility functions
 extern U64 hash_key;
-extern U64 piece_keys[12][64];
+extern U64 piece_keys[16][64];
 extern U64 enpassant_keys[64];
 extern U64 castle_keys[16];
 extern U64 side_key;
@@ -283,12 +283,18 @@ inline U64 tt_base_index(U64 key) { return tt_mulhi64(key, hash_entries / TT_WAY
 inline int tt_ways() { return TT_WAYS; }
 
 // Slot del bucket che contiene questa posizione, o nullptr.
+// 04/10/2026 sera — le quattro vie si confrontano SENZA SALTI (maschera a 4 bit, poi un solo salto "trovata o no"):
+// il ciclo con uscita anticipata era mal predetto quasi a ogni lettura (xperf). A piu' vie uguali vince la prima,
+// come prima.
 inline tt_entry* tt_find(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
     const U64 tag = tt_tag(key);
-    for (int i = 0; i < TT_WAYS; i++)
-        if (((b[i].kw ^ b[i].data) >> 16) == tag && (b[i].kw | b[i].data)) return &b[i];
-    return nullptr;
+    unsigned found = 0;
+    for (int i = 0; i < TT_WAYS; i++) {
+        const U64 k = b[i].kw, d = b[i].data;
+        found |= (unsigned)((((k ^ d) >> 16) == tag) & ((k | d) != 0)) << i;
+    }
+    return found ? &b[get_ls1b_index(found)] : nullptr;
 }
 
 // Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 8*distanza d'eta'
@@ -312,23 +318,30 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
     PROF_GUARD(prof_tt);
     tt_entry* b = &hash_table[tt_base_index(hash_key)];
     const U64 tag = tt_tag(hash_key);
+    // Un solo snapshot delle due parole per via: la verifica e l'unpack leggono gli STESSI valori (niente torn read
+    // fra verifica e uso, cfr. BUG FIX 2026-07-16). 04/10/2026 sera: le quattro vie senza salti, come in tt_find.
+    U64 d[TT_WAYS], w[TT_WAYS];
+    unsigned found = 0;
     for (int i = 0; i < TT_WAYS; i++) {
+        const U64 k = b[i].kw;
+        d[i] = b[i].data;
+        w[i] = k ^ d[i];
+        found |= (unsigned)(((w[i] >> 16) == tag) & ((k | d[i]) != 0)) << i;
+    }
+    if (found) {
+        const int i = get_ls1b_index(found);
         tt_entry* entry = &b[i];
-        // Un solo snapshot delle due parole: la verifica e l'unpack leggono gli STESSI
-        // valori (niente torn read fra verifica e uso, cfr. BUG FIX 2026-07-16).
-        const U64 data = entry->data;
-        const U64 w    = entry->kw ^ data;
-        if ((w >> 16) != tag || (entry->kw | data) == 0) continue;
+        const U64 data = d[i];
         tt_move  = unpack_move(data);
         tt_score = unpack_score(data);
         tt_depth = unpack_depth(data);
         tt_flag  = unpack_flag(data);
-        tt_eval  = tt_unpack_eval16(w);
+        tt_eval  = tt_unpack_eval16(w[i]);
         is_pv    = (unpack_pv(data) != 0);
         if (g_tt_age_refresh && unpack_age(data) != current_age) {
             U64 new_data = (data & ~(0x1FULL << 58)) | ((U64)(current_age & 0x1F) << 58);
             entry->data = new_data;
-            entry->kw   = w ^ new_data;
+            entry->kw   = w[i] ^ new_data;
         }
         if (tt_flag == hash_flag_none) return false;   // entry eval-only (EvalTTWrite)
         return true;

@@ -5,10 +5,8 @@
 // MOVE GENERATION
 // ============================================================================
 
-// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati).
-// Riempita da init_cuckoo; usata dall'upcoming-repetition (P1.2) e dalle
-// evasioni (P2.3).
-static U64 between_tbl[64][64];
+// between_tbl (case strettamente tra due quadrati allineati) e' definita in 07_makemove.inc, che la usa per gli
+// scacchi di scoperta; riempita da init_cuckoo (10_order.inc), usata anche qui dalle evasioni (P2.3).
 
 // Bitboard degli attaccanti di `sq` del colore `by` (P2.3 EvasionGen).
 static inline U64 td_attackers_to(ThreadData &td, int sq, int by) {

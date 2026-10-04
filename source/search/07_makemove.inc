@@ -39,6 +39,11 @@ static inline int td_is_square_attacked(ThreadData &td, int square,
   return 0;
 }
 
+// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati). Riempita da init_cuckoo
+// (10_order.inc); usata qui (scacchi di scoperta), dalle evasioni (08_movegen.inc), dalla legalita' e
+// dall'upcoming-repetition.
+static U64 between_tbl[64][64];
+
 // ---------------------------------------------------------------------------
 // LMPCheckGuard: "questa quiet da' scacco?" calcolato PRIMA della make.
 // Il gives_check del motore (:4631+) vive DOPO la make; la LMP pota prima,
@@ -71,22 +76,21 @@ static inline void td_lmp_chk_init(ThreadData &td, LmpChkCtx &c) {
   // slider e il re nemico. Il re nemico NON e' sotto scacco (e' il nostro
   // tratto), quindi qualunque nostro R/Q (risp. B/Q) che compare togliendo lo
   // schermo e' per forza dietro di esso.
+  // 04/10/2026 sera — dai CECCHINI, non dai candidati: si parte dai nostri pezzi lunghi allineati col re nemico
+  // (attacchi su scacchiera vuota) e si guarda che cosa c'e' in mezzo: un solo pezzo, nostro, e' lo schermo. Stesso
+  // insieme di prima (il re nemico non e' sotto scacco, quindi ogni cecchino ha almeno un pezzo davanti), ma una
+  // lettura della tabella "in mezzo" per cecchino invece di una lettura PEXT per ogni nostro pezzo visto dal re.
   const U64 ours = td.occupancies[us];
   const U64 orq = td.bitboards[R + off] | td.bitboards[Q + off];
   const U64 obq = td.bitboards[B + off] | td.bitboards[Q + off];
-  U64 cand = c.chk[R] & ours;
-  while (cand) {
-    int s = get_ls1b_index(cand);
-    pop_bit(cand, s);
-    if (get_rook_attacks(eksq, occ ^ (1ULL << s)) & orq)
-      c.disc |= 1ULL << s;
-  }
-  cand = c.chk[B] & ours;
-  while (cand) {
-    int s = get_ls1b_index(cand);
-    pop_bit(cand, s);
-    if (get_bishop_attacks(eksq, occ ^ (1ULL << s)) & obq)
-      c.disc |= 1ULL << s;
+  c.disc = 0;
+  U64 snipers = (get_rook_attacks(eksq, 0) & orq) | (get_bishop_attacks(eksq, 0) & obq);
+  while (snipers) {
+    const int sn = get_ls1b_index(snipers);
+    const U64 between = between_tbl[eksq][sn] & occ;
+    if (between && !(between & (between - 1)) && (between & ours))
+      c.disc |= between;
+    pop_lsb_bb(snipers);
   }
   c.ready = true;
 }
@@ -217,82 +221,54 @@ static inline void td_mailbox_revert(ThreadData &td, int piece, int source, int 
 // MAKE MOVE (returns 1 if legal)
 // ============================================================================
 
-// P2.1: aggiorna td.pawn_key (Zobrist solo-pedoni) via XOR. Self-inverse ->
-// stessa chiamata (stessi argomenti) nei 3 siti di td_occ_update: make-forward,
-// rollback della mossa illegale, unmake. Pedone mosso: via da source, atterra
-// su target solo se NON promuove. Pedone catturato (anche e.p.): via da
-// captured_square. Castling e null move non toccano pedoni. Consumata da
-// td_corr_index (g_pawn_key_incr).
-static inline void td_pawn_key_update(ThreadData &td, int piece, int source,
-                                      int target, int promoted,
-                                      int captured_piece, int captured_square) {
-  if (piece == P || piece == p) {
-    td.pawn_key ^= piece_keys[piece][source];
-    if (!promoted)
-      td.pawn_key ^= piece_keys[piece][target];
-  }
-  if (captured_piece == P || captured_piece == p)
-    td.pawn_key ^= piece_keys[captured_piece][captured_square];
-}
-
-// CorrNonPawn: aggiorna td.np_key[colore] (Zobrist NON-pedoni per colore) via
-// XOR. Self-inverse -> stessa chiamata nei 3 siti di td_pawn_key_update. Casi:
-// mover non-pedone (via da source, atterra su target); PROMOZIONE (il pezzo
-// promosso APPARE su target — il pedone che sparisce e' affare del pawn_key);
-// cattura di non-pedone (via da captured_square, chiave del colore CATTURATO);
-// ARROCCO (la torre si muove — caso assente nel pawn-key, i pedoni non
-// arroccano).
-static inline void td_np_key_update(ThreadData &td, int piece, int source,
-                                    int target, int promoted,
-                                    int captured_piece, int captured_square,
-                                    int castling) {
-  if (piece != P && piece != p) {
-    const int c = (piece >= p) ? black : white;
-    td.np_key[c] ^= piece_keys[piece][source];
-    td.np_key[c] ^= piece_keys[piece][target];
-  } else if (promoted) {
-    const int c = (promoted >= p) ? black : white;
-    td.np_key[c] ^= piece_keys[promoted][target];
-  }
-  if (captured_piece != -1 && captured_piece != P && captured_piece != p) {
-    const int c = (captured_piece >= p) ? black : white;
-    td.np_key[c] ^= piece_keys[captured_piece][captured_square];
-  }
+// Chiavi parziali della posizione (XOR self-inverse: la stessa chiamata nei 3 siti di td_occ_update — make-forward,
+// rollback della mossa illegale, unmake):
+//   pawn_key   (P2.1)          solo pedoni: via da source, su target solo se NON promuove; pedone catturato via da
+//                              captured_square (anche e.p.). Letta da pawn_row e dalla correzione pedoni.
+//   np_key[c]  (CorrNonPawn)   non-pedoni per colore, re compreso: il mover non-pedone, il pezzo PROMOSSO che appare
+//                              su target, il non-pedone catturato (chiave del colore catturato), la torre dell'arrocco.
+//   mm_key[0/1] (NPS 25/09)    minori (N/B) e maggiori (R/Q), stessi eventi. Prima td_corr_index_minor/major
+//                              riscandivano 8 bitboard fino a quattro volte per nodo (~370 cicli/nodo il 25/09).
+// 04/10/2026 sera — UNA funzione SENZA SALTI al posto delle tre (td_pawn_key_update, td_np_key_update,
+// td_mm_key_update), che tra loro facevano una decina di salti sul tipo di pezzo, mal predetti (xperf: ~0,75 per
+// nodo). Le sei chiavi sono un array contiguo (threads.h: pawn, minori, maggiori, np bianco, np nero, pozzo) e due
+// tabelle dicono, per codice pezzo, in quali due chiavi finisce il suo XOR; cio' che non va in nessuna chiave finisce
+// nel pozzo. L'indice 15 e' "nessun pezzo" (captured_piece = -1): piece_keys ha 16 righe, le ultime quattro a zero.
+// Stessi valori di prima per costruzione => nodi identici. Resta un solo salto, quello dell'arrocco (raro).
+enum { KEY_PAWN = 0, KEY_MINOR = 1, KEY_MAJOR = 2, KEY_NP_W = 3, KEY_NP_B = 4, KEY_SINK = 5 };
+static_assert(offsetof(ThreadData, mm_key) == offsetof(ThreadData, pawn_key) + 8 * KEY_MINOR &&
+              offsetof(ThreadData, np_key) == offsetof(ThreadData, pawn_key) + 8 * KEY_NP_W &&
+              offsetof(ThreadData, key_sink) == offsetof(ThreadData, pawn_key) + 8 * KEY_SINK,
+              "td_keys_update: le chiavi parziali devono essere contigue in ThreadData");
+//                                            P         N          B          R          Q          K
+static constexpr unsigned char kKeyA[16] = {KEY_PAWN, KEY_MINOR, KEY_MINOR, KEY_MAJOR, KEY_MAJOR, KEY_SINK,
+                                            KEY_PAWN, KEY_MINOR, KEY_MINOR, KEY_MAJOR, KEY_MAJOR, KEY_SINK,
+                                            KEY_SINK, KEY_SINK, KEY_SINK, KEY_SINK};
+static constexpr unsigned char kKeyB[16] = {KEY_SINK, KEY_NP_W, KEY_NP_W, KEY_NP_W, KEY_NP_W, KEY_NP_W,
+                                            KEY_SINK, KEY_NP_B, KEY_NP_B, KEY_NP_B, KEY_NP_B, KEY_NP_B,
+                                            KEY_SINK, KEY_SINK, KEY_SINK, KEY_SINK};
+static inline void td_keys_update(ThreadData &td, int piece, int source, int target, int promoted,
+                                  int captured_piece, int captured_square, int castling) {
+  U64 *const keys = &td.pawn_key;
+  // Il mover: via da source, su target (per il pedone che promuove il target lo prende il pezzo promosso).
+  const U64 kd = piece_keys[piece][source] ^ (piece_keys[piece][target] & (0 - (U64)(promoted == 0)));
+  keys[kKeyA[piece]] ^= kd;
+  keys[kKeyB[piece]] ^= kd;
+  // Il pezzo promosso appare su target (promoted = 0 -> chiave azzerata, finisce in pawn/pozzo come zero).
+  const U64 kp = piece_keys[promoted][target] & (0 - (U64)(promoted != 0));
+  keys[kKeyA[promoted]] ^= kp;
+  keys[kKeyB[promoted]] ^= kp;
+  // Il catturato: -1 diventa 15 (riga a zero, chiavi nel pozzo).
+  const int ci = captured_piece & 15;
+  const U64 kc = piece_keys[ci][captured_square & 63];
+  keys[kKeyA[ci]] ^= kc;
+  keys[kKeyB[ci]] ^= kc;
   if (castling) {
     int rook_pc, rf, rt;
     td_castle_rook(target, rook_pc, rf, rt);
-    td.np_key[rook_pc == R ? white : black] ^= piece_keys[rook_pc][rf] ^ piece_keys[rook_pc][rt];
-  }
-}
-
-// NPS 25/09/2026 — chiavi minori/maggiori INCREMENTALI (XOR self-inverse, stessi tre
-// siti di td_np_key_update). Prima td_corr_index_minor/major riscandivano 8 bitboard
-// fino a quattro volte per nodo (valore, incertezza, aggiornamento): il profilo xperf
-// del 25/09 dava ~370 cicli/nodo al blocco "corr index/value", contro una manciata di
-// letture in SF, che tiene minorPieceKey incrementale in do_move. Stessa chiave per
-// costruzione => nodi identici. (Il 4/08 era stata bocciata una CACHE degli indici per
-// hash_key, che e' un'altra cosa: aggiungeva un confronto e due campi senza togliere la
-// prima scansione di ogni nodo.)
-// Classe di un pezzo: 0 = minore (N/B), 1 = maggiore (R/Q), -1 = pedone o re.
-static constexpr int kMmClass[12] = {-1, 0, 0, 1, 1, -1, -1, 0, 0, 1, 1, -1};
-static inline void td_mm_key_update(ThreadData &td, int piece, int source,
-                                    int target, int promoted,
-                                    int captured_piece, int captured_square,
-                                    int castling) {
-  const int cm = kMmClass[piece];
-  if (cm >= 0)
-    td.mm_key[cm] ^= piece_keys[piece][source] ^ piece_keys[piece][target];
-  if (promoted)
-    td.mm_key[kMmClass[promoted]] ^= piece_keys[promoted][target];
-  if (captured_piece != -1) {
-    const int cc = kMmClass[captured_piece];
-    if (cc >= 0)
-      td.mm_key[cc] ^= piece_keys[captured_piece][captured_square];
-  }
-  if (castling) {
-    int rook_pc, rf, rt;
-    td_castle_rook(target, rook_pc, rf, rt);
-    td.mm_key[1] ^= piece_keys[rook_pc][rf] ^ piece_keys[rook_pc][rt];
+    const U64 kr = piece_keys[rook_pc][rf] ^ piece_keys[rook_pc][rt];
+    keys[rook_pc == R ? KEY_NP_W : KEY_NP_B] ^= kr;
+    keys[KEY_MAJOR] ^= kr;
   }
 }
 
@@ -410,12 +386,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
   td_occ_update(td, td.side, source, target, undo.captured_square,
                 undo.captured_piece, castling);
-  td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square);
-  td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                   undo.captured_square, castling);
-  td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                   undo.captured_square, castling);
+  td_keys_update(td, piece, source, target, promoted, undo.captured_piece, undo.captured_square, castling);
   td_mailbox_apply(td, piece, source, target, promoted, undo.captured_piece,
                    undo.captured_square, castling);  // sito 1/3: make-forward
   MB_VERIFY(td, "make-forward");
@@ -453,12 +424,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
     td_occ_update(td, td.side, source, target, undo.captured_square,
                   undo.captured_piece, castling);
-    td_pawn_key_update(td, piece, source, target, promoted,
-                       undo.captured_piece, undo.captured_square);
-    td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square, castling);
-    td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square, castling);
+    td_keys_update(td, piece, source, target, promoted, undo.captured_piece, undo.captured_square, castling);
     td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
                       undo.captured_square, castling);  // sito 2/3: mossa illegale
     MB_VERIFY(td, "rollback-illegale");
@@ -471,6 +437,10 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   // thread e grandi (1 MB per thread), non piu' 64 KB in L2: il prefetch qui ha di nuovo dei miss da nascondere.
   TT_PREFETCH(&g_stats.corr[td.pawn_key & g_stats.corr_mask][td.side]);
   TT_PREFETCH(&g_stats.corr[td.mm_key[0] & g_stats.corr_mask][td.side]);
+  // 04/10/2026 sera: anche i due slot dei non-pedoni, che corr_signal legge subito dopo (tabella da 1,3 MB per
+  // thread: fuori da L2, ogni slot non anticipato e' un'attesa di L3 nel figlio).
+  TT_PREFETCH(&g_stats.corr[td.np_key[white] & g_stats.corr_mask][td.side]);
+  TT_PREFETCH(&g_stats.corr[td.np_key[black] & g_stats.corr_mask][td.side]);
 
   if (td.hash_key != pf_key) { // stima sbagliata (arrocco, promozione, e.p.)
     TT_PREFETCH(&hash_table[tt_base_index(td.hash_key)]);
@@ -505,6 +475,9 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
     }
     sm.rule50 = td.fifty;
     nn_pos_do(td.nnpos, &sm);
+    // ⛔ 04/10/2026 — PROVATO E TOLTO: prefetch qui, alla mossa, delle righe HalfKA che l'aggiornamento del figlio
+    // usera' (pezzo che parte/arriva/catturato, due prospettive, fascia del figlio). xperf 6 giri, nodi identici:
+    // cicli +0,58%, miss di L3 per nodo invariati (19,9 contro 19,8). Non anticipa nulla di utile.
   }
 
   td.plies_from_null++; // P2.2: una mossa reale in piu' dall'ultima null
@@ -554,12 +527,7 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
 
   td_occ_update(td, td.side, source, target, undo.captured_square,
                 undo.captured_piece, castling);
-  td_pawn_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                     undo.captured_square);
-  td_np_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                   undo.captured_square, castling);
-  td_mm_key_update(td, piece, source, target, promoted, undo.captured_piece,
-                   undo.captured_square, castling);
+  td_keys_update(td, piece, source, target, promoted, undo.captured_piece, undo.captured_square, castling);
   td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
                     undo.captured_square, castling);  // sito 3/3: unmake
   MB_VERIFY(td, "unmake");

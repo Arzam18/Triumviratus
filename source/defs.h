@@ -150,7 +150,7 @@ static inline int get_ls1b_index(U64 bitboard) {
 }
 
 // Variables for Zobrist hashing
-extern U64 piece_keys[12][64];
+extern U64 piece_keys[16][64];   // righe 12..15 a zero (vedi init.cpp)
 extern U64 enpassant_keys[64];
 extern U64 castle_keys[16];
 extern U64 side_key;

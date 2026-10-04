@@ -196,10 +196,18 @@ static void fill_tactics(MoveQueue &q) {
   int sc[256];
   td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
                     /*promo_quiet=*/true, /*promo_queen_only=*/true);
-  for (int i = 0; i < ml->count; i++)
+  // La mossa hash e' gia' uscita (QS_HASH): si toglie qui compattando sul posto, senza salti, e i cicli di
+  // queue_next non la confrontano piu' a ogni mossa (04/10/2026 sera; stesso ordine delle altre, stesso albero).
+  int n = 0;
+  for (int i = 0; i < ml->count; i++) {
+    const int m = ml->moves[i];
+    ml->moves[n] = m;
+    n += m != q.hash_move;
+  }
+  for (int i = 0; i < n; i++)
     sc[i] = score_tactic(td, ml->moves[i]);
-  q.n_tact = q.n_all = ml->count;
-  rank_into<false>(q.list, ml->moves, sc, ml->count, INT_MIN);
+  q.n_tact = q.n_all = n;
+  rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 
@@ -208,12 +216,13 @@ static void fill_quiets(MoveQueue &q) {
   moves ml[1];
   int sc[256];
   td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
-  // La promozione a donna e' gia' fra le tattiche: si toglie compattando sul posto, senza salti.
+  // La promozione a donna e' gia' fra le tattiche e la mossa hash e' gia' uscita: si tolgono compattando sul posto,
+  // senza salti.
   int n = 0;
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
     ml->moves[n] = m;
-    n += promo_kind(m) != Q;
+    n += (promo_kind(m) != Q) & (m != q.hash_move);
   }
   q.n_all = q.n_tact + n;
   score_quiets(q, ml->moves, sc, n);
@@ -226,14 +235,20 @@ static void fill_evasions(MoveQueue &q) {
   moves ml[1];
   int sc[256];
   td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
-  const PieceToRow &c1 = *q.f[-1].cont_hist;
+  int n = 0;   // senza la mossa hash, gia' uscita (vedi fill_tactics)
   for (int i = 0; i < ml->count; i++) {
+    const int m = ml->moves[i];
+    ml->moves[n] = m;
+    n += m != q.hash_move;
+  }
+  const PieceToRow &c1 = *q.f[-1].cont_hist;
+  for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];
     sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 28)
                            : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
   }
-  q.n_all = q.n_tact = ml->count;
-  rank_into<true>(q.list, ml->moves, sc, ml->count, INT_MIN);
+  q.n_all = q.n_tact = n;
+  rank_into<true>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 
@@ -256,8 +271,6 @@ static int queue_next(MoveQueue &q) {
     case QS_TACT_WIN:
       while (q.cur < q.n_tact) {
         const ScoredMove sm = q.list[q.cur++];
-        if (sm.move == q.hash_move)
-          continue;
         if (see_holds(td, sm.move, -sm.score / GoodCaptSeeDiv))
           return sm.move;
         q.losers[q.n_lose++] = (unsigned char)(q.cur - 1);
@@ -274,7 +287,7 @@ static int queue_next(MoveQueue &q) {
     case QS_QUIET_HIGH:
       while (!q.quiets_off && q.cur < q.n_all) {
         const ScoredMove sm = q.list[q.cur++];
-        if (sm.move != q.hash_move && sm.score > GoodQuietLimit)
+        if (sm.score > GoodQuietLimit)
           return sm.move;
       }
       q.step = QS_TACT_LOSE;
@@ -290,7 +303,7 @@ static int queue_next(MoveQueue &q) {
     case QS_QUIET_LOW:
       while (!q.quiets_off && q.cur < q.n_all) {
         const ScoredMove sm = q.list[q.cur++];
-        if (sm.move != q.hash_move && sm.score <= GoodQuietLimit)
+        if (sm.score <= GoodQuietLimit)
           return sm.move;
       }
       q.step = QS_DONE;
@@ -309,8 +322,6 @@ static int queue_next(MoveQueue &q) {
     case QS_DRAIN:
       while (q.cur < q.n_tact) {
         const ScoredMove sm = q.list[q.cur++];
-        if (sm.move == q.hash_move)
-          continue;
         if (q.kind == QK_CUTS && !see_holds(td, sm.move, q.cut_threshold))
           continue;
         return sm.move;

@@ -129,10 +129,14 @@ static inline int  move_from(int m) { return get_move_source(m); }
 static inline int  move_to(int m) { return get_move_target(m); }
 static inline int  move_piece(int m) { return get_move_piece(m); }
 // Tipo di promozione 0..4 (nessuna, N, B, R, Q): entra nella chiave delle statistiche quiete.
-static inline int  promo_kind(int m) { const int pr = get_move_promoted(m); return pr ? pr % 6 : 0; }
+// 04/10/2026 sera: tabella sui 4 bit del campo al posto di `pr ? pr % 6 : 0` (stessi valori, anche per i codici che
+// non si presentano mai): promo_kind e' chiamata per ogni mossa da quiet_key e is_tactical e valeva lo 0,6% dei cicli.
+static constexpr signed char kPromoKind[16] = {0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3};
+static inline int  promo_kind(int m) { return kPromoKind[get_move_promoted(m)]; }
 static inline int  quiet_key(int m) { return move_from(m) | (move_to(m) << 6) | (promo_kind(m) << 12); }
-// Mossa "tattica": cattura o promozione a donna. Le altre promozioni si ordinano fra le quiete.
-static inline bool is_tactical(int m) { return get_move_capture(m) || promo_kind(m) == Q; }
+// Mossa "tattica": cattura o promozione a donna (codice Q = 4 o q = 10: bit 4 e 10 della maschera 0x410). Le altre
+// promozioni si ordinano fra le quiete.
+static inline bool is_tactical(int m) { return (get_move_capture(m) | ((0x410u >> get_move_promoted(m)) & 1)) != 0; }
 // Tipo del pezzo catturato (CAPT_NONE per l'en passant e per la promozione senza cattura, come la casa vuota).
 static inline int  victim_kind(const ThreadData &td, int m) {
   const int v = td.piece_on[move_to(m)];

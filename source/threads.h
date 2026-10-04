@@ -97,9 +97,13 @@ struct ThreadData {
     int enpassant;
     int castle;
     U64 hash_key;
+    // Chiavi parziali: td_keys_update (07_makemove.inc) le vede come un array contiguo di sei U64 a partire da
+    // pawn_key (pedoni, minori, maggiori, non-pedoni bianchi e neri, pozzo) e vi scrive con indici da tabella,
+    // senza salti sul tipo di pezzo. L'ordine qui sotto e' vincolato da static_assert.
     U64 pawn_key;
-    U64 mm_key[2];                // [0] = pezzi minori (N,B,n,b)
+    U64 mm_key[2];                // [0] = pezzi minori (N,B,n,b), [1] = maggiori (R,Q,r,q)
     U64 np_key[2];                // non-pedoni per colore, re compreso
+    U64 key_sink;                 // pozzo: riceve gli XOR che non appartengono a nessuna chiave (mai letto)
     int fifty;
     int plies_from_null;
     int seldepth;

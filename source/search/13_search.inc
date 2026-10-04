@@ -27,6 +27,16 @@ struct NodeState {
 
 static constexpr int NO_VALUE = 1 << 30;   // "nessun valore": la fase non ha chiuso il nodo
 
+// Reciproci a 40 bit di 256*depth + 268 (divisore della riduzione ai nodi all, vedi move_loop): M = ceil(2^40 / D).
+static constexpr auto all_node_recip = [] {
+  std::array<unsigned long long, max_ply + 8> r{};
+  for (int d = 0; d < max_ply + 8; d++) {
+    const unsigned long long D = 256ULL * d + 268;
+    r[d] = ((1ULL << 40) + D - 1) / D;
+  }
+  return r;
+}();
+
 // Profondita' ridotta di base: tabella logaritmica, finestra relativa e assenza di miglioramento.
 // `window_term` = finestra * LmrDeltaMul / root_delta: lo calcola move_loop solo quando la finestra cambia, perche'
 // la divisione per root_delta (non costante) costava ~30 cicli a ogni mossa (04/10/2026, stesso valore).
@@ -675,8 +685,17 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     r -= f->stat_score * LmrStatDiv / 4096;
     if (!tact && !val_decided(n.alpha))
       r += 3 * std::clamp(n.alpha - n.eval, -64, 96);
-    if (n.all)
-      r += r * LmrAllNode / (256 * n.depth + 268);
+    if (n.all) {
+      // r * LmrAllNode / (256*depth + 268), troncato verso zero come la divisione intera: moltiplicazione per il
+      // reciproco a 40 bit della tabella (esatta finche' |r*LmrAllNode| < 2^24: il divisore arriva a 35.000, quindi
+      // l'errore M*D - 2^40 < D non puo' far scattare l'unita'); oltre, mai visto, si divide davvero
+      // (04/10/2026 sera: era una divisione hardware per ogni mossa dei nodi all).
+      const long long x = (long long)r * LmrAllNode;
+      const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
+      const int q = mag < (1ULL << 24) ? (int)((mag * all_node_recip[n.depth]) >> 40)
+                                       : (int)(mag / (unsigned long long)(256 * n.depth + 268));
+      r += x < 0 ? -q : q;
+    }
     if (passer)
       r -= PassedPushRed;
     if (reply)
@@ -741,6 +760,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 // --------------------------------------------------------------------------
 static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
+  // La linea del bucket hash di questo nodo, letta all'ingresso, dopo il sottoalbero e' spesso uscita dalla cache:
+  // la si richiama adesso, con le statistiche da aggiornare a coprire l'attesa, prima della hash_write in fondo.
+  TT_PREFETCH(&hash_table[tt_base_index(td.hash_key)]);
   if (n.best >= n.beta && !val_decided(n.best) && !val_decided(n.alpha))
     n.best = (n.best * n.depth + n.beta) / (n.depth + 1);
 
