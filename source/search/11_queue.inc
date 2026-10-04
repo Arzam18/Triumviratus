@@ -50,6 +50,10 @@ struct MoveQueue {
 
 // Inserimento stabile: le mosse con punteggio >= limit vanno in testa in ordine decrescente, le altre restano
 // dopo, nell'ordine di generazione.
+// 04/10/2026 (xperf): qui nasce l'11% dei salti mal predetti del motore (~6 per nodo; l'ordinamento intero ne fa 10,
+// SF 2,7). PROVATA e TOLTA la variante a scambio (la mossa buona prende il posto della prima bassa): salti mal
+// predetti invariati (55,4 -> 55,1 per nodo), cicli per nodo +3,8%, ordine delle mosse basse rimescolato. I salti
+// vengono dai confronti, che dipendono dai dati, non dagli spostamenti: serve un ordinamento senza salti.
 static void rank_from(ScoredMove *a, int n, int limit) {
   PROF_GUARD(prof_mp);
   int top = 0;

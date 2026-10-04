@@ -196,17 +196,23 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         //   - `add_sq == SQ_NONE` esclude l'arrocco (muoverebbe anche la torre)
         //   - sotto i 15 pezzi le feature attive sono poche e ricostruirle costa
         //     meno che ricavare l'HalfKA precedente dalla cache
+        // 04/10/2026 — anche il CAMBIO DI FASCIA (TRIUMV_PSQ_PHASES > 1) passa di qui. Una cattura che attraversa
+        // una soglia cambia tutte le righe HalfKA ma nessun indice di threat/pedoni: prima si ricostruiva tutto da
+        // zero, e sul bench delle 30 posizioni SF era un refresh su tre (111.771 su 324.433, gli altri sono mosse di
+        // re). Qui arrivano solo mosse che richiedono il refresh (vedi find_last_usable_accumulator): se non sono
+        // del nostro re, sono un cambio di fascia, e il re resta fermo.
+        // Misura (xperf, 30 posizioni SF x 400k nodi, 2 giri, nodi identici, bench 141196 invariato): -1,05%
+        // istruzioni, -0,55% cicli per nodo. Poco: i refresh pieni scendono da 294k a 238k, ma il costo vero del
+        // cambio di fascia sono le righe HalfKA della fascia nuova (entry della finny vecchia di molte mosse, 4 x 46
+        // MB di pesi), che l'ibrido deve applicare lo stesso. Le threat erano la parte piccola.
+        //   - `add_sq == SQ_NONE` esclude anche le promozioni, che restano sul refresh
         constexpr int MIN_PC_COUNT_HYBRID = 15;
         const auto&   dp                  = latest().dirtyPiece;
-        if (size >= 2 && dp.pc == make_piece(perspective, KING) && dp.to != SQ_NONE
+        const bool    ownKing             = dp.pc == make_piece(perspective, KING);
+        if (size >= 2 && dp.to != SQ_NONE
             && accumulators[size - 2].computed[perspective]
             && pos.count<ALL_PIECES>() >= MIN_PC_COUNT_HYBRID
-            && ((int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == SQ_NONE
-#if TRIUMV_PSQ_PHASES > 1
-            // re che cattura attraversando una soglia di fascia: le due entry starebbero in fasce diverse
-            && !dp.psqPhaseChanged
-#endif
-        )
+            && (!ownKing || (int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == SQ_NONE)
         {
     #ifdef TRIUMV_PROFILE
             prof_refresh_same_orient++;
@@ -868,31 +874,37 @@ void update_accumulator_hybrid(Color                     perspective,
     constexpr IndexType Dimensions = FeatureTransformer::OutputDimensions;
     using Tiling [[maybe_unused]]  = SIMDTiling<Dimensions, Dimensions, PSQTBuckets>;
 
-    const auto& dirtyPiece = target.dirtyPiece;
-    const Square oldKsq    = dirtyPiece.from;
-    const Square newKsq    = dirtyPiece.to;
+    const auto&  dirtyPiece = target.dirtyPiece;
+    const Square newKsq     = pos.square<KING>(perspective);
+    // Mossa del nostro re, oppure (04/10/2026) cattura che cambia fascia a re fermo.
+    const Square oldKsq     = dirtyPiece.pc == make_piece(perspective, KING) ? dirtyPiece.from : newKsq;
 
-    // Ricostruzione della posizione PRECEDENTE: si rimette il re su oldKsq e si
-    // ripristina l'eventuale pezzo catturato su newKsq. L'arrocco NON passa di
-    // qui (escluso dal gate): muoverebbe anche la torre.
+    // Ricostruzione della posizione PRECEDENTE: si libera la casa d'arrivo, si
+    // rimette l'eventuale pezzo catturato (anche en passant, fuori dalla casa
+    // d'arrivo) e il pezzo mosso sulla casa di partenza. Arrocco e promozioni NON
+    // passano di qui (esclusi dal gate): muovono o cambiano un secondo pezzo.
     const auto& currentPieces  = pos.piece_array();
     auto        previousPieces = currentPieces;
     Bitboard    previousPieceBB = pos.pieces();
 
+    previousPieces[dirtyPiece.to] = NO_PIECE;
+    previousPieceBB &= ~square_bb(dirtyPiece.to);
     if (dirtyPiece.remove_sq != SQ_NONE)
-        previousPieces[newKsq] = dirtyPiece.remove_pc;
-    else
     {
-        previousPieces[newKsq] = NO_PIECE;
-        previousPieceBB &= ~square_bb(newKsq);
+        previousPieces[dirtyPiece.remove_sq] = dirtyPiece.remove_pc;
+        previousPieceBB |= square_bb(dirtyPiece.remove_sq);
     }
-    previousPieces[oldKsq] = dirtyPiece.pc;
-    previousPieceBB |= square_bb(oldKsq);
+    previousPieces[dirtyPiece.from] = dirtyPiece.pc;
+    previousPieceBB |= square_bb(dirtyPiece.from);
 
-    // Fascia (HalfKA a esperti): il gate esclude il cambio di fascia, quindi prima e dopo stanno nella stessa.
+    // Fascia (HalfKA a esperti): la entry vecchia sta nella fascia della posizione PRIMA della mossa, che con una
+    // cattura a cavallo di soglia e' diversa da quella di adesso.
     const int   psqPhase = PSQFeatureSet::phase_of(dirtyPiece);
-    const auto& oldEntry = cache.at(psqPhase, oldKsq)[perspective];
+    const int   oldPhase = PSQFeatureSet::phase_of_count(popcount(previousPieceBB));
+    const auto& oldEntry = cache.at(oldPhase, oldKsq)[perspective];
     auto&       newEntry = cache.at(psqPhase, newKsq)[perspective];
+    // La entry nuova si riscrive prima di leggere la vecchia: non devono essere la stessa.
+    assert(&oldEntry != &newEntry);
 
     // "Remove"/"Add" = cosa togliere/aggiungere ALLA ENTRY per ottenere
     // l'accumulatore HalfKA voluto.
@@ -910,12 +922,12 @@ void update_accumulator_hybrid(Color                     perspective,
     {
         Square sq = pop_lsb(oldRemovedBB);
         oldRemove.push_back(
-          PSQFeatureSet::make_index(perspective, sq, oldEntry.pieces[sq], oldKsq, psqPhase));
+          PSQFeatureSet::make_index(perspective, sq, oldEntry.pieces[sq], oldKsq, oldPhase));
     }
     while (oldAddedBB)
     {
         Square sq = pop_lsb(oldAddedBB);
-        oldAdd.push_back(PSQFeatureSet::make_index(perspective, sq, previousPieces[sq], oldKsq, psqPhase));
+        oldAdd.push_back(PSQFeatureSet::make_index(perspective, sq, previousPieces[sq], oldKsq, oldPhase));
     }
     while (newRemovedBB)
     {

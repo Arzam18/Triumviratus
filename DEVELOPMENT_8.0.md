@@ -608,5 +608,12 @@ count nodes the same way (moves made). Our profile: evaluation 47% of the time (
 search 38%. One duplicated legality test was removed (now decided before the move, verified on 3.9 million nodes
 with no disagreement), with no measurable speed change.
 
+A third of the accumulator refreshes came from captures that move the position into another phase of the network
+(another of Consilium's four experts), not from king moves. Those refreshes rebuilt the threat and pawn blocks too,
+which do not depend on the phase. They now take the same path as a king move that stays on its side of the board:
+only the HalfKA part is rebuilt from the cache of the new phase, the rest is reused from the previous accumulator.
+The tree is node-for-node identical (bench 141196); hardware counters give −1.05% instructions and −0.55% cycles
+per node. The gain is small because the expensive part is the new phase's HalfKA rows, which must be applied anyway.
+
 **Next:** the same vector checked at 30+0.3, a per-function speed profile against Stockfish, more of our own
 techniques.
