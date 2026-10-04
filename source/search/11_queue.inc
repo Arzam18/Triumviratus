@@ -40,6 +40,7 @@ struct MoveQueue {
   int           depth;
   int           cut_threshold;   // QK_CUTS: soglia di SEE
   bool          quiets_off;      // potatura per numero di mosse: niente piu' quiete
+  LmpChkCtx    *checks;          // case di scacco del nodo, condivise con la legalita' (null = calcolate qui)
   int           n_tact, n_all;   // tattiche in [0, n_tact), quiete in [n_tact, n_all)
   int           cur;
   int           n_lose, cur_lose;
@@ -50,6 +51,7 @@ struct MoveQueue {
 // Inserimento stabile: le mosse con punteggio >= limit vanno in testa in ordine decrescente, le altre restano
 // dopo, nell'ordine di generazione.
 static void rank_from(ScoredMove *a, int n, int limit) {
+  PROF_GUARD(prof_mp);
   int top = 0;
   for (int i = 0; i < n; i++) {
     if (a[i].score < limit)
@@ -73,6 +75,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.kind = kind;
   q.depth = depth;
   q.quiets_off = false;
+  q.checks = nullptr;
   q.cut_threshold = 0;
   q.n_tact = q.n_all = q.cur = 0;
   q.n_lose = q.cur_lose = 0;
@@ -91,6 +94,7 @@ static inline int score_tactic(const ThreadData &td, int m) {
 // Punteggi delle quiete: statistiche (pesate), bonus agli scacchi diretti che non perdono materiale, e la mossa
 // di un pezzo che esce da (o entra in) una casa attaccata da un pezzo nemico di valore minore.
 static void score_quiets(MoveQueue &q, int first, int last) {
+  PROF_GUARD(prof_score);
   ThreadData &td = *q.td;
   NodeFrame *f = q.f;
   const int us = td.side, them = us ^ 1;
@@ -113,8 +117,10 @@ static void score_quiets(MoveQueue &q, int first, int last) {
   lesser[Q] = by_rook | lesser[R];
   lesser[K] = 0;
 
-  LmpChkCtx checks;
-  td_lmp_chk_init(td, checks);
+  LmpChkCtx local_checks;
+  LmpChkCtx &checks = q.checks ? *q.checks : local_checks;
+  if (!checks.ready)
+    td_lmp_chk_init(td, checks);
 
   // Scudo del re (nostra): col re sulla traversa di casa, i nostri pedoni accanto al re si muovono per ultimi.
   // Vale fino al mediogioco: solo finche' l'avversario ha materiale d'attacco (KingShieldNpm, pezzi non pedoni).

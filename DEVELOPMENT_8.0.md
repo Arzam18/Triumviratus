@@ -552,8 +552,8 @@ Section 16 left the engine needing 1.5–1.7× Stockfish's nodes to finish the s
 rule changed on its own lost or stayed neutral (a different pruning structure −35, a larger history cap −41):
 each rule only works tuned together with the others.
 
-Triumviratus' search was restructured in October 2026. Most of its techniques were already in the engine, added one
-at a time since version 5.0 and tuned separately, with accumulated inconsistencies. After studying the searches of
+Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but
+disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of
 Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its
 parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own
 such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network.
@@ -599,4 +599,14 @@ barely moved (1355 → 1347), confirming the calibration; the largest moves were
 margin +24%, null-move base −14%, statistics divisor in reductions −14%, pawn-structure correction weight +13%.
 Against the starting values at 10+0.1: **+9.7 ± 9.4 Elo**, stopped early and baked. New bench **141196**.
 
-**Next:** the same vector checked at 30+0.3, then more of our own techniques.
+**The whole step at a longer time control.** The restructured, re-tuned search (bench 141196) against the 8.0 of
+section 16, 20+0.2: **+85.8 ± 12.8 Elo over 694 games**, LLR 3.09, accepted (H1).
+
+**Speed.** On one core, same gcc toolchain, 30 UHO positions at 3 s each, alternating: Stockfish 19 searches
+**1.18×** our nodes per second (median; 1.06–1.28), down from 1.24, median depth 22 against 23. Both engines now
+count nodes the same way (moves made). Our profile: evaluation 47% of the time (89% of it in accumulator updates),
+search 38%. One duplicated legality test was removed (now decided before the move, verified on 3.9 million nodes
+with no disagreement), with no measurable speed change.
+
+**Next:** the same vector checked at 30+0.3, a per-function speed profile against Stockfish, more of our own
+techniques.

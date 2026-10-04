@@ -53,6 +53,7 @@ static void poll_limits(ThreadData &td) {
 
 // Statistiche di un nodo che ha trovato la mossa migliore: premio a lei, malus alle mosse provate prima.
 static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
+  PROF_GUARD(prof_hist);
   const int bm = n.best_move;
   int bonus = std::min(BonusMul * n.depth - BonusSub, BonusMax) + (bm == n.h.move ? BonusTTMove : 0) +
               f[-1].stat_score / BonusPrevStatDiv;
@@ -485,6 +486,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   queue_start(q, td, f, n.h.move, n.depth, n.in_check ? QK_EVADE : QK_MAIN);
   MoveSafety s;
   s.ready = false;
+  q.checks = &s.checks;
   int value = n.best, m;
 
   while ((m = queue_next(q)) != 0) {

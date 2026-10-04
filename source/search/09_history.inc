@@ -172,6 +172,7 @@ static inline CorrSlot &corr_slot(U64 key, int side_to_move) {
 }
 
 static int corr_signal(const ThreadData &td, const NodeFrame *f) {
+  PROF_GUARD(prof_corr);
   const int us = td.side;
   const int pawn = corr_slot(td.pawn_key, us).pawn;
   const int minor = corr_slot(td.mm_key[0], us).minor;
@@ -194,6 +195,7 @@ static inline int corrected_eval(int v, int signal) {
 }
 
 static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
+  PROF_GUARD(prof_corr);
   const int us = td.side;
   stat_push(corr_slot(td.pawn_key, us).pawn, bonus, LIM_CORR);
   stat_push(corr_slot(td.mm_key[0], us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);

@@ -137,11 +137,13 @@ static void safety_init(ThreadData &td, MoveSafety &s) {
       s.pinned |= between;
     pop_lsb_bb(snipers);
   }
-  td_lmp_chk_init(td, s.checks);
+  if (!s.checks.ready)   // l'ordinamento delle quiete puo' averle gia' calcolate
+    td_lmp_chk_init(td, s.checks);
   s.ready = true;
 }
 
 static bool legal_before(ThreadData &td, MoveSafety &s, int m) {
+  PROF_GUARD(prof_gc);
   if (!s.ready) safety_init(td, s);
   const int from = move_from(m), to = move_to(m), us = td.side, them = us ^ 1;
   if (get_move_castling(m))
@@ -159,6 +161,7 @@ static bool legal_before(ThreadData &td, MoveSafety &s, int m) {
 }
 
 static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
+  PROF_GUARD(prof_gc);
   if (!s.ready) safety_init(td, s);
   const int from = move_from(m), to = move_to(m), pc = move_piece(m), pt = pc % 6;
   const bool castling = get_move_castling(m) != 0;
@@ -199,7 +202,15 @@ static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
 static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   td.repetition_table[++td.repetition_index] = td.hash_key;
   td.ply++;
+  // Ogni chiamante ha gia' deciso la legalita' con legal_before; l'arrocco del 960 resta alla make.
+  // -DTRIUMV_VERIFY_LEGAL: la make rifa' il test e ogni disaccordo viene stampato (mossa illegale giocata).
+#ifdef TRIUMV_VERIFY_LEGAL
   if (!td_make_move(td, m, u)) {
+    printf("info string LEGALITA' SBAGLIATA: mossa %d ritenuta legale (hash %llx)\n", m, (unsigned long long)u.old_hash);
+    fflush(stdout);
+#else
+  if (!td_make_move(td, m, u, !(g_chess960 && get_move_castling(m)))) {
+#endif
     td.ply--;
     td.repetition_index--;
     return false;
@@ -257,6 +268,7 @@ static inline void step_out_null(ThreadData &td, NullUndo &u) {
 
 // Patta per la regola delle 50 mosse (salvo matto) o per ripetizione.
 static bool drawn_here(ThreadData &td, bool in_check) {
+  PROF_GUARD(prof_rep);
   if (td.fifty > 99) {
     if (!in_check)
       return true;

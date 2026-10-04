@@ -266,6 +266,7 @@ static void init_cuckoo() {
 // per due piece-key, e non puo' combaciare con una chiave cuckoo -> nessun
 // falso positivo.
 static bool td_upcoming_repetition(ThreadData &td) {
+  PROF_GUARD(prof_rep);
   int end = td.fifty < td.plies_from_null ? td.fifty : td.plies_from_null;
   if (end > td.repetition_index)
     end = td.repetition_index;

@@ -581,10 +581,13 @@ void uci_loop()
               // Sotto-bucket della ricerca: sono DENTRO "other" (i loro guard stanno in
               // funzioni chiamate fuori dai cinque guard principali), quindi vanno letti
               // come scomposizione di quel 26-28%, non sommati agli altri.
+              // Voci della ricerca riscritta (04/10/2026): ordinamento = solo l'ordinamento parziale; history =
+              // aggiornamento delle statistiche a fine nodo; gives-check = legalita' e scacco prima della mossa.
               printf("    movepicker    : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_mp   / (double)pw);
               printf("    corr history  : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_corr / (double)pw);
               printf("    cont history  : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_hist / (double)pw);
               printf("    gives-check   : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_gc   / (double)pw);
+              printf("    ripetizioni   : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_rep  / (double)pw);
               printf("    movegen       : %llu chiamate (%.2f/nodo)\n", (unsigned long long)prof_n_mg,
                      (double)prof_n_mg / (double)(bench_nodes ? bench_nodes : 1));
               printf("    threat masks  : %5.1f%%   (%.2f/nodo)\n", 100.0 * (double)prof_thr / (double)pw,
