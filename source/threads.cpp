@@ -9,6 +9,7 @@
  */
 
 #include "threads.h"
+#include "sstats.h"   // contatori di diagnosi, solo con -DTRIUMV_SSTATS (03/10/2026)
 #include "attacks.h"
 #include "chess960.h"
 #include "evaluation.h"
@@ -20,9 +21,12 @@
 #include "see.h"
 #include "tt.h"
 #include <algorithm>
+#include <array>
+#include <cassert>
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <type_traits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -63,26 +67,27 @@ unsigned long long prof_dead_pair[8][8] = {};
 
 #include "syzygy.h"
 
+#include <climits>
+// windows.h (via defs.h) definisce min e max come macro: con clang-cl rompono std::min/std::max.
+#undef min
+#undef max
+
 // ============================================================================
-// threads.cpp -- ricerca multi-thread. DIVISO il 27/09/2026 in search/*.inc (era un file da 12.000 righe).
-// Resta UNA sola unita' di compilazione: i pezzi sono inclusi qui, nell'ordine originale, perche'
-//   - molte funzioni del percorso caldo sono `static inline` e vanno viste dal compilatore insieme ai chiamanti;
-//   - le #define di TRIUMV_FROZEN (search/04_frozen.inc) valgono per tutto il codice che segue.
-// Verifica della divisione: threads.o identico byte per byte prima e dopo (g++, stessi flag), bench 273477.
-// I riferimenti "threads.cpp:NNNN" nei commenti vecchi si riferiscono alla numerazione prima della divisione.
+// threads.cpp -- la ricerca. Una sola unita' di compilazione, divisa in search/*.inc inclusi qui in ordine
+// (le funzioni del percorso caldo sono `static inline` e il compilatore le vede insieme ai chiamanti).
+// Ricerca riscritta il 04/10/2026 sulla logica di Stockfish 19: vedi threads.h e
+// docs/audit_8.0/L_RISCRITTURA_RICERCA.md. Generatore di mosse, make/unmake e SEE sono quelli del motore.
 // ============================================================================
-#include "search/01_params_globals.inc"
-#include "search/02_params_candidates.inc"
-#include "search/03_params_study.inc"
-#include "search/04_frozen.inc"
-#include "search/05_datalog.inc"
-#include "search/06_init.inc"
+#include "search/01_params.inc"
+#include "search/02_state.inc"
+#include "search/03_tables.inc"
 #include "search/07_makemove.inc"
 #include "search/08_movegen.inc"
-#include "search/09_eval_scoring.inc"
-#include "search/10_picker.inc"
-#include "search/11_qsearch.inc"
-#include "search/12_negamax.inc"
-#include "search/13_iterdeep.inc"
-#include "search/14_smp.inc"
-#include "search/15_tdperft.inc"
+#include "search/09_history.inc"
+#include "search/10_order.inc"
+#include "search/11_queue.inc"
+#include "search/12_quiesce.inc"
+#include "search/13_search.inc"
+#include "search/14_deepen.inc"
+#include "search/15_threads.inc"
+#include "search/16_tdperft.inc"

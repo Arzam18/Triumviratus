@@ -56,8 +56,9 @@ Bitboard PassedPawns::passers(Color c, Bitboard ownPawns, Bitboard oppPawns) {
     while (b)
     {
         const Square s = pop_lsb(b);
-        if (!(oppPawns & Spans.passedSpan[c][s]) && !(ownPawns & Spans.forwardFile[c][s]))
-            out |= square_bb(s);
+        // Senza salto sul dato (04/10/2026 sera): il test per pedone era mal predetto (xperf: ~0,7 salti per nodo).
+        const Bitboard blocked = (oppPawns & Spans.passedSpan[c][s]) | (ownPawns & Spans.forwardFile[c][s]);
+        out |= Bitboard(blocked == 0) << s;
     }
     return out;
 }

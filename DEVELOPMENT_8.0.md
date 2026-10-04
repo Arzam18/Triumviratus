@@ -491,3 +491,164 @@ be compiled together with their callers, and the frozen-parameter `#define`s app
 that follows them. The split has its own commit, and it is a pure move: compiled before and after, the
 object file is identical byte for byte.
 
+## 16. Where the gap to Stockfish comes from, and a pruning rework (3 October 2026)
+
+To find weaknesses in Triumviratus' search, the Stockfish code was studied and some of its logic was implemented
+from there (Stockfish is GPLv3, like Triumviratus).
+
+**Decomposing the gap.** Against Stockfish 19, single thread:
+
+| Test | Result |
+|---|---|
+| Speed, one core, 30 positions | SF searches 1.24× our nodes per second; in 3 s it reaches depth 23, we reach 20 |
+| Fixed depth 6 / 8 | **+35 / +25** Elo for us |
+| Fixed depth 10 / 14 | −22 / −67 |
+| Fixed nodes (300k per move) | −98 |
+| Time (20+0.2) | −127 |
+| Nodes needed to complete the same depth | 1.5–1.7× SF's |
+
+So the network is not the problem: at low depth, where evaluation dominates, we are ahead. Speed explains
+about 25–30 Elo. The rest is search selectivity: Stockfish turns each nominal ply into more real depth.
+
+**Same counters in both engines.** `source/sstats.h` adds per-depth counters to the search (only with
+`-DTRIUMV_SSTATS`; without it the code is identical). The same header went into a local copy of Stockfish 19,
+and both engines searched the same 300 positions to depth 16. The main finding:
+
+- at remaining depth 8, Stockfish's futility prunes about 720,000 quiet moves per 100 positions, ours about
+  1,000; we play 7.9 quiet moves per node, Stockfish 2.9;
+- the reason is the depth used to decide pruning. Ours came from our own reduction table, which reduces about
+  half of Stockfish's, and was floored at 0; Stockfish's averages −1.5 because history pushes bad quiets below
+  zero. Our history values are also capped at 7,000 against Stockfish's ~30,000, so they weigh less. And we did
+  not prune at PV nodes;
+- move ordering: near the leaves the first move cuts in 81% of fail-highs against Stockfish's 88%, and fewer
+  of our shallow nodes have a TT move (33% against 48% at depth 2). None of our history weights moves this.
+
+**The rework.** New options compute the pruning depth the Stockfish way (`PruneSFDepth`, `PruneNegDepth`),
+use the corrected static eval for quiet futility (`FutStaticEval`), allow futility at PV nodes outside the
+previous PV (`FutPVNodes`), and apply quiet SEE pruning at that depth (`SEELmrDepth`). Switched on together with
+aggressive history weighting, they matched Stockfish's quiet moves per node but cost −35 ± 20 Elo: the rest of
+the search was tuned for a wider tree. An SPSA over 29 coupled parameters (futility, pruning depth, capture
+futility, SEE, LMP, LMR, RFP, the TT cut parameters, ProbCut, null move, singular double extensions, history size
+and four depth thresholds), 15+0.15, stopped on a plateau at 3,509 iterations. It kept the new structure, brought
+history back to its old weight, and moved pruning elsewhere: more RFP and ProbCut, more double extensions, null
+move verification from depth 3 instead of 1.
+
+**Result:** the tuned engine against the previous one, 20+0.2: **+6.3 ± 6.0 Elo over 3,366 games**. Baked as the
+new defaults; bench **337035**.
+
+**Open:** quiet futility still skips all remaining quiets once one is pruned (Stockfish decides move by move);
+the history cap; TT moves at shallow nodes; the same SPSA at a longer time control, since short games bias it
+toward pruning less.
+
+**Cleanup.** 69 options that were measured and closed, or off for months with no plan, were retired: UCI line,
+setter, frozen entry and declaration, then the branches they guarded. About 1,550 lines fewer in the search,
+bench unchanged. Diagnostic tools stay (`sstats.h`, DataLog, TMLog, CutoffStats, SeeGEVerify, EvalOff), as do
+levers still in use.
+
+
+## 17. The search restructured (4 October 2026)
+
+Section 16 left the engine needing 1.5–1.7× Stockfish's nodes to finish the same depth, and every single
+rule changed on its own lost or stayed neutral (a different pruning structure −35, a larger history cap −41):
+each rule only works tuned together with the others.
+
+Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but
+disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of
+Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its
+parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own
+such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network.
+
+**What changed.** `source/search/` now holds:
+
+- `01_params.inc`: the search parameters as one table (UCI spin options in development builds, constants in the
+  release build); `02_state.inc` and `03_tables.inc`: search state and the statistics tables, some shared by all
+  threads and sized by the thread count;
+- `09_history.inc`: static evaluation in the units of the search margins, move statistics and the evaluation
+  correction (pawn structure, minor pieces, non-pawn pieces of each side, and the pair of moves into the node);
+- `10_order.inc` and `11_queue.inc`: move validation, repetitions, and a new move orderer;
+- `12_quiesce.inc`, `13_search.inc`: quiescence and the main search, a node going through four phases (entry,
+  evaluation and pruning before the moves, the move loop, learning at the end of the node);
+- `14_deepen.inc`, `15_threads.inc`: iterative deepening with a new time manager, thread voting, bestmove.
+
+Unchanged: the move generator, make/unmake (only the non-pawn keys re-wired), SEE (piece values now in the search
+units), the transposition table, the network and the evaluation. The old search, about 3,700 lines of parameters
+alone, is gone; the number of UCI options in development builds drops from about 380 to about 100.
+
+**Checks.** Per-thread perft with key verification unchanged (4,865,609 at depth 5 from the start position,
+4,085,603 at depth 4 from Kiwipete, no key mismatch). 74 fast games against the previous engine without illegal
+moves or crashes. Nodes needed to complete a fixed depth on 100 UHO positions, against Stockfish 19 (median ratio
+ours/SF): depth 8 **0.90**, depth 12 **1.11**, depth 16 **0.97**, down from 1.5–1.7. New bench **172833**.
+
+**Result:** SPRT against the 8.0 of section 16, 10+0.1, bounds [0, 3]: **+61.6 ± 10.2 Elo over 1,390 games**,
+LLR 3.85, accepted (H1).
+
+**Our own techniques on top**, each an option tested on the same binary at 10+0.1:
+
+| Technique | Result | Decision |
+|---|---|---|
+| Passed-pawn pushes in endgames: a push of a passed pawn to the 6th/7th rank with little material left is reduced less and never pruned (our network sees passed pawns through its `PassedPawns` block) | +4.4 ± 6.8 on the endgame book `endgame_12_18.epd`, no draw adjudication | kept, into the SPSA |
+| King-shield pawns moved last in move ordering, up to the middlegame | −2.2 ± 16.6 | dropped |
+| Correction history for rooks and queens | −2.1 ± 20.7 | dropped |
+| TT entry one ply short accepted beyond a margin (from Coda) | +1.7 ± 12.6 | to be retried |
+
+**Parameters re-tuned on our network.** SPSA "RW1": 51 parameters (evaluation scale, history bonuses, move ordering,
+pruning margins, singular extensions, reductions, quiescence, correction weights, and the two of the passed-pawn
+technique), 20+0.2, 5,481 iterations; the vector is the mean of the last 1,000. Kept out on purpose: time management,
+depth thresholds and the shape of the reduction table, which a 20-second game cannot see. The evaluation scale
+barely moved (1355 → 1347), confirming the calibration; the largest moves were capture futility −24%, singular
+margin +24%, null-move base −14%, statistics divisor in reductions −14%, pawn-structure correction weight +13%.
+Against the starting values at 10+0.1: **+9.7 ± 9.4 Elo**, stopped early and baked. New bench **141196**.
+
+**The whole step at a longer time control.** The restructured, re-tuned search (bench 141196) against the 8.0 of
+section 16, 20+0.2: **+85.8 ± 12.8 Elo over 694 games**, LLR 3.09, accepted (H1).
+
+**Speed.** On one core, same gcc toolchain, 30 UHO positions at 3 s each, alternating: Stockfish 19 searches
+**1.18×** our nodes per second (median; 1.06–1.28), down from 1.24, median depth 22 against 23. Both engines now
+count nodes the same way (moves made). Our profile: evaluation 47% of the time (89% of it in accumulator updates),
+search 38%. Removing one duplicated legality test (deciding legality once, before the move) gave no measurable
+speed change and was later withdrawn: the test before the move is incomplete when the king is in check, and a
+hash move that did not answer the check could be played. That crashed the engine in about one game in seventy; the
+make-move test is back, and the search tree is unchanged (bench 141196).
+
+A third of the accumulator refreshes came from captures that move the position into another phase of the network
+(another of Consilium's four experts), not from king moves. Those refreshes rebuilt the threat and pawn blocks too,
+which do not depend on the phase. They now take the same path as a king move that stays on its side of the board:
+only the HalfKA part is rebuilt from the cache of the new phase, the rest is reused from the previous accumulator.
+The tree is node-for-node identical (bench 141196); hardware counters give −1.05% instructions and −0.55% cycles
+per node. The gain is small because the expensive part is the new phase's HalfKA rows, which must be applied anyway.
+
+**Where the cycles go.** A per-function profile of the PGO binary (hardware counters, 30 positions at 400k nodes)
+splits our 6,700 cycles per node into about 3,500 for the network and 3,200 for the search; Stockfish 19 spends
+about 2,300 and 1,750 on the same positions. The search logic itself (move loop, pruning, node bookkeeping) costs
+about the same as Stockfish's. The difference sits in move ordering, the transposition table, the static exchange
+evaluation and the make/unmake bookkeeping, and much of it is branch mispredictions: 46 per node against 29.
+
+**Branch-free bookkeeping.** Nine small changes, all leaving the tree node-for-node identical (bench 141196):
+the three partial Zobrist keys (pawns, minor pieces, non-pawn material) are updated by one table-driven function
+instead of three functions with ten data-dependent branches; discovered-check candidates come from the sliders
+aligned with the enemy king instead of a slider lookup per own piece; the promotion type is read from a table;
+the hash move is removed from the generated list once instead of being compared against every move; the
+transposition table compares its four ways at once and branches once; the bucket is prefetched before the
+end-of-node statistics; two more correction-history slots are prefetched in make; the all-node reduction term uses
+a reciprocal table instead of a division; the passed-pawn test has no branch per pawn. Measured against the
+previous build over six alternating rounds: **−1.05% cycles per node**, branch mispredictions −8.3%, instructions
++1.3%. Tried and withdrawn the same night: slider attacks from per-line tables (128 KB instead of 2.25 MB), +0.55%
+cycles, because the lines actually read from the large tables were already few and hot.
+
+**Loops with a variable trip count.** Each loop over "the features that changed" in the accumulator update runs a
+data-dependent number of times, and its exit is a branch the predictor cannot learn. The PSQT rows (32 bytes per
+feature) used to be summed in four such loops of their own after the accumulator tiles; they are now summed inside
+the first tile, in the same loops as the 2 KB rows, in the incremental update, the refresh from cache and the hybrid
+update. The evaluation is byte-identical. Pawn move generation lost its per-pawn branches the same way: pushes are
+computed in bulk from shifted bitboards, and for each pawn the move is always written to the next slot while the
+count advances by zero or one; the generation order, and so the tree, is unchanged. Measured over the two steps:
+cycles per node −0.6%, branch mispredictions −11% (42.5 → 37.7 per node), instructions +1.1%. Two experiments in
+the same direction failed and were withdrawn: a single 32-register accumulator tile (fewer loop exits, but the
+compiler spills: +5.7% cycles) and issuing the child's hash prefetch before pruning instead of inside make (+0.03%).
+A consequence of the first change: the two loops that prefetched the PSQT rows just before the update had no lead
+time left once those rows were consumed in the first tile, and their variable trip counts cost mispredicted exits;
+switching them off gave a further −1.32% cycles per node (instructions −0.74%). Since the 4 October release the
+speed gains compound to about +4.8% on this workload; the gap to Stockfish 19 in cycles per node went from 1.70× to
+1.59×, with the network itself accounting for about half of what remains.
+
+**Next:** the same vector checked at 30+0.3, large pages, more of our own techniques.

@@ -5,10 +5,8 @@
 // MOVE GENERATION
 // ============================================================================
 
-// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati).
-// Riempita da init_cuckoo; usata dall'upcoming-repetition (P1.2) e dalle
-// evasioni (P2.3).
-static U64 between_tbl[64][64];
+// between_tbl (case strettamente tra due quadrati allineati) e' definita in 07_makemove.inc, che la usa per gli
+// scacchi di scoperta; riempita da init_cuckoo (10_order.inc), usata anche qui dalle evasioni (P2.3).
 
 // Bitboard degli attaccanti di `sq` del colore `by` (P2.3 EvasionGen).
 static inline U64 td_attackers_to(ThreadData &td, int sq, int by) {
@@ -146,8 +144,17 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
 
     if (MG_SIDE == white) {
       if (piece == P) {
-        while (bitboard) {
-          source_square = get_ls1b_index(bitboard);
+        // 04/10/2026 notte — PEDONI SENZA SALTI SUL DATO, stesso ordine di prima (albero identico). Il ciclo per
+        // pedone faceva 4-5 salti dipendenti dai dati a pedone (casa libera, traversa, maschera delle parate, doppio
+        // passo, 0-2 catture): il profilo xperf dava alla generazione ~1,7 salti mal predetti per nodo. Ora le
+        // spinte si calcolano in blocco (shift della bitboard, maschere di vuoto e di parata) e per ogni pedone si
+        // SCRIVE sempre la mossa nello slot e si avanza il contatore solo se vale (0 o 1): nessun salto. L'ordine
+        // resta quello del ciclo: per pedone (LSB), spinta, doppio passo, cattura a sinistra, a destra, e.p.
+        // I pedoni in 7a (promozioni) tengono il codice di prima: sono rari e vengono per primi nell'ordine LSB
+        // (case 8..15), quindi si fanno prima degli altri.
+        U64 promo = bitboard & 0x000000000000FF00ULL;
+        while (promo) {
+          source_square = get_ls1b_index(promo);
           target_square = source_square - 8;
 
           // Mosse silenziose dei pedoni: bloccate se captures_only   true
@@ -224,7 +231,35 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
                                               piece, 0, 1, 0, 1, 0));
             }
           }
-          pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
+          pop_lsb_bb(promo);
+        }
+        {
+          const U64 rest      = bitboard & ~0x000000000000FF00ULL;
+          const U64 empty     = ~td.occupancies[both];
+          const U64 push1     = captures_only ? 0ULL : (rest >> 8) & empty;           // casa davanti libera
+          const U64 single_to = push1 & evasion_mask;
+          // Doppio passo: dalla 2a (arrivi in 3a = case 40..47), con la 4a libera e nella maschera delle parate.
+          const U64 double_to = ((push1 & 0x0000FF0000000000ULL) >> 8) & empty & evasion_mask;
+          const U64 cap_mask  = quiets_only ? 0ULL : enemies & evasion_mask;
+          const U64 ep_bb     = (!quiets_only && td.enpassant != no_sq) ? (1ULL << td.enpassant) : 0ULL;
+          const int ep_sq     = td.enpassant;   // se assente la mossa scritta non viene contata
+          U64 bb = rest;
+          while (bb) {
+            const int s  = get_ls1b_index(bb);
+            const U64 pa = pawn_attacks[white][s];
+            const U64 caps = pa & cap_mask;
+            mg_out[mg_cnt] = encode_move(s, s - 8, piece, 0, 0, 0, 0, 0);
+            mg_cnt += (int)((single_to >> (s - 8)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s - 16, piece, 0, 0, 1, 0, 0);
+            mg_cnt += (int)((double_to >> (s - 16)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s - 9, piece, 0, 1, 0, 0, 0);
+            mg_cnt += (int)((caps >> (s - 9)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s - 7, piece, 0, 1, 0, 0, 0);
+            mg_cnt += (int)((caps >> (s - 7)) & 1);
+            mg_out[mg_cnt] = encode_move(s, ep_sq, piece, 0, 1, 0, 1, 0);
+            mg_cnt += (int)((pa & ep_bb) != 0);
+            pop_lsb_bb(bb);
+          }
         }
       }
       if (piece == K) {
@@ -257,8 +292,39 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
       }
     } else {
       if (piece == p) {
-        while (bitboard) {
-          source_square = get_ls1b_index(bitboard);
+        // Specchio del bianco (vedi sopra). I pedoni neri che promuovono stanno in 2a (case 48..55), gli ULTIMI
+        // nell'ordine LSB: prima gli altri senza salti, poi loro con il codice di prima.
+        {
+          const U64 rest      = bitboard & ~0x00FF000000000000ULL;
+          const U64 empty     = ~td.occupancies[both];
+          const U64 push1     = captures_only ? 0ULL : (rest << 8) & empty;
+          const U64 single_to = push1 & evasion_mask;
+          // Doppio passo: dalla 7a (arrivi in 6a = case 16..23), con la 5a libera e nella maschera delle parate.
+          const U64 double_to = ((push1 & 0x0000000000FF0000ULL) << 8) & empty & evasion_mask;
+          const U64 cap_mask  = quiets_only ? 0ULL : enemies & evasion_mask;
+          const U64 ep_bb     = (!quiets_only && td.enpassant != no_sq) ? (1ULL << td.enpassant) : 0ULL;
+          const int ep_sq     = td.enpassant;
+          U64 bb = rest;
+          while (bb) {
+            const int s  = get_ls1b_index(bb);
+            const U64 pa = pawn_attacks[black][s];
+            const U64 caps = pa & cap_mask;
+            mg_out[mg_cnt] = encode_move(s, s + 8, piece, 0, 0, 0, 0, 0);
+            mg_cnt += (int)((single_to >> (s + 8)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s + 16, piece, 0, 0, 1, 0, 0);
+            mg_cnt += (int)((double_to >> (s + 16)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s + 7, piece, 0, 1, 0, 0, 0);
+            mg_cnt += (int)((caps >> (s + 7)) & 1);
+            mg_out[mg_cnt] = encode_move(s, s + 9, piece, 0, 1, 0, 0, 0);
+            mg_cnt += (int)((caps >> (s + 9)) & 1);
+            mg_out[mg_cnt] = encode_move(s, ep_sq, piece, 0, 1, 0, 1, 0);
+            mg_cnt += (int)((pa & ep_bb) != 0);
+            pop_lsb_bb(bb);
+          }
+        }
+        U64 promo = bitboard & 0x00FF000000000000ULL;
+        while (promo) {
+          source_square = get_ls1b_index(promo);
           target_square = source_square + 8;
 
           if (!captures_only ||
@@ -323,7 +389,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
                                               piece, 0, 1, 0, 1, 0));
             }
           }
-          pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
+          pop_lsb_bb(promo);
         }
       }
       if (piece == k) {

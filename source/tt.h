@@ -126,7 +126,6 @@ extern int current_age;
 // the original direct-mapped (1-way) table for a clean A/B. When on, each index
 // maps to a bucket of 4 consecutive entries; probe scans the bucket, store picks
 // an age-aware victim (prefer empty -> oldest -> shallowest).
-extern bool g_tt_4way;
 
 // 5.1: TT "two-level" (UCI "TTTwoLevel") — schema #1 nei paper (Maastricht): ogni
 // indice = bucket di 2 slot, slot0 = DEPTH-PREFERRED (tieni le entry profonde),
@@ -140,7 +139,6 @@ extern bool g_tt_twolevel;
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
-extern bool g_tt_secondary_age;   // TTSecondaryAge (R-01): decisive non-EXACT depth>=5 invecchiano piu' in fretta nel replacement
 
 // P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
 // dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
@@ -154,7 +152,7 @@ extern bool g_large_pages;
 
 // External variables needed for compatibility functions
 extern U64 hash_key;
-extern U64 piece_keys[12][64];
+extern U64 piece_keys[16][64];
 extern U64 enpassant_keys[64];
 extern U64 castle_keys[16];
 extern U64 side_key;
@@ -285,15 +283,21 @@ inline U64 tt_base_index(U64 key) { return tt_mulhi64(key, hash_entries / TT_WAY
 inline int tt_ways() { return TT_WAYS; }
 
 // Slot del bucket che contiene questa posizione, o nullptr.
+// 04/10/2026 sera — le quattro vie si confrontano SENZA SALTI (maschera a 4 bit, poi un solo salto "trovata o no"):
+// il ciclo con uscita anticipata era mal predetto quasi a ogni lettura (xperf). A piu' vie uguali vince la prima,
+// come prima.
 inline tt_entry* tt_find(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
     const U64 tag = tt_tag(key);
-    for (int i = 0; i < TT_WAYS; i++)
-        if (((b[i].kw ^ b[i].data) >> 16) == tag && (b[i].kw | b[i].data)) return &b[i];
-    return nullptr;
+    unsigned found = 0;
+    for (int i = 0; i < TT_WAYS; i++) {
+        const U64 k = b[i].kw, d = b[i].data;
+        found |= (unsigned)((((k ^ d) >> 16) == tag) & ((k | d) != 0)) << i;
+    }
+    return found ? &b[get_ls1b_index(found)] : nullptr;
 }
 
-// Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 2*distanza d'eta'
+// Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 8*distanza d'eta'
 // (stessa regola della vecchia tt_victim, ora su 4 vie dentro una sola linea).
 inline tt_entry* tt_victim(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
@@ -304,11 +308,7 @@ inline tt_entry* tt_victim(U64 key) {
         if (e->kw == 0 && e->data == 0) return e;
         int rel_age = (current_age - unpack_age(e->data)) & 0x1F;
         int depth = unpack_depth(e->data);
-        if (g_tt_secondary_age && depth >= 5 && unpack_flag(e->data) != hash_flag_exact) {
-            int sc = unpack_score(e->data);
-            if (sc > 30000 || sc < -30000) depth -= 8;
-        }
-        int val = depth - 2 * rel_age;
+        int val = depth - 8 * rel_age;   // 04/10/2026: era 2; ogni ricerca di eta' vale 8 ply, come SF
         if (val < best_val) { best_val = val; best = e; }
     }
     return best;
@@ -318,23 +318,30 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
     PROF_GUARD(prof_tt);
     tt_entry* b = &hash_table[tt_base_index(hash_key)];
     const U64 tag = tt_tag(hash_key);
+    // Un solo snapshot delle due parole per via: la verifica e l'unpack leggono gli STESSI valori (niente torn read
+    // fra verifica e uso, cfr. BUG FIX 2026-07-16). 04/10/2026 sera: le quattro vie senza salti, come in tt_find.
+    U64 d[TT_WAYS], w[TT_WAYS];
+    unsigned found = 0;
     for (int i = 0; i < TT_WAYS; i++) {
+        const U64 k = b[i].kw;
+        d[i] = b[i].data;
+        w[i] = k ^ d[i];
+        found |= (unsigned)(((w[i] >> 16) == tag) & ((k | d[i]) != 0)) << i;
+    }
+    if (found) {
+        const int i = get_ls1b_index(found);
         tt_entry* entry = &b[i];
-        // Un solo snapshot delle due parole: la verifica e l'unpack leggono gli STESSI
-        // valori (niente torn read fra verifica e uso, cfr. BUG FIX 2026-07-16).
-        const U64 data = entry->data;
-        const U64 w    = entry->kw ^ data;
-        if ((w >> 16) != tag || (entry->kw | data) == 0) continue;
+        const U64 data = d[i];
         tt_move  = unpack_move(data);
         tt_score = unpack_score(data);
         tt_depth = unpack_depth(data);
         tt_flag  = unpack_flag(data);
-        tt_eval  = tt_unpack_eval16(w);
+        tt_eval  = tt_unpack_eval16(w[i]);
         is_pv    = (unpack_pv(data) != 0);
         if (g_tt_age_refresh && unpack_age(data) != current_age) {
             U64 new_data = (data & ~(0x1FULL << 58)) | ((U64)(current_age & 0x1F) << 58);
             entry->data = new_data;
-            entry->kw   = w ^ new_data;
+            entry->kw   = w[i] ^ new_data;
         }
         if (tt_flag == hash_flag_none) return false;   // entry eval-only (EvalTTWrite)
         return true;
@@ -384,7 +391,6 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
     entry->kw   = w ^ new_data;
 }
 
-extern bool g_eval_tt_write;   // 5.1: cache static eval su MISS (SF search.cpp:830) -> NPS
 
 // Cache-only dello static eval su un MISS (EvalTTWrite, default OFF): entry flag_none
 // nello slot vittima naturale, cosi' lo store reale la ritrova e la aggiorna in place.

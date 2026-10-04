@@ -93,6 +93,13 @@ static LargePagePtr<Network>& g_net = *new LargePagePtr<Network>();
 // Rete condivisa fra processi (01/10/2026, solo -DTRIUMV_SHARED_NET; vedi shared_net.h). La ricerca legge la rete
 // da g_net_view: la copia locale (g_net) o l'oggetto in memoria condivisa, e in quel caso g_net viene liberata.
 // Senza il flag NET_REF e' *g_net: codice identico a prima.
+// 03/10/2026: ACCESA DI DEFAULT su Windows (come SF, che la usa sempre). Misura del 01/10, due build PGO release dallo
+// stesso sorgente, socket pieno: +15,2% NPS con 20 motori sul socket 0, +24,6% sul socket 1 (32 GB, 2 canali),
+// +34,9% con 38 motori; un motore solo non cambia. -DTRIUMV_NO_SHARED_NET la spegne. shared_net.h esiste solo per
+// Windows: altrove resta la copia privata.
+#if defined(_WIN32) && !defined(TRIUMV_NO_SHARED_NET) && !defined(TRIUMV_SHARED_NET)
+    #define TRIUMV_SHARED_NET
+#endif
 #ifdef TRIUMV_SHARED_NET
     #include "shared_net.h"
 static const Network* g_net_view = nullptr;
@@ -175,6 +182,7 @@ struct NnLast {
     // v = base + optimism*coeff/1000 (coeff in millesimi). Vedi nn_scale.
     int opt_base  = 0;
     int opt_coeff = 0;
+    int cplx      = 0;   // psqt - positional (unita' della rete), per Disagree* della ricerca (04/10/2026)
 };
 
 // Stockfish's eval cp scaling (evaluate.cpp), inlined here with optimism=0 (the
@@ -193,7 +201,9 @@ std::atomic<int> g_optimism[2] = {0, 0};
 // OptPerThread (SMP, 26/09/2026): con 1 ogni thread usa l'optimism della PROPRIA posizione NNUE (SfPos::opt),
 // calcolato dal proprio score di radice, come i worker di SF. 0 = g_optimism globale (storico). A 1 thread le due
 // forme coincidono (il thread 0 scrive entrambi): bench identico.
-int g_opt_per_thread = 0;
+// 04/10/2026: dalla riscrittura della ricerca e' sempre 1 (ogni thread imposta il suo optimism a ogni iterazione,
+// search/14_deepen.inc).
+int g_opt_per_thread = 1;
 
 // --- COSTANTI DEL BLEND, ESPOSTE (15/08/2026) --------------------------------
 // Sono tutte di Stockfish, ereditate col wrapper e MAI tarate su questa rete. E non
@@ -326,6 +336,7 @@ static inline int nn_scale(const Position& pos, Value psqt, Value positional, in
     const int scale_pct = g_eval_scale_b[(pieces - 1) / 4];
 
     if (last) {
+        last->cplx      = int(psqt) - int(positional);
         last->opt_base  = int(std::int64_t(nnue) * (g_ev_mat_base + material) / g_ev_mat_base);
         last->opt_coeff = int(std::int64_t(g_ev_opt_cplx + nnueComplexity) * (g_ev_opt_base + material) * 1000
                               * scale_pct / ((long long)g_ev_opt_cplx * g_ev_mat_base * 100LL));
@@ -807,6 +818,7 @@ void* nn_pos_create(void) { return new SfPos(); }
 int nn_last_unadjusted(void* handle) { return static_cast<SfPos*>(handle)->last.unadjusted; }
 int nn_last_opt_base(void* handle)   { return static_cast<SfPos*>(handle)->last.opt_base; }
 int nn_last_opt_coeff(void* handle)  { return static_cast<SfPos*>(handle)->last.opt_coeff; }
+int nn_last_cplx(void* handle)       { return static_cast<SfPos*>(handle)->last.cplx; }
 void  nn_pos_destroy(void* handle) { delete static_cast<SfPos*>(handle); }
 void  nn_pos_set_optimism(void* handle, int w, int b) {
     SfPos* p = static_cast<SfPos*>(handle);

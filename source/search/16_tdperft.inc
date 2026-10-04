@@ -33,7 +33,7 @@ static void tdp_check_keys(ThreadData &td) {
   h ^= castle_keys[td.castle];
   if (td.side == black) h ^= side_key;
   tdp_nodes_checked++;
-  const bool np_bad = g_corr_nonpawn && (npw != td.np_key[white] || npb != td.np_key[black]);
+  const bool np_bad = (npw != td.np_key[white] || npb != td.np_key[black]);
   U64 occ_w = 0, occ_b = 0;
   for (int pc = P; pc <= K; pc++) occ_w |= td.bitboards[pc];
   for (int pc = p; pc <= k; pc++) occ_b |= td.bitboards[pc];
@@ -69,7 +69,6 @@ static U64 tdp_rec(ThreadData &td, int depth, const moves *parent) {
     td.ply++;
     td.repetition_table[++td.repetition_index] = td.hash_key;
     if (!td_make_move(td, mv, u)) { td.ply--; td.repetition_index--; tdp_check_keys(td); continue; }
-    td.move_stack[td.ply] = mv;
     tdp_check_keys(td);
     n += tdp_rec(td, depth - 1, ml);
     td_unmake_move(td, mv, u);
@@ -94,7 +93,6 @@ void td_perft_driver(int depth) {
     td.ply++;
     td.repetition_table[++td.repetition_index] = td.hash_key;
     if (!td_make_move(td, mv, u)) { td.ply--; td.repetition_index--; tdp_check_keys(td); continue; }
-    td.move_stack[td.ply] = mv;
     tdp_check_keys(td);
     leaves += depth > 1 ? tdp_rec(td, depth - 1, ml) : 1;
     td_unmake_move(td, mv, u);

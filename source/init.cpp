@@ -63,7 +63,9 @@ int repetition_index;
 int ply;
 int fifty;
 
-U64 piece_keys[12][64];
+// 16 righe, non 12: le righe 12..15 restano a zero e servono a td_keys_update (search/07_makemove.inc) per leggere
+// "la chiave del pezzo catturato" anche quando non c'e' nessuna cattura (indice 15), senza un salto.
+U64 piece_keys[16][64];
 U64 enpassant_keys[64];
 U64 castle_keys[16];
 U64 side_key;

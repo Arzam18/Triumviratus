@@ -161,7 +161,7 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 
@@ -176,7 +176,7 @@ materially weaker without his work.
 
 ### Derived code
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3) — SFNNv16 NNUE evaluation (the `nnue/` inference machinery).
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3) — the NNUE inference machinery in `nnue/` (accumulator stack, feature transformer, layers, threat and HalfKA features), ported from SFNNv16. Since then it has been extensively modified, tested and extended to fit Triumviratus' own networks: its own input blocks (PassedPawns, PawnPair), the four phase experts of the Consilium network, row permutation for cache locality, refresh caches for the pawn blocks and for phase changes, and many measured speed changes.
 - **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh ("Code Monkey King") — the original bitboard/magic-number move generator; the project's earliest (2024) foundation for `attacks.cpp`/`magic.cpp`/`movegen.cpp` and the first search, both since substantially rewritten and extended.
 - **[Fathom](https://github.com/jdart1/Fathom)** (MIT) — Syzygy tablebase probing.
 
@@ -186,6 +186,7 @@ Ideas for search, move-ordering, time management and pruning were studied from �
 ported and then **re-tuned against the project's own data and network** — a number of open-source
 engines. Credit and thanks to all of them:
 
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the October 2026 restructuring of the search follows the structure of Stockfish 19's search (see [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
 - **[Reckless](https://github.com/codedeliveryservice/Reckless)** — quiet move-ordering (offense-square and king-shield-pawn terms), TT prefetch, capture-ordering ideas.
 - **[Caissa](https://github.com/Witek902/Caissa)** — node-count move cache, quiescence capture history, moves-left time curve.
 - **[Alexandria](https://github.com/PGG106/Alexandria)** — the multiplicative, stateless time-management factors.
