@@ -645,6 +645,10 @@ count advances by zero or one; the generation order, and so the tree, is unchang
 cycles per node −0.6%, branch mispredictions −11% (42.5 → 37.7 per node), instructions +1.1%. Two experiments in
 the same direction failed and were withdrawn: a single 32-register accumulator tile (fewer loop exits, but the
 compiler spills: +5.7% cycles) and issuing the child's hash prefetch before pruning instead of inside make (+0.03%).
+A consequence of the first change: the two loops that prefetched the PSQT rows just before the update had no lead
+time left once those rows were consumed in the first tile, and their variable trip counts cost mispredicted exits;
+switching them off gave a further −1.32% cycles per node (instructions −0.74%). Since the 4 October release the
+speed gains compound to about +4.8% on this workload; the gap to Stockfish 19 in cycles per node went from 1.70× to
+1.59×, with the network itself accounting for about half of what remains.
 
-**Next:** the same vector checked at 30+0.3, the remaining prefetch loops of the accumulator update, large pages,
-more of our own techniques.
+**Next:** the same vector checked at 30+0.3, large pages, more of our own techniques.
