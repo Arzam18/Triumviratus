@@ -86,7 +86,15 @@ using vec_uint_t = __m512i;
     #define vec128_load(a) _mm_load_si128(a)
     #define vec128_storeu(a, b) _mm_storeu_si128(a, b)
     #define vec128_add(a, b) _mm_add_epi16(a, b)
-    #define NumRegistersSIMD 16
+    // ⛔ 04/10/2026 notte — PROVATI E TOLTI 32 registri zmm (UN tile da 1024 int16 invece di due): ogni ciclo "per
+    // feature" dell'aggiornamento avrebbe una sola uscita mal predetta invece di due, e infatti i salti mal predetti
+    // calano dell'8,9%, ma senza registri liberi per le colonne int8 convertite (vpmovsxbw) il compilatore fa scendere
+    // gli accumulatori in memoria: istruzioni +7,2%, cicli +5,7% (xperf, 6 giri, PGO, nodi identici). Si resta a 16
+    // come Stockfish; -DTRIUMV_AVX512_REGS=32 per riprovare su un'altra CPU.
+    #ifndef TRIUMV_AVX512_REGS
+        #define TRIUMV_AVX512_REGS 16
+    #endif
+    #define NumRegistersSIMD TRIUMV_AVX512_REGS
     #define MaxChunkSize 64
 
 #elif USE_AVX2

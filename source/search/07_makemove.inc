@@ -272,6 +272,28 @@ static inline void td_keys_update(ThreadData &td, int piece, int source, int tar
   }
 }
 
+// Chiave STIMATA del figlio (SF key_after): pezzo da/a, vittima dalla mailbox (ancora pre-mossa), lato, e.p.
+// azzerato. Ignora arrocco, promozione, nuova casa e.p. e diritti d'arrocco: in quei casi (rari) la stima sbaglia e
+// la make rifa' i prefetch con la chiave vera. Senza salti: una casa vuota ha -1 nella mailbox, cioe' la riga 15 di
+// piece_keys, che e' a zero.
+// ⛔ 04/10/2026 notte — PROVATO E TOLTO: emettere questi prefetch gia' in move_loop e quiesce, appena la mossa esce
+// dalla coda (prima di scacco, potatura e singolare), per dare piu' anticipo alla probe del figlio. xperf 6 giri, nodi
+// identici: cicli +0,03%, istruzioni +0,70%. La probe non aspettava piu' di quanto la make gia' copra; i prefetch
+// delle mosse poi potate erano solo istruzioni in piu'.
+static inline U64 td_child_key_guess(const ThreadData &td, int move) {
+  const int source = get_move_source(move), target = get_move_target(move), piece = get_move_piece(move);
+  U64 key = td.hash_key ^ piece_keys[piece][source] ^ piece_keys[piece][target] ^ side_key;
+  key ^= piece_keys[td.piece_on[target] & 15][target];
+  if (td.enpassant != no_sq)
+    key ^= enpassant_keys[td.enpassant];
+  return key;
+}
+// Le due linee che il figlio legge per prime: il bucket hash e la cache delle valutazioni (1 MB per thread).
+static inline void td_prefetch_child(const ThreadData &td, U64 key) {
+  TT_PREFETCH(&hash_table[tt_base_index(key)]);
+  TT_PREFETCH(&td.eval_cache[key & ThreadData::EVAL_CACHE_MASK]);
+}
+
 // known_legal: la ricerca ha gia' deciso la legalita' (legal_before a re non sotto scacco, vedi step_in) e il test
 // "il nostro re e' attaccato?" qui sotto sarebbe un doppione. Perft, radice e validazioni lo lasciano a false.
 static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool known_legal = false) {
@@ -292,24 +314,11 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   int enpass = get_move_enpassant(move);
   int castling = get_move_castling(move);
 
-  // NPS 25/09/2026 — PREFETCH ANTICIPATO (SF key_after). La chiave del figlio si stima
-  // PRIMA di fare la mossa: pezzo da/a, vittima (dalla mailbox, ancora pre-mossa), lato,
-  // e.p. azzerato. Ignora arrocco, promozione, nuova casa e.p. e diritti d'arrocco: in quei
-  // casi (rari) la stima sbaglia e il prefetch si rifa' in fondo con la chiave vera. Il
-  // profilo del 25/09 dava ~6% del tempo al carico dell'entry TT nel probe del figlio: il
-  // prefetch partiva in fondo alla make e aveva poco anticipo. Nella stessa riga di cache
-  // della eval cache del figlio (tabella da 1 MB per thread) parte il secondo prefetch.
+  // NPS 25/09/2026 — PREFETCH ANTICIPATO (SF key_after), vedi td_child_key_guess. Il profilo del 25/09 dava ~6% del
+  // tempo al carico dell'entry TT nel probe del figlio: il prefetch partiva in fondo alla make e aveva poco anticipo.
   // Nodi identici: i prefetch non cambiano nulla di funzionale.
-  U64 pf_key = td.hash_key ^ piece_keys[piece][source] ^ piece_keys[piece][target] ^ side_key;
-  if (capture && !enpass) {
-    const int vic = td.piece_on[target];
-    if (vic >= 0)
-      pf_key ^= piece_keys[vic][target];
-  }
-  if (td.enpassant != no_sq)
-    pf_key ^= enpassant_keys[td.enpassant];
-  TT_PREFETCH(&hash_table[tt_base_index(pf_key)]);
-  TT_PREFETCH(&td.eval_cache[pf_key & ThreadData::EVAL_CACHE_MASK]);
+  const U64 pf_key = td_child_key_guess(td, move);
+  td_prefetch_child(td, pf_key);
 
   pop_bit(td.bitboards[piece], source);
   set_bit(td.bitboards[piece], target);
