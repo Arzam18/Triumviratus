@@ -296,7 +296,9 @@ static inline void td_mm_key_update(ThreadData &td, int piece, int source,
   }
 }
 
-static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
+// known_legal: la ricerca ha gia' deciso la legalita' (legal_before a re non sotto scacco, vedi step_in) e il test
+// "il nostro re e' attaccato?" qui sotto sarebbe un doppione. Perft, radice e validazioni lo lasciano a false.
+static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool known_legal = false) {
   PROF_GUARD(prof_make);
   undo.old_castle = td.castle;
   undo.old_enpassant = td.enpassant;
@@ -421,7 +423,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo) {
   td.side ^= 1;
   td.hash_key ^= side_key;
 
-  if (td_is_square_attacked(td, get_ls1b_index((td.side == white) ? td.bitboards[k] : td.bitboards[K]), td.side)) {
+  if (!known_legal &&
+      td_is_square_attacked(td, get_ls1b_index((td.side == white) ? td.bitboards[k] : td.bitboards[K]), td.side)) {
     td.side ^= 1;
 
     if (promoted) {

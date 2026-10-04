@@ -129,10 +129,13 @@ static void score_quiets(MoveQueue &q, int first, int last) {
   const int eoff = them == white ? 0 : 6;
   const U64 occ = td.occupancies[both];
 
-  U64 by_pawn = 0, by_minor = 0, by_rook = 0;
-  U64 bb = td.bitboards[P + eoff];
-  while (bb) { by_pawn |= pawn_attacks[them][get_ls1b_index(bb)]; pop_lsb_bb(bb); }
-  bb = td.bitboards[N + eoff];
+  U64 by_minor = 0, by_rook = 0;
+  // Case attaccate da tutti i pedoni avversari insieme: gli stessi due shift di mask_pawn_attacks (attacks.cpp)
+  // applicati alla bitboard intera, quindi la stessa unione del ciclo per pedone (04/10/2026).
+  const U64 epawns = td.bitboards[P + eoff];
+  const U64 by_pawn = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
+                                    : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
+  U64 bb = td.bitboards[N + eoff];
   while (bb) { by_minor |= knight_attacks[get_ls1b_index(bb)]; pop_lsb_bb(bb); }
   bb = td.bitboards[B + eoff];
   while (bb) { by_minor |= get_bishop_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }

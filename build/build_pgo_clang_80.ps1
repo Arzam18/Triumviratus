@@ -283,8 +283,8 @@ function Build-Variant([string]$tag) {
     } finally { Pop-Location }
 
     if ($Symbols) { Copy-Item "$outDir\Triumviratus_8.0.pdb" "$outDir\$Name$suffix.pdb" -Force -ErrorAction SilentlyContinue }
-    $pdbJunk = if ($Symbols) { "Triumviratus_8.0.pdb" } else { "*.pdb" }
-    $junk = @("*.profraw","*.iobj",$pdbJunk,"*.ilk","*.exp","pgort*.dll",
+    # Solo il .pdb di lavoro: quelli salvati con -Symbols (<Name>_<arch>.pdb) devono sopravvivere alle build successive.
+    $junk = @("*.profraw","*.iobj","Triumviratus_8.0.pdb","*.ilk","*.exp","pgort*.dll",
               "*.Build.CppClean.log","*.exe.recipe","vcpkg.applocal.log","*.FileListAbsolute.txt")
     foreach ($pat in $junk) { Remove-Item (Join-Path $outDir $pat) -Force -ErrorAction SilentlyContinue }
     Remove-Item "$profDir\*.profraw" -Force -ErrorAction SilentlyContinue

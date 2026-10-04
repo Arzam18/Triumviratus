@@ -208,8 +208,22 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   // passano solo dalla pseudo-legalita', e una di loro che non parava lo scacco veniva giocata. Il re si catturava al
   // ply dopo e la posizione della rete restava senza re: crash in release (1 motore su 16 nel training PGO, 3 partite
   // perse per disconnessione su 197 contro SF19). La verifica con -DTRIUMV_VERIFY_LEGAL su 3,9 milioni di nodi non
-  // l'aveva trovato. La make rifa' il test del re attaccato, come prima.
-  if (!td_make_move(td, m, u)) {
+  // l'aveva trovato.
+  // ✅ 04/10/2026 sera — RIPRESA SOLO DOVE E' COMPLETA: a re NON sotto scacco legal_before decide da solo (inchiodature,
+  // re che non entra in presa, en passant, arrocco) e la make salta il test; sotto scacco il test resta. Arrocco del
+  // 960 sempre alla make. Con -DTRIUMV_VERIFY_LEGAL la make rifa' sempre il test e stampa ogni disaccordo.
+#ifdef TRIUMV_VERIFY_LEGAL
+  if (!f->in_check && !td_make_move(td, m, u)) {
+    printf("info string LEGALITA' SBAGLIATA: mossa %d ritenuta legale\n", m);
+    fflush(stdout);
+    td.ply--;
+    td.repetition_index--;
+    return false;
+  }
+  if (f->in_check && !td_make_move(td, m, u)) {
+#else
+  if (!td_make_move(td, m, u, !f->in_check && !(g_chess960 && get_move_castling(m)))) {
+#endif
     td.ply--;
     td.repetition_index--;
     return false;
