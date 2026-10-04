@@ -679,7 +679,12 @@ void update_accumulator_incremental(Color                     perspective,
         prof_max_inc = thrRemoved.size();
 #endif
 
+    // 05/10/2026 (prova G): da quando le righe PSQT si sommano nel PRIMO tile (B1), il prefetch qui sotto non ha piu'
+    // anticipo (le righe servono subito dopo) e i suoi due cicli a conteggio variabile costavano ~1,3 salti mal
+    // predetti per nodo (xperf). Spento; -DTRIUMV_PREFETCH_THR_PSQT lo riaccende.
+#ifdef TRIUMV_PREFETCH_THR_PSQT
     prefetch_thr_psqt(featureTransformer, thrAdded, thrRemoved);
+#endif
     apply_combined(perspective, featureTransformer, computed, target_state, psqAdded, psqRemoved,
                    thrAdded, thrRemoved);
 
@@ -754,8 +759,10 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
     prof_n_upd += 2;
 #endif
 
+#ifdef TRIUMV_PREFETCH_THR_PSQT   // vedi update_accumulator_incremental (prova G, 05/10/2026)
     prefetch_thr_psqt(featureTransformer, thrAddW, thrRemW);
     prefetch_thr_psqt(featureTransformer, thrAddB, thrRemB);
+#endif
     // Applicazioni SEQUENZIALI: e' la differenza voluta da Stockfish.
     apply_combined(WHITE, featureTransformer, computed, target_state, psqAddW, psqRemW, thrAddW,
                    thrRemW);
