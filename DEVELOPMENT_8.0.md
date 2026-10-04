@@ -635,5 +635,16 @@ previous build over six alternating rounds: **−1.05% cycles per node**, branch
 +1.3%. Tried and withdrawn the same night: slider attacks from per-line tables (128 KB instead of 2.25 MB), +0.55%
 cycles, because the lines actually read from the large tables were already few and hot.
 
-**Next:** the same vector checked at 30+0.3, the remaining variable-count loops in the accumulator update, more of
-our own techniques.
+**Loops with a variable trip count.** Each loop over "the features that changed" in the accumulator update runs a
+data-dependent number of times, and its exit is a branch the predictor cannot learn. The PSQT rows (32 bytes per
+feature) used to be summed in four such loops of their own after the accumulator tiles; they are now summed inside
+the first tile, in the same loops as the 2 KB rows, in the incremental update, the refresh from cache and the hybrid
+update. The evaluation is byte-identical. Pawn move generation lost its per-pawn branches the same way: pushes are
+computed in bulk from shifted bitboards, and for each pawn the move is always written to the next slot while the
+count advances by zero or one; the generation order, and so the tree, is unchanged. Measured over the two steps:
+cycles per node −0.6%, branch mispredictions −11% (42.5 → 37.7 per node), instructions +1.1%. Two experiments in
+the same direction failed and were withdrawn: a single 32-register accumulator tile (fewer loop exits, but the
+compiler spills: +5.7% cycles) and issuing the child's hash prefetch before pruning instead of inside make (+0.03%).
+
+**Next:** the same vector checked at 30+0.3, the remaining prefetch loops of the accumulator update, large pages,
+more of our own techniques.
