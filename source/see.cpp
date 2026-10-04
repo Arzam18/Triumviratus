@@ -208,13 +208,9 @@ int td_see_ge(ThreadData& td, int move, int threshold) {
     int to    = get_move_target(move);
     int piece = get_move_piece(move);
 
-    // Vittima su 'to' (scan del solo lato avversario, come td_see)
-    int captured = -1;
-    int start = (td.side == white) ? p : P;
-    int end   = (td.side == white) ? k : K;
-    for (int pc = start; pc <= end; pc++) {
-        if (get_bit(td.bitboards[pc], to)) { captured = pc; break; }
-    }
+    // Vittima su 'to': una lettura della scacchiera a caselle (04/10/2026) invece dello scan delle sei bitboard
+    // avversarie con un salto ciascuna. Per una mossa pseudo-legale 'to' e' vuota (-1) o ha un pezzo avversario.
+    int captured = td.piece_on[to];
 
     U64 occupied = td.occupancies[both] ^ (1ULL << from);   // il mover lascia l'origine
     if (get_move_enpassant(move)) {

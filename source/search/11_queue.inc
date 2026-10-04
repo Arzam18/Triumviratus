@@ -63,24 +63,25 @@ struct MoveQueue {
 // cicli invariati. Chiavi a 32 bit (Wide = false): 16 confronti per istruzione AVX-512 invece di 8. Valgono per
 // tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza); le parate dallo
 // scacco usano 1 << 28 per le catture e restano a 64 bit.
+// 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
+// vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
+// (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
 template <bool Wide>
-static void rank_from(ScoredMove *a, int n, int limit) {
+static void rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   using Key = std::conditional_t<Wide, long long, int>;
-  ScoredMove tmp[256];
   alignas(64) Key key[256];
   unsigned char hi[256], lo[256];
   int nh = 0, nl = 0;
   for (int i = 0; i < n; i++) {
-    tmp[i] = a[i];
-    const int up = a[i].score >= limit;
+    const int up = sc[i] >= limit;
     hi[nh] = (unsigned char)i;
     lo[nl] = (unsigned char)i;
     nh += up;
     nl += 1 - up;
   }
   for (int k = 0; k < nh; k++) {
-    const int s = tmp[hi[k]].score;
+    const int s = sc[hi[k]];
     if constexpr (Wide)
       key[k] = ((long long)s << 8) | (255 - hi[k]);
     else
@@ -91,10 +92,10 @@ static void rank_from(ScoredMove *a, int n, int limit) {
     int r = 0;
     for (int j = 0; j < nh; j++)
       r += key[j] > x;
-    a[r] = tmp[hi[k]];
+    out[r] = {mv[hi[k]], sc[hi[k]]};
   }
   for (int k = 0; k < nl; k++)
-    a[nh + k] = tmp[lo[k]];
+    out[nh + k] = {mv[lo[k]], sc[lo[k]]};
 }
 
 static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_move, int depth, int kind) {
@@ -121,7 +122,7 @@ static inline int score_tactic(const ThreadData &td, int m) {
 
 // Punteggi delle quiete: statistiche (pesate), bonus agli scacchi diretti che non perdono materiale, e la mossa
 // di un pezzo che esce da (o entra in) una casa attaccata da un pezzo nemico di valore minore.
-static void score_quiets(MoveQueue &q, int first, int last) {
+static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   PROF_GUARD(prof_score);
   ThreadData &td = *q.td;
   NodeFrame *f = q.f;
@@ -172,8 +173,8 @@ static void score_quiets(MoveQueue &q, int first, int last) {
   const PieceToRow &prow = pawn_row(td);
   const int ply = f->ply;
 
-  for (int i = first; i < last; i++) {
-    const int m = q.list[i].move;
+  for (int i = 0; i < n; i++) {
+    const int m = mv[i];
     const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc % 6;
     const int key = quiet_key(m);
     int s = 2 * td.quiet_hist[us][key] + 2 * prow[pc][to];
@@ -185,51 +186,54 @@ static void score_quiets(MoveQueue &q, int first, int last) {
       s += 8 * td.low_ply_hist[ply][key] / (1 + ply);
     if (shield >> from & 1)
       s -= KingShield;
-    q.list[i].score = s;
+    sc[i] = s;
   }
 }
 
 static void fill_tactics(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
+  int sc[256];
   td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
                     /*promo_quiet=*/true, /*promo_queen_only=*/true);
-  for (int i = 0; i < ml->count; i++) {
-    q.list[i].move = ml->moves[i];
-    q.list[i].score = score_tactic(td, ml->moves[i]);
-  }
+  for (int i = 0; i < ml->count; i++)
+    sc[i] = score_tactic(td, ml->moves[i]);
   q.n_tact = q.n_all = ml->count;
-  rank_from<false>(q.list, q.n_tact, INT_MIN);
+  rank_into<false>(q.list, ml->moves, sc, ml->count, INT_MIN);
   q.cur = 0;
 }
 
 static void fill_quiets(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
+  int sc[256];
   td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
-  int n = q.n_tact;
-  for (int i = 0; i < ml->count; i++)
-    if (promo_kind(ml->moves[i]) != Q)   // la promozione a donna e' gia' fra le tattiche
-      q.list[n++].move = ml->moves[i];
-  q.n_all = n;
-  score_quiets(q, q.n_tact, n);
-  rank_from<false>(q.list + q.n_tact, n - q.n_tact, -QuietSortDepthMul * q.depth);
+  // La promozione a donna e' gia' fra le tattiche: si toglie compattando sul posto, senza salti.
+  int n = 0;
+  for (int i = 0; i < ml->count; i++) {
+    const int m = ml->moves[i];
+    ml->moves[n] = m;
+    n += promo_kind(m) != Q;
+  }
+  q.n_all = q.n_tact + n;
+  score_quiets(q, ml->moves, sc, n);
+  rank_into<false>(q.list + q.n_tact, ml->moves, sc, n, -QuietSortDepthMul * q.depth);
   q.cur = q.n_tact;
 }
 
 static void fill_evasions(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
+  int sc[256];
   td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
   const PieceToRow &c1 = *q.f[-1].cont_hist;
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
-    q.list[i].move = m;
-    q.list[i].score = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 28)
-                                     : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
+    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 28)
+                           : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
   }
   q.n_all = q.n_tact = ml->count;
-  rank_from<true>(q.list, q.n_all, INT_MIN);
+  rank_into<true>(q.list, ml->moves, sc, ml->count, INT_MIN);
   q.cur = 0;
 }
 
