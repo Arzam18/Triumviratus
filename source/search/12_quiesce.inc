@@ -84,6 +84,12 @@ static inline void hash_soften(U64 key) {
 // Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
+    // La hash non porta il disaccordo della rete (Disagree*): si prende dalla cache delle valutazioni se la posizione
+    // c'e' ancora, altrimenti 0 (margini invariati). Serve soprattutto ai nodi singolari, che hanno sempre la hash.
+    if (disagree_on()) {
+      const ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
+      td.eval_cplx = ce.key == td.hash_key ? ce.cplx : 0;
+    }
     raw = h.eval_raw;
     return eval_refade(h.eval_raw, td.fifty);
   }
@@ -92,8 +98,14 @@ static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   return v;
 }
 
+// Idea 3 (Contempt, 04/10/2026): la patta vale -c per il colore al tratto alla radice e +c per l'avversario.
+// Punta all'Elo di lista (CCRL: ~90% di patte), non al self-play. 0 = spento, valori di patta di prima.
+static inline int contempt(const ThreadData &td) {
+  return Contempt ? (td.side == td.root_side ? -Contempt : Contempt) : 0;
+}
+
 // Patta a valore quasi nullo: +-1 secondo i nodi, per non trattare tutte le patte come identiche.
-static inline int draw_score(const ThreadData &td) { return -1 + (int)(td.nodes & 2); }
+static inline int draw_score(const ThreadData &td) { return -1 + (int)(td.nodes & 2) + contempt(td); }
 
 // ============================================================================
 // LEGALITA' E SCACCO PRIMA DI MUOVERE
@@ -333,6 +345,29 @@ static inline void pv_extend(ThreadData &td, int m) {
 // ============================================================================
 // QUIESCENZA
 // ============================================================================
+
+// Idea 7 (QsPasserPush, 04/10/2026): nei finali la spinta di un pedone in 7a traversa (minaccia di promozione
+// immediata) e' tattica. Un pedone che arriva in 7a e' passato per costruzione: davanti ha solo l'ottava. Una sola
+// spinta per nodo; 0 se non ce n'e' o se c'e' troppo materiale (PassedPushNpm, la stessa soglia di PassedPushRed).
+static int qs_passer_push(const ThreadData &td) {
+  int npm = 0;
+  for (int t = N; t <= Q; t++)
+    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
+  if (npm > PassedPushNpm)
+    return 0;
+  const int us = td.side, pc = us == white ? P : p;
+  // a8 = 0: la 6a traversa del bianco e' la riga 2 (case 16-23), quella del nero la riga 5 (case 40-47).
+  U64 cand = td.bitboards[pc] & (us == white ? 0x0000000000FF0000ULL : 0x0000FF0000000000ULL);
+  while (cand) {
+    const int from = get_ls1b_index(cand);
+    const int to = us == white ? from - 8 : from + 8;
+    if (!((td.occupancies[both] >> to) & 1))
+      return encode_move(from, to, pc, 0, 0, 0, 0, 0);
+    pop_lsb_bb(cand);
+  }
+  return 0;
+}
+
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   td.pv_length[td.ply] = td.ply;
   if (alpha < 0 && td_upcoming_repetition(td)) {
@@ -347,7 +382,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (td.ply >= max_ply)
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
-    return 0;
+    return contempt(td);
 
   HashView h;
   hash_read(td, h);
@@ -384,19 +419,23 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   MoveSafety safety;
   safety.ready = false;
   int best_move = 0, count = 0, m;
+  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola.
+  const int qs_push = QsPasserPush && !in_check ? qs_passer_push(td) : 0;
+  bool push_left = qs_push != 0;
 
-  while ((m = queue_next(q)) != 0) {
+  while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
     if (!legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
-    const bool tact = is_tactical(m);
+    const bool push = qs_push && m == qs_push;
+    const bool tact = is_tactical(m) || push;
     count++;
 
     if (!val_lost(best)) {
       if (!gives && move_to(m) != prev_to && !val_lost(fut_base) && !get_move_promoted(m)) {
         if (count > 2)
           continue;
-        const int fut = fut_base + unit_value[victim_kind(td, m)];
+        const int fut = fut_base + (push ? unit_value[Q] - unit_value[P] : unit_value[victim_kind(td, m)]);
         if (fut <= alpha) {
           best = std::max(best, fut);
           continue;
@@ -446,7 +485,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     const U64 non_pawn = td.occupancies[us] & ~pawns & ~td.bitboards[K + off];
     const bool took_piece = f[-1].captured >= 0 && f[-1].captured % 6 >= N;
     if (!(pushes & ~td.occupancies[both]) && !non_pawn && took_piece && !has_legal_move(td))
-      best = 0;
+      best = contempt(td);
   }
 
   if (!val_decided(best) && best > beta)

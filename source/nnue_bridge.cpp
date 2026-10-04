@@ -182,6 +182,7 @@ struct NnLast {
     // v = base + optimism*coeff/1000 (coeff in millesimi). Vedi nn_scale.
     int opt_base  = 0;
     int opt_coeff = 0;
+    int cplx      = 0;   // psqt - positional (unita' della rete), per Disagree* della ricerca (04/10/2026)
 };
 
 // Stockfish's eval cp scaling (evaluate.cpp), inlined here with optimism=0 (the
@@ -335,6 +336,7 @@ static inline int nn_scale(const Position& pos, Value psqt, Value positional, in
     const int scale_pct = g_eval_scale_b[(pieces - 1) / 4];
 
     if (last) {
+        last->cplx      = int(psqt) - int(positional);
         last->opt_base  = int(std::int64_t(nnue) * (g_ev_mat_base + material) / g_ev_mat_base);
         last->opt_coeff = int(std::int64_t(g_ev_opt_cplx + nnueComplexity) * (g_ev_opt_base + material) * 1000
                               * scale_pct / ((long long)g_ev_opt_cplx * g_ev_mat_base * 100LL));
@@ -816,6 +818,7 @@ void* nn_pos_create(void) { return new SfPos(); }
 int nn_last_unadjusted(void* handle) { return static_cast<SfPos*>(handle)->last.unadjusted; }
 int nn_last_opt_base(void* handle)   { return static_cast<SfPos*>(handle)->last.opt_base; }
 int nn_last_opt_coeff(void* handle)  { return static_cast<SfPos*>(handle)->last.opt_coeff; }
+int nn_last_cplx(void* handle)       { return static_cast<SfPos*>(handle)->last.cplx; }
 void  nn_pos_destroy(void* handle) { delete static_cast<SfPos*>(handle); }
 void  nn_pos_set_optimism(void* handle, int w, int b) {
     SfPos* p = static_cast<SfPos*>(handle);

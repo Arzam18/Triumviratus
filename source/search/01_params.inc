@@ -137,12 +137,43 @@
   P(HashDamp, 0, 0, 200)                 /* taglio da limite inferiore spinto verso beta (decimi) */      \
   P(PassedPushRed, 1125, 0, 4096)           /* finali: meno riduzione e niente potatura per la spinta di un */ \
   P(PassedPushNpm, 5133, 0, 12000)       /* pedone passato in 6a/7a, sotto questo materiale non pedoni   */ \
+  /* Idee nostre del 04/10/2026 (docs/audit_8.0/M_STUDIO_IDEE_RICERCA.md), tutte SPENTE di default:         \
+     a 0 l'albero e' identico (bench 141196) e nella release il codice sparisce. Si accendono una per volta  \
+     negli SPRT del piano (STATO_PROGETTO.md 4.0quinquies). */                                              \
+  P(DisagreeRfp, 0, -1024, 1024)         /* idea 1: disaccordo psqt/positional della rete (/1024): positivo = */ \
+  P(DisagreeFut, 0, -1024, 1024)         /* piu' prudenza (meno potatura) dove la rete e' incerta; RFP, futility */ \
+  P(DisagreeCapFut, 0, -1024, 1024)      /* quiete, futility catture e ProbCut (solo se psqt > positional), */ \
+  P(DisagreeSing, 0, -1024, 1024)        /* margine singolare (si estende piu' facilmente) */              \
+  P(DeepKnee, 16, 4, 40)                 /* idea 2 (nostra, LTC): da questa profondita' di radice...     */ \
+  P(DeepSpan, 12, 1, 40)                 /* ...in questi ply il peso dei termini Deep* sale da 0 a 1      */ \
+  P(DeepRfp, 0, -200, 200)               /* scostamenti "profondi" (0 = spenti), li cerca un nostro SPSA LTC */ \
+  P(DeepFut, 0, -200, 200)                                                                                \
+  P(DeepLmr, 0, -2048, 2048)             /* /1024 di ply */                                               \
+  P(DeepNmp, 0, -2048, 2048)             /* /1024 di ply */                                               \
+  P(DeepSing, 0, -60, 60)                                                                                 \
+  P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
+  P(PhaseEdgeCapMargin, 0, 0, 600)       /* idea 4: cattura che cambia esperto della rete: margine extra */ \
+  P(PhaseEdgeImproving, 0, 0, 1)         /* ...improving/opp_worse non confrontati fra esperti diversi */  \
+  P(PhaseEdgeNoFut, 0, 0, 1)             /* ...la cattura di confine non si pota e non si riduce di piu' */ \
+  P(PassedReplyRed, 0, 0, 4096)          /* idea 5: risposte difensive alla spinta di un passato avversario */ \
+  P(NmpVerifyDepthEnd, 0, 0, 30)         /* idea 6: verifica della mossa nulla da qui nei finali (0 = spenta) */ \
+  P(NmpVerifyNpm, 1700, 0, 12000)        /* ...sotto questo materiale non pedoni totale */                \
+  P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
+  P(CorrPhase, 0, 0, 1)                  /* idea 9: correzione dei pedoni/minori separata per esperto */  \
+  P(LateBranch, 0, 0, 2048)              /* idea 10: rami raggiunti da mosse tardive del padre ridotti di piu' */ \
+  P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
   /* gestione del tempo (in millesimi) */                                                                 \
   P(TmFallBase, 1148, 500, 2500)         /* /100: fallingEval = (base + a*(prev-best) + b*(iter-best)) */ \
   P(TmFallPrev, 230, 0, 600)                                                                              \
   P(TmFallIter, 110, 0, 400)                                                                              \
   P(TmInstabBase, 1077, 500, 2000)                                                                        \
-  P(TmInstabMul, 2229, 0, 5000)
+  P(TmInstabMul, 2229, 0, 5000)                                                                           \
+  /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
+  P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \
+  P(TmMtgPly, 1164, 300, 4000)           /* /10 */                                                        \
+  P(TmMtgClock, 880, 300, 1000)          /* /1000: tetto della quota sul tempo rimasto */                 \
+  P(TmMtgMaxBase, 1300, 800, 3000)       /* /1000: massimo = (base + TmMtgMaxHorizon*orizzonte) x ottimo */ \
+  P(TmMtgMaxHorizon, 110, 0, 400)        /* /1000 */
 
 #ifdef TRIUMV_RELEASE
   #define TP_DECLARE(name, def, lo, hi) static constexpr int name = def;

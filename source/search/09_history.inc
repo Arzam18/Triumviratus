@@ -52,6 +52,14 @@ static inline int eval_refade(int v, int fifty) {
   return v * (199 - fifty) / 199;
 }
 
+// Idea 1 (Disagree*, 04/10/2026): il disaccordo psqt - positional della rete viaggia con la valutazione. Spenta,
+// la condizione e' falsa e nella release (parametri costanti a 0) il codice sparisce.
+static inline bool disagree_on() { return (DisagreeRfp | DisagreeFut | DisagreeCapFut | DisagreeSing) != 0; }
+
+// Esperto della rete (fascia di materiale) per numero di pezzi: la stessa tabella di half_ka_v2_hm.h
+// (<= 9, 10-15, 16-23, >= 24). Serve a PhaseEdge* e CorrPhase.
+static inline int net_phase(int pieces) { return pieces <= 9 ? 0 : pieces <= 15 ? 1 : pieces <= 23 ? 2 : 3; }
+
 // Valutazione della rete (unita' della rete), con la cache per thread.
 static inline int net_evaluate(ThreadData &td) {
   PROF_GUARD(prof_eval);
@@ -60,14 +68,20 @@ static inline int net_evaluate(ThreadData &td) {
     int s = 0;
     for (int pc = 0; pc < 6; pc++)
       s += mat[pc] * (count_bits(td.bitboards[pc]) - count_bits(td.bitboards[pc + 6]));
+    td.eval_cplx = 0;
     return td.side == white ? s : -s;
   }
   ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-  if (ce.key == td.hash_key)
+  if (ce.key == td.hash_key) {
+    if (disagree_on())
+      td.eval_cplx = ce.cplx;
     return eval_refade(ce.eval, td.fifty);
+  }
   const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
   ce.key = td.hash_key;
   ce.eval = eval_unfade(v, td.fifty);
+  if (disagree_on())
+    ce.cplx = td.eval_cplx = nn_last_cplx(td.nnpos);
   return v;
 }
 
@@ -171,11 +185,20 @@ static inline CorrSlot &corr_slot(U64 key, int side_to_move) {
   return g_stats.corr[key & g_stats.corr_mask][side_to_move];
 }
 
+// Idea 9 (CorrPhase, 04/10/2026): con quattro esperti l'errore sistematico su una stessa struttura cambia con
+// l'esperto. Una costante per fascia mescolata nelle chiavi dei pedoni e dei minori separa le correzioni.
+static inline U64 corr_phase_key(const ThreadData &td) {
+  static constexpr U64 keys[4] = {0x9E3779B97F4A7C15ULL, 0xC2B2AE3D27D4EB4FULL, 0x165667B19E3779F9ULL,
+                                  0xD6E8FEB86659FD93ULL};
+  return CorrPhase ? keys[net_phase(count_bits(td.occupancies[both]))] : 0;
+}
+
 static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   PROF_GUARD(prof_corr);
   const int us = td.side;
-  const int pawn = corr_slot(td.pawn_key, us).pawn;
-  const int minor = corr_slot(td.mm_key[0], us).minor;
+  const U64 phk = corr_phase_key(td);
+  const int pawn = corr_slot(td.pawn_key ^ phk, us).pawn;
+  const int minor = corr_slot(td.mm_key[0] ^ phk, us).minor;
   const int npw = corr_slot(td.np_key[white], us).np_white;
   const int npb = corr_slot(td.np_key[black], us).np_black;
   const int prev = f[-1].move;
@@ -197,8 +220,9 @@ static inline int corrected_eval(int v, int signal) {
 static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
   PROF_GUARD(prof_corr);
   const int us = td.side;
-  stat_push(corr_slot(td.pawn_key, us).pawn, bonus, LIM_CORR);
-  stat_push(corr_slot(td.mm_key[0], us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
+  const U64 phk = corr_phase_key(td);
+  stat_push(corr_slot(td.pawn_key ^ phk, us).pawn, bonus, LIM_CORR);
+  stat_push(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[white], us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[black], us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
   if (CorrMajorW)

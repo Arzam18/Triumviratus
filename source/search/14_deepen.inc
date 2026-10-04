@@ -48,8 +48,10 @@ static void clock_plan(int us, int game_ply, int overhead) {
                 g_clock.opening_adjust;
     max_mult = std::min(6.873, max_c + game_ply / 12.352);
   } else {
-    opt_share = std::min((0.88 + game_ply / 116.4) / horizon, 0.88 * clock / left);
-    max_mult = 1.3 + 0.11 * horizon;
+    // Idea 8 (04/10/2026): costanti del ramo movestogo come parametri, per uno SPSA dedicato al 40/15 di CCRL. I
+    // default riproducono i valori di prima (la divisione IEEE e' arrotondata correttamente: 880/1000.0 == 0.88).
+    opt_share = std::min((TmMtgBase / 1000.0 + game_ply / (TmMtgPly / 10.0)) / horizon, TmMtgClock / 1000.0 * clock / left);
+    max_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * horizon;
   }
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
   g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(0.8097 * clock - overhead, max_mult * g_clock.optimum));
@@ -163,6 +165,9 @@ static void deepen(ThreadData &td) {
   NodeFrame *root = &td.frames[FRAME_OFFSET];
   prepare_frames(td);
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
+  td.root_side = td.side;   // Contempt: la patta vale meno per chi muove alla radice
+  td.deep_w = 0;
+  td.eval_cplx = 0;
 
   if (main) {
     for (int &v : g_clock.iter_values)
@@ -185,6 +190,8 @@ static void deepen(ThreadData &td) {
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
+    // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
+    td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
     if (main)
       g_clock.best_changes /= 2;
     for (int i = 0; i < td.root_count; i++) {

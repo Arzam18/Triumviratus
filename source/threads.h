@@ -43,6 +43,7 @@ struct NodeFrame {
     int  move_count;
     int  cutoff_cnt;
     int  reduction;
+    int  pieces;                  // pezzi sulla scacchiera in questo nodo (PhaseEdge: esperto della rete)
     bool in_check;
     bool tt_pv;
     bool tt_hit;
@@ -130,6 +131,9 @@ struct ThreadData {
     int  last_pv[max_ply + 4];        // linea dell'iterazione precedente per la mossa pv_idx
     int  last_pv_len;
     int  opt[2];                      // optimism di questo thread (lato bianco, nero)
+    int  root_side;                   // colore al tratto alla radice (Contempt)
+    int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
+    int  eval_cplx;                   // psqt - positional dell'ultima valutazione (Disagree*), 0 se ignoto
 
     // Risultato, letto dal driver e dal voto fra thread
     int best_move;
@@ -149,7 +153,7 @@ struct ThreadData {
     static constexpr int EVAL_CACHE_BITS = 16;
     static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    struct EvalCacheEntry { U64 key; int eval; };
+    struct EvalCacheEntry { U64 key; int eval; int cplx; };   // cplx sta nel riempimento: 16 byte come prima
     EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
 };
 
