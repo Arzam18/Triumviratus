@@ -21,9 +21,12 @@
 #include "see.h"
 #include "tt.h"
 #include <algorithm>
+#include <array>
+#include <cassert>
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <type_traits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>

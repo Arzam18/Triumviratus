@@ -52,7 +52,7 @@ param([int]$Movetime = 0, [int]$Positions = 200, [int]$Workers = 8,
       # ricerche venti volte piu' corte di quelle vere.
       [string]$Times = "",
       [string]$Name = "Triumviratus_8.0",
-      [string]$Net  = "Networks_Triumviratus_7\nn-legio-septima-v1.nnue",
+      [string]$Net  = "Triumviratus_8.0\nn-consilium.nnue",   # 30/09/2026: 8.0 = solo Consilium (MoE, -DTRIUMV_PSQ_PHASES=4)
       # avx2-nopext = AVX2 SENZA pext/bmi2 (fancy-magics + dual hyperbola quintessence).
       # Serve ai tester su AMD Zen1/Zen2, dove PEXT e' microcodato (~18 cicli contro 3):
       # con la build "avx2" normale perdono ~15-20% di NPS. E' la stessa separazione che
@@ -64,7 +64,10 @@ param([int]$Movetime = 0, [int]$Positions = 200, [int]$Workers = 8,
       [ValidateSet("both","all","avx512","vnni512","avx512icl","avx2","avx2-nopext",
                    "avx2-intel","avx512-intel","avx512icl-intel")][string]$Arch = "avx512",
       [string]$ExtraDefs = "",
-      [switch]$Release)
+      [switch]$Release,
+      # -Symbols (04/10/2026): informazioni di debug (/Z7) e .pdb conservato accanto all'exe, per attribuire a funzione
+      # e riga i campioni xperf del binario PGO vero (tools/pmc_analyze.py samples). Il codice generato non cambia.
+      [switch]$Symbols)
 $ErrorActionPreference = "Stop"
 # -Release => -DTRIUMV_RELEASE: nasconde le opzioni UCI di tuning.
 $reldef = if ($Release) { " -DTRIUMV_RELEASE" } else { "" }
@@ -79,7 +82,9 @@ if (-not (Test-Path $proj)) { throw "vcxproj 8.0 non trovato: $proj" }
 $projDir = Split-Path $proj
 $outDir  = "$projDir\x64\Release"
 $exe     = "$outDir\Triumviratus_8.0.exe"
-$netName = "nn-legio-septima.nnue"          # nome che il motore cerca (EvalFileDefaultName)
+$netName = "nn-consilium.nnue"              # nome che il motore cerca (EvalFileDefaultName); 30/09/2026, prima nn-legio-septima.nnue
+# La rete INCORPORATA nell'exe e' Triumviratus_8.0\nn-consilium.nnue (risorsa RCDATA del .rc), non -Net: -Net va solo
+# accanto al binario. Le due devono coincidere, altrimenti l'exe spedito da solo gira con un'altra rete.
 $netSrc  = if ([System.IO.Path]::IsPathRooted($Net)) { $Net } else { "$root\$Net" }
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -159,6 +164,7 @@ function Build-Variant([string]$tag) {
     # perche' e' un puro hint di scheduling senza effetti su memoria o correttezza.
     $extra = " /clang:-mtune=native"
     if ($noPersp) { $extra += " -DTRIUMV_NO_PERSP_BOTH" }
+    if ($Symbols) { $extra += " /Z7" }
     # 🔴 Le MACRO servono: il codice gatta su #if defined(USE_AVX512). Senza,
     # i flag -m abilitano le istruzioni ma i percorsi restano quelli AVX2.
     #
@@ -276,7 +282,9 @@ function Build-Variant([string]$tag) {
         }
     } finally { Pop-Location }
 
-    $junk = @("*.profraw","*.iobj","*.pdb","*.ilk","*.exp","pgort*.dll",
+    if ($Symbols) { Copy-Item "$outDir\Triumviratus_8.0.pdb" "$outDir\$Name$suffix.pdb" -Force -ErrorAction SilentlyContinue }
+    $pdbJunk = if ($Symbols) { "Triumviratus_8.0.pdb" } else { "*.pdb" }
+    $junk = @("*.profraw","*.iobj",$pdbJunk,"*.ilk","*.exp","pgort*.dll",
               "*.Build.CppClean.log","*.exe.recipe","vcpkg.applocal.log","*.FileListAbsolute.txt")
     foreach ($pat in $junk) { Remove-Item (Join-Path $outDir $pat) -Force -ErrorAction SilentlyContinue }
     Remove-Item "$profDir\*.profraw" -Force -ErrorAction SilentlyContinue

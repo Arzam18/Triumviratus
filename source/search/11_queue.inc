@@ -54,23 +54,47 @@ struct MoveQueue {
 // SF 2,7). PROVATA e TOLTA la variante a scambio (la mossa buona prende il posto della prima bassa): salti mal
 // predetti invariati (55,4 -> 55,1 per nodo), cicli per nodo +3,8%, ordine delle mosse basse rimescolato. I salti
 // vengono dai confronti, che dipendono dai dati, non dagli spostamenti: serve un ordinamento senza salti.
+// 04/10/2026 — SENZA SALTI, stesso ordine di prima (albero identico). Ogni mossa sopra la soglia ha una chiave unica
+// (punteggio << 8 | 255 - posizione): a parita' di punteggio vince la prima generata, come nell'inserimento stabile.
+// La sua posizione finale e' il numero di chiavi piu' grandi della sua, contato con un ciclo che il compilatore
+// vettorizza; le mosse sotto la soglia seguono nell'ordine di generazione. Le divisioni fra le due liste si fanno con
+// incrementi condizionati, non con salti. n <= 256, quindi la posizione sta in 8 bit.
+// Misura (xperf, PGO, nodi identici): con chiavi a 64 bit salti mal predetti -10,8% per nodo ma istruzioni +1,2% e
+// cicli invariati. Chiavi a 32 bit (Wide = false): 16 confronti per istruzione AVX-512 invece di 8. Valgono per
+// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza); le parate dallo
+// scacco usano 1 << 28 per le catture e restano a 64 bit.
+template <bool Wide>
 static void rank_from(ScoredMove *a, int n, int limit) {
   PROF_GUARD(prof_mp);
-  int top = 0;
+  using Key = std::conditional_t<Wide, long long, int>;
+  ScoredMove tmp[256];
+  alignas(64) Key key[256];
+  unsigned char hi[256], lo[256];
+  int nh = 0, nl = 0;
   for (int i = 0; i < n; i++) {
-    if (a[i].score < limit)
-      continue;
-    const ScoredMove x = a[i];
-    for (int j = i; j > top; j--)
-      a[j] = a[j - 1];
-    int j = top;
-    while (j > 0 && a[j - 1].score < x.score) {
-      a[j] = a[j - 1];
-      j--;
-    }
-    a[j] = x;
-    top++;
+    tmp[i] = a[i];
+    const int up = a[i].score >= limit;
+    hi[nh] = (unsigned char)i;
+    lo[nl] = (unsigned char)i;
+    nh += up;
+    nl += 1 - up;
   }
+  for (int k = 0; k < nh; k++) {
+    const int s = tmp[hi[k]].score;
+    if constexpr (Wide)
+      key[k] = ((long long)s << 8) | (255 - hi[k]);
+    else
+      key[k] = (int)((unsigned)std::clamp(s, -(1 << 22), (1 << 22) - 1) << 8) | (255 - hi[k]);
+  }
+  for (int k = 0; k < nh; k++) {
+    const Key x = key[k];
+    int r = 0;
+    for (int j = 0; j < nh; j++)
+      r += key[j] > x;
+    a[r] = tmp[hi[k]];
+  }
+  for (int k = 0; k < nl; k++)
+    a[nh + k] = tmp[lo[k]];
 }
 
 static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_move, int depth, int kind) {
@@ -172,7 +196,7 @@ static void fill_tactics(MoveQueue &q) {
     q.list[i].score = score_tactic(td, ml->moves[i]);
   }
   q.n_tact = q.n_all = ml->count;
-  rank_from(q.list, q.n_tact, INT_MIN);
+  rank_from<false>(q.list, q.n_tact, INT_MIN);
   q.cur = 0;
 }
 
@@ -186,7 +210,7 @@ static void fill_quiets(MoveQueue &q) {
       q.list[n++].move = ml->moves[i];
   q.n_all = n;
   score_quiets(q, q.n_tact, n);
-  rank_from(q.list + q.n_tact, n - q.n_tact, -QuietSortDepthMul * q.depth);
+  rank_from<false>(q.list + q.n_tact, n - q.n_tact, -QuietSortDepthMul * q.depth);
   q.cur = q.n_tact;
 }
 
@@ -202,7 +226,7 @@ static void fill_evasions(MoveQueue &q) {
                                      : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
   }
   q.n_all = q.n_tact = ml->count;
-  rank_from(q.list, q.n_all, INT_MIN);
+  rank_from<true>(q.list, q.n_all, INT_MIN);
   q.cur = 0;
 }
 

@@ -26,9 +26,11 @@ struct NodeState {
 static constexpr int NO_VALUE = 1 << 30;   // "nessun valore": la fase non ha chiuso il nodo
 
 // Profondita' ridotta di base: tabella logaritmica, finestra relativa e assenza di miglioramento.
-static inline int base_reduction(const ThreadData &td, bool improving, int depth, int move_no, int window) {
+// `window_term` = finestra * LmrDeltaMul / root_delta: lo calcola move_loop solo quando la finestra cambia, perche'
+// la divisione per root_delta (non costante) costava ~30 cicli a ogni mossa (04/10/2026, stesso valore).
+static inline int base_reduction(bool improving, int depth, int move_no, int window_term) {
   const int scale = red_log[std::min(depth, 255)] * red_log[std::min(move_no, 255)];
-  return scale - window * LmrDeltaMul / td.root_delta + (!improving ? scale * LmrNotImproving / 512 : 0) + LmrBase;
+  return scale - window_term + (!improving ? scale * LmrNotImproving / 512 : 0) + LmrBase;
 }
 
 // Controllo del tempo e dei limiti (solo il thread 0, ogni 512 nodi).
@@ -345,7 +347,8 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   const U64 own_pieces = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k];
   if (!own_pieces)
     return false;
-  if (f->move_count >= (3 + n.depth * n.depth) / (2 - n.improving))
+  // (3 + d^2) / (2 - improving) diviso 1 o 2: uno shift, non una divisione hardware (04/10/2026, stesso valore).
+  if (f->move_count >= (3 + n.depth * n.depth) >> (1 - (int)n.improving))
     q.quiets_off = true;
   int red_depth = n.depth - 1 - r / 1024;
   const int pc = move_piece(m), to = move_to(m);
@@ -370,13 +373,27 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   if (f->follow_pv && n.pv)
     return false;
   const int d_index = std::min(n.depth, 16) - 1;
-  static const int hist_div[16] = {3637, 2787, 2761, 2939, 3171, 3347, 3147, 2762,
-                                   2772, 3106, 3107, 3060, 3112, 2991, 3090, 3542};
+  // hist / hist_div[d] con divisore variabile era una divisione hardware a ogni quieta (04/10/2026). Ora moltiplica
+  // per il reciproco M = ceil(2^40 / D) e tronca verso zero: per D <= 3637 e' esatto fino a |hist| < 2^27 (errore
+  // M*D - 2^40 < D), e |hist| qui sta sotto 2^19 (somme di statistiche limitate). Stesso valore, stesso albero.
+  static constexpr int hist_div[16] = {3637, 2787, 2761, 2939, 3171, 3347, 3147, 2762,
+                                       2772, 3106, 3107, 3060, 3112, 2991, 3090, 3542};
+  static constexpr auto hist_recip = [] {
+    std::array<unsigned long long, 16> r{};
+    for (int i = 0; i < 16; i++)
+      r[i] = ((1ULL << 40) + (unsigned long long)hist_div[i] - 1) / (unsigned long long)hist_div[i];
+    return r;
+  }();
   int hist = (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
   if (hist < -QuietHistPrune * n.depth)
     return true;
   hist += QuietMainHistMul * td.quiet_hist[us][quiet_key(m)] / 32;
-  red_depth += hist / hist_div[d_index];
+  assert(std::abs(hist) < (1 << 27));
+  {
+    const unsigned long long mag = (unsigned long long)(hist < 0 ? -hist : hist);
+    const int q = (int)((mag * hist_recip[d_index]) >> 40);
+    red_depth += hist < 0 ? -q : q;
+  }
   const int fut = f->static_eval + QuietFutDepth * red_depth + QuietFutAlpha * (f->static_eval > n.alpha) + QuietFutBase;
   if (!n.in_check && red_depth < 12 && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
@@ -488,6 +505,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   s.ready = false;
   q.checks = &s.checks;
   int value = n.best, m;
+  int red_window = -1, red_window_term = 0;   // vedi base_reduction
 
   while ((m = queue_next(q)) != 0) {
     if (m == n.excluded || !legal_before(td, s, m))
@@ -504,7 +522,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     const int pc = move_piece(m), to = move_to(m);
     const bool gives = checks_before(td, s, m);
     int new_depth = n.depth - 1;
-    int r = base_reduction(td, n.improving, n.depth, n.moves, n.beta - n.alpha);
+    if (n.beta - n.alpha != red_window) {
+      red_window = n.beta - n.alpha;
+      red_window_term = red_window * LmrDeltaMul / td.root_delta;
+    }
+    int r = base_reduction(n.improving, n.depth, n.moves, red_window_term);
     if (f->tt_pv)
       r += LmrTtPvAdd;
 
