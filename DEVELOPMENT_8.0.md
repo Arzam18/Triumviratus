@@ -617,5 +617,23 @@ only the HalfKA part is rebuilt from the cache of the new phase, the rest is reu
 The tree is node-for-node identical (bench 141196); hardware counters give −1.05% instructions and −0.55% cycles
 per node. The gain is small because the expensive part is the new phase's HalfKA rows, which must be applied anyway.
 
-**Next:** the same vector checked at 30+0.3, a per-function speed profile against Stockfish, more of our own
-techniques.
+**Where the cycles go.** A per-function profile of the PGO binary (hardware counters, 30 positions at 400k nodes)
+splits our 6,700 cycles per node into about 3,500 for the network and 3,200 for the search; Stockfish 19 spends
+about 2,300 and 1,750 on the same positions. The search logic itself (move loop, pruning, node bookkeeping) costs
+about the same as Stockfish's. The difference sits in move ordering, the transposition table, the static exchange
+evaluation and the make/unmake bookkeeping, and much of it is branch mispredictions: 46 per node against 29.
+
+**Branch-free bookkeeping.** Nine small changes, all leaving the tree node-for-node identical (bench 141196):
+the three partial Zobrist keys (pawns, minor pieces, non-pawn material) are updated by one table-driven function
+instead of three functions with ten data-dependent branches; discovered-check candidates come from the sliders
+aligned with the enemy king instead of a slider lookup per own piece; the promotion type is read from a table;
+the hash move is removed from the generated list once instead of being compared against every move; the
+transposition table compares its four ways at once and branches once; the bucket is prefetched before the
+end-of-node statistics; two more correction-history slots are prefetched in make; the all-node reduction term uses
+a reciprocal table instead of a division; the passed-pawn test has no branch per pawn. Measured against the
+previous build over six alternating rounds: **−1.05% cycles per node**, branch mispredictions −8.3%, instructions
++1.3%. Tried and withdrawn the same night: slider attacks from per-line tables (128 KB instead of 2.25 MB), +0.55%
+cycles, because the lines actually read from the large tables were already few and hot.
+
+**Next:** the same vector checked at 30+0.3, the remaining variable-count loops in the accumulator update, more of
+our own techniques.
