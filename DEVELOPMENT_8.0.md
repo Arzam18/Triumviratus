@@ -554,9 +554,9 @@ each rule only works tuned together with the others.
 
 Triumviratus' search was restructured in October 2026. Most of its techniques were already in the engine, added one
 at a time since version 5.0 and tuned separately, with accumulated inconsistencies. After studying the searches of
-Stockfish and Reckless, the search was reorganised following the logic of Stockfish 19's search (GPLv3); several
-techniques that did not pay off before now do. It is Triumviratus' own code, with our own data structures, move
-generation, evaluation and network.
+Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its
+parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own
+such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network.
 
 **What changed.** `source/search/` now holds:
 
@@ -582,5 +582,21 @@ ours/SF): depth 8 **0.90**, depth 12 **1.11**, depth 16 **0.97**, down from 1.5�
 **Result:** SPRT against the 8.0 of section 16, 10+0.1, bounds [0, 3]: **+61.6 ± 10.2 Elo over 1,390 games**,
 LLR 3.85, accepted (H1).
 
-**Next:** calibrate the evaluation scale against the search margins, a short SPSA of the parameters on our network,
-then our own techniques on top of the new search, each measured on its own.
+**Our own techniques on top**, each an option tested on the same binary at 10+0.1:
+
+| Technique | Result | Decision |
+|---|---|---|
+| Passed-pawn pushes in endgames: a push of a passed pawn to the 6th/7th rank with little material left is reduced less and never pruned (our network sees passed pawns through its `PassedPawns` block) | +4.4 ± 6.8 on the endgame book `endgame_12_18.epd`, no draw adjudication | kept, into the SPSA |
+| King-shield pawns moved last in move ordering, up to the middlegame | −2.2 ± 16.6 | dropped |
+| Correction history for rooks and queens | −2.1 ± 20.7 | dropped |
+| TT entry one ply short accepted beyond a margin (from Coda) | +1.7 ± 12.6 | to be retried |
+
+**Parameters re-tuned on our network.** SPSA "RW1": 51 parameters (evaluation scale, history bonuses, move ordering,
+pruning margins, singular extensions, reductions, quiescence, correction weights, and the two of the passed-pawn
+technique), 20+0.2, 5,481 iterations; the vector is the mean of the last 1,000. Kept out on purpose: time management,
+depth thresholds and the shape of the reduction table, which a 20-second game cannot see. The evaluation scale
+barely moved (1355 → 1347), confirming the calibration; the largest moves were capture futility −24%, singular
+margin +24%, null-move base −14%, statistics divisor in reductions −14%, pawn-structure correction weight +13%.
+Against the starting values at 10+0.1: **+9.7 ± 9.4 Elo**, stopped early and baked. New bench **141196**.
+
+**Next:** the same vector checked at 30+0.3, then more of our own techniques.

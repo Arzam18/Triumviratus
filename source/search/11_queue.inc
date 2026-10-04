@@ -116,6 +116,20 @@ static void score_quiets(MoveQueue &q, int first, int last) {
   LmpChkCtx checks;
   td_lmp_chk_init(td, checks);
 
+  // Scudo del re (nostra): col re sulla traversa di casa, i nostri pedoni accanto al re si muovono per ultimi.
+  // Vale fino al mediogioco: solo finche' l'avversario ha materiale d'attacco (KingShieldNpm, pezzi non pedoni).
+  U64 shield = 0;
+  if (KingShield) {
+    const int ksq = get_ls1b_index(td.bitboards[us == white ? K : k]);
+    const bool home = us == white ? ksq >= a1 : ksq <= h8;
+    const int their_npm = unit_value[N] * count_bits(td.bitboards[N + eoff]) +
+                          unit_value[B] * count_bits(td.bitboards[B + eoff]) +
+                          unit_value[R] * count_bits(td.bitboards[R + eoff]) +
+                          unit_value[Q] * count_bits(td.bitboards[Q + eoff]);
+    if (home && their_npm >= KingShieldNpm)
+      shield = king_attacks[ksq] & td.bitboards[us == white ? P : p];
+  }
+
   const PieceToRow &c1 = *f[-1].cont_hist, &c2 = *f[-2].cont_hist, &c3 = *f[-3].cont_hist,
                    &c4 = *f[-4].cont_hist, &c6 = *f[-6].cont_hist;
   const PieceToRow &prow = pawn_row(td);
@@ -132,6 +146,8 @@ static void score_quiets(MoveQueue &q, int first, int last) {
     s += unit_value[pt] * ThreatOrderMul * (int((lesser[pt] >> from) & 1) - int((lesser[pt] >> to) & 1));
     if (ply < LOW_PLY_SIZE)
       s += 8 * td.low_ply_hist[ply][key] / (1 + ply);
+    if (shield >> from & 1)
+      s -= KingShield;
     q.list[i].score = s;
   }
 }

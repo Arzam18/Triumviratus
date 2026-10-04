@@ -183,7 +183,10 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
     const int to = move_to(prev), pc = td.piece_on[to];
     cont = CorrContW * ((*f[-2].cont_corr)[pc][to] + (*f[-4].cont_corr)[pc][to]);
   }
-  return CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
+  int signal = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
+  if (CorrMajorW)
+    signal += CorrMajorW * corr_slot(td.mm_key[1], us).major;
+  return signal;
 }
 
 static inline int corrected_eval(int v, int signal) {
@@ -196,6 +199,8 @@ static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
   stat_push(corr_slot(td.mm_key[0], us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[white], us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[black], us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
+  if (CorrMajorW)
+    stat_push(corr_slot(td.mm_key[1], us).major, bonus * CorrMajorUpd / 128, LIM_CORR);
   const int prev = f[-1].move;
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];

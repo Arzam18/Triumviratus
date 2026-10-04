@@ -121,9 +121,25 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // Taglio dalla hash. Ritorna un valore se si taglia.
+// Valore restituito da un taglio della hash. HashDamp (nostra, da Coda): un limite inferiore viene spinto verso beta.
+static inline int hash_cut_value(const NodeState &n) {
+  const int v = n.h.value;
+  if (HashDamp && n.h.bound == BOUND_LOW && v >= n.beta && !val_decided(v))
+    return (HashDamp * v + 10 * n.beta) / (HashDamp + 10);
+  return v;
+}
+
 static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   const HashView &h = n.h;
   const bool enough = h.depth > n.depth - (h.value <= n.beta ? 1 : 0);
+  // HashNearMiss (nostra, da Coda): un'entry di un ply piu' corta taglia se supera il limite di un margine.
+  if (HashNearMiss && !enough && !n.pv && !n.excluded && h.depth == n.depth - 1 && td.fifty < 90 &&
+      val_known(h.value) && !val_decided(h.value)) {
+    if (h.bound == BOUND_LOW && h.value - HashNearMiss >= n.beta)
+      return h.value - HashNearMiss;
+    if (h.bound == BOUND_UP && h.value + HashNearMiss <= n.alpha)
+      return h.value + HashNearMiss;
+  }
   if (n.pv || n.excluded || !enough || !val_known(h.value))
     return NO_VALUE;
   const bool high = h.value >= n.beta;
@@ -153,14 +169,14 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
           td.ply--;
           td.repetition_index--;
           if (!val_known(child) || (h.value >= n.beta) == (-child >= n.beta))
-            return h.value;
+            return hash_cut_value(n);
           return NO_VALUE;
         }
         td.ply--;
         td.repetition_index--;
       }
     }
-    return h.value;
+    return hash_cut_value(n);
   }
   // Nessun taglio pur con un limite profondo che contraddice la finestra: l'entry vale meno.
   if (h.bound != BOUND_EXACT && h.bound == (high ? BOUND_UP : BOUND_LOW) && n.depth > 5)
@@ -370,6 +386,27 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   return !see_holds(td, m, -QuietSeeMul * red_depth * red_depth);
 }
 
+// Spinta di un pedone passato in 6a o 7a traversa in un finale (nostra). La rete vede i pedoni passati con il suo
+// blocco PassedPawns; la ricerca li tratterebbe come quiete qualsiasi e potrebbe ridurli di parecchi ply.
+static bool passed_push(const ThreadData &td, int m) {
+  if (move_piece(m) % 6 != P || get_move_capture(m) || get_move_promoted(m))
+    return false;
+  const int to = move_to(m), us = td.side, row = to / 8, file = to % 8;   // row 0 = ottava traversa
+  if (us == white ? (row != 1 && row != 2) : (row != 5 && row != 6))
+    return false;
+  int npm = 0;
+  for (int t = N; t <= Q; t++)
+    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
+  if (npm > PassedPushNpm)
+    return false;
+  U64 files = 0;
+  for (int fl = std::max(0, file - 1); fl <= std::min(7, file + 1); fl++)
+    files |= 0x0101010101010101ULL << fl;
+  const int row_start = to - file;
+  const U64 ahead = us == white ? (1ULL << row_start) - 1 : ~((1ULL << (row_start + 8)) - 1);
+  return !(files & ahead & td.bitboards[us == white ? p : P]);
+}
+
 // La mossa e' uno spostamento avanti e indietro senza progresso (stessa pedina fra le stesse case)?
 static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
   if (is_tactical(m) || td.fifty < 10 || td.plies_from_null < 6 || f->ply < 20)
@@ -469,7 +506,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (f->tt_pv)
       r += LmrTtPvAdd;
 
-    if (skip_move(td, f, n, q, m, tact, gives, r))
+    const bool passer = PassedPushRed && !tact && passed_push(td, m);
+    if (!passer && skip_move(td, f, n, q, m, tact, gives, r))
       continue;
 
     int cut_value = NO_VALUE;
@@ -513,6 +551,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       r += 3 * std::clamp(n.alpha - n.eval, -64, 96);
     if (n.all)
       r += r * LmrAllNode / (256 * n.depth + 268);
+    if (passer)
+      r -= PassedPushRed;
 
     if (n.depth >= 2 && n.moves > 1) {
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + 2)) + n.pv;

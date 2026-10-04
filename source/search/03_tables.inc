@@ -18,8 +18,9 @@ static void build_reduction_table() {
 // sono una sola per tutto il motore e crescono col numero di thread: ogni thread porta la sua fetta di spazio e
 // tutti imparano nella stessa tabella. Le scritture concorrenti su int16 sono innocue per una statistica.
 // ---------------------------------------------------------------------------
-struct CorrSlot {           // le quattro correzioni lette con chiavi diverse ma nello stesso array
+struct CorrSlot {           // le correzioni lette con chiavi diverse ma nello stesso array
   int16_t pawn, minor, np_white, np_black;
+  int16_t major;            // nostra: torri e donne (CorrMajorW, spenta = 0)
 };
 
 struct SharedStats {
