@@ -68,7 +68,8 @@ other.</sub>
 
 **Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
 to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one.
-How the idea came about, and the earlier attempts it builds on: **[`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)**.
+An idea of the author's own, taken from language models; how it came about, and related work elsewhere:
+**[`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)**.
 
 Since the restructuring, speed work with an identical tree has added about +4.8%, then about 4% more, and our own
 search ideas are being tested one at a time: the first one adopted, a hash-move extension at low depth, added
