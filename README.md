@@ -66,6 +66,10 @@ other.</sub>
 | search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 | +27.6 ± 7.0 against 7.0 at 15+0.15 |
 | **restructured search** | the search reorganised following the structure of Stockfish 19's search, re-tuned by SPSA on our network, with techniques of our own | **+85.8 ± 12.8 against the previous 8.0 at 20+0.2** |
 
+**Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
+to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one.
+How the idea came about, and the earlier attempts it builds on: **[`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)**.
+
 Since the restructuring, speed work with an identical tree has added about +4.8%, then about 4% more, and our own
 search ideas are being tested one at a time: the first one adopted, a hash-move extension at low depth, added
 **+4.5 ± 3.3 Elo**. The network, its training and every intermediate measurement are in

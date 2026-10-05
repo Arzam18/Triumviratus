@@ -75,6 +75,17 @@ What it is **not**: a network four times wider. The accumulator is still 1024 va
 unchanged (they already have 8 buckets by piece count). The experts specialise how those 1024 values are computed;
 they do not enlarge them.
 
+**Where the idea comes from, and what is new.** The idea came from language models, where a mixture of experts gives
+a model many parameters but only a small active part for each token. In chess the thought was in the air. The layers
+after the accumulator have long come in eight buckets by piece count, in Stockfish's architecture and in most engines
+derived from it: a simple form of phase experts, on the smallest part of the network. **Mark Tang** had also tried a
+network of phase experts with fellow students in early 2026; it ran faster but did not play stronger, and it was not
+released. Consilium puts the experts where the parameters are, on the king-relative input block, trains them as a
+shared base plus per-phase deltas on about 700 GB of public data (mostly Leela games, re-labelled), and turns them
+into strength: with the parameters that depend on the network re-tuned, the 8.0 build beat the 7.0 release by
+**+27.3 ± 8.3 Elo** at 15+0.15. To our knowledge it is **the first mixture-of-experts network released in a top
+engine, and the first shown to gain strength**.
+
 | | 7.0 — `legio-septima` | 8.0 — Consilium |
 |---|---|---|
 | Base architecture | SFNNv16 | SFNNv16 |
