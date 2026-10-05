@@ -21,6 +21,8 @@ struct ClockState {
   U64    expect_key = 0;
   int    expect_move = 0, expect_score = 0, expect_depth = 0;
   bool   expected = false;          // questa ricerca parte dalla posizione attesa
+  bool   surprise = false;          // c'era una risposta prevista e l'avversario ne ha giocata un'altra
+  double start_clock = 0;           // orologio alla prima mossa della partita (TmSurpriseClock)
 };
 static ClockState g_clock;
 
@@ -30,6 +32,8 @@ static void clock_memory_reset() {
   g_clock.have_prev = false;
   g_clock.expect_key = 0;
   g_clock.expected = false;
+  g_clock.surprise = false;
+  g_clock.start_clock = 0;
 }
 
 int clock_hard_limit() { return g_clock.maximum; }
@@ -40,6 +44,8 @@ static void clock_plan(int us, int game_ply, int overhead) {
     return;
   }
   const double clock = g_limits.time[us], inc = g_limits.inc[us];
+  if (g_clock.start_clock <= 0)
+    g_clock.start_clock = clock;   // prima mossa della partita (TmSurpriseClock)
   int horizon = g_limits.movestogo ? std::min(g_limits.movestogo, 50) : 50;
   if (clock < 1000 && !g_limits.movestogo)
     horizon = (int)(clock * 0.05);
@@ -48,7 +54,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.movestogo) {
     if (g_clock.opening_adjust < 0)
       g_clock.opening_adjust = 0.3272 * std::log10(left) - 0.4141;
-    // Costanti come parametri Tm* (05/10/2026, per lo SPSA del tempo contro SF19); i default sono i valori di prima.
+    // Costanti come parametri Tm* (05/10/2026, per uno SPSA del tempo contro un motore esterno); default = valori di prima.
     const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
     const double opt_c = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, 0.004905);
     const double max_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, 3.1441);
@@ -332,11 +338,18 @@ static void deepen(ThreadData &td) {
       if (g_clock.expected && TmExpectScale < 1000 && td.root_depth >= g_clock.expect_depth - TmExpectDepth &&
           td.root[0].pv[0] == g_clock.expect_move && td.root[0].score >= g_clock.expect_score - TmExpectMargin)
         total_time *= TmExpectScale / 1000.0;
+      // Sorpresa (TmSurpriseScale): l'avversario non ha giocato la risposta prevista, piu' tempo a questa mossa, ma
+      // solo con l'orologio ancora sopra TmSurpriseClock % di quello di inizio partita.
+      if (g_clock.surprise && TmSurpriseScale > 1000 &&
+          100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock)
+        total_time *= TmSurpriseScale / 1000.0;
       const int elapsed = get_time_ms() - g_limits.start_ms;
-      // Pavimento dopo la risposta prevista (TmExpectFloor): sotto la profondita' di prima - k si continua, entro il
-      // tempo massimo.
+      // Pavimento dopo la risposta prevista (TmExpectFloor): sotto la profondita' di prima - k si continua, ma solo
+      // entro il tempo OTTIMALE della mossa. Prima il limite era il massimo: a 12+0.12 il lato col pavimento spendeva
+      // il 4% in piu' nelle mosse 10-30 e arrivava alle mosse 30-60 con il 20% di orologio in meno (1,00 s contro
+      // 1,25) e 0,3 ply in meno; SPRT -5,5 +- 13,4 su 696 partite, fermato (05/10/2026).
       const bool below_floor = g_clock.expected && TmExpectFloor && td.root_depth < g_clock.expect_depth - TmExpectFloor &&
-                               elapsed < g_clock.maximum;
+                               elapsed < g_clock.optimum;
       if ((elapsed > std::min(total_time, (double)g_clock.maximum) && !below_floor) ||
           td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
         if (g_pondering.load(std::memory_order_relaxed))

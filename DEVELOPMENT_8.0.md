@@ -24,7 +24,7 @@
 [Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
 [Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) ·
 [Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
-[Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
+[Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -905,3 +905,51 @@ with identical timings; the floor is next in the queue (SPRT at 12+0.12), and al
 Queue after the guard: the floor of the expected reply, no null move when the opponent has an easy capture,
 `TTMoveRefresh`, `HashQsDepth`. The testing rule is now: run long, up to 20,000 games, but close earlier when the
 interval excludes zero or the result is clearly flat.
+
+## 23. The guard adopted, the surprise rule, and the refresh path (5 October 2026, evening)
+
+**The guard adopted.** `LdseMax` = 1 (at most one LDSE extension per line) closed at **+6.25 ± 7.89** over 2,112
+games at 15+0.15 against LDSE without a cap, both sockets positive (+7.4 and +4.6), and is now the default. New bench
+**308883** (498873 without the cap).
+
+**The expected reply, measured.** The floor (`TmExpectFloor` = 2) did not pay. Capped at the maximum time it lost
+−5.5 ± 13.4 over 696 games at 12+0.12: the PGNs show the time spent early leaves about 20% less clock in the
+middlegame. Capped at the optimum time it was flat at 16+0.16 (+0.6 ± 10.8, 1,090 games). It stays off.
+
+**The surprise rule.** The author then turned the idea around: if the opponent does *not* play the reply the engine
+expected, the position is less clear than it thought, so the move gets more time (`TmSurpriseScale`, ×1.2). The time
+the stability rule saves on expected replies goes to the uncertain moves. The train of thought started from a remark
+by **Mark Tang**: Stoofvlees answers very quickly between two moves, even at long time controls. In self-play the
+expected reply is right about 74% of the time (48% in endgames), so about a quarter of the moves come after a
+surprise.
+
+| surprise rule | time control | result |
+|---|---|---:|
+| ×1.2 | 16+0.16 | +0.7 ± 7.1 (2,446 games) |
+| ×1.6, only while the clock is above 40% of its start | 20+0.2 | −10.1 ± 7.5 (1,998) |
+| **×1.2** | **40+0.4** | **+6.23 ± 6.75 (2,174), LOS ~96%** |
+
+At 40+0.4 the two sockets agree (+6.2 and +6.3). The PGNs, written with principal variations, show where it comes
+from: on the moves after a surprise the engine spends 12% more time and searches **0.35–0.4 ply deeper** than its
+opponent does on its own surprises, while on expected replies it loses less than 0.1 ply. At 16 s the extra time does
+not buy depth. ×1.2 is now the default. The lever depends strongly on the time control, so a short time-control SPSA
+would push it back to 1.0: it is to be tuned only at the target time control, or kept fixed.
+
+**The refresh path of the network.** A profile build counted why the accumulator is rebuilt in full instead of
+updated. 55–58% of full rebuilds happen because the position before the king move was never evaluated; 21% because
+fewer than 15 pieces are left. The hybrid update, which keeps the threat features and rebuilds only the king-relative
+block, costs nearly as much as a full rebuild here: it rebuilds that block twice from the refresh cache, and with four
+phase experts the cache entries are usually many moves old. Two tree-identical changes were measured with xperf, at
+rest, on release PGO builds, six rounds each on 30 middlegame positions and 30 endgames:
+
+| change | cycles/node, middlegame | cycles/node, endgames | |
+|---|---:|---:|---|
+| hybrid update below 15 pieces too (the 15 came from Stockfish's network) | **−0.55%** | **−0.54%** | adopted |
+| threat index tables replaced by a 16-byte entry and a popcount | +0.81% | +0.82% | rejected |
+
+Bringing the earlier position up to date incrementally and then using the hybrid update was also tried: about 2.5%
+more time in the rebuilds, rejected. The index tables were already in the first-level cache. With section 22, about
+**−8.9% cycles per node since the 4 October pre-release**, tree identical.
+
+Queue: no null move when the opponent has an easy capture, `TTMoveRefresh`, `HashQsDepth` (10+0.1), on the build with
+everything adopted so far.

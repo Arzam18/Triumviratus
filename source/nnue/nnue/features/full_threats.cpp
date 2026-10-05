@@ -223,6 +223,11 @@ constexpr auto init_index_luts() {
 // [attacker][attacked][from < to]
 constexpr auto index_lut1 = init_index_luts();
 // [attacker][from][to]
+// ⛔ 05/10/2026 — PROVATO E RIGETTATO: lut2 (64 KB) e offsets (4 KB) sostituite da una voce da 16 byte per
+// [attacker][from] (maschera degli attacchi + offset) e popcount(bzhi(maschera, to)); in append_changed_indices_both
+// i contatori delle quattro liste in registro (scrittura in entrambe le liste, avanza solo quella giusta). Nodi
+// identici; xperf 6 giri quieti, build PGO: istruzioni +1,58%, cicli +0,81% (30 posizioni), +0,82% (30 finali).
+// Queste tabelle restano gia' in L1 fra un update e l'altro: popcount, bzhi e le scritture doppie costano di piu'.
 constexpr auto index_lut2 = index_lut2_array();
 
 // Index of a feature for a given king position and another piece on some square

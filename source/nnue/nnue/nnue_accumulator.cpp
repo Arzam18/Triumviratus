@@ -208,7 +208,14 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         // cambio di fascia sono le righe HalfKA della fascia nuova (entry della finny vecchia di molte mosse, 4 x 46
         // MB di pesi), che l'ibrido deve applicare lo stesso. Le threat erano la parte piccola.
         //   - `add_sq == SQ_NONE` esclude anche le promozioni, che restano sul refresh
-        constexpr int MIN_PC_COUNT_HYBRID = 15;
+        // 05/10/2026 sera — SOGLIA DEI PEZZI TOLTA (15 -> 0). Il 15 veniva dalla rete di SF e non era mai stato misurato
+        // sulla nostra. Conteggio per causa (build di profilo, 30 posizioni a prof. 14 e 64 finali): il 21% dei refresh
+        // pieni era sotto i 15 pezzi, quasi tutti mosse del nostro re; con l'ibrido costano l'8-10% in meno. xperf 6
+        // giri a macchina quieta, build PGO, nodi identici: cicli per nodo -0,55% sulle 30 posizioni, -0,54% su 30 finali.
+        // Provato e SCARTATO nello stesso giro: col padre non calcolato (55-58% dei refresh pieni) portarlo al passo con
+        // update incrementali e poi l'ibrido costa ~2,5% IN PIU' sul tempo dei refresh: l'ibrido costa quasi quanto un
+        // refresh pieno (due ricostruzioni HalfKA da entry della finny vecchie, 4 fasce), l'update in piu' non si ripaga.
+        constexpr int MIN_PC_COUNT_HYBRID = 0;
         const auto&   dp                  = latest().dirtyPiece;
         const bool    ownKing             = dp.pc == make_piece(perspective, KING);
         if (size >= 2 && dp.to != SQ_NONE

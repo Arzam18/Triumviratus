@@ -289,6 +289,9 @@ static inline U64 td_child_key_guess(const ThreadData &td, int move) {
   return key;
 }
 // Le due linee che il figlio legge per prime: il bucket hash e la cache delle valutazioni (1 MB per thread).
+// 05/10/2026: il profilo attribuiva l'1,8% dei cicli alla riga della eval cache; PROVATO a toglierla: xperf 6 giri a
+// macchina quieta, 55,8 M nodi identici, cicli +0,89%, istruzioni +0,28%. Il prefetch serve: quei campioni erano la
+// traduzione dell'indirizzo del bucket hash (riga sopra) attribuita all'istruzione dopo. Resta.
 static inline void td_prefetch_child(const ThreadData &td, U64 key) {
   TT_PREFETCH(&hash_table[tt_base_index(key)]);
   TT_PREFETCH(&td.eval_cache[key & ThreadData::EVAL_CACHE_MASK]);

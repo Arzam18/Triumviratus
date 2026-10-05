@@ -12,9 +12,19 @@
 // veloce e piu' profondo) +6,8 +- 4,4, socket 1 (2 banchi) +1,5 +- 5,1: sembra rendere di piu' con piu' profondita'.
 // Fermato e bakato su decisione dell'utente prima delle 20.000 partite. Bench 498873 (prima 141196; con
 // LdseMargin=0 torna 141196): l'estensione vicino all'orizzonte allarga molto gli alberi a profondita' fissa.
-// Riscrittura del 04/10/2026: i valori di partenza erano quelli della ricerca di Stockfish 19, espressi nelle sue
-// unita' di valutazione. La nostra valutazione viene portata a quelle unita' da EvalUnits (09_history.inc), cosi'
-// i margini restano confrontabili con l'originale. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
+// Sui finali (libro endgame_12_18, 10+0.1) Ldse spenta contro accesa -0,88 +- 4,05 su 2.786 partite: non dannosa.
+// BAKE GUARDIA (05/10/2026): LdseMax 0 -> 1, al massimo un'estensione Ldse per linea (NodeFrame::ldse_path). Nei
+// finali di torre l'estensione si ripeteva lungo la linea (albero x5-x16 a profondita' fissa). SPRT contro Ldse senza
+// tetto a 15+0.15, UHO: +6,25 +- 7,89 su 2.112 partite (LLR 0,54; socket 0 +7,4, socket 1 +4,6), fermato e bakato
+// su decisione dell'utente. Bench 308883 (con LdseMax=0 torna 498873).
+// BAKE SORPRESA (05/10/2026): TmSurpriseScale 1000 -> 1200 (tempo della mossa x1,2 quando l'avversario non ha giocato
+// la risposta della nostra linea principale; 14_deepen.inc). SPRT a 40+0.4, UHO, seme 7200: +6,23 +- 6,75 su 2.174
+// partite (LLR 0,65, LOS ~96%; socket 0 +6,2, socket 1 +6,3), fermato e bakato su decisione dell'utente. Dai PGN: sulle
+// mosse dopo una sorpresa (~26%) +0,35-0,4 ply. A 16+0.16 era neutra (+0,7): dipende dal TC (vedi il parametro).
+// Il bench (profondita' fissa) non usa il tempo: resta 308883.
+// Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
+// della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
+// della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
 // costante nella build di release (TRIUMV_RELEASE), dove il compilatore la piega nel codice.
 
 // ---------------------------------------------------------------------------
@@ -104,7 +114,8 @@
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
-  P(LdseMax, 0, 0, 8)                    /* tetto alle estensioni Ldse lungo una linea (0 = nessun tetto) */ \
+  P(LdseMax, 1, 0, 8)                    /* BAKE 05/10/2026 (era 0, vedi in testa): tetto alle estensioni */ \
+                                         /* Ldse lungo una linea (0 = nessun tetto)                      */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
   P(LmrDeltaMul, 577, 0, 1500)                                                                            \
@@ -172,12 +183,13 @@
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
-  /* Audit del nucleo (05/10/2026, agente B): adattatori intorno alla ricerca che divergono da SF19 senza       \
-     volerlo. Spenti = comportamento di prima (albero identico); ognuno va provato con uno SPRT. */             \
+  /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
+     uno per uno, ognuno con una forma alternativa. Spenti = comportamento di prima (albero identico); ognuno va      \
+     provato con uno SPRT. */                                                                                       \
   P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
   P(SeePinned, 0, 0, 1)                  /* 1: nella SEE i pezzi inchiodati non ricatturano finche' c'e' l'inchiodatore */ \
-  P(HashQsDepth, 0, 0, 1)                /* 1: la quiescenza scrive e legge profondita' 0 in hash (SF), non -1 */ \
-  P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse (SF) */ \
+  P(HashQsDepth, 0, 0, 1)                /* 1: la quiescenza scrive e legge profondita' 0 in hash, non -1 */ \
+  P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse */ \
   P(EvalRefadeBridge, 0, 0, 1)           /* 1: la rilettura smorzata usa la formula del ponte (v - v*f/199) */ \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
      al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
@@ -200,7 +212,7 @@
   P(TmFallIter, 110, 0, 400)                                                                              \
   P(TmInstabBase, 1077, 500, 2000)                                                                        \
   P(TmInstabMul, 2229, 0, 5000)                                                                           \
-  P(TmFenPly, 0, 0, 1)                   /* 1: ply di partita = numero di mossa della FEN + mosse giocate (SF) */ \
+  P(TmFenPly, 0, 0, 1)                   /* 1: ply di partita = numero di mossa della FEN + mosse giocate */ \
   /* Risposta prevista (nostra, 05/10/2026, idea dell'utente): se l'avversario gioca la risposta della nostra linea  \
      principale, la hash e' gia' calda e la mossa che avevamo previsto di solito regge. Il tempo della mossa si        \
      riduce, ma solo quando la ricerca ha ritrovato la profondita' di prima (meno TmExpectDepth), la mossa migliore  \
@@ -213,8 +225,23 @@
      da hash vuota 3,2 s a 17 con un'altra mossa). Con TmExpectFloor = k > 0 non ci si ferma prima di prof. di prima \
      - k (salvo il tempo massimo): con la hash calda quelle iterazioni costano poco. 0 = spento. */                   \
   P(TmExpectFloor, 0, 0, 8)                                                                                \
+  /* Sorpresa (nostra, 05/10/2026, idea dell'utente; lo spunto e' un'osservazione di Mark Tang su Stoofvlees, che    \
+     risponde subito fra due mosse anche a TC lungo): il rovescio della risposta prevista. Se l'avversario NON gioca  \
+     la risposta della nostra linea principale, la posizione e' meno chiara di quanto pensavamo: il tempo della      \
+     mossa x TmSurpriseScale/1000. Il tempo che la regola della stabilita' risparmia sulle risposte previste va cosi' \
+     alle mosse incerte. A 1000 spenta: tempi identici.                                                              \
+     ⚠️ DIPENDE MOLTO DAL TC (utente, 05/10/2026): x1,2 neutra a 16+0.16 (+0,7 +- 7,1 su 2.446), positiva a 40+0.4  \
+     (+6,23 +- 6,75 su 2.174, dai PGN +0,35-0,4 ply sulle mosse dopo una sorpresa). Se entra in uno SPSA va tarata  \
+     AL TC DI DESTINAZIONE (lungo), oppure tenuta fissa: a TC corto lo SPSA la spingerebbe verso 1000. */            \
+  P(TmSurpriseScale, 1200, 1000, 2000)   /* BAKE 05/10/2026 (era 1000, vedi in testa): x1,2 dopo una sorpresa */ \
+  /* Soglia (05/10/2026, utente): la sorpresa vale solo finche' l'orologio e' ancora sopra questa percentuale di     \
+     quello di inizio partita. Con poco tempo non ci si puo' fermare a pensare: si gioca al tempo ottimale. A 16+0.16 \
+     senza soglia, x1,2: +0,7 +- 9,0 su 1.480 partite (dai PGN: sorprese ~25% delle mosse fino alla 50, 52% nei      \
+     finali, dove l'orologio e' piu' corto). Con soglia 40 e x1,6 (un ply in piu' sulle sorprese) a 20+0.2: -10,1 +- \
+     7,5 su 1.998 partite, chiusa: il tempo preso al mediogioco costa piu' di quanto rende. 0 = sempre. */           \
+  P(TmSurpriseClock, 0, 0, 100)          /* % dell'orologio di inizio partita sotto cui la sorpresa tace */  \
   /* Ramo con incremento (blitz di CCRL), 05/10/2026: le costanti di clock_plan come parametri per uno SPSA del  \
-     tempo CONTRO SF19 (in self-play il lato che spende di piu' vince). Default = valori di prima, esatti: la     \
+     tempo contro un motore esterno (in self-play il lato che spende di piu' vince). Default = valori di prima: la \
      divisione IEEE e' arrotondata correttamente (12112 / 1e6 == 0.012112). */                                  \
   P(TmOptBase, 12112, 4000, 30000)       /* /1e6: quota ottimale = base + (ply + 3.23)^pow * c */           \
   P(TmOptPow, 46866, 25000, 70000)       /* /1e5: crescita della quota col ply di partita */                \
@@ -245,7 +272,7 @@ TRIUMV_SEARCH_PARAMS(TP_DECLARE)
 // ---------------------------------------------------------------------------
 static int  g_multipv            = 1;
 static bool g_show_wdl           = false;
-static bool g_ponder_option      = false;    // "Ponder": la GUI pondera -> +25% di tempo ottimale (come SF)
+static bool g_ponder_option      = false;    // "Ponder": la GUI pondera -> +25% di tempo ottimale
 int         g_syzygy_probe_depth = 1;
 int         g_syzygy_probe_limit = 7;
 static bool g_syzygy_rule50      = true;
@@ -261,7 +288,7 @@ bool      g_tt_pow2       = false;
 int       current_age     = 0;
 bool      g_tt_twolevel   = true;
 bool      g_ttmove24      = true;
-int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV), come SF
+int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV)
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
 bool      g_tt_move_refresh = false; // copia di TTMoveRefresh per tt.h (vedi store_tt)
 int       g_see_pinned    = 0;    // copia di SeePinned per see.cpp (vedi td_see_ge)
@@ -271,7 +298,7 @@ bool      g_see_fix       = true;
 bool      g_ep_key_fix    = true;
 static const bool g_evasion_gen = true;
 
-// Stockfish piece codes indexed by Triumviratus piece (P,N,B,R,Q,K,p,n,b,r,q,k).
+// Codice di ogni pezzo nella posizione della rete, per pezzo di Triumviratus (P,N,B,R,Q,K,p,n,b,r,q,k).
 static const int nn_piece_code[12] = {1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14};
 
 static inline bool parse_bool_value(int v) { return v != 0; }

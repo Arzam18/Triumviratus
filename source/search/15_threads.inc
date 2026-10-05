@@ -198,6 +198,7 @@ void search_position_mt(int depth) {
   copy_board_to_thread(thread_data[0]);
   // Risposta prevista (TmExpect*): siamo nella posizione attesa alla fine della ricerca precedente?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
+  g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
@@ -259,7 +260,7 @@ void search_position_mt(int depth) {
   // Risposta prevista (TmExpect*): serve una linea di almeno tre mosse (nostra, risposta, nostra successiva). Si
   // calcola solo con l'opzione accesa, cosi' a opzione spenta nulla cambia.
   g_clock.expect_key = 0;
-  if ((TmExpectScale < 1000 || TmExpectFloor) && line.pv_len >= 3) {
+  if ((TmExpectScale < 1000 || TmExpectFloor || TmSurpriseScale > 1000) && line.pv_len >= 3) {
     g_clock.expect_key = expected_key(thread_data[0], best_move, line.pv[1]);
     g_clock.expect_move = line.pv[2];
     g_clock.expect_score = line.score;

@@ -65,7 +65,9 @@ other.</sub>
 **Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
 to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
 (an idea of the author's own, from language models: [`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)).
-Since then: about 9% more speed with an identical tree, and our own search ideas tested one at a time. 8.0 is also the
+Since then: about 9% more speed with an identical tree, and our own ideas tested one at a time. The first three
+adopted (a hash-move extension at low depth, a guard on it, more time after an unexpected reply) measured +4.5, +6.3
+and +6.2 Elo ([dev log](DEVELOPMENT_8.0.md#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening)). 8.0 is also the
 first version to support **Chess960**.
 
 **Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
@@ -119,7 +121,9 @@ author the cost of the cloud GPUs on which the project's networks are trained, C
 Triumviratus would be materially weaker without his work.
 
 **Mark Tang** has tested the 8.0 prerelease against other engines and on the IQ4 tactical suite (results
-in [`tests/`](tests/)).
+in [`tests/`](tests/)). His remark that Stoofvlees answers very quickly between two moves, even at long time
+controls, started the train of thought that led the author to the "surprise" rule of 8.0's time management: more
+time on a move when the opponent did not play the reply the engine expected.
 
 ### Derived code
 
