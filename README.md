@@ -56,103 +56,38 @@ other.</sub>
 
 ## Triumviratus 8.0 — in development
 
-8.0 is built in four steps: **speed, ablations, a new network, a restructured search**.
-
-| step | what changed | result |
-|---|---|---:|
-| speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 against 7.0 at 12+0.12 |
-| ablations | two search features switched off after ablation tests | +11.7 ± 4.6 against 7.0 at 60+0.6 |
-| **new network** | **Consilium**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | +27.3 ± 8.3 against 7.0 at 15+0.15 |
-| search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 | +27.6 ± 7.0 against 7.0 at 15+0.15 |
-| **restructured search** | the search reorganised following the structure of Stockfish 19's search, re-tuned by SPSA on our network, with techniques of our own | **+85.8 ± 12.8 against the previous 8.0 at 20+0.2** |
+| step | result |
+|---|---:|
+| speed: faster code, identical search tree, new transposition table | +14.7 ± 5.4 against 7.0 |
+| **Consilium**, the new network, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
+| **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 
 **Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
-to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one.
-An idea of the author's own, taken from language models; how it came about, and related work elsewhere:
-**[`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)**.
+to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
+(an idea of the author's own, from language models: [`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)).
+Since then: about 9% more speed with an identical tree, and our own search ideas tested one at a time. 8.0 is also the
+first version to support **Chess960**.
 
-Since the restructuring, speed work with an identical tree has added about +4.8%, then about 4% more, and our own
-search ideas are being tested one at a time: the first one adopted, a hash-move extension at low depth, added
-**+4.5 ± 3.3 Elo**. The network, its training and every intermediate measurement are in
-**[`NETWORKS.md`](NETWORKS.md)**.
+**Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
+the best Triumviratus so far; on Mark Tang's IQ4 suite the prerelease solves **145 of 183**, the highest among the
+engines tested; against Caissa 2.0 at 4 threads the 1 October build scores −14 ± 15 where 7.0 had −27, and +10 ± 14
+with 1 thread.
 
-**Outside tests.** Against Caissa 2.0 in **Maurizio Platino**'s matches (1 min + 1 s, 300 games), the 8.0 build
-of 1 October scored **+10 ± 14** with 1 thread and −14 ± 15 with 4 threads, where 7.0 had −27 ± 15. On **Mark
-Tang**'s run of the **IQ4** tactical suite (183 hard positions from Arasan's IQ collection, 1 s per position, 1
-thread), the 8.0 prerelease solved **145 of 183**, the highest score among the engines tested. On Eduard Nemeth's
-**ENET 2026** suite (110 hard positions, Maurizio's runs) the 4 October build solved **89**, the best of every
-Triumviratus version and two short of Stockfish 19. Details and the games: **[`tests/`](tests/)**.
-
-8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
-`UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
-errors, and it leaves the standard-chess search tree unchanged.
-
-`source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`. Details, method and
-numbers: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)**.
+Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)**. `source/` holds the 8.0
+development code; the 7.0 release is the tag `v7.0`.
 
 ---
 
 ## Triumviratus 7.0 — current release
 
-7.0 is a **network project**: a July 2026 audit put the remaining gap to the strongest engines at
-**≈ 25–40 Elo of network**, not of search. Its network, **`legio-septima`**, is the first the project
-trains **from scratch with base and feature blocks together**, instead of grafting a new block onto a
-frozen predecessor, on a much larger corpus re-labelled with Leela's BT4 network. The architecture
-moves to **`TRANN2`**: Stockfish's SFNNv16 feature set plus the **`PassedPawns`** block that no other
-engine has.
+A network project: **`legio-septima`**, the first network the project trained from scratch with all its blocks
+together (`TRANN2`: the SFNNv16 feature set plus our own **`PassedPawns`** block), on a large corpus re-labelled with
+Leela's BT4. **+21.3 ± 6.7 Elo over 6.0** at 25+0.25 (3,000 games). On Stefan Pohl's
+[EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm), which scores playing style, 7.0 is the **fourth most
+aggressive of 16 engines**.
 
-#### Ahead of 6.0
-
-| TC | hash | depth 7.0 / 6.0 | games | Elo |
-|---|---:|---:|---:|---:|
-| **25+0.25** | **256 MB** | **15.7 / 15.0** | **3,000** | **+21.34 ± 6.66** |
-| 5+0.05 | 64 MB | 11.7 / 11.2 | 9,000 | +25.18 ± 4.28 |
-
-<sub>The release binaries against each other, AVX2 on both sides, each with its own network; 1 thread,
-UHO 2024 (+0.85/+0.94), LOS 100% at both points, depths measured from the PGNs. Stage-by-stage
-measurements, speed work and training: **[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)** ·
-**[`NETWORKS.md`](NETWORKS.md)**.</sub>
-
-<details>
-<summary><b>Against other engines</b></summary>
-
-<br>
-
-| Opponent | Elo (7.0) | Games | TC · threads |
-|---|---:|---:|---|
-| Stormphrax 8.0.0 | +50 ± 12 | 1,000 | 25+0.25 · 1 |
-| Hobbes 3.0 | +51 ± 9 | 1,972 | 15+0.15 · 1 |
-| Caissa 1.26 | +20 | 300 | 1+1 · 4 |
-| Cinder 0.6.1 | −10 ± 11 | 1,000 | 25+0.25 · 1 |
-| Caissa 2.0 | −27 ± 15 | 300 | 1+1 · 4 |
-| Coda 0.9.4 | −38 ± 16 | 300 | 1+1 · 4 |
-| pawnocchio 3.0-dev | −38 ± 15 | 300 | 1+1 · 4 |
-| PlentyChess 8.0.0 | −63 ± 16 | 300 | 1+1 · 4 |
-
-<sub>1 thread: our runs, release binaries, 128 MB, UHO 2024 (+0.85/+0.94). 4 threads: Maurizio
-Platino, i7-8700, Fritz 18, 1024 MB, ponder on, UHO 2024 (+1.10/+1.29); pawnocchio and PlentyChess
-met a 7.0 build from a month before the release. Games and details: **[`tests/`](tests/)**. Fast
-time controls and unbalanced books widen the gaps compared with a rating list.</sub>
-
-</details>
-
-#### Playing style
-
-On Stefan Pohl's **[EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm)**, which scores style
-rather than strength (computed from sacrifices, short wins and draws in the 120,000 games of the
-UHO-Top15 list), **Triumviratus 7.0 is the fourth most aggressive of 16 engines**, behind only Torch and
-two Stockfish builds, with the second-highest sacrifice rate after Torch.
-
-| Rank | Engine | EAS-Score | sacs | early sacs | short wins | bad draws |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | Torch 4d | 249,549 | 19.09% | 29.50% | 27.54% | 15.15% |
-| 2 | Stockfish 19 | 247,367 | 16.84% | 32.16% | 26.91% | 12.95% |
-| 3 | Stockfish 260913 | 231,239 | 16.66% | 29.60% | 25.84% | 14.51% |
-| **4** | **Triumviratus 7.0** | **175,162** | **17.63%** | **32.57%** | **16.99%** | **19.75%** |
-| 5 | PlentyChess 8.0.0 | 172,527 | 12.99% | 29.64% | 21.88% | 20.46% |
-
-<sub>Update of 2026-09-24. Further down: Cinder 6.0, Reckless, Obsidian, Caissa 2.0, Alexandria 9.0,
-Stormphrax 8, Integral 8, Quanticade, Coda 0.9.4, Pawnocchio 2.0, Viridithas 20.</sub>
+Measurements, training and matches against other engines:
+**[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`tests/`](tests/)**.
 
 ---
 
