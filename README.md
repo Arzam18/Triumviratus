@@ -71,9 +71,11 @@ search ideas are being tested one at a time: the first one adopted, a hash-move 
 **+4.5 ± 3.3 Elo**. The network, its training and every intermediate measurement are in
 **[`NETWORKS.md`](NETWORKS.md)**.
 
-**Outside tests.** On **Mark Tang**'s run of the **IQ4** tactical suite (183 hard positions from Arasan's IQ
-collection, 1 s per position, 1 thread), the 8.0 prerelease solved **145 of 183**, the highest score among the
-engines tested. Details and his match results: **[`tests/`](tests/)**.
+**Outside tests.** Against Caissa 2.0 in **Maurizio Platino**'s matches (1 min + 1 s, 300 games), the 8.0 build
+of 1 October scored **+10 ± 14** with 1 thread and −14 ± 15 with 4 threads, where 7.0 had −27 ± 15. On **Mark
+Tang**'s run of the **IQ4** tactical suite (183 hard positions from Arasan's IQ collection, 1 s per position, 1
+thread), the 8.0 prerelease solved **145 of 183**, the highest score among the engines tested. Details, the ENET
+suite and the games: **[`tests/`](tests/)**.
 
 8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
 `UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
