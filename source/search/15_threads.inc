@@ -141,7 +141,7 @@ static int reply_from_hash(ThreadData &td, int first) {
   td.repetition_table[++td.repetition_index] = td.hash_key;
   td.ply++;
   if (td_make_move(td, first, u)) {
-    int m = get_tt_move(td.hash_key);
+    int m = get_tt_move(tt_key(td));
     if (m && td_is_pseudo_legal(td, m)) {
       UndoInfo u2;
       td.repetition_table[++td.repetition_index] = td.hash_key;

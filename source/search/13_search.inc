@@ -18,8 +18,7 @@ struct NodeState {
   int  prev_to;
   int  excluded;
   int  prior_red;
-  int  cplx;                      // disaccordo psqt - positional della rete in questo nodo (Disagree*), 0 se ignoto
-  int  passer_sq;                 // casa del passato appena spinto dall'avversario (PassedReplyRed), -1 se nessuno
+  int  opp_cap;                   // l'avversario ha una cattura facile? -1 = non ancora calcolato (RfpOppCapture)
   HashView h;
   int  quiets[TRACKED], n_quiets;
   int  tacts[TRACKED], n_tacts;
@@ -37,12 +36,51 @@ static constexpr auto all_node_recip = [] {
   return r;
 }();
 
+// ---------------------------------------------------------------------------
+// Rampa "tempo lungo" (05/10/2026). Ogni leva ha uno scostamento Lt*: il valore effettivo e' base + Lt * peso, con il
+// peso (0..1024) fissato per iterazione dalla profondita' di radice (lt_update, 14_deepen.inc). Con lo scostamento a 0
+// l'accessor restituisce la leva base: nella release (costanti) il ramo sparisce e il codice e' quello di prima.
+// ---------------------------------------------------------------------------
+static inline int lt_value(int base, int offset, int w) { return base + offset * w / 1024; }
+
+static inline void lt_update(ThreadData &td) {
+  td.lt_w = std::clamp((td.root_depth - LtKnee) * 1024 / LtSpan, 0, 1024);
+  const int w = td.lt_w;
+  td.lt_lmr_not_improving = lt_value(LmrNotImproving, LmrNotImprovingLt, w);
+  td.lt_lmr_offset        = lt_value(LmrOffset, LmrOffsetLt, w);
+  td.lt_lmr_all_node      = lt_value(LmrAllNode, LmrAllNodeLt, w);
+  td.lt_lmr_no_tt_full    = lt_value(LmrNoTTFull, LmrNoTTFullLt, w);
+  td.lt_nmp_improving     = lt_value(NmpImproving, NmpImprovingLt, w);
+  td.lt_quiet_fut_alpha   = lt_value(QuietFutAlpha, QuietFutAlphaLt, w);
+  td.lt_rfp_max_depth     = lt_value(RfpMaxDepth, RfpMaxDepthLt, w);
+  td.lt_nmp_verify_depth  = lt_value(NmpVerifyDepth, NmpVerifyDepthLt, w);
+  if (LmrLogMulLt) {
+    const int mul = lt_value(LmrLogMul, LmrLogMulLt, w);
+    if (mul != td.lt_lmr_log_mul) {   // stessa formula di build_reduction_table, col moltiplicatore effettivo
+      td.lt_lmr_log_mul = mul;
+      td.lt_red_log[0] = 0;
+      for (int i = 1; i < 256; i++)
+        td.lt_red_log[i] = int(mul / 128.0 * std::log(double(i)));
+    }
+  }
+}
+static inline int e_lmr_not_improving(const ThreadData &td) { return LmrNotImprovingLt ? td.lt_lmr_not_improving : LmrNotImproving; }
+static inline int e_lmr_offset(const ThreadData &td)        { return LmrOffsetLt ? td.lt_lmr_offset : LmrOffset; }
+static inline int e_lmr_all_node(const ThreadData &td)      { return LmrAllNodeLt ? td.lt_lmr_all_node : LmrAllNode; }
+static inline int e_lmr_no_tt_full(const ThreadData &td)    { return LmrNoTTFullLt ? td.lt_lmr_no_tt_full : LmrNoTTFull; }
+static inline int e_nmp_improving(const ThreadData &td)     { return NmpImprovingLt ? td.lt_nmp_improving : NmpImproving; }
+static inline int e_quiet_fut_alpha(const ThreadData &td)   { return QuietFutAlphaLt ? td.lt_quiet_fut_alpha : QuietFutAlpha; }
+static inline int e_rfp_max_depth(const ThreadData &td)     { return RfpMaxDepthLt ? td.lt_rfp_max_depth : RfpMaxDepth; }
+static inline int e_nmp_verify_depth(const ThreadData &td)  { return NmpVerifyDepthLt ? td.lt_nmp_verify_depth : NmpVerifyDepth; }
+static inline const int *e_red_log(const ThreadData &td)    { return LmrLogMulLt ? td.lt_red_log : red_log; }
+
 // Profondita' ridotta di base: tabella logaritmica, finestra relativa e assenza di miglioramento.
 // `window_term` = finestra * LmrDeltaMul / root_delta: lo calcola move_loop solo quando la finestra cambia, perche'
 // la divisione per root_delta (non costante) costava ~30 cicli a ogni mossa (04/10/2026, stesso valore).
-static inline int base_reduction(bool improving, int depth, int move_no, int window_term) {
-  const int scale = red_log[std::min(depth, 255)] * red_log[std::min(move_no, 255)];
-  return scale - window_term + (!improving ? scale * LmrNotImproving / 512 : 0) + LmrBase;
+static inline int base_reduction(const ThreadData &td, bool improving, int depth, int move_no, int window_term) {
+  const int *rl = e_red_log(td);
+  const int scale = rl[std::min(depth, 255)] * rl[std::min(move_no, 255)];
+  return scale - window_term + (!improving ? scale * e_lmr_not_improving(td) / 512 : 0) + LmrBase;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,14 +91,6 @@ static inline int base_reduction(bool improving, int depth, int move_no, int win
 // Idea 2 (Deep*): scostamento "profondo" pesato da td.deep_w (0..1024, cresce con la profondita' di radice).
 static inline int deep_term(const ThreadData &td, int offset) { return offset * td.deep_w / 1024; }
 
-// Materiale non pedoni dei due lati, nelle unita' dei margini.
-static inline int total_npm(const ThreadData &td) {
-  int npm = 0;
-  for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
-  return npm;
-}
-
 // Idea 4 (PhaseEdge*): la cattura cambia esperto della rete (attraversa 24, 16 o 10 pezzi)?
 static inline bool capture_crosses(const ThreadData &td, int m) {
   if (!get_move_capture(m))
@@ -69,35 +99,43 @@ static inline bool capture_crosses(const ThreadData &td, int m) {
   return net_phase(pieces) != net_phase(pieces - 1);
 }
 
-// Idea 5 (PassedReplyRed): casa del pedone che l'avversario ha appena spinto in 6a/7a, se e' passato e il
-// materiale e' poco (stesse regole di passed_push, viste dal suo lato). -1 altrimenti.
-static int enemy_passer_square(const ThreadData &td, const NodeFrame *f) {
-  const int pm = f[-1].move;
-  if (!move_ok(pm) || get_move_capture(pm) || get_move_promoted(pm))
-    return -1;
-  const int them = td.side ^ 1, to = move_to(pm);
-  if (td.piece_on[to] != (them == white ? P : p))
-    return -1;
-  const int row = to / 8, file = to % 8;   // row 0 = ottava traversa
-  if (them == white ? (row != 1 && row != 2) : (row != 5 && row != 6))
-    return -1;
-  if (total_npm(td) > PassedPushNpm)
-    return -1;
-  U64 files = 0;
-  for (int fl = std::max(0, file - 1); fl <= std::min(7, file + 1); fl++)
-    files |= 0x0101010101010101ULL << fl;
-  const int row_start = to - file;
-  const U64 ahead = them == white ? (1ULL << row_start) - 1 : ~((1ULL << (row_start + 8)) - 1);
-  return (files & ahead & td.bitboards[them == white ? p : P]) ? -1 : to;
+// Cattura facile dell'avversario (nostra, 05/10/2026; l'idea e' condivisa da Berserk, PlentyChess, Integral,
+// Viridithas e Caissa): un pedone nemico attacca un nostro pezzo, un minore nemico una nostra torre o donna, una
+// torre nemica la nostra donna. Dove c'e', la valutazione statica "che migliora" e' un'illusione (il materiale sta
+// per cambiare) e la mossa nulla regala proprio quella cattura. Le maschere sono quelle di score_quiets (lesser[]),
+// qui calcolate solo quando servono e con uscita appena il nostro materiale esposto manca.
+static bool opp_easy_capture(const ThreadData &td) {
+  const int us = td.side, them = us ^ 1;
+  const int off = us == white ? 0 : 6, eoff = them == white ? 0 : 6;
+  const U64 occ = td.occupancies[both];
+  const U64 epawns = td.bitboards[P + eoff];
+  const U64 by_pawn = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
+                                    : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
+  const U64 minors = td.bitboards[N + off] | td.bitboards[B + off];
+  const U64 rooks = td.bitboards[R + off], queens = td.bitboards[Q + off];
+  if (by_pawn & (minors | rooks | queens))
+    return true;
+  if (!(rooks | queens))
+    return false;
+  U64 by_minor = 0, bb = td.bitboards[N + eoff];
+  while (bb) { by_minor |= knight_attacks[get_ls1b_index(bb)]; pop_lsb_bb(bb); }
+  bb = td.bitboards[B + eoff];
+  while (bb) { by_minor |= get_bishop_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
+  if (by_minor & (rooks | queens))
+    return true;
+  if (!queens)
+    return false;
+  U64 by_rook = 0;
+  bb = td.bitboards[R + eoff];
+  while (bb) { by_rook |= get_rook_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
+  return (by_rook & queens) != 0;
 }
 
-// La mossa difende dal passato in `sq`: lo cattura, occupa la casa davanti, o porta il re accanto a una delle due.
-static inline bool defends_passer(const ThreadData &td, int m, int sq) {
-  const int to = move_to(m);
-  const int stop = td.side == white ? sq + 8 : sq - 8;   // casa davanti al pedone avversario, verso di noi
-  if (to == sq || to == stop)
-    return true;
-  return move_piece(m) % 6 == K && ((king_attacks[sq] | king_attacks[stop]) >> to & 1);
+// Calcolata una volta per nodo, solo se qualcuno la chiede (RFP e mossa nulla possono chiederla entrambe).
+static inline bool opp_easy_capture_once(const ThreadData &td, NodeState &n) {
+  if (n.opp_cap < 0)
+    n.opp_cap = opp_easy_capture(td) ? 1 : 0;
+  return n.opp_cap != 0;
 }
 
 // Idea 13 (TransitionExt): la cattura lascia all'avversario solo re e pedoni?
@@ -161,7 +199,9 @@ static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
 // Fase 1: ingresso del nodo. Ritorna un valore se il nodo si chiude qui.
 // --------------------------------------------------------------------------
 static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
-  if (!n.root && n.alpha < 0 && td_upcoming_repetition(td)) {
+  // La soglia e' il valore della patta per chi muove (0 senza Contempt): cosi' alpha non scende mai (05/10/2026,
+  // audit dei porting: con la soglia 0 Contempt abbassava alpha dal lato di radice).
+  if (!n.root && n.alpha < contempt(td) && td_upcoming_repetition(td)) {
     n.alpha = draw_score(td);
     if (n.alpha >= n.beta)
       return n.alpha;
@@ -181,8 +221,6 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
       return n.alpha;
   }
 
-  if (PhaseEdgeImproving)
-    f->pieces = count_bits(td.occupancies[both]);
   n.prev_to = move_ok(f[-1].move) ? move_to(f[-1].move) : -1;
   n.prior_red = f[-1].reduction;
   f[-1].reduction = 0;
@@ -212,15 +250,10 @@ static inline int hash_cut_value(const NodeState &n) {
 
 static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   const HashView &h = n.h;
-  const bool enough = h.depth > n.depth - (h.value <= n.beta ? 1 : 0);
-  // HashNearMiss (nostra, da Coda): un'entry di un ply piu' corta taglia se supera il limite di un margine.
-  if (HashNearMiss && !enough && !n.pv && !n.excluded && h.depth == n.depth - 1 && td.fifty < 90 &&
-      val_known(h.value) && !val_decided(h.value)) {
-    if (h.bound == BOUND_LOW && h.value - HashNearMiss >= n.beta)
-      return h.value - HashNearMiss;
-    if (h.bound == BOUND_UP && h.value + HashNearMiss <= n.alpha)
-      return h.value + HashNearMiss;
-  }
+  const int need = n.depth - (h.value <= n.beta ? 1 : 0);
+  const bool enough = h.depth > need;
+  // HashNearMiss (Coda: entry un ply piu' corta che taglia oltre un margine) TOLTA il 05/10/2026: -6,7 +- 10,6 su
+  // 1.142 partite a 20+0.2 nella versione migliore (solo verso il basso, nodi non-cut); STATO_PROGETTO.md §3.
   if (n.pv || n.excluded || !enough || !val_known(h.value))
     return NO_VALUE;
   const bool high = h.value >= n.beta;
@@ -244,7 +277,7 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
         if (td_make_move(td, h.move, u)) {
           int cm, cv, cd, cf, ce;
           bool cp;
-          const bool hit = probe_tt(td.hash_key, cm, cv, cd, cf, ce, cp) || cf == BOUND_NIL;
+          const bool hit = probe_tt(tt_key(td), cm, cv, cd, cf, ce, cp) || cf == BOUND_NIL;
           const int child = hit && cf != BOUND_NIL ? from_hash_value(cv, td.ply, td.fifty) : VAL_NONE;
           td_unmake_move(td, h.move, u);
           td.ply--;
@@ -261,7 +294,7 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
   // Nessun taglio pur con un limite profondo che contraddice la finestra: l'entry vale meno.
   if (h.bound != BOUND_EXACT && h.bound == (high ? BOUND_UP : BOUND_LOW) && n.depth > 5)
-    hash_soften(td.hash_key);
+    hash_soften(tt_key(td));
   return NO_VALUE;
 }
 
@@ -284,6 +317,8 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (td.thread_id == 0)
     g_poll_countdown = 0;
   const int bound = tb > 0 ? BOUND_LOW : tb < 0 ? BOUND_UP : BOUND_EXACT;
+  if (bound == BOUND_EXACT)
+    tb = contempt(td);   // patta da tablebase: lo stesso valore delle altre patte (0 senza Contempt)
   if (bound == BOUND_EXACT || (bound == BOUND_LOW ? tb >= n.beta : tb <= n.alpha)) {
     hash_write(td, tb, f->tt_pv, bound, std::min(max_ply - 1, n.depth + 6), 0, tt_eval_none);
     return tb;
@@ -316,20 +351,9 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
         n.eval = n.h.value;
     } else
       hash_write(td, VAL_NONE, f->tt_pv, BOUND_NIL, HD_EVAL, 0, n.eval_raw);
-    if (disagree_on())
-      n.cplx = td.eval_cplx;
   }
   n.improving = f->static_eval > f[-2].static_eval;
   n.opp_worse = f->static_eval > -f[-1].static_eval;
-  // Idea 4 (PhaseEdgeImproving): valutazioni di esperti diversi della rete non si confrontano. Se a ply-2 c'era un
-  // altro esperto si guarda ply-4 (se e' dello stesso), altrimenti improving resta falso; lo stesso per opp_worse.
-  if (PhaseEdgeImproving) {
-    const int ph = net_phase(f->pieces);
-    if (net_phase(f[-2].pieces) != ph)
-      n.improving = net_phase(f[-4].pieces) == ph && f->static_eval > f[-4].static_eval;
-    if (net_phase(f[-1].pieces) != ph)
-      n.opp_worse = false;
-  }
   if (n.prior_red >= 3 && !n.opp_worse)
     n.depth++;
   if (n.prior_red >= 2 && n.depth >= 2 && f->static_eval + f[-1].static_eval > 166)
@@ -353,12 +377,18 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     return quiesce(td, f, n.alpha, n.beta, false);
 
   // Valutazione abbastanza sopra beta: il nodo regge senza cercare.
-  if (!f->tt_pv && n.depth < (n.hunt_mate ? 6 : RfpMaxDepth) && n.eval >= n.beta && (!n.h.move || n.tact_hash) &&
+  if (!f->tt_pv && n.depth < (n.hunt_mate ? 6 : e_rfp_max_depth(td)) && n.eval >= n.beta && (!n.h.move || n.tact_hash) &&
       !val_lost(n.beta) && !val_won(n.eval)) {
     int mult = std::min(RfpMultBase + deep_term(td, DeepRfp) + n.depth * RfpMultDepth, RfpMultCap);
     mult -= RfpNoTTHit * !f->tt_hit;
-    const int margin = mult * n.depth - (RfpImproving * n.improving + RfpOppWorse * n.opp_worse) * mult / 1024 +
-                       std::abs(n.signal) / RfpCorrDiv + DisagreeRfp * std::abs(n.cplx) / 1024;
+    // RfpOppCapture (nostra, 05/10/2026): lo sconto "improving" perde una quota (/1024) se l'avversario ha una
+    // cattura facile. Il nostro sconto vale ~2,8 ply di margine (RfpImproving): toglierlo tutto cambia molto l'albero,
+    // la quota lascia allo SPSA una via continua.
+    int imp = RfpImproving * n.improving;
+    if (RfpOppCapture && n.improving && opp_easy_capture_once(td, n))
+      imp = imp * (1024 - RfpOppCapture) / 1024;
+    const int margin = mult * n.depth - (imp + RfpOppWorse * n.opp_worse) * mult / 1024 +
+                       std::abs(n.signal) / RfpCorrDiv;
     if (n.eval - margin >= n.beta)
       return (RfpBetaWeight * n.beta + (1024 - RfpBetaWeight) * n.eval) / 1024;
   }
@@ -366,8 +396,11 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   // Mossa nulla: se anche passando la mano si resta sopra beta, il nodo taglia.
   const int non_pawn = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k]
                            ? 1 : 0;
-  if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - NmpImproving * n.improving + NmpBase &&
-      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000) {
+  // NmpOppCapture (nostra, 05/10/2026, alla Berserk): con una cattura facile per l'avversario la mossa nulla non si
+  // prova (gliela regalerebbe, e il taglio direbbe poco).
+  if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
+      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 &&
+      !(NmpOppCapture && opp_easy_capture_once(td, n))) {
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
                   deep_term(td, DeepNmp) / 1024;
     NullUndo nu;
@@ -376,9 +409,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     const int nv = -explore(td, f + 1, -n.beta, -n.beta + 1, n.depth - r, false, false);
     step_out_null(td, nu);
     if (nv >= n.beta && !val_won(nv)) {
-      // Idea 6 (NmpVerifyEndgame): con poco materiale (zugzwang) la verifica parte da una profondita' piu' bassa.
-      const int verify_depth = NmpVerifyDepthEnd && total_npm(td) <= NmpVerifyNpm ? NmpVerifyDepthEnd : NmpVerifyDepth;
-      if (td.nmp_min_ply || n.depth < verify_depth)
+      if (td.nmp_min_ply || n.depth < e_nmp_verify_depth(td))
         return nv;
       td.nmp_min_ply = td.ply + 3 * (n.depth - r) / 4;
       const int v = explore(td, f, n.beta - 1, n.beta, n.depth - r, false, false);
@@ -395,8 +426,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.depth--;
 
   // Tagli con le catture: una cattura che supera beta di un margine anche a profondita' ridotta.
-  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving +
-                       DisagreeCapFut * std::max(n.cplx, 0) / 1024;
+  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving;
   if (n.depth >= 3 && !val_decided(n.beta) && !(val_known(n.h.value) && n.h.value < cut_beta)) {
     MoveQueue q;
     queue_start(q, td, f, n.h.move, n.depth, QK_CUTS);
@@ -407,9 +437,6 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     int m;
     while ((m = queue_next(q)) != 0) {
       if (m == n.excluded || !legal_before(td, s, m))
-        continue;
-      // Idea 4 (PhaseEdgeCapMargin): la cattura che cambia esperto della rete deve superare la soglia di un margine.
-      if (PhaseEdgeCapMargin && capture_crosses(td, m) && !see_holds(td, m, q.cut_threshold + PhaseEdgeCapMargin))
         continue;
       const bool gives = checks_before(td, s, m);
       UndoInfo u;
@@ -454,8 +481,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     const int vk = victim_kind(td, m);
     const int ch = td.capt_hist[pc][to][vk];
     if (!gives && red_depth < 8 && !(PhaseEdgeNoFut && edge)) {
-      const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth + unit_value[vk] + CaptFutHist * ch / 1024 +
-                      DisagreeCapFut * std::max(n.cplx, 0) / 1024 + (edge ? PhaseEdgeCapMargin : 0);
+      const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth + unit_value[vk] + CaptFutHist * ch / 1024;
       if (fut <= n.alpha)
         return true;
     }
@@ -463,7 +489,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     // Il sacrificio dell'ultimo pezzo con alpha sotto la patta non si pota (puo' portare allo stallo).
     const int own_count = count_bits(own_pieces);
     const bool last_piece = own_count == 1 && (own_pieces >> move_from(m) & 1);
-    if ((n.alpha >= 0 || !last_piece) && !see_holds(td, m, -margin))
+    if ((n.alpha >= contempt(td) || !last_piece) && !see_holds(td, m, -margin))
       return true;
     return false;
   }
@@ -492,8 +518,8 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     const int q = (int)((mag * hist_recip[d_index]) >> 40);
     red_depth += hist < 0 ? -q : q;
   }
-  const int fut = f->static_eval + QuietFutDepth * red_depth + QuietFutAlpha * (f->static_eval > n.alpha) + QuietFutBase +
-                  deep_term(td, DeepFut) + DisagreeFut * std::abs(n.cplx) / 1024;
+  const int fut = f->static_eval + QuietFutDepth * red_depth + e_quiet_fut_alpha(td) * (f->static_eval > n.alpha) + QuietFutBase +
+                  deep_term(td, DeepFut);
   if (!n.in_check && red_depth < 12 && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
       n.best = fut;
@@ -533,13 +559,15 @@ static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
 }
 
 // Estensione singolare della mossa hash. Ritorna l'estensione; un valore >= beta chiude il nodo (in *cutoff).
+// SING_SKIPPED: la ricerca di esclusione non si e' fatta (mossa non hash o condizioni mancanti); move_loop la legge
+// come estensione 0, e solo in quel caso prova la LDSE (Ldse*).
+static constexpr int SING_SKIPPED = -99;
 static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int new_depth, int *cutoff) {
   const HashView &h = n.h;
   if (n.root || m != h.move || n.excluded || n.depth < 6 + f->tt_pv || !val_known(h.value) || val_decided(h.value) ||
       !bound_covers(h.bound, true) || h.bound == BOUND_UP || h.depth < n.depth - 3 || shuffles(td, f, m) || n.hunt_mate)
-    return 0;
-  const int s_beta = h.value - (SingMarginBase + deep_term(td, DeepSing) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63 +
-                     DisagreeSing * std::abs(n.cplx) / 1024;
+    return SING_SKIPPED;
+  const int s_beta = h.value - (SingMarginBase + deep_term(td, DeepSing) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
   const int s_depth = new_depth / 2;
   f->excluded = m;
   const int v = explore(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
@@ -606,10 +634,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   q.checks = &s.checks;
   int value = n.best, m;
   int red_window = -1, red_window_term = 0;   // vedi base_reduction
-  if (PassedReplyRed)
-    n.passer_sq = enemy_passer_square(td, f);
-  // Idee 2 e 10: termini di riduzione fissi per il nodo (0 se spenti).
-  const int node_red = deep_term(td, DeepLmr) + (n.pv ? 0 : LateBranch * std::min(f[-1].move_count, 16) / 16);
+  // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
+  const int node_red = deep_term(td, DeepLmr);
 
   while ((m = queue_next(q)) != 0) {
     if (m == n.excluded || !legal_before(td, s, m))
@@ -630,24 +656,36 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       red_window = n.beta - n.alpha;
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
     }
-    int r = base_reduction(n.improving, n.depth, n.moves, red_window_term);
+    int r = base_reduction(td, n.improving, n.depth, n.moves, red_window_term);
     if (f->tt_pv)
       r += LmrTtPvAdd;
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
-    // Idea 5: risposta difensiva alla spinta di un passato avversario (stesse protezioni di passer).
-    const bool reply = n.passer_sq >= 0 && defends_passer(td, m, n.passer_sq);
     // Idea 4: cattura che cambia esperto della rete (si calcola prima della mossa).
-    const bool edge = (PhaseEdgeCapMargin || PhaseEdgeNoFut) && tact && capture_crosses(td, m);
-    if (!passer && !reply && skip_move(td, f, n, q, m, tact, gives, r, edge))
+    const bool edge = PhaseEdgeNoFut && tact && capture_crosses(td, m);
+    if (!passer && skip_move(td, f, n, q, m, tact, gives, r, edge))
       continue;
 
     int cut_value = NO_VALUE;
     int ext = singular_probe(td, f, n, m, new_depth, &cut_value);
     if (cut_value != NO_VALUE)
       return cut_value;
+    const bool sing_skipped = ext == SING_SKIPPED;
+    if (sing_skipped)
+      ext = 0;
     // Idea 13: la cattura che lascia all'avversario solo re e pedoni si estende di un ply.
     if (TransitionExt && ext == 0 && tact && n.depth >= 4 && leaves_pawns_only(td, m))
+      ext = 1;
+    // LDSE (nostra, 05/10/2026; l'idea e' in Reckless e Stormphrax): a profondita' bassa, dove la singolare non si
+    // prova, la mossa hash con limite inferiore o esatto si estende di un ply se la valutazione statica sta sotto
+    // alpha di LdseMargin. La hash dice che quella mossa ha tenuto un valore, l'eval dice che la posizione e' brutta:
+    // il nodo si regge su di lei, e vicino all'orizzonte un ply in piu' decide se quel valore era vero.
+    // LdseMode (bit): 1 = solo nei nodi cut (forma di Reckless), 2 = solo limite inferiore, non esatto (forma di
+    // Stormphrax), 4 = non con entry della sola quiescenza.
+    if (LdseMargin && ext == 0 && sing_skipped && m == n.h.move && !n.root && !n.excluded && !n.in_check &&
+        n.depth <= LdseDepth && val_known(n.h.value) && bound_covers(n.h.bound, true) &&
+        f->static_eval <= n.alpha - LdseMargin && (n.cut || !(LdseMode & 1)) &&
+        (n.h.bound == BOUND_LOW || !(LdseMode & 2)) && (n.h.depth >= 0 || !(LdseMode & 4)))
       ext = 1;
 
     const U64 nodes_before = td.nodes;
@@ -662,7 +700,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (f->tt_pv)
       r -= LmrTtPvSub + n.pv * LmrTtPvPv + (n.h.value > n.alpha) * LmrTtPvAlpha +
            (n.h.depth >= n.depth) * (LmrTtPvDepth + n.cut * LmrTtPvCut);
-    r += LmrOffset;
+    r += e_lmr_offset(td);
     r -= n.moves * LmrMoveCount;
     r -= std::abs(n.signal) / LmrCorrDiv;
     if (n.cut)
@@ -690,7 +728,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       // reciproco a 40 bit della tabella (esatta finche' |r*LmrAllNode| < 2^24: il divisore arriva a 35.000, quindi
       // l'errore M*D - 2^40 < D non puo' far scattare l'unita'); oltre, mai visto, si divide davvero
       // (04/10/2026 sera: era una divisione hardware per ogni mossa dei nodi all).
-      const long long x = (long long)r * LmrAllNode;
+      const long long x = (long long)r * e_lmr_all_node(td);
       const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
       const int q = mag < (1ULL << 24) ? (int)((mag * all_node_recip[n.depth]) >> 40)
                                        : (int)(mag / (unsigned long long)(256 * n.depth + 268));
@@ -698,8 +736,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     if (passer)
       r -= PassedPushRed;
-    if (reply)
-      r -= PassedReplyRed;
 
     if (n.depth >= 2 && n.moves > 1) {
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + 2)) + n.pv;
@@ -714,7 +750,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       }
     } else if (!n.pv || n.moves > 1) {
       if (!n.h.move)
-        r += LmrNoTTFull;
+        r += e_lmr_no_tt_full(td);
       value = -explore(td, f + 1, -(n.alpha + 1), -n.alpha,
                        new_depth - (r > 5234) - (r > 5487 && new_depth > 2), !n.cut, false);
     }
@@ -762,7 +798,7 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
   // La linea del bucket hash di questo nodo, letta all'ingresso, dopo il sottoalbero e' spesso uscita dalla cache:
   // la si richiama adesso, con le statistiche da aggiornare a coprire l'attesa, prima della hash_write in fondo.
-  TT_PREFETCH(&hash_table[tt_base_index(td.hash_key)]);
+  TT_PREFETCH(&hash_table[tt_base_index(tt_key(td))]);
   if (n.best >= n.beta && !val_decided(n.best) && !val_decided(n.alpha))
     n.best = (n.best * n.depth + n.beta) / (n.depth + 1);
 
@@ -827,8 +863,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.moves = 0;
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
-  n.cplx = 0;
-  n.passer_sq = -1;
+  n.opp_cap = -1;
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;

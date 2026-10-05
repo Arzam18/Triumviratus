@@ -515,6 +515,9 @@ inline void prefetch_psq_rows(const FeatureTransformer&       featureTransformer
     constexpr usize RowBytes = usize(FeatureTransformer::OutputDimensions) * sizeof(WeightType);
     const char*     base     = reinterpret_cast<const char*>(&featureTransformer.weights[0]);
 
+    // ⛔ 05/10/2026 — PROVATO E TOLTO (H): due prefetch fissi per lista (prima e ultima voce: le liste incrementali
+    // hanno 1 o 2 voci) al posto dei due cicli a conteggio variabile. xperf 6 giri, nodi identici: istruzioni +0,27%,
+    // cicli +0,07%, salti mal predetti -0,19%. Qui le uscite dei cicli erano gia' ben predette.
     for (int i = 0; i < a.ssize(); ++i)
         prefetch<PrefetchRw::READ, PrefetchLoc::LOW>(base + usize(a[i]) * RowBytes);
     for (int i = 0; i < b.ssize(); ++i)

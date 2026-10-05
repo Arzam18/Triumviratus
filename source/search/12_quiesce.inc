@@ -47,10 +47,12 @@ static inline int from_hash_value(int v, int ply, int fifty) {
   return v;
 }
 
+// Lettura e scrittura passano da tt_key (03_tables.inc): la chiave della scacchiera piu', se accesa, la fascia del
+// contatore delle 50 mosse (HashFiftyStep).
 static inline void hash_read(const ThreadData &td, HashView &h) {
   int move, value, depth, flag, ev;
   bool pv;
-  const bool usable = probe_tt(td.hash_key, move, value, depth, flag, ev, pv);
+  const bool usable = probe_tt(tt_key(td), move, value, depth, flag, ev, pv);
   h.hit = usable || flag == BOUND_NIL;
   if (!h.hit) {
     h.pv = false; h.move = 0; h.value = VAL_NONE; h.depth = -HD_SHIFT; h.bound = BOUND_NIL; h.eval_raw = tt_eval_none;
@@ -65,7 +67,7 @@ static inline void hash_read(const ThreadData &td, HashView &h) {
 }
 
 static inline void hash_write(const ThreadData &td, int value, bool pv, int bound, int depth, int move, int eval_raw) {
-  store_tt(td.hash_key, move, to_hash_value(value, td.ply), depth + HD_SHIFT, bound, 0, pv, eval_raw);
+  store_tt(tt_key(td), move, to_hash_value(value, td.ply), depth + HD_SHIFT, bound, 0, pv, eval_raw);
 }
 
 // Toglie un ply all'entry: un limite che non ha tagliato a profondita' sufficiente vale meno.
@@ -84,12 +86,6 @@ static inline void hash_soften(U64 key) {
 // Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
-    // La hash non porta il disaccordo della rete (Disagree*): si prende dalla cache delle valutazioni se la posizione
-    // c'e' ancora, altrimenti 0 (margini invariati). Serve soprattutto ai nodi singolari, che hanno sempre la hash.
-    if (disagree_on()) {
-      const ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-      td.eval_cplx = ce.key == td.hash_key ? ce.cplx : 0;
-    }
     raw = h.eval_raw;
     return eval_refade(h.eval_raw, td.fifty);
   }
@@ -370,7 +366,7 @@ static int qs_passer_push(const ThreadData &td) {
 
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   td.pv_length[td.ply] = td.ply;
-  if (alpha < 0 && td_upcoming_repetition(td)) {
+  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
     alpha = draw_score(td);
     if (alpha >= beta)
       return alpha;
@@ -419,16 +415,26 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   MoveSafety safety;
   safety.ready = false;
   int best_move = 0, count = 0, m;
-  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola.
+  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola. Se e' gia' la mossa hash la coda l'ha
+  // emessa per prima: riproporla la cercava due volte nello stesso nodo (05/10/2026, audit dei porting).
   const int qs_push = QsPasserPush && !in_check ? qs_passer_push(td) : 0;
-  bool push_left = qs_push != 0;
+  bool push_left = qs_push != 0 && qs_push != q.hash_move;
+  // QsQuietHash (nostra, 05/10/2026, da un'idea di Stormphrax e Integral): nei nodi non-PV la mossa hash QUIETA con
+  // limite inferiore o esatto si cerca come una tattica. La hash dice che quella mossa ha tenuto un valore qui: in
+  // quiescenza le quiete non si vedono e l'orizzonte la perderebbe (lo stesso buco di QsPasserPush, ma per ogni
+  // quieta che la ricerca ha gia' giudicato buona). La coda la restituisce gia' per prima; passa dalla stessa
+  // futility e dalla stessa SEE delle catture. Nota: chiedere anche che il limite salvato superi alpha non serve a
+  // nulla qui (05/10/2026, verificato: 0 alberi diversi su 80): con la finestra nulla dei nodi non-PV un limite
+  // inferiore sopra alpha e' >= beta e ha gia' tagliato all'ingresso; quelli che restano sono tutti <= alpha.
+  const bool quiet_hash = QsQuietHash && !pv && !in_check && h.move && !is_tactical(h.move) &&
+                          (h.bound == BOUND_LOW || h.bound == BOUND_EXACT);
 
   while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
     if (!legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
     const bool push = qs_push && m == qs_push;
-    const bool tact = is_tactical(m) || push;
+    const bool tact = is_tactical(m) || push || (quiet_hash && m == h.move);
     count++;
 
     if (!val_lost(best)) {

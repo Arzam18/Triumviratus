@@ -61,6 +61,8 @@
   P(RfpOppWorse, 335, 0, 1500)                                                                            \
   P(RfpCorrDiv, 198435, 50000, 800000)                                                                    \
   P(RfpBetaWeight, 712, 0, 1024)                                                                          \
+  P(RfpOppCapture, 0, 0, 1024)           /* nostra (05/10/2026): quota (/1024) dello sconto "improving" della */ \
+  P(NmpOppCapture, 0, 0, 1)              /* RFP persa se l'avversario ha una cattura facile; 1 = niente nulla */ \
   P(NmpDepthMul, 14, 0, 40)                                                                               \
   P(NmpImproving, 47, 0, 150)                                                                             \
   P(NmpBase, 314, 0, 800)                                                                                 \
@@ -92,6 +94,9 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
+  P(LdseMargin, 0, 0, 400)               /* nostra (05/10/2026): a profondita' <= LdseDepth la mossa hash */ \
+  P(LdseDepth, 7, 1, 12)                 /* con limite inferiore si estende se l'eval sta sotto alpha - m */ \
+  P(LdseMode, 0, 0, 7)                   /* bit: 1 solo nodi cut, 2 solo limite inferiore, 4 non da quiescenza */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
   P(LmrDeltaMul, 577, 0, 1500)                                                                            \
@@ -121,6 +126,8 @@
   /* quiescenza */                                                                                        \
   P(QsFutMargin, 285, 100, 600)                                                                           \
   P(QsSeeMargin, 80, 0, 300)                                                                              \
+  P(QsQuietHash, 0, 0, 1)                /* nostra (05/10/2026): nei nodi non-PV della quiescenza la mossa */ \
+                                         /* hash quieta con limite inferiore o esatto si cerca come tattica */ \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
   P(CorrMinorW, 10827, 0, 40000)                                                                          \
@@ -133,17 +140,16 @@
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
   P(CorrMajorW, 0, 0, 40000)             /* correzione per i pezzi maggiori (torri e donne) */            \
   P(CorrMajorUpd, 150, 0, 400)                                                                            \
-  P(HashNearMiss, 0, 0, 400)             /* entry un ply piu' corta accettata oltre questo margine */     \
   P(HashDamp, 0, 0, 200)                 /* taglio da limite inferiore spinto verso beta (decimi) */      \
+  P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
+  P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
   P(PassedPushRed, 1125, 0, 4096)           /* finali: meno riduzione e niente potatura per la spinta di un */ \
   P(PassedPushNpm, 5133, 0, 12000)       /* pedone passato in 6a/7a, sotto questo materiale non pedoni   */ \
   /* Idee nostre del 04/10/2026 (docs/audit_8.0/M_STUDIO_IDEE_RICERCA.md), tutte SPENTE di default:         \
      a 0 l'albero e' identico (bench 141196) e nella release il codice sparisce. Si accendono una per volta  \
-     negli SPRT del piano (STATO_PROGETTO.md 4.0quinquies). */                                              \
-  P(DisagreeRfp, 0, -1024, 1024)         /* idea 1: disaccordo psqt/positional della rete (/1024): positivo = */ \
-  P(DisagreeFut, 0, -1024, 1024)         /* piu' prudenza (meno potatura) dove la rete e' incerta; RFP, futility */ \
-  P(DisagreeCapFut, 0, -1024, 1024)      /* quiete, futility catture e ProbCut (solo se psqt > positional), */ \
-  P(DisagreeSing, 0, -1024, 1024)        /* margine singolare (si estende piu' facilmente) */              \
+     negli SPRT del piano (STATO_PROGETTO.md 4.0quinquies). Tolte il 05/10/2026 perche' negative (§3 dello     \
+     stato): 1 Disagree* (entrambi i segni), 4 PhaseEdgeCapMargin e PhaseEdgeImproving, 5 PassedReplyRed,       \
+     6 NmpVerifyDepthEnd/Npm, 10 LateBranch, e HashNearMiss. */                                               \
   P(DeepKnee, 16, 4, 40)                 /* idea 2 (nostra, LTC): da questa profondita' di radice...     */ \
   P(DeepSpan, 12, 1, 40)                 /* ...in questi ply il peso dei termini Deep* sale da 0 a 1      */ \
   P(DeepRfp, 0, -200, 200)               /* scostamenti "profondi" (0 = spenti), li cerca un nostro SPSA LTC */ \
@@ -152,16 +158,27 @@
   P(DeepNmp, 0, -2048, 2048)             /* /1024 di ply */                                               \
   P(DeepSing, 0, -60, 60)                                                                                 \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
-  P(PhaseEdgeCapMargin, 0, 0, 600)       /* idea 4: cattura che cambia esperto della rete: margine extra */ \
-  P(PhaseEdgeImproving, 0, 0, 1)         /* ...improving/opp_worse non confrontati fra esperti diversi */  \
-  P(PhaseEdgeNoFut, 0, 0, 1)             /* ...la cattura di confine non si pota e non si riduce di piu' */ \
-  P(PassedReplyRed, 0, 0, 4096)          /* idea 5: risposte difensive alla spinta di un passato avversario */ \
-  P(NmpVerifyDepthEnd, 0, 0, 30)         /* idea 6: verifica della mossa nulla da qui nei finali (0 = spenta) */ \
-  P(NmpVerifyNpm, 1700, 0, 12000)        /* ...sotto questo materiale non pedoni totale */                \
+  P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
   P(CorrPhase, 0, 0, 1)                  /* idea 9: correzione dei pedoni/minori separata per esperto */  \
-  P(LateBranch, 0, 0, 2048)              /* idea 10: rami raggiunti da mosse tardive del padre ridotti di piu' */ \
+  P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
+                                         /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
+  /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
+     al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
+     LtKnee + LtSpan in su, senza estrapolare oltre. Gli Lt sono scostamenti dal valore base: a 0 albero identico, e   \
+     nella release il codice sparisce. */                                                                     \
+  P(LtKnee, 15, 4, 40)                                                                                     \
+  P(LtSpan, 2, 1, 20)                                                                                      \
+  P(LmrLogMulLt, 0, -1000, 1000)                                                                           \
+  P(RfpMaxDepthLt, 0, -10, 10)                                                                             \
+  P(NmpVerifyDepthLt, 0, -10, 10)                                                                          \
+  P(LmrNotImprovingLt, 0, -300, 300)                                                                       \
+  P(LmrOffsetLt, 0, -1500, 1500)                                                                           \
+  P(LmrAllNodeLt, 0, -400, 400)                                                                            \
+  P(LmrNoTTFullLt, 0, -1500, 1500)                                                                         \
+  P(NmpImprovingLt, 0, -100, 100)                                                                          \
+  P(QuietFutAlphaLt, 0, -200, 200)                                                                         \
   /* gestione del tempo (in millesimi) */                                                                 \
   P(TmFallBase, 1148, 500, 2500)         /* /100: fallingEval = (base + a*(prev-best) + b*(iter-best)) */ \
   P(TmFallPrev, 230, 0, 600)                                                                              \

@@ -701,26 +701,33 @@ Stockfish's values: an idea that passes enters the next SPSA together with its n
 
 | idea | what it does | result |
 |---|---|---|
-| Disagree | prune less where the network's two outputs, material and position, disagree | −12.6 ± 15.2 (690 games), stopped |
-| PhaseEdge, margin | a capture that moves the game to another expert must clear an extra margin to cut | −2.5 ± 10.0 (1,262), stopped |
-| PhaseEdge, improving | "improving" is not computed across evaluations of different experts | −14.1 ± 19.4 (296), stopped |
+| Disagree | prune less where the network's two outputs, material and position, disagree | −12.6 ± 15.2 (690 games); with the opposite sign −8.5 ± 13.2 (818). Removed |
+| PhaseEdge, margin | a capture that moves the game to another expert must clear an extra margin to cut | −2.5 ± 10.0 (1,262). Removed |
+| PhaseEdge, improving | "improving" is not computed across evaluations of different experts | −14.1 ± 19.4 (296). Removed |
 | PhaseEdge, no futility | a capture across an expert boundary is never pruned or reduced more | +1.3 ± 2.3 (24,292), neutral |
 | Deep offsets | pruning and reduction offsets that grow with the root depth | no signal in the long-TC SPSA (section 19) |
-| CorrPhase | the pawn and minor-piece correction tables kept separate for each expert | running |
-| LateBranch | branches reached through a late move of the parent are reduced more | running |
+| CorrPhase | the pawn and minor-piece correction tables kept separate for each expert | +2.8 ± 6.6 (3,202), lean |
+| LateBranch | branches reached through a late move of the parent are reduced more | −5.1 ± 12.9 (892). Removed |
+| Near-miss TT cutoffs (from Coda) | an entry one ply short of the required depth cuts beyond a margin | ported wrongly at first (two plies short on fail-high: −22.7 ± 19.5); corrected, fail-low only: −6.7 ± 10.6 (1,142) at 20+0.2. Removed |
+| TT cutoff damping (from Coda) | a lower-bound cutoff value is pulled towards beta | +2.6 ± 6.8 (2,768) at 15+0.15, lean |
+| Endgame: defensive replies | replies to an enemy passed-pawn push to the 6th/7th reduced less | −2.3 ± 4.6 (1,990). Removed |
+| Endgame: null-move verification | null-move verification from a lower depth with little material | −6.7 ± 6.8 (728). Removed |
+| Endgame: passer push in quiescence | a passed-pawn push to the 7th is searched as a tactical move | +1.1 ± 3.8 (3,370), lean |
+| Endgame: transition extension | a capture that leaves one side with king and pawns only is extended | +1.4 ± 4.3 (3,030), lean (+6.2 at 1,118 games) |
 
-If CorrPhase and LateBranch both pass, they are tested together against the defaults before they are baked.
+The endgame ideas were tested on a book of endgames with 12–18 men, without draw adjudication. A depth ramp that
+moves nine selectivity levers from the RW1 values to the LTC1 values (section 19) as the root depth grows gave
+−0.9 ± 9.2 (1,486 games) at 20+0.2.
 
-**Still to test:**
-- four endgame ideas, on the endgame book without draw adjudication: defensive replies to an enemy passed-pawn push
-  reduced less; null-move verification from a lower depth with little material; a passed-pawn push to the seventh
-  rank searched in quiescence; a capture that leaves one side with only king and pawns extended;
-- contempt, which aims at rating-list Elo and needs a gauntlet against weaker engines rather than self-play;
-- time management with moves-to-go, exposed as parameters for an SPSA of its own;
-- near-miss TT cutoffs and damping, already in the code, at 20+0.2.
+**The five leans together** (no futility at expert boundaries, CorrPhase, TT damping, passer push in quiescence,
+transition extension) against the defaults, UHO 10+0.1: **−0.1 ± 6.7** (3,120 games). The single leans were mostly
+noise, picked up by stopping each test while it looked good. Nothing was baked; the five stay in the code, off. The
+ideas that lost were removed from the code (section 20).
 
-Two more ideas need a hook in the network and are not implemented yet: forcing the expert in a probe search, and
-smoothing the evaluation at expert boundaries on the principal variation.
+Still to test: contempt, which aims at rating-list Elo and needs a gauntlet against weaker engines rather than
+self-play, and time management with moves-to-go, as parameters for an SPSA of its own. Two more ideas need a hook in
+the network and are not implemented: forcing the expert in a probe search, and smoothing the evaluation at expert
+boundaries on the principal variation.
 
 ## 19. A long time-control SPSA of what RW1 could not see (5 October 2026)
 
@@ -747,3 +754,65 @@ The extrapolation was a mistake: those values had never been played by the tuner
 either. At equal time, 20 s on 10 positions, it reached **0.6 ply less** on average (from −3 to +2 per position) and
 needed 13–24% more time per ply at depths 20–23. No gain and a shallower search, so the RW1 values stay. The run is
 kept and can be resumed.
+
+## 20. Audits, clean-up and more speed (5 October 2026)
+
+Four Claude Fable 5.1 agents worked in parallel on copies of the source, read-only or on their own builds, while
+the tests of section 18 ran.
+
+**Porting audit of our own techniques.** Most of our options were written for the old search and moved onto the
+rewritten one, whose conventions differ (a TT cutoff from a fail-high entry needs one more ply of depth than a
+fail-low one). The audit checked each option against the new rules and that "off" really leaves the tree unchanged.
+Found and fixed:
+- the near-miss TT cutoff accepted entries two plies short on the fail-high side (section 18);
+- the passed-pawn push in quiescence was searched twice when it was already the hash move;
+- contempt kept three "draw = 0" thresholds of the new search (upcoming repetition in the main search and in
+  quiescence, the last-piece sacrifice) and scored tablebase draws as 0: with contempt on, alpha could drop. The
+  thresholds are now the draw value of the side to move, and a tablebase draw is scored like any other draw.
+
+With contempt off nothing changes (bench 141196).
+
+**Audit of the rewritten core against Stockfish 19.** The behaviours were compared one by one: main search,
+quiescence, iterative deepening and aspiration, move ordering, the seven histories, correction, singular extensions,
+ProbCut, null move, reductions and re-searches, pruning, mates, draws and repetitions, SMP. No sign or depth error
+was found in the logic. Seven small divergences sit in the adapters around it, and each will be tested behind an
+option: the game ply ignores the move number of a FEN, so after a book position the first move gets about 30% less
+time; a kept TT entry does not take the new move; SEE lets pinned pieces recapture; the quiescence TT depth is −1
+instead of 0; the null move advances the fifty-move counter; two slightly different fifty-move fade formulas; a
+maximum ply of 128.
+
+**Clean-up.** The ideas of section 18 that lost were removed from the code: Disagree, PhaseEdge margin and
+improving, LateBranch, defensive replies, endgame null-move verification, near-miss TT cutoffs, together with the
+data that only they used (the network disagreement carried through the evaluation cache, a piece count in every
+search frame). Bench unchanged: 141196, and 2,026,045 nodes on 30 positions at depth 14.
+
+**New search ideas, implemented off.** Techniques that neither Stockfish 19 nor Triumviratus had, found in several
+of the engines we study (Reckless, PlentyChess, Viridithas, Integral, Berserk, Caissa, Stormphrax), written in our
+own code with our own values:
+
+| option | idea |
+|---|---|
+| `HashFiftyStep` | the TT key carries a band of the fifty-move counter, above 40 plies |
+| `RfpOppCapture`, `NmpOppCapture` | no "improving" discount in reverse futility, and no null move, when the opponent has an easy capture |
+| `LdseMargin`, `LdseMode` | at low depth the hash move is extended when the static evaluation is well below alpha |
+| `QsQuietHash` | in quiescence a quiet hash move with a lower bound is searched like a tactical move |
+| `CorrFiftyStep` | the pawn and non-pawn correction tables are kept per band of the fifty-move counter |
+
+Off, the tree is unchanged; each one changes it when switched on. They wait for their SPRTs.
+
+**More speed, tree identical.** The fourth agent wrote branch-free versions of hot paths; each patch was measured on
+its own with xperf, 6 rounds, PGO builds, 55.2 million identical nodes per engine:
+
+| patch | build | cycles/node | mispredicts | kept |
+|---|---|---:|---:|---|
+| move generation: the moves of a piece written in four fixed groups of 16 squares, compacted with `vpcompressd` | avx512 | **−1.51%** | −3.4% | yes |
+| network threat features: the two variable-count loops replaced by the same compaction | avx512 | **−1.11%** | −5.7% | yes |
+| passed pawns of the network: a bitboard fill instead of a loop per pawn | avx512 / avx2 | **−0.81%** / **−0.54%** | −2.7% | yes |
+| move ordering: rank of each move by mask and popcount, 16 compares at a time | avx512 | **−0.70%** | −1.8% | yes |
+| make/unmake without branches on the capture | avx512 | −0.13% | −5.2% | no (noise) |
+| TT: probe remembers the slot, store reuses it | avx512 | +0.42% | −1.6% | no |
+| the move generation and threat patches in AVX2 form (`vpermd` and a 2 KB table) | avx2 | +0.29% / +2.29% | | no |
+
+On AVX2 the table-driven compaction costs more than the branch it removes, so the AVX2 builds keep the loops and
+gain only from the passed-pawn patch. The four kept patches are in the source; perft with a check at every node on
+the six standard positions and the 300 positions of the Chess960 suite are exact.

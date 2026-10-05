@@ -52,10 +52,6 @@ static inline int eval_refade(int v, int fifty) {
   return v * (199 - fifty) / 199;
 }
 
-// Idea 1 (Disagree*, 04/10/2026): il disaccordo psqt - positional della rete viaggia con la valutazione. Spenta,
-// la condizione e' falsa e nella release (parametri costanti a 0) il codice sparisce.
-static inline bool disagree_on() { return (DisagreeRfp | DisagreeFut | DisagreeCapFut | DisagreeSing) != 0; }
-
 // Esperto della rete (fascia di materiale) per numero di pezzi: la stessa tabella di half_ka_v2_hm.h
 // (<= 9, 10-15, 16-23, >= 24). Serve a PhaseEdge* e CorrPhase.
 static inline int net_phase(int pieces) { return pieces <= 9 ? 0 : pieces <= 15 ? 1 : pieces <= 23 ? 2 : 3; }
@@ -68,20 +64,14 @@ static inline int net_evaluate(ThreadData &td) {
     int s = 0;
     for (int pc = 0; pc < 6; pc++)
       s += mat[pc] * (count_bits(td.bitboards[pc]) - count_bits(td.bitboards[pc + 6]));
-    td.eval_cplx = 0;
     return td.side == white ? s : -s;
   }
   ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-  if (ce.key == td.hash_key) {
-    if (disagree_on())
-      td.eval_cplx = ce.cplx;
+  if (ce.key == td.hash_key)
     return eval_refade(ce.eval, td.fifty);
-  }
   const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
   ce.key = td.hash_key;
   ce.eval = eval_unfade(v, td.fifty);
-  if (disagree_on())
-    ce.cplx = td.eval_cplx = nn_last_cplx(td.nnpos);
   return v;
 }
 
@@ -197,14 +187,28 @@ static inline U64 corr_phase_key(const ThreadData &td) {
   return CorrPhase ? keys[net_phase(count_bits(td.occupancies[both]))] : 0;
 }
 
+// CorrFifty (nostra, 05/10/2026, da un'idea di Reckless): l'errore sistematico della valutazione su una stessa
+// struttura cambia con la distanza dalla regola delle 50 mosse (la rete smorza l'eval col contatore, e nei finali
+// che si trascinano la posizione "vale" altro). Una costante per fascia di CorrFiftyStep semimosse (al massimo 16
+// fasce) mescolata nelle chiavi dei pedoni e dei non-pedoni separa le correzioni. A 0 la chiave e' quella di sempre.
+static inline U64 corr_fifty_key(const ThreadData &td) {
+  static constexpr U64 keys[16] = {0, 0x78FAC4B00841A538ULL, 0x5EB2C61E9C3747D9ULL, 0x59701BD515B6EE59ULL,
+                                   0x2FEFFD3F283182A5ULL, 0x2DBE4F221F31A14FULL, 0xE19215DA308D5DA7ULL,
+                                   0x4AA99EFB91350BC7ULL, 0xC9C3DD626F1AE010ULL, 0x642CD00D7AA43578ULL,
+                                   0x4E3591F9E5FC0494ULL, 0x3FBCACD31257FB99ULL, 0x0C995B8887B93F26ULL,
+                                   0x8408B9E4AF9644A9ULL, 0x10A6D573C576C901ULL, 0x5DDBAD22D85BAB7BULL};
+  return CorrFiftyStep ? keys[std::min(td.fifty / CorrFiftyStep, 15)] : 0;
+}
+
 static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   PROF_GUARD(prof_corr);
   const int us = td.side;
   const U64 phk = corr_phase_key(td);
-  const int pawn = corr_slot(td.pawn_key ^ phk, us).pawn;
+  const U64 fk = corr_fifty_key(td);
+  const int pawn = corr_slot(td.pawn_key ^ phk ^ fk, us).pawn;
   const int minor = corr_slot(td.mm_key[0] ^ phk, us).minor;
-  const int npw = corr_slot(td.np_key[white], us).np_white;
-  const int npb = corr_slot(td.np_key[black], us).np_black;
+  const int npw = corr_slot(td.np_key[white] ^ fk, us).np_white;
+  const int npb = corr_slot(td.np_key[black] ^ fk, us).np_black;
   const int prev = f[-1].move;
   int cont = 64049;
   if (move_ok(prev)) {
@@ -225,10 +229,11 @@ static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
   PROF_GUARD(prof_corr);
   const int us = td.side;
   const U64 phk = corr_phase_key(td);
-  stat_push(corr_slot(td.pawn_key ^ phk, us).pawn, bonus, LIM_CORR);
+  const U64 fk = corr_fifty_key(td);
+  stat_push(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus, LIM_CORR);
   stat_push(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
-  stat_push(corr_slot(td.np_key[white], us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
-  stat_push(corr_slot(td.np_key[black], us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
+  stat_push(corr_slot(td.np_key[white] ^ fk, us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
+  stat_push(corr_slot(td.np_key[black] ^ fk, us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
   if (CorrMajorW)
     stat_push(corr_slot(td.mm_key[1], us).major, bonus * CorrMajorUpd / 128, LIM_CORR);
   const int prev = f[-1].move;

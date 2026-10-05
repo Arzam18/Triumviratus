@@ -167,7 +167,8 @@ static void deepen(ThreadData &td) {
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
   td.root_side = td.side;   // Contempt: la patta vale meno per chi muove alla radice
   td.deep_w = 0;
-  td.eval_cplx = 0;
+  td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
+  lt_update(td);
 
   if (main) {
     for (int &v : g_clock.iter_values)
@@ -192,6 +193,7 @@ static void deepen(ThreadData &td) {
     td.root_depth++;
     // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
     td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
+    lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
     if (main)
       g_clock.best_changes /= 2;
     for (int i = 0; i < td.root_count; i++) {

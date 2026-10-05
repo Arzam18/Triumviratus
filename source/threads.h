@@ -43,7 +43,6 @@ struct NodeFrame {
     int  move_count;
     int  cutoff_cnt;
     int  reduction;
-    int  pieces;                  // pezzi sulla scacchiera in questo nodo (PhaseEdge: esperto della rete)
     bool in_check;
     bool tt_pv;
     bool tt_hit;
@@ -137,7 +136,12 @@ struct ThreadData {
     int  opt[2];                      // optimism di questo thread (lato bianco, nero)
     int  root_side;                   // colore al tratto alla radice (Contempt)
     int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
-    int  eval_cplx;                   // psqt - positional dell'ultima valutazione (Disagree*), 0 se ignoto
+    // Rampa "tempo lungo" (Lt*, 01_params.inc): peso e valori effettivi delle leve per l'iterazione corrente.
+    int  lt_w;
+    int  lt_lmr_not_improving, lt_lmr_offset, lt_lmr_all_node, lt_lmr_no_tt_full;
+    int  lt_nmp_improving, lt_quiet_fut_alpha, lt_rfp_max_depth, lt_nmp_verify_depth;
+    int  lt_lmr_log_mul;              // valore effettivo da cui e' stata costruita lt_red_log
+    int  lt_red_log[256];             // tabella delle riduzioni del thread quando LmrLogMulLt != 0
 
     // Risultato, letto dal driver e dal voto fra thread
     int best_move;
@@ -157,7 +161,7 @@ struct ThreadData {
     static constexpr int EVAL_CACHE_BITS = 16;
     static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    struct EvalCacheEntry { U64 key; int eval; int cplx; };   // cplx sta nel riempimento: 16 byte come prima
+    struct EvalCacheEntry { U64 key; int eval; };
     EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
 };
 

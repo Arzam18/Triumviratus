@@ -66,27 +66,48 @@ struct MoveQueue {
 // 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
 // vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
 // (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
+#if defined(__AVX512F__)
+#include <immintrin.h>
+#endif
+// 05/10/2026 — CONTEGGIO A MASCHERE (AVX-512). Il ciclo `r += key[j] > x` ha un conteggio nh che cambia a ogni
+// chiamata: il compilatore lo vettorizza ma lascia una coda scalare di nh % 16 giri (ognuno confronto, somma e salto)
+// e una riduzione orizzontale per ogni mossa. Qui le chiavi oltre nh valgono INT_MIN (sotto ogni chiave vera, che e'
+// almeno -(1 << 30)), cosi' un gruppo parziale si confronta intero: per ogni mossa 16 confronti alla volta ->
+// maschera -> popcount, niente coda. La chiave si scrive gia' nel primo passaggio, nello slot corrente della lista
+// alta, e conta solo se la mossa ci entra: il secondo ciclo su hi[] e' sparito. Stesse chiavi, stesse posizioni.
+// xperf 6 giri, build PGO avx512: cicli per nodo -0,70%. Le build avx2 tengono il ciclo scalare.
 template <bool Wide>
 static void rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   using Key = std::conditional_t<Wide, long long, int>;
-  alignas(64) Key key[256];
+  alignas(64) Key key[256 + 16];   // 16 slot in piu' per il riempimento INT_MIN del percorso vettoriale
   unsigned char hi[256], lo[256];
   int nh = 0, nl = 0;
   for (int i = 0; i < n; i++) {
-    const int up = sc[i] >= limit;
+    const int s  = sc[i];
+    const int up = s >= limit;
     hi[nh] = (unsigned char)i;
     lo[nl] = (unsigned char)i;
+    if constexpr (Wide)
+      key[nh] = ((long long)s << 8) | (255 - i);
+    else
+      key[nh] = (int)((unsigned)std::clamp(s, -(1 << 22), (1 << 22) - 1) << 8) | (255 - i);
     nh += up;
     nl += 1 - up;
   }
-  for (int k = 0; k < nh; k++) {
-    const int s = sc[hi[k]];
-    if constexpr (Wide)
-      key[k] = ((long long)s << 8) | (255 - hi[k]);
-    else
-      key[k] = (int)((unsigned)std::clamp(s, -(1 << 22), (1 << 22) - 1) << 8) | (255 - hi[k]);
-  }
+#if defined(__AVX512F__)
+  if constexpr (!Wide) {
+    _mm512_storeu_si512(key + nh, _mm512_set1_epi32(INT_MIN));   // riempimento fino al gruppo di 16 successivo
+    const int nchunk = (nh + 15) >> 4;
+    for (int k = 0; k < nh; k++) {
+      const __m512i x = _mm512_set1_epi32(key[k]);
+      int r = 0;
+      for (int c = 0; c < nchunk; c++)
+        r += count_bits((U64)_mm512_cmpgt_epi32_mask(_mm512_load_si512(key + 16 * c), x));
+      out[r] = {mv[hi[k]], sc[hi[k]]};
+    }
+  } else
+#endif
   for (int k = 0; k < nh; k++) {
     const Key x = key[k];
     int r = 0;

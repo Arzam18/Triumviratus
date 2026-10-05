@@ -451,8 +451,11 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   TT_PREFETCH(&g_stats.corr[td.np_key[white] & g_stats.corr_mask][td.side]);
   TT_PREFETCH(&g_stats.corr[td.np_key[black] & g_stats.corr_mask][td.side]);
 
-  if (td.hash_key != pf_key) { // stima sbagliata (arrocco, promozione, e.p.)
-    TT_PREFETCH(&hash_table[tt_base_index(td.hash_key)]);
+  // La chiave della hash puo' portare la fascia delle 50 mosse (tt_key, HashFiftyStep): se differisce dalla stima si
+  // richiama la riga giusta. A opzione spenta tt_key e' td.hash_key e il test e' quello di prima.
+  const U64 tk = tt_key(td);
+  if (tk != pf_key) { // stima sbagliata (arrocco, promozione, e.p., fascia delle 50 mosse)
+    TT_PREFETCH(&hash_table[tt_base_index(tk)]);
     TT_PREFETCH(&td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK]);
   }
 
