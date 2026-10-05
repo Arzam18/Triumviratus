@@ -35,7 +35,6 @@
 |---|---|---|---|
 | **Triumviratus 7.0 64-bit (1 CPU)** | **3757** ±19 | **8** | 2026-09-26 |
 | Triumviratus 6.0 64-bit (1 CPU) | 3749 ±13 | 12–14 | 2026-08-16 |
-| Triumviratus 4.2 64-bit (1 CPU) | 3670 ±13 | 51–52 | 2026-08-08 |
 
 **CCRL 40/15** (40 moves in 15 minutes + increment):
 
