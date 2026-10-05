@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -56,22 +56,18 @@ other.</sub>
 
 ## Triumviratus 8.0 — in development
 
-8.0 is built in three steps: **speed, ablations, a new network**.
+8.0 is built in four steps: **speed, ablations, a new network, a restructured search**.
 
-**Current result:** the 8.0 release build beats the **official 7.0 binary** by **+27.6 ± 7.0 Elo** at
-15+0.15 (2,760 games, SPRT passed). The 8.0 side has its tuning frozen and no options set.
-
-| step | what changed | against 7.0 |
+| step | what changed | result |
 |---|---|---:|
-| speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 at 12+0.12 |
-| ablations | two search features switched off after ablation tests | +11.7 ± 4.6 at 60+0.6 |
-| **new network** | **Consilium**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | +27.3 ± 8.3 at 15+0.15 |
-| search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 (+9.9 ± 6.6 against its own defaults) | **+27.6 ± 7.0 at 15+0.15** |
+| speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 against 7.0 at 12+0.12 |
+| ablations | two search features switched off after ablation tests | +11.7 ± 4.6 against 7.0 at 60+0.6 |
+| **new network** | **Consilium**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | +27.3 ± 8.3 against 7.0 at 15+0.15 |
+| search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 | +27.6 ± 7.0 against 7.0 at 15+0.15 |
+| **restructured search** | the search reorganised following the structure of Stockfish 19's search, re-tuned by SPSA on our network, with techniques of our own | **+85.8 ± 12.8 against the previous 8.0 at 20+0.2** |
 
-The last step's gain against its own defaults does not show against 7.0: the two release numbers are
-the same within error. Measured against Stockfish 19 with the same compiler and the same network size,
-the engine executes **fewer instructions per node (5,647 vs 6,087)** and has fewer branch
-mispredictions. The network, its training and every intermediate measurement are in
+Since the restructuring, speed work with an identical tree has added about +4.8%, and our own search ideas are
+being tested one at a time. The network, its training and every intermediate measurement are in
 **[`NETWORKS.md`](NETWORKS.md)**.
 
 8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
@@ -101,7 +97,7 @@ engine has.
 
 <sub>The release binaries against each other, AVX2 on both sides, each with its own network; 1 thread,
 UHO 2024 (+0.85/+0.94), LOS 100% at both points, depths measured from the PGNs. Stage-by-stage
-measurements, speed work and training: **[`DEVELOPMENT_7.0.md`](DEVELOPMENT_7.0.md)** ·
+measurements, speed work and training: **[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)** ·
 **[`NETWORKS.md`](NETWORKS.md)**.</sub>
 
 <details>

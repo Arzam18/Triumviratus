@@ -19,24 +19,29 @@
 [Why speed](#1-why-speed) · [How it is measured](#2-how-it-is-measured) ·
 [Where we started](#3-where-we-started) · [What changed](#4-what-changed-identical-tree) ·
 [Tried and dropped](#5-tried-and-dropped) · [TT16](#6-tt16-the-one-change-that-alters-the-tree) ·
-[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [MoE network](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) · [7.0 log](DEVELOPMENT_7.0.md)
+[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [Consilium](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) ·
+[Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA plan](#13-next-a-long-time-control-spsa) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
+[Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
+[Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
 
 ---
 
 > [!NOTE]
-> **Work in progress.** `source/` now holds the 8.0 development code; the 7.0 release is the tag
-> `v7.0`. Every change in section 4 leaves the search tree **bit-for-bit identical** (same `bench`,
-> same node counts on 50 positions at depth 15), so it can only change speed, never play. Against the
-> official 7.0 binary, the same tree now runs **+8.7% faster**, and **+11.5%** with the new
-> transposition table (section 6). In games, 8.0 beats the 7.0 release by **+14.7 ± 5.4 Elo** at
-> 12+0.12 and, with two search features switched off after ablation tests (section 8), by
-> **+11.7 ± 4.6 Elo at 60+0.6** (section 7). With the final **Consilium network** and its SPSA baked
-> into the code, the 8.0 release build beats the official 7.0 by **+27.3 ± 8.3 Elo** at 15+0.15 over
-> 2,000 games (section 9). The broader search SPSA (45 parameters, section 13) then gained
-> **+9.9 ± 6.6** against its own defaults; with it baked, the release build beats the official 7.0 by
-> **+27.6 ± 7.0 Elo** at 15+0.15 over 2,760 games, the same as before within error.
+> **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
+> the current 8.0 prerelease is the tag `v8.0`. 8.0 went through four steps, in this order.
+> - **Speed** (sections 2–7): the same search tree as 7.0, **+11.5% faster** with the new transposition
+>   table; +14.7 ± 5.4 Elo against the 7.0 release at 12+0.12.
+> - **Ablations** (section 8): two search features switched off; +11.7 ± 4.6 against 7.0 at 60+0.6.
+> - **A new network, Consilium** (section 9), with its SPSA: the release build beat the official 7.0 by
+>   **+27.3 ± 8.3 Elo** at 15+0.15, and +27.6 ± 7.0 with the 45-parameter search SPSA (section 13).
+> - **The search restructured** (sections 16–17), following the structure of Stockfish 19's search and
+>   re-tuned on our network: **+85.8 ± 12.8 Elo** against the previous 8.0 at 20+0.2.
+>
+> Since then: speed work with an identical tree (about +4.8%, section 17), our own search ideas tested
+> one at a time (section 18), and a long time-control SPSA that found no gain (section 19). Current
+> `bench`: **141196**. The status and the open work are in section 11.
 
 ---
 
@@ -288,6 +293,24 @@ block, after the next network.
 
 ## 11. Status
 
+**On 5 October 2026.** The sections after this one follow the order in which the work was done.
+- **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network,
+  bench **141196**. The prerelease builds are on the tag `v8.0`.
+- **Speed since the 4 October prerelease:** about +4.8% with an identical tree (section 17).
+- **Being tested:** our own search ideas, one at a time (section 18).
+- **Closed:** a long time-control SPSA of the reduction and null-move block (section 19). No gain; the
+  defaults stay.
+- **Open, in this order:**
+  - the remaining ideas of section 18: the endgame block on the endgame book, near-miss and damping at
+    20+0.2, contempt in a gauntlet, time management with moves-to-go;
+  - the RW1 vector checked at 30+0.3 against its starting values;
+  - large pages for the network weights and the transposition table. The test machine does not grant
+    the privilege, so both Triumviratus and Stockfish run on 4 KB pages there;
+  - one board instead of two. The search board and the network's copy cost about 2% of the time
+    (section 5). Merging them means adapting the network's inference to read our board;
+  - a finer and wider SPSA, later.
+
+**On 1 October 2026**, before the search was restructured:
 - Every change in section 4 is in `source/` and enabled on all targets (AVX2, AVX-512, VNNI, ICL,
   `-intel`).
 - **Done:** TT16 adopted (+6.3 ± 5.1); 8.0 against 7.0: +14.7 ± 5.4 at 12+0.12 and +11.7 ± 4.6 at 60+0.6,
@@ -610,6 +633,22 @@ speed change and was later withdrawn: the test before the move is incomplete whe
 hash move that did not answer the check could be played. That crashed the engine in about one game in seventy; the
 make-move test is back, and the search tree is unchanged (bench 141196).
 
+**Speed work on the restructured search (4 October, evening).** Measured with hardware counters on the PGO build
+(30 positions × 400,000 nodes, six alternating rounds), every change with an identical tree (bench 141196):
+- **Move ordering without branches.** Each move gets a unique key (its score, then its place in the generated list),
+  and its rank is the number of larger keys, a loop the compiler vectorises. The order is the same as the stable
+  insertion it replaces. Branch mispredictions −11.5% per node.
+- **Moves copied once instead of three times** on their way from the generator to the ordering.
+- **Three divisions removed from the move loop:** one became a shift, one is recomputed only when the window
+  changes, one is an exact 40-bit reciprocal.
+- **The static exchange evaluation reads the captured piece** from the square table instead of six bitboards.
+- **The enemy pawns' attacks** in quiet-move scoring are computed in bulk.
+- **The legality test in make-move is skipped where the test before the move is complete,** that is when the side
+  to move is not in check. In check the make-move test stays, so the crash above cannot come back. A build that runs
+  both tests found no disagreement on 9.1 million nodes (51 positions, Chess960 included).
+
+Together: **−1.70% cycles per node**, branch mispredictions −12.9%.
+
 A third of the accumulator refreshes came from captures that move the position into another phase of the network
 (another of Consilium's four experts), not from king moves. Those refreshes rebuilt the threat and pawn blocks too,
 which do not depend on the phase. They now take the same path as a king move that stays on its side of the board:
@@ -651,4 +690,60 @@ switching them off gave a further −1.32% cycles per node (instructions −0.74
 speed gains compound to about +4.8% on this workload; the gap to Stockfish 19 in cycles per node went from 1.70× to
 1.59×, with the network itself accounting for about half of what remains.
 
-**Next:** the same vector checked at 30+0.3, large pages, more of our own techniques.
+## 18. Our own search ideas, tested one at a time (5 October 2026)
+
+A study of our search, written with Claude Fable 5.1 working as a research agent on the code and on the
+measurements, proposed thirteen ideas built on what is specific to Triumviratus: the four experts of Consilium,
+its passed-pawn block, the long time controls of the rating lists. All of them are in the code as options that are
+off by default. Off, the search tree is unchanged (bench 141196), and the release build compiles them away. Each is
+tested on its own against the defaults, on the same binary, SPRT [0, 3] at 10+0.1 unless noted. None of them uses
+Stockfish's values: an idea that passes enters the next SPSA together with its neighbours.
+
+| idea | what it does | result |
+|---|---|---|
+| Disagree | prune less where the network's two outputs, material and position, disagree | −12.6 ± 15.2 (690 games), stopped |
+| PhaseEdge, margin | a capture that moves the game to another expert must clear an extra margin to cut | −2.5 ± 10.0 (1,262), stopped |
+| PhaseEdge, improving | "improving" is not computed across evaluations of different experts | −14.1 ± 19.4 (296), stopped |
+| PhaseEdge, no futility | a capture across an expert boundary is never pruned or reduced more | +1.3 ± 2.3 (24,292), neutral |
+| Deep offsets | pruning and reduction offsets that grow with the root depth | no signal in the long-TC SPSA (section 19) |
+| CorrPhase | the pawn and minor-piece correction tables kept separate for each expert | running |
+| LateBranch | branches reached through a late move of the parent are reduced more | running |
+
+If CorrPhase and LateBranch both pass, they are tested together against the defaults before they are baked.
+
+**Still to test:**
+- four endgame ideas, on the endgame book without draw adjudication: defensive replies to an enemy passed-pawn push
+  reduced less; null-move verification from a lower depth with little material; a passed-pawn push to the seventh
+  rank searched in quiescence; a capture that leaves one side with only king and pawns extended;
+- contempt, which aims at rating-list Elo and needs a gauntlet against weaker engines rather than self-play;
+- time management with moves-to-go, exposed as parameters for an SPSA of its own;
+- near-miss TT cutoffs and damping, already in the code, at 20+0.2.
+
+Two more ideas need a hook in the network and are not implemented yet: forcing the expert in a probe search, and
+smoothing the evaluation at expert boundaries on the principal variation.
+
+## 19. A long time-control SPSA of what RW1 could not see (5 October 2026)
+
+RW1 (section 17) left out what a 20-second game cannot see. A second SPSA, LTC1, took those levers at 40+0.4:
+- the shape of the reduction table;
+- the depth limits of reverse futility and of null-move verification, and the null-move reduction;
+- twelve reduction, pruning and singular parameters still at their starting values from Stockfish 19;
+- four RW1 parameters that are sensitive to the time control;
+- four of the root-depth offsets of section 18.
+
+That is 25 parameters, on the development build with all the speed work above. Time management stayed out: in
+self-play the side that spends more time wins, and the tuner would reward it.
+
+At 1,929 of 4,000 iterations the trajectories had a clear direction: reduce and prune less at long time controls.
+The reduction table got shorter, the depth thresholds lower, and the reductions without a TT move and at all-nodes
+smaller. The root-depth offsets stayed at zero. The run was stopped there and its vector tested:
+
+| vector | TC | games | Elo |
+|---|---|---:|---:|
+| extrapolated along the trend | 40+0.4 | 972 | −3.9 ± 10.5 |
+| mean of the last 50 iterations | 30+0.3 | 606 | −4.6 ± 14.1 |
+
+The extrapolation was a mistake: those values had never been played by the tuner. The actual vector showed no gain
+either. At equal time, 20 s on 10 positions, it reached **0.6 ply less** on average (from −3 to +2 per position) and
+needed 13–24% more time per ply at depths 20–23. No gain and a shallower search, so the RW1 values stay. The run is
+kept and can be resumed.

@@ -23,7 +23,7 @@ frozen predecessor, on `TRANN2` — Stockfish's SFNNv16 feature set plus the pro
 network, the correction-history block retuned at the time control the engine is played at,
 node-identical speed work with the tuning parameters compiled as constants in release builds (+5%
 NPS), and the displayed score recalibrated so that +1.00 means a 50% chance of winning. Full log:
-[`DEVELOPMENT_7.0.md`](DEVELOPMENT_7.0.md).
+[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md).
 
 ## Triumviratus 6.0
 
