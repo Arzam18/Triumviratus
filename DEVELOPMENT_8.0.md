@@ -20,7 +20,7 @@
 [Where we started](#3-where-we-started) · [What changed](#4-what-changed-identical-tree) ·
 [Tried and dropped](#5-tried-and-dropped) · [TT16](#6-tt16-the-one-change-that-alters-the-tree) ·
 [Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [Consilium](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) ·
-[Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA plan](#13-next-a-long-time-control-spsa) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
+[Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA M20](#13-a-search-wide-spsa-on-the-old-search-1-october-2026) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
 [Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
 [Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) ·
 [Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
@@ -41,11 +41,11 @@
 > - **The search restructured** (sections 16–17), following the structure of Stockfish 19's search and
 >   re-tuned on our network: **+85.8 ± 12.8 Elo** against the previous 8.0 at 20+0.2.
 >
-> Since then: speed work with an identical tree (about +4.8%, section 17, about 4% more in section 20 and 1.6% more
-> in section 22),
-> our own search ideas tested one at a time (section 18), a long time-control SPSA that found no gain
-> (section 19), and the first idea adopted, a hash-move extension at low depth: **+4.5 ± 3.3 Elo**
-> (section 21). Current `bench`: **498873**. The status and the open work are in section 11.
+> Since then: speed work with an identical tree (about −8.9% cycles per node, sections 17, 20, 22, 23), our own
+> search ideas tested one at a time (section 18), a long time-control SPSA that found no gain (section 19), and
+> the first three ideas adopted: a hash-move extension at low depth (**+4.5 ± 3.3**, section 21), a guard on it
+> (**+6.3 ± 7.9**) and more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23).
+> Current `bench`: **308883**. The status and the open work are in section 11.
 
 ---
 
@@ -297,44 +297,18 @@ block, after the next network.
 
 ## 11. Status
 
-**On 5 October 2026.** The sections after this one follow the order in which the work was done.
-- **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network,
-  bench **141196**. The prerelease builds are on the tag `v8.0`.
-- **Speed since the 4 October prerelease:** about +4.8% with an identical tree (section 17).
-- **Being tested:** our own search ideas, one at a time (section 18).
-- **Closed:** a long time-control SPSA of the reduction and null-move block (section 19). No gain; the
-  defaults stay.
-- **Open, in this order:**
-  - the remaining ideas of section 18: the endgame block on the endgame book, near-miss and damping at
-    20+0.2, contempt in a gauntlet, time management with moves-to-go;
-  - the RW1 vector checked at 30+0.3 against its starting values;
-  - large pages for the network weights and the transposition table. The test machine does not grant
-    the privilege, so both Triumviratus and Stockfish run on 4 KB pages there;
-  - one board instead of two. The search board and the network's copy cost about 2% of the time
-    (section 5). Merging them means adapting the network's inference to read our board;
-  - a finer and wider SPSA, later.
+**On the evening of 5 October 2026.** The sections after this one follow the order in which the work was done.
+- **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, and the
+  first three ideas adopted: LDSE, its guard and the surprise rule (sections 21–23). Bench **308883**. The
+  prerelease builds on the tag `v8.0` are the morning ones, before these three.
+- **Speed since the 4 October prerelease:** about −8.9% cycles per node with an identical tree (sections 20–23).
+- **Open:** the queued SPRTs (`TTMoveRefresh`, `HashQsDepth`, the null-move rule resumed); a few tests closed
+  early or never run (contempt in a gauntlet, `SeePinned`); large pages, which the test machine does not grant,
+  so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next network.
 
-**On 1 October 2026**, before the search was restructured:
-- Every change in section 4 is in `source/` and enabled on all targets (AVX2, AVX-512, VNNI, ICL,
-  `-intel`).
-- **Done:** TT16 adopted (+6.3 ± 5.1); 8.0 against 7.0: +14.7 ± 5.4 at 12+0.12 and +11.7 ± 4.6 at 60+0.6,
-  both SPRTs passed. Ablations A1 and A4 switched off two features; bench is now **273477**.
-- **Tried:** a correction history keyed by the last move in context (hash of parent XOR hash of
-  node, as in Coda and Cinder): −7.6 ± 7.8 on 2,069 games at 20+0.2. Left in the code, switched off.
-- **Cleanup:** 14 finished compile-time switches removed (the old table, the speed-work oracles,
-  prefetch and permutation experiments that were measured and rejected): about 2,000 lines fewer.
-  Same tree, checked: bench 240500 and identical node counts on the 50 test positions. Search
-  options that are switched off stay in the code.
-- **Ablation campaign closed:** nine tests, two features switched off (about +7 Elo together), the rest
-  needed or neutral.
-- **Network:** instead of a wider L1, the 8.0 network is a **mixture of experts** on the king-relative
-  block (Consilium, build option `TRIUMV_PSQ_PHASES=4`), in training since 28 September. Design,
-  data, recipe and every measurement are in [NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
-  The mobility block planned as a graft was measured and dropped (section 5).
-- **Search SPSA M20** (45 parameters, 20+0.2) baked on 1 October: +9.9 ± 6.6 against its defaults;
-  the release against the official 7.0 gives +27.6 ± 7.0 (section 13). Bench is now **402358**.
-- Found on the way: the engine did not support Chess960 FENs (it accepted the castling rights and then
-  generated castling moves from the wrong squares). Now supported: see section 14.
+Before the restructured search (1 October): TT16 adopted (+6.3 ± 5.1), 8.0 against 7.0 +14.7 ± 5.4 at 12+0.12
+and +11.7 ± 4.6 at 60+0.6, two features switched off by ablation, about 2,000 lines of finished switches removed,
+Consilium in training, the M20 SPSA (section 13), Chess960 support (section 14).
 
 **Tools** (`build/`): `nps_pair.py` (paired simultaneous NPS), `cpu_topology.py` (hyperthread
 siblings), `node_identity.py` (same tree check), `uci_workload.py` (common workload for any UCI engine).
@@ -401,74 +375,18 @@ per position (`build/ccrl_analyze.py`, `build/ccrl_report.py`):
 A deeper pass at 3M nodes (`build/ccrl_deep.py`) found 23 real mistakes. 7.0 avoids 17 of them with
 10 s per move and 20 with 60 s, so they are horizon errors: more depth fixes them.
 
-## 13. Next: a long time-control SPSA
+## 13. A search-wide SPSA on the old search (1 October 2026)
 
-Stockfish still tunes its search with SPSA at long time control after every network. Our last
-search-wide SPSA ran at short time control, on older networks. The run is prepared in
-`build/spsa_ltc/`:
-- 46 continuous search parameters (pruning margins, the full fine-grained LMR, singular margins,
-  history weights);
-- starting values taken from the compiled source, not from the UCI defaults;
-- 40+0.4, about 88k games, about 48 hours;
-- the verdict comes only from an SPRT of the final vector against the defaults at the same time control.
-
-Before the run, a simulation of the tuner's exact update rule (`sim_server_math.py`) showed that the
-learning rate we used in September (0.06–0.08) loses Elo when the landscape is flat: noise moves the
-parameters more than the gradient does. The run uses 0.02, with the perturbation at 20% of each range.
-
-Three ideas taken from reading Coda 0.9.4's source join the plan, each as an option that is off by
-default and gets an SPRT at 40+0.4 before the SPSA:
-- **pruning that relaxes as the whole search gets deeper** (it depends on the root depth, not on the
-  depth of the node);
-- **TT cutoffs from entries one ply short**, with a score margin;
-- **TT scores damped toward beta** at non-PV cutoffs.
-
-A scan of the other reference engines (Stockfish, Reckless, PlentyChess, Caissa, Integral,
-Stormphrax, Viridithas, Berserk) for anything that depends on the root depth adds two tests, each
-shared by four engines:
-- **the TT move on the principal variation never drops into quiescence** (new option `PvTTMinDepth`);
-- **singular extensions only while ply < 2 × root depth** (`SingularPlyGuard`: already in the code,
-  never measured on its own).
-
-Bolted on one at a time, at 10+0.1, none of them holds up:
-
-| test | result |
-|---|---|
-| near-miss alone | +2.4 ± 7.2 (4,216 games) |
-| near-miss + damping | −1.6 ± 18.8 (634 games) |
-| TT-move rule + ply guard | −5.7 ± 15.4 (918 games) |
-| ply guard alone | +0.7 ± 8.8 (about 2,700 games) |
-
-The surrounding parameters were tuned without these ideas. For example, the TT cutoff asks one extra
-ply for fail-highs, while the near-miss accepts one ply less. So the continuous ones go into the SPSA
-**switched on**, to be retuned together with their neighbours, and each has a continuous path back to
-"off". The verdict is still the SPRT of the tuned vector against the defaults. The SPSA runs at
-20+0.2, without the root-depth terms, which only act at long time control.
-
-**Result (1 October 2026).** The run that went ahead, M20, is the plan above on the Consilium network.
-It has 45 parameters: five levers were dropped because their switches are off in the code, so they could
-not move the tree. Every engine was pinned to one socket. The run was paused at 13,104 iterations, once
-the trajectories had flattened. The vector is the mean of the last 1,100 iterations.
-
-The gate is an SPRT of that vector against the defaults, same binary, run as one pinned half per
-socket. The second socket has only two memory channels and saturated its memory at 20+0.2, so its half
-ran at 10+0.1. The two halves agree:
-
-| half | TC | games | pentanomial | Elo |
-|---|---|---:|---|---:|
-| socket 0 | 20+0.2 | 1,426 | [3, 163, 344, 198, 5] | +9.5 ± 9.5 |
-| socket 1 | 10+0.1 | 1,552 | [12, 159, 385, 211, 9] | +10.3 ± 9.3 |
-| **pooled** | | **2,978** | [15, 322, 729, 409, 14] | **+9.9 ± 6.6** |
-
-The SPRT had not concluded (LLR 1.27 of 2.94), but the pooled interval excludes zero, and the vector was
-baked. Near-miss and damping are now **on** (100 and 41). Bench is now **402358**, and it equals the
-pre-bake dev build with the 45 options set by hand.
-
-Against the official 7.0 (section 9), the release with M20 baked gives **+27.6 ± 7.0** over 2,760 games.
-The release without it gave +27.3 ± 8.3. Against 7.0, then, the SPSA's gain does not show: the two
-numbers differ by much less than their errors. The two sockets agree (+28.0 ± 9.8 and +27.3 ± 10.0). One
-game out of 2,760 was lost on time by 8.0, with 152 engines on the machine. On a short clock the engine
-reached only depth 1 in 0.27 s, which points to a starved process rather than to the time management.
+Superseded by the restructured search of section 17, so only the outcome is kept. A simulation of the tuner's
+update rule showed that the learning rate used in September (0.06–0.08) loses Elo on a flat landscape: noise
+moves the parameters more than the gradient does, so the run used 0.02. Five ideas from Coda and from the
+other reference engines (pruning that relaxes with the root depth, TT cutoffs from entries one ply short,
+TT scores damped toward beta, the PV TT move never dropping into quiescence, a ply guard on singular
+extensions) were first tested one at a time at 10+0.1 and none held up alone (best: near-miss +2.4 ± 7.2 on
+4,216 games), so the continuous ones entered the SPSA switched on. The run, **M20**, had 45 parameters at
+20+0.2 on Consilium; the vector, the mean of the last 1,100 of 13,104 iterations, passed its gate at
+**+9.9 ± 6.6** over 2,978 games and was baked (bench 402358). Against the official 7.0 the release with M20
+gave +27.6 ± 7.0, the same as without it (+27.3 ± 8.3): the gain did not show against 7.0.
 
 ## 14. Chess960 (Fischer Random Chess)
 
@@ -629,70 +547,28 @@ Against the starting values at 10+0.1: **+9.7 ± 9.4 Elo**, stopped early and ba
 **The whole step at a longer time control.** The restructured, re-tuned search (bench 141196) against the 8.0 of
 section 16, 20+0.2: **+85.8 ± 12.8 Elo over 694 games**, LLR 3.09, accepted (H1).
 
-**Speed.** On one core, same gcc toolchain, 30 UHO positions at 3 s each, alternating: Stockfish 19 searches
-**1.18×** our nodes per second (median; 1.06–1.28), down from 1.24, median depth 22 against 23. Both engines now
-count nodes the same way (moves made). Our profile: evaluation 47% of the time (89% of it in accumulator updates),
-search 38%. Removing one duplicated legality test (deciding legality once, before the move) gave no measurable
-speed change and was later withdrawn: the test before the move is incomplete when the king is in check, and a
-hash move that did not answer the check could be played. That crashed the engine in about one game in seventy; the
-make-move test is back, and the search tree is unchanged (bench 141196).
+**Speed.** On one core (30 UHO positions, 3 s each) Stockfish 19 searched **1.18×** our nodes per second, down
+from 1.24; both engines now count nodes the same way. A shortcut that decided legality once, before the move,
+crashed the engine in about one game in seventy (a hash move that did not answer a check could be played) and was
+withdrawn: the make-move test is back, tree unchanged.
 
-**Speed work on the restructured search (4 October, evening).** Measured with hardware counters on the PGO build
-(30 positions × 400,000 nodes, six alternating rounds), every change with an identical tree (bench 141196):
-- **Move ordering without branches.** Each move gets a unique key (its score, then its place in the generated list),
-  and its rank is the number of larger keys, a loop the compiler vectorises. The order is the same as the stable
-  insertion it replaces. Branch mispredictions −11.5% per node.
-- **Moves copied once instead of three times** on their way from the generator to the ordering.
-- **Three divisions removed from the move loop:** one became a shift, one is recomputed only when the window
-  changes, one is an exact 40-bit reciprocal.
-- **The static exchange evaluation reads the captured piece** from the square table instead of six bitboards.
-- **The enemy pawns' attacks** in quiet-move scoring are computed in bulk.
-- **The legality test in make-move is skipped where the test before the move is complete,** that is when the side
-  to move is not in check. In check the make-move test stays, so the crash above cannot come back. A build that runs
-  both tests found no disagreement on 9.1 million nodes (51 positions, Chess960 included).
+**Speed work on the restructured search (4 October, night).** Hardware counters on the PGO build, six alternating
+rounds, every change with an identical tree (bench 141196):
 
-Together: **−1.70% cycles per node**, branch mispredictions −12.9%.
+| change | cycles per node |
+|---|---:|
+| move ordering without branches (rank = number of larger unique keys), moves copied once instead of three times, three divisions out of the move loop, SEE reading the captured piece from the square table, enemy pawn attacks in bulk, make-move legality test only when in check | −1.70% |
+| phase-change refreshes reuse the threat and pawn blocks: only the new phase's HalfKA rows are rebuilt | −0.55% |
+| branch-free bookkeeping: one table-driven function for the three partial keys, discovered checks from aligned sliders, promotion type from a table, hash move removed once, four TT ways compared at once, two more prefetches, a reciprocal for the all-node reduction, branch-free passed-pawn test | −1.05% |
+| PSQT rows summed inside the first accumulator tile, pawn generation without per-pawn branches | −0.6% |
+| the PSQT prefetch loops switched off (no lead time left after the change above) | −1.32% |
 
-A third of the accumulator refreshes came from captures that move the position into another phase of the network
-(another of Consilium's four experts), not from king moves. Those refreshes rebuilt the threat and pawn blocks too,
-which do not depend on the phase. They now take the same path as a king move that stays on its side of the board:
-only the HalfKA part is rebuilt from the cache of the new phase, the rest is reused from the previous accumulator.
-The tree is node-for-node identical (bench 141196); hardware counters give −1.05% instructions and −0.55% cycles
-per node. The gain is small because the expensive part is the new phase's HalfKA rows, which must be applied anyway.
-
-**Where the cycles go.** A per-function profile of the PGO binary (hardware counters, 30 positions at 400k nodes)
-splits our 6,700 cycles per node into about 3,500 for the network and 3,200 for the search; Stockfish 19 spends
-about 2,300 and 1,750 on the same positions. The search logic itself (move loop, pruning, node bookkeeping) costs
-about the same as Stockfish's. The difference sits in move ordering, the transposition table, the static exchange
-evaluation and the make/unmake bookkeeping, and much of it is branch mispredictions: 46 per node against 29.
-
-**Branch-free bookkeeping.** Nine small changes, all leaving the tree node-for-node identical (bench 141196):
-the three partial Zobrist keys (pawns, minor pieces, non-pawn material) are updated by one table-driven function
-instead of three functions with ten data-dependent branches; discovered-check candidates come from the sliders
-aligned with the enemy king instead of a slider lookup per own piece; the promotion type is read from a table;
-the hash move is removed from the generated list once instead of being compared against every move; the
-transposition table compares its four ways at once and branches once; the bucket is prefetched before the
-end-of-node statistics; two more correction-history slots are prefetched in make; the all-node reduction term uses
-a reciprocal table instead of a division; the passed-pawn test has no branch per pawn. Measured against the
-previous build over six alternating rounds: **−1.05% cycles per node**, branch mispredictions −8.3%, instructions
-+1.3%. Tried and withdrawn the same night: slider attacks from per-line tables (128 KB instead of 2.25 MB), +0.55%
-cycles, because the lines actually read from the large tables were already few and hot.
-
-**Loops with a variable trip count.** Each loop over "the features that changed" in the accumulator update runs a
-data-dependent number of times, and its exit is a branch the predictor cannot learn. The PSQT rows (32 bytes per
-feature) used to be summed in four such loops of their own after the accumulator tiles; they are now summed inside
-the first tile, in the same loops as the 2 KB rows, in the incremental update, the refresh from cache and the hybrid
-update. The evaluation is byte-identical. Pawn move generation lost its per-pawn branches the same way: pushes are
-computed in bulk from shifted bitboards, and for each pawn the move is always written to the next slot while the
-count advances by zero or one; the generation order, and so the tree, is unchanged. Measured over the two steps:
-cycles per node −0.6%, branch mispredictions −11% (42.5 → 37.7 per node), instructions +1.1%. Two experiments in
-the same direction failed and were withdrawn: a single 32-register accumulator tile (fewer loop exits, but the
-compiler spills: +5.7% cycles) and issuing the child's hash prefetch before pruning instead of inside make (+0.03%).
-A consequence of the first change: the two loops that prefetched the PSQT rows just before the update had no lead
-time left once those rows were consumed in the first tile, and their variable trip counts cost mispredicted exits;
-switching them off gave a further −1.32% cycles per node (instructions −0.74%). Since the 4 October release the
-speed gains compound to about +4.8% on this workload; the gap to Stockfish 19 in cycles per node went from 1.70× to
-1.59×, with the network itself accounting for about half of what remains.
+Withdrawn: slider attacks from per-line tables (+0.55%), a single 32-register tile (+5.7%: the compiler spills),
+the child's hash prefetch issued earlier (+0.03%). A per-function profile split our 6,700 cycles per node into about
+3,500 for the network and 3,200 for the search, against Stockfish's 2,300 and 1,750: the search logic itself costs
+about the same, the difference is move ordering, the TT, the SEE and make/unmake, much of it branch mispredictions
+(46 per node against 29). Since the 4 October release the gains compound to about +4.8%; the gap to Stockfish 19 in
+cycles per node went from 1.70× to 1.59×.
 
 ## 18. Our own search ideas, tested one at a time (5 October 2026)
 
@@ -951,5 +827,10 @@ Bringing the earlier position up to date incrementally and then using the hybrid
 more time in the rebuilds, rejected. The index tables were already in the first-level cache. With section 22, about
 **−8.9% cycles per node since the 4 October pre-release**, tree identical.
 
-Queue: no null move when the opponent has an easy capture, `TTMoveRefresh`, `HashQsDepth` (10+0.1), on the build with
-everything adopted so far.
+**Later the same evening.** All three adoptions together against the morning build, same binary, at 10+0.1:
+**+1.3 ± 8.0** over 1,902 games. No regression, which was the point of the check: at this time control the
+surprise rule does not show. No null move when the opponent has an easy capture stopped at +1.2 ± 5.6 over
+4,308 games, to be resumed. Three more speed reviews of the network and of the search hot spots produced six
+tree-identical patches; measured at rest, none gained (from +0.07% to +1.19% cycles), confirming that on this
+machine only removing work pays, while prefetching and reordering loads do not. A 300-game match against
+Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) is running on the new build.
