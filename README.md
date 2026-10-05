@@ -180,8 +180,9 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 SPSA search-parameter tuning, he probes the engine's real playing strength by running it against
 curated **hard positions at long time controls** — the kind of qualitative strength testing that fast
 automated match-play cannot reach, and the project's only systematic testing of that sort — and has
-generously contributed his hardware for the long tuning and testing runs. Triumviratus would be
-materially weaker without his work.
+generously contributed his hardware for the long tuning and testing runs. He also shares with the
+author the cost of the cloud GPUs on which the project's networks are trained, Consilium included.
+Triumviratus would be materially weaker without his work.
 
 **Mark Tang** has tested the 8.0 prerelease against other engines and on the IQ4 tactical suite (results
 in [`tests/`](tests/)).

@@ -213,8 +213,8 @@ lower cycle from its end, took the validation loss below F3's.</sub>
 - **Batch:** 131,072 → 262,144 → 524,288 gains about 7 % per doubling. At 262,144 with the full recipe the run
   measured 3.28 M positions/s — too slow for the budget, so the run was restarted at 524,288.
 - **Cost:** about **0.17 $ per billion positions**, the same as the `legio-septima` machine (4× RTX 5060 Ti) but about
-  six times faster. The whole run, P, F3 and F4 included, cost **105 $**. An 8× RTX 3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot
-  feed the loader.
+  six times faster. The whole run, P, F3 and F4 included, cost **105 $**, shared with **Maurizio Platino**. An 8× RTX
+  3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot feed the loader.
 
 Steady state: 201–212 s per epoch, GPUs at 97–99 %, 63–68 °C, well below their power limit. The last 3 % of speed
 comes and goes with the GPU boost clock.
