@@ -70,8 +70,7 @@ first version to support **Chess960**.
 
 **Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
 the best Triumviratus so far; on Mark Tang's IQ4 suite the prerelease solves **145 of 183**, the highest among the
-engines tested; against Caissa 2.0 at 4 threads the 1 October build scores −14 ± 15 where 7.0 had −27, and +10 ± 14
-with 1 thread.
+engines tested.
 
 Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)**. `source/` holds the 8.0
 development code; the 7.0 release is the tag `v7.0`.

@@ -28,28 +28,6 @@ Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 8.0 audi
 compared with a rating list, and the two August matches used a development build from a month
 before the release.
 
-## Maurizio Platino — 8.0 against Caissa 2.0
-
-The same opponent and conditions as the last 7.0 match, with 8.0 development builds; the third
-match uses 1 thread and no ponder.
-
-| Date | Triumviratus build | Threads · ponder | Games | +W =D −L | Score | Elo (Triumviratus) |
-|---|---|---|---:|---|---:|---:|
-| 2026-09-22 | 7.0 (2026-09-10) | 4 · on | 300 | +109 =59 −132 | 46.2% | −27 ± 15 |
-| 2026-09-30 | 8.0 dev (2026-09-30) | 4 · on | 300 | +108 =61 −131 | 46.2% | −27 ± 15 |
-| 2026-10-01 | 8.0 dev (2026-10-01) | 4 · on | 300 | +113 =62 −125 | 48.0% | −14 ± 15 |
-| 2026-10-03 | 8.0 dev (2026-10-01) | 1 · off | 300 | +125 =59 −116 | 51.5% | +10 ± 14 |
-
-<sub>Caissa 2.0 BMI2 · Intel Core i7-8700 @ 3.20 GHz · Fritz 18 · 1024 MB hash per engine · 1 min + 1 s ·
-openings `UHO_2024_8mvs_big_+110_+129.pgn` (Stefan Pohl, SPCC), 150 per match, each played with both
-colours. ± is the 95% interval on the opening pairs. Games in
-[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing).</sub>
-
-The 30 September build matched 7.0 exactly; the 1 October build gained about 13 Elo at 4 threads
-and was ahead of Caissa 2.0 with 1 thread. All of these builds
-predate the restructured search of 4 October (`DEVELOPMENT_8.0.md` section 17) and everything after
-it.
-
 ## Maurizio Platino — ENET 2026 test suite
 
 **ENET 2026** by Eduard Nemeth: 110 hard positions. Intel Core i7-8700 @ 3.20 GHz, Fritz 18, 8 GB hash.
