@@ -89,8 +89,8 @@ struct MoveQueue {
 // incrementi condizionati, non con salti. n <= 256, quindi la posizione sta in 8 bit.
 // Misura (xperf, PGO, nodi identici): con chiavi a 64 bit salti mal predetti -10,8% per nodo ma istruzioni +1,2% e
 // cicli invariati. Chiavi a 32 bit (Wide = false): 16 confronti per istruzione AVX-512 invece di 8. Valgono per
-// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza); le parate dallo
-// scacco usano 1 << 28 per le catture e restano a 64 bit.
+// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza). Dal 05/10/2026
+// anche le parate dallo scacco (fill_evasions): prima usavano 1 << 28 per le catture e chiavi a 64 bit.
 // 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
 // vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
 // (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
@@ -239,7 +239,13 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   }
 }
 
-static void fill_tactics(MoveQueue &q) {
+// 05/10/2026 — FUORI DA queue_next (noinline). Incorporate, le tre fill portavano in queue_next le loro liste (mosse
+// del generatore, punteggi, chiavi dell'ordinamento): frame da 5.048 byte, oltre la pagina da 4 KB, e su Windows ogni
+// chiamata di queue_next, cioe' una per mossa, passava dalla sonda dello stack (__chkstk). Le fill girano una volta
+// per fase del nodo: il loro frame resta sotto i 4 KB e la sonda sparisce (verificato nel disassemblato PGO).
+// xperf 6 giri, release PGO avx512, 57,8 M nodi identici: istruzioni -2,76%, cicli -0,81%; insieme alle liste della
+// valutazione fuori dallo stack (AccumulatorStack::BothLists) cicli -1,55%.
+__attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -260,7 +266,7 @@ static void fill_tactics(MoveQueue &q) {
   q.cur = 0;
 }
 
-static void fill_quiets(MoveQueue &q) {
+__attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -279,7 +285,7 @@ static void fill_quiets(MoveQueue &q) {
   q.cur = q.n_tact;
 }
 
-static void fill_evasions(MoveQueue &q) {
+__attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -291,13 +297,16 @@ static void fill_evasions(MoveQueue &q) {
     n += m != q.hash_move;
   }
   const PieceToRow &c1 = *q.f[-1].cont_hist;
+  // Le tattiche davanti a tutte le quiete: 1 << 20 basta (|quiete| <= LIM_QUIET + LIM_FOLLOW = 37.183) e sta nei 22
+  // bit delle chiavi a 32 bit; prima 1 << 28 con chiavi a 64 bit (frame di fill_evasions oltre i 4 KB). Stesso
+  // ordine, stesso albero (05/10/2026).
   for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];
-    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 28)
+    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 20)
                            : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
   }
   q.n_all = q.n_tact = n;
-  rank_into<true>(q.list, ml->moves, sc, n, INT_MIN);
+  rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 

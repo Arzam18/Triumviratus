@@ -682,11 +682,18 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     // il nodo si regge su di lei, e vicino all'orizzonte un ply in piu' decide se quel valore era vero.
     // LdseMode (bit): 1 = solo nei nodi cut (forma di Reckless), 2 = solo limite inferiore, non esatto (forma di
     // Stormphrax), 4 = non con entry della sola quiescenza.
-    if (LdseMargin && ext == 0 && sing_skipped && m == n.h.move && !n.root && !n.excluded && !n.in_check &&
-        n.depth <= LdseDepth && val_known(n.h.value) && bound_covers(n.h.bound, true) &&
-        f->static_eval <= n.alpha - LdseMargin && (n.cut || !(LdseMode & 1)) &&
-        (n.h.bound == BOUND_LOW || !(LdseMode & 2)) && (n.h.depth >= 0 || !(LdseMode & 4)))
+    // LdseMax (05/10/2026): con Ldse accesa ogni nodo cut lungo una linea puo' estendere di nuovo, e la profondita'
+    // scende di un ply ogni due invece di uno per ply. A profondita' fissa l'albero resta lo stesso nella posizione
+    // tipica (media geometrica x1,02-x1,06 su 80 posizioni, prof. 8-14) ma alcuni finali di torre crescono x5-x16. Il
+    // tetto conta le estensioni Ldse sulla linea (NodeFrame::ldse_path); 0 = nessun tetto, come prima.
+    const bool ldse = LdseMargin && ext == 0 && sing_skipped && m == n.h.move && !n.root && !n.excluded &&
+                      !n.in_check && n.depth <= LdseDepth && val_known(n.h.value) && bound_covers(n.h.bound, true) &&
+                      f->static_eval <= n.alpha - LdseMargin && (n.cut || !(LdseMode & 1)) &&
+                      (n.h.bound == BOUND_LOW || !(LdseMode & 2)) && (n.h.depth >= 0 || !(LdseMode & 4)) &&
+                      (!LdseMax || f->ldse_path < LdseMax);
+    if (ldse)
       ext = 1;
+    f->ldse = ldse;
 
     const U64 nodes_before = td.nodes;
     UndoInfo u;
@@ -864,6 +871,10 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
   n.opp_cap = -1;
+  // LdseMax: estensioni Ldse sulla linea fino a qui. f->ldse torna a 0 finche' move_loop non estende una mossa, cosi'
+  // i figli della mossa nulla e del probcut non ne ereditano una.
+  f->ldse = 0;
+  f->ldse_path = f[-1].ldse_path + f[-1].ldse;
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;

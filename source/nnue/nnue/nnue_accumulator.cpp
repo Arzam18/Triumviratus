@@ -54,11 +54,12 @@ void update_accumulator_incremental(Color                     perspective,
 
 #ifndef TRIUMV_NO_PERSP_BOTH
 template<bool Forward>
-void update_accumulator_incremental_both(const FeatureTransformer& featureTransformer,
-                                         const Square              ksqW,
-                                         const Square              ksqB,
-                                         AccumulatorState&         target_state,
-                                         const AccumulatorState&   computed);
+void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
+                                         const Square                 ksqW,
+                                         const Square                 ksqB,
+                                         AccumulatorState&            target_state,
+                                         const AccumulatorState&      computed,
+                                         AccumulatorStack::BothLists& lists);
 #endif
 
 void update_accumulator_refresh_cache(Color                     perspective,
@@ -135,7 +136,7 @@ void AccumulatorStack::evaluate(const Position&           pos,
                 // sempre.
                 if (next > lastW && next > lastB)
                     update_accumulator_incremental_both<true>(
-                      featureTransformer, ksqW, ksqB, accumulators[next], accumulators[next - 1]);
+                      featureTransformer, ksqW, ksqB, accumulators[next], accumulators[next - 1], both_lists);
                 else if (next > lastW)
                     update_accumulator_incremental<true>(WHITE, featureTransformer, ksqW,
                                                          accumulators[next], accumulators[next - 1]);
@@ -706,17 +707,23 @@ void update_accumulator_incremental(Color                     perspective,
 // ordine, di due chiamate separate a update_accumulator_incremental. L'unica cosa
 // che cambia e' QUANTE volte si legge `dirty`. Il bench DEVE restare 207259.
 template<bool Forward>
-void update_accumulator_incremental_both(const FeatureTransformer& featureTransformer,
-                                         const Square              ksqW,
-                                         const Square              ksqB,
-                                         AccumulatorState&         target_state,
-                                         const AccumulatorState&   computed) {
+void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
+                                         const Square                 ksqW,
+                                         const Square                 ksqB,
+                                         AccumulatorState&            target_state,
+                                         const AccumulatorState&      computed,
+                                         AccumulatorStack::BothLists& lists) {
 
     assert(computed.computed[WHITE] && computed.computed[BLACK]);
     assert(!target_state.computed[WHITE] && !target_state.computed[BLACK]);
 
-    PSQFeatureSet::IndexList    psqRemW, psqAddW, psqRemB, psqAddB;
-    ThreatFeatureSet::IndexList thrRemW, thrAddW, thrRemB, thrAddB;
+    // Le liste vengono da AccumulatorStack (05/10/2026: fuori dallo stack, vedi BothLists) e partono vuote.
+    auto& psqRemW = lists.psqRemW; auto& psqAddW = lists.psqAddW;
+    auto& psqRemB = lists.psqRemB; auto& psqAddB = lists.psqAddB;
+    auto& thrRemW = lists.thrRemW; auto& thrAddW = lists.thrAddW;
+    auto& thrRemB = lists.thrRemB; auto& thrAddB = lists.thrAddB;
+    psqRemW.clear(); psqAddW.clear(); psqRemB.clear(); psqAddB.clear();
+    thrRemW.clear(); thrAddW.clear(); thrRemB.clear(); thrAddB.clear();
 
     const auto& dirtyPiece   = Forward ? target_state.dirtyPiece : computed.dirtyPiece;
     const auto& dirtyThreats = Forward ? target_state.dirtyThreats : computed.dirtyThreats;

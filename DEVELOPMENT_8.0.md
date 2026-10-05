@@ -23,7 +23,8 @@
 [Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA plan](#13-next-a-long-time-control-spsa) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
 [Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
 [Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) ·
-[Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
+[Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
+[Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -40,7 +41,8 @@
 > - **The search restructured** (sections 16–17), following the structure of Stockfish 19's search and
 >   re-tuned on our network: **+85.8 ± 12.8 Elo** against the previous 8.0 at 20+0.2.
 >
-> Since then: speed work with an identical tree (about +4.8%, section 17, and about 4% more in section 20),
+> Since then: speed work with an identical tree (about +4.8%, section 17, about 4% more in section 20 and 1.6% more
+> in section 22),
 > our own search ideas tested one at a time (section 18), a long time-control SPSA that found no gain
 > (section 19), and the first idea adopted, a hash-move extension at low depth: **+4.5 ± 3.3 Elo**
 > (section 21). Current `bench`: **498873**. The status and the open work are in section 11.
@@ -844,8 +846,9 @@ The gain seems to grow with depth, which suits the longer time controls of the r
 the geometric mean of the node ratio (on / off) is ×1.06 at depths 8, 10 and 12 and ×1.02 at depth 14, with a median
 near ×1.00. It does not grow with depth. A handful of positions explode, almost all rook endgames (×5 to ×16 at depth
 12): there every cut node down a line extends again, and the depth falls by one ply every two instead of one per ply.
-The bench jump is a single one of them. The fixed-time SPRT already paid that cost in the endgames its games reached;
-a test on a book of endgames is next in the queue.
+The bench jump is a single one of them. The fixed-time SPRT already paid that cost in the endgames its games reached,
+and a test on the book of endgames confirmed it does no harm there: LDSE off against on, **−0.9 ± 4.1** (2,786 games,
+10+0.1), that is LDSE on about +0.9.
 
 **The audit's divergences as options.** Six of the seven divergences found in section 20 are now options, off by
 default and tree-identical when off, each waiting for its own SPRT: `TTMoveRefresh` (a kept TT entry takes the new
@@ -855,5 +858,50 @@ fade formula), `TmFenPly` (the game ply counts the move number of a FEN). The ti
 increment branch are now parameters (`Tm*`, defaults identical), for a time-management SPSA played against an
 external engine: in self-play the side that spends more time wins, and the tuner would reward it.
 
-Queue, each to 20,000 games: quiet hash move in quiescence (endgame book), LDSE on the endgame book, the fifty-move
-correction bands (endgame book), no null move when the opponent has an easy capture, `TTMoveRefresh`, `HashQsDepth`.
+**Other tests of the day.** A quiet hash move searched in quiescence: **−1.05 ± 3.92** (2,984 games, endgame book),
+closed as neutral. The pawn and non-pawn correction tables kept per band of the fifty-move counter: +2.1 ± 5.1 after
+1,626 games on the endgame book, suspended to free the machine for the speed measurements below; the games are kept
+and the test can resume. Neither moved the tree size at depths 10 to 16 beyond the ±10% resolution of that check, so
+both stay at the short time control.
+
+## 22. A guard for LDSE, the stack probe, and the expected reply (5 October 2026)
+
+**A guard for LDSE.** The rook endgames that explode do so because the extension repeats down a line. `LdseMax` caps
+the LDSE extensions on one line (0 = no cap, the baked default). With a cap of 1 the worst position at depth 12 falls
+from ×15.7 to ×3.7 against LDSE off, but at depth 14 it is still ×11.6 against ×14.1: the cap helps without solving
+it. Being tested against LDSE as baked, at 15+0.15 because both the gain and the explosions grow with depth: after
+1,582 games **+6.2 ± 9.2**, the two sockets in agreement.
+
+**The stack probe.** On Windows any function whose stack frame is larger than a 4 KB page calls `__chkstk`, which
+touches each page before use. The disassembly of the release build showed it in two hot functions:
+- `queue_next`, called once per move, with a 5,048-byte frame: the three functions that fill the move queue had been
+  inlined into it together with their lists. They are now kept out of line; their own frames stay under 4 KB. The
+  check evasions, the only list still ordered with 64-bit keys, moved to the 32-bit keys of the others: captures
+  above all quiet moves with an offset of 2^20 instead of 2^28, same order.
+- the network's `AccumulatorStack::evaluate`, called at every evaluation, with a 5,000-byte frame: the eight index
+  lists of the two-perspective update (four of them 1.2 KB each) now live in the accumulator stack, one copy per
+  thread, and are cleared at each use.
+
+| build (release PGO, AVX-512, xperf, 6 rounds, 57.8 M identical nodes) | instructions/node | cycles/node |
+|---|---:|---:|
+| queue fill out of line | −2.76% | −0.81% |
+| evaluation lists out of the stack | +0.64% | +0.09% |
+| **both** | −2.63% | **−1.55%** |
+
+The second change alone measures nothing, but together they gain almost twice as much as the first alone: one
+reading is that the evaluation's frame only matters once the move queue no longer sits on the stack beside it. With
+the speed work of section 20, about **−8.4% cycles per node since the 4 October pre-release**, tree identical.
+
+**The expected reply.** When the opponent plays the reply the engine predicted on its principal variation, the hash
+table is warm and the predicted move usually stands. The plan was to answer faster in that case. A measurement showed
+the time management already does it, through its best-move stability rule: after a search to depth 19, the move
+after the predicted reply took **0.23–0.50 s and stopped at depth 16**, while the same position searched from an
+empty hash took 3.3 s and reached depth 17, sometimes choosing another move. The new levers therefore go the other
+way, with a floor: after the expected reply the search does not stop before the previous depth minus `TmExpectFloor`
+(within the maximum time). With the floor at 2 the same move took 0.55 s and reached depth 17; at 1, 0.80 s and depth
+18. A reduction (`TmExpectScale`, with conditions on depth, move and evaluation) is there too. All are off by default,
+with identical timings; the floor is next in the queue (SPRT at 12+0.12), and all four join the time-management SPSA.
+
+Queue after the guard: the floor of the expected reply, no null move when the opponent has an easy capture,
+`TTMoveRefresh`, `HashQsDepth`. The testing rule is now: run long, up to 20,000 games, but close earlier when the
+interval excludes zero or the result is clearly flat.

@@ -47,6 +47,8 @@ struct NodeFrame {
     bool tt_pv;
     bool tt_hit;
     bool follow_pv;
+    unsigned char ldse;           // la mossa in ricerca da questo frame e' stata estesa da Ldse (LdseMax)
+    unsigned char ldse_path;      // estensioni Ldse lungo la linea fino a questo nodo
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.

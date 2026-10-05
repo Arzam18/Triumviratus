@@ -104,6 +104,7 @@
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
+  P(LdseMax, 0, 0, 8)                    /* tetto alle estensioni Ldse lungo una linea (0 = nessun tetto) */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
   P(LmrDeltaMul, 577, 0, 1500)                                                                            \
@@ -200,6 +201,18 @@
   P(TmInstabBase, 1077, 500, 2000)                                                                        \
   P(TmInstabMul, 2229, 0, 5000)                                                                           \
   P(TmFenPly, 0, 0, 1)                   /* 1: ply di partita = numero di mossa della FEN + mosse giocate (SF) */ \
+  /* Risposta prevista (nostra, 05/10/2026, idea dell'utente): se l'avversario gioca la risposta della nostra linea  \
+     principale, la hash e' gia' calda e la mossa che avevamo previsto di solito regge. Il tempo della mossa si        \
+     riduce, ma solo quando la ricerca ha ritrovato la profondita' di prima (meno TmExpectDepth), la mossa migliore  \
+     e' quella prevista e la valutazione non e' scesa oltre TmExpectMargin. A 1000 spenta: tempi identici. */        \
+  P(TmExpectScale, 1000, 200, 1000)      /* /1000: fattore sul tempo della mossa (1000 = spenta) */          \
+  P(TmExpectDepth, 2, 0, 8)              /* da profondita' della mossa prima - questo valore */             \
+  P(TmExpectMargin, 70, 0, 400)          /* calo massimo della valutazione, unita' dei margini (70 ~ 20 cp) */ \
+  /* Pavimento (05/10/2026): misurato che dopo la risposta prevista la regola della stabilita' (time_red) ferma gia' \
+     la ricerca prestissimo, anche SOTTO la profondita' della mossa prima (0,5 s a prof. 16 dopo una ricerca a 19;    \
+     da hash vuota 3,2 s a 17 con un'altra mossa). Con TmExpectFloor = k > 0 non ci si ferma prima di prof. di prima \
+     - k (salvo il tempo massimo): con la hash calda quelle iterazioni costano poco. 0 = spento. */                   \
+  P(TmExpectFloor, 0, 0, 8)                                                                                \
   /* Ramo con incremento (blitz di CCRL), 05/10/2026: le costanti di clock_plan come parametri per uno SPSA del  \
      tempo CONTRO SF19 (in self-play il lato che spende di piu' vince). Default = valori di prima, esatti: la     \
      divisione IEEE e' arrotondata correttamente (12112 / 1e6 == 0.012112). */                                  \

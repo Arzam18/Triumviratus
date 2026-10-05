@@ -16,6 +16,11 @@ struct ClockState {
   int    iter_idx = 0;
   double best_changes = 0;
   bool   increase_depth = true;
+  // Risposta prevista (TmExpect*): la posizione attesa dopo la nostra mossa e la risposta della linea principale, la
+  // nostra mossa successiva prevista, la valutazione e la profondita' della ricerca che le ha date.
+  U64    expect_key = 0;
+  int    expect_move = 0, expect_score = 0, expect_depth = 0;
+  bool   expected = false;          // questa ricerca parte dalla posizione attesa
 };
 static ClockState g_clock;
 
@@ -23,6 +28,8 @@ static void clock_memory_reset() {
   g_clock.opening_adjust = -1;
   g_clock.prev_time_red = 0.85;
   g_clock.have_prev = false;
+  g_clock.expect_key = 0;
+  g_clock.expected = false;
 }
 
 int clock_hard_limit() { return g_clock.maximum; }
@@ -320,15 +327,24 @@ static void deepen(ThreadData &td) {
       double total_time = g_clock.optimum * falling * reduction * instability * heavy;
       if (td.root_count == 1)
         total_time = std::min(500.0, total_time);
+      // Risposta prevista (TmExpect*, vedi ClockState): il tempo si riduce solo finche' valgono tutte e tre le
+      // condizioni, ricontrollate a ogni iterazione; se una salta, la mossa riprende il tempo pieno.
+      if (g_clock.expected && TmExpectScale < 1000 && td.root_depth >= g_clock.expect_depth - TmExpectDepth &&
+          td.root[0].pv[0] == g_clock.expect_move && td.root[0].score >= g_clock.expect_score - TmExpectMargin)
+        total_time *= TmExpectScale / 1000.0;
       const int elapsed = get_time_ms() - g_limits.start_ms;
-      if (elapsed > std::min(total_time, (double)g_clock.maximum) || td.root[lines - 1].score >= mating_in(3) ||
-          td.root[0].score == mated_at(2)) {
+      // Pavimento dopo la risposta prevista (TmExpectFloor): sotto la profondita' di prima - k si continua, entro il
+      // tempo massimo.
+      const bool below_floor = g_clock.expected && TmExpectFloor && td.root_depth < g_clock.expect_depth - TmExpectFloor &&
+                               elapsed < g_clock.maximum;
+      if ((elapsed > std::min(total_time, (double)g_clock.maximum) && !below_floor) ||
+          td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
         if (g_pondering.load(std::memory_order_relaxed))
           g_stop_at_ponderhit.store(true, std::memory_order_relaxed);
         else
           stop_threads.store(true, std::memory_order_relaxed);
       } else
-        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || elapsed <= total_time * 0.50;
+        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || below_floor || elapsed <= total_time * 0.50;
     }
     g_clock.iter_values[g_clock.iter_idx] = best;
     g_clock.iter_idx = (g_clock.iter_idx + 1) & 3;

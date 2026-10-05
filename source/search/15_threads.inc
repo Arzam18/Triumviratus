@@ -134,6 +134,31 @@ static ThreadData *pick_thread() {
   return best;
 }
 
+// Risposta prevista (TmExpect*, 05/10/2026): chiave della posizione dopo la nostra mossa e la risposta della linea
+// principale, sulla scacchiera del thread 0 (alla radice a ricerca finita). 0 se una delle due non e' legale.
+static U64 expected_key(ThreadData &td, int first, int reply) {
+  UndoInfo u, u2;
+  U64 key = 0;
+  td.repetition_table[++td.repetition_index] = td.hash_key;
+  td.ply++;
+  if (td_make_move(td, first, u)) {
+    if (td_is_pseudo_legal(td, reply)) {
+      td.repetition_table[++td.repetition_index] = td.hash_key;
+      td.ply++;
+      if (td_make_move(td, reply, u2)) {
+        key = td.hash_key;
+        td_unmake_move(td, reply, u2);
+      }
+      td.ply--;
+      td.repetition_index--;
+    }
+    td_unmake_move(td, first, u);
+  }
+  td.ply--;
+  td.repetition_index--;
+  return key;
+}
+
 // Senza seconda mossa nella linea, la risposta prevista si cerca nella hash.
 static int reply_from_hash(ThreadData &td, int first) {
   UndoInfo u;
@@ -171,6 +196,8 @@ void search_position_mt(int depth) {
 
   int list[256];
   copy_board_to_thread(thread_data[0]);
+  // Risposta prevista (TmExpect*): siamo nella posizione attesa alla fine della ricerca precedente?
+  g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
@@ -228,6 +255,16 @@ void search_position_mt(int depth) {
   int reply = line.pv_len > 1 ? line.pv[1] : 0;
   if (!reply)
     reply = reply_from_hash(*bt, best_move);
+
+  // Risposta prevista (TmExpect*): serve una linea di almeno tre mosse (nostra, risposta, nostra successiva). Si
+  // calcola solo con l'opzione accesa, cosi' a opzione spenta nulla cambia.
+  g_clock.expect_key = 0;
+  if ((TmExpectScale < 1000 || TmExpectFloor) && line.pv_len >= 3) {
+    g_clock.expect_key = expected_key(thread_data[0], best_move, line.pv[1]);
+    g_clock.expect_move = line.pv[2];
+    g_clock.expect_score = line.score;
+    g_clock.expect_depth = bt->completed_depth;
+  }
   thread_data[0].best_move = best_move;
   thread_data[0].best_score = line.score;
   thread_data[0].best_reply = reply;
