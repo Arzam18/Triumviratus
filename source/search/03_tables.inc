@@ -189,4 +189,5 @@ void copy_board_to_thread(ThreadData &td) {
   memcpy(td.repetition_table, repetition_table, sizeof(repetition_table));
   td.repetition_index = repetition_index;
   td.ply = 0;
+  td.see_pin_key = ~td.hash_key;   // SeePinned: inchiodature da ricalcolare alla prima SEE
 }

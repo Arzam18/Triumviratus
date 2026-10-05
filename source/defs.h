@@ -98,6 +98,7 @@ extern U64 repetition_table[2048];
 extern int repetition_index;
 extern int ply;
 extern int fifty;
+extern int g_fen_ply;   // ply di partita della FEN data: 2*(fullmove-1) + nero al tratto (TmFenPly, 05/10/2026)
 
 // Time control variables
 extern int quit;

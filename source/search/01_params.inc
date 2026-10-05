@@ -6,6 +6,12 @@
 // entra accesa a 1125. SPRT di gate contro i valori di partenza a 10+0.1: +9,67 +- 9,38 (LLR 0,61, fermato e
 // accettato dall'utente). Bench 141196 (prima 172833). Fuori dallo SPSA, quindi ancora ai valori di partenza: la
 // gestione del tempo, le soglie di profondita' e LmrLogMul.
+// BAKE LDSE (05/10/2026): LdseMargin 0 -> 80, LdseMode 0 -> 1 (estensione della mossa hash a profondita' bassa, solo
+// nei nodi cut; 13_search.inc, move_loop). SPRT a 10+0.1 sul binario t80_d1005, libro UHO, 40/30 partite per
+// socket: +4,52 +- 3,34 su 11.604 partite (LLR 2,04 su [-2,94, 2,94], nElo [0, 3]); socket 0 (4 banchi di RAM, piu'
+// veloce e piu' profondo) +6,8 +- 4,4, socket 1 (2 banchi) +1,5 +- 5,1: sembra rendere di piu' con piu' profondita'.
+// Fermato e bakato su decisione dell'utente prima delle 20.000 partite. Bench 498873 (prima 141196; con
+// LdseMargin=0 torna 141196): l'estensione vicino all'orizzonte allarga molto gli alberi a profondita' fissa.
 // Riscrittura del 04/10/2026: i valori di partenza erano quelli della ricerca di Stockfish 19, espressi nelle sue
 // unita' di valutazione. La nostra valutazione viene portata a quelle unita' da EvalUnits (09_history.inc), cosi'
 // i margini restano confrontabili con l'originale. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -94,9 +100,10 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
-  P(LdseMargin, 0, 0, 400)               /* nostra (05/10/2026): a profondita' <= LdseDepth la mossa hash */ \
-  P(LdseDepth, 7, 1, 12)                 /* con limite inferiore si estende se l'eval sta sotto alpha - m */ \
-  P(LdseMode, 0, 0, 7)                   /* bit: 1 solo nodi cut, 2 solo limite inferiore, 4 non da quiescenza */ \
+  P(LdseMargin, 80, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
+  P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
+  P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
+                                         /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
   P(LmrDeltaMul, 577, 0, 1500)                                                                            \
@@ -164,6 +171,13 @@
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
+  /* Audit del nucleo (05/10/2026, agente B): adattatori intorno alla ricerca che divergono da SF19 senza       \
+     volerlo. Spenti = comportamento di prima (albero identico); ognuno va provato con uno SPRT. */             \
+  P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
+  P(SeePinned, 0, 0, 1)                  /* 1: nella SEE i pezzi inchiodati non ricatturano finche' c'e' l'inchiodatore */ \
+  P(HashQsDepth, 0, 0, 1)                /* 1: la quiescenza scrive e legge profondita' 0 in hash (SF), non -1 */ \
+  P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse (SF) */ \
+  P(EvalRefadeBridge, 0, 0, 1)           /* 1: la rilettura smorzata usa la formula del ponte (v - v*f/199) */ \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
      al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
      LtKnee + LtSpan in su, senza estrapolare oltre. Gli Lt sono scostamenti dal valore base: a 0 albero identico, e   \
@@ -185,6 +199,19 @@
   P(TmFallIter, 110, 0, 400)                                                                              \
   P(TmInstabBase, 1077, 500, 2000)                                                                        \
   P(TmInstabMul, 2229, 0, 5000)                                                                           \
+  P(TmFenPly, 0, 0, 1)                   /* 1: ply di partita = numero di mossa della FEN + mosse giocate (SF) */ \
+  /* Ramo con incremento (blitz di CCRL), 05/10/2026: le costanti di clock_plan come parametri per uno SPSA del  \
+     tempo CONTRO SF19 (in self-play il lato che spende di piu' vince). Default = valori di prima, esatti: la     \
+     divisione IEEE e' arrotondata correttamente (12112 / 1e6 == 0.012112). */                                  \
+  P(TmOptBase, 12112, 4000, 30000)       /* /1e6: quota ottimale = base + (ply + 3.23)^pow * c */           \
+  P(TmOptPow, 46866, 25000, 70000)       /* /1e5: crescita della quota col ply di partita */                \
+  P(TmOptC, 29869, 12000, 50000)         /* /1e7: c = TmOptC + TmOptCLog * log10(secondi sull'orologio) */   \
+  P(TmOptCLog, 33554, 0, 90000)          /* /1e8 */                                                         \
+  P(TmOptClockCap, 19404, 8000, 32000)   /* /1e5: tetto della quota ottimale sul tempo rimasto */           \
+  P(TmMaxCBase, 33744, 20000, 50000)     /* /1e4: tempo massimo = (base + log * log10 s + ply/div) x ottimo */ \
+  P(TmMaxCLog, 30608, 0, 60000)          /* /1e4 */                                                         \
+  P(TmMaxPlyDiv, 12352, 4000, 30000)     /* /1e3 */                                                         \
+  P(TmMaxClock, 8097, 6500, 8800)        /* /1e4: il massimo non supera questa frazione dell'orologio */    \
   /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
   P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \
   P(TmMtgPly, 1164, 300, 4000)           /* /10 */                                                        \
@@ -223,6 +250,8 @@ bool      g_tt_twolevel   = true;
 bool      g_ttmove24      = true;
 int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV), come SF
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
+bool      g_tt_move_refresh = false; // copia di TTMoveRefresh per tt.h (vedi store_tt)
+int       g_see_pinned    = 0;    // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
 bool      g_large_pages   = true;
 bool      g_see_fix       = true;
@@ -255,8 +284,10 @@ bool set_search_param(const char* name, int value) {
   }
   if (!strcmp(name, "EvalOff")) { g_eval_off = parse_bool_value(value); return true; }
 #ifndef TRIUMV_RELEASE
+  // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
+  const auto sync = [] { g_tt_move_refresh = TTMoveRefresh != 0; g_see_pinned = SeePinned; };
 #define TP_SET(pname, def, lo, hi)                                                                         \
-  if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); return true; }
+  if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
   TRIUMV_SEARCH_PARAMS(TP_SET)
 #undef TP_SET
 #endif

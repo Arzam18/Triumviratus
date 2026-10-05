@@ -1,11 +1,39 @@
 // search/11_queue.inc -- Ordinamento delle mosse.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
 
+// SeePinned (05/10/2026, audit del nucleo): inchiodati e inchiodatori dei due colori, una volta per posizione, per la
+// SEE (see.cpp). Per ogni re: i pezzi lunghi avversari sulle sue linee a scacchiera vuota sono i cecchini; un
+// cecchino con un solo pezzo in mezzo, e quel pezzo nostro, lo inchioda. SF fa lo stesso conto in ogni posizione.
+static void see_pins_update(ThreadData &td) {
+  for (int c = white; c <= black; c++) {
+    const int off = c == white ? 0 : 6, eoff = 6 - off;
+    const int ksq = get_ls1b_index(td.bitboards[K + off]);
+    U64 snipers = (get_rook_attacks(ksq, 0) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
+                  (get_bishop_attacks(ksq, 0) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
+    const U64 occ = td.occupancies[both] ^ snipers;
+    U64 pinned = 0, pinners = 0;
+    while (snipers) {
+      const int sn = get_ls1b_index(snipers);
+      const U64 b = between_tbl[ksq][sn] & occ;
+      if (b && !(b & (b - 1)) && (b & td.occupancies[c])) {
+        pinned |= b;
+        pinners |= 1ULL << sn;
+      }
+      pop_lsb_bb(snipers);
+    }
+    td.see_pinned[c] = pinned;
+    td.see_pinners[c ^ 1] = pinners;
+  }
+  td.see_pin_key = td.hash_key;
+}
+
 // SEE con la convenzione della ricerca: promozioni, arrocco ed en passant valgono 0.
 static inline bool see_holds(ThreadData &td, int m, int threshold) {
   if (get_move_promoted(m) || get_move_castling(m) || get_move_enpassant(m))
     return 0 >= threshold;
   PROF_GUARD(prof_see);
+  if (SeePinned && td.see_pin_key != td.hash_key)
+    see_pins_update(td);
   return td_see_ge(td, m, threshold) != 0;
 }
 

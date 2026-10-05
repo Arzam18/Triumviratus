@@ -142,6 +142,10 @@ struct ThreadData {
     int  lt_nmp_improving, lt_quiet_fut_alpha, lt_rfp_max_depth, lt_nmp_verify_depth;
     int  lt_lmr_log_mul;              // valore effettivo da cui e' stata costruita lt_red_log
     int  lt_red_log[256];             // tabella delle riduzioni del thread quando LmrLogMulLt != 0
+    // SeePinned (05/10/2026): inchiodati e inchiodatori dei due colori, calcolati una volta per posizione.
+    U64  see_pin_key;                 // posizione per cui valgono i campi sotto
+    U64  see_pinned[2];               // pezzi di ciascun colore inchiodati al proprio re
+    U64  see_pinners[2];              // pezzi lunghi di ciascun colore che inchiodano un pezzo avversario
 
     // Risultato, letto dal driver e dal voto fra thread
     int best_move;

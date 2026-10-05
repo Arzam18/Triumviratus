@@ -174,7 +174,9 @@ void search_position_mt(int depth) {
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
-    clock_plan(side, repetition_index, g_move_overhead_ms);
+    // TmFenPly (05/10/2026, audit del nucleo): ply di partita come SF, numero di mossa della FEN + mosse giocate.
+    // A 0 solo le mosse giocate dopo la posizione data, come prima: da un libro .epd la partita "partiva" da ply 0.
+    clock_plan(side, repetition_index + (TmFenPly ? g_fen_ply : 0), g_move_overhead_ms);
   }
 
   if (n == 0) {

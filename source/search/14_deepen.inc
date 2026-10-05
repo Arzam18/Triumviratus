@@ -41,12 +41,14 @@ static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.movestogo) {
     if (g_clock.opening_adjust < 0)
       g_clock.opening_adjust = 0.3272 * std::log10(left) - 0.4141;
+    // Costanti come parametri Tm* (05/10/2026, per lo SPSA del tempo contro SF19); i default sono i valori di prima.
     const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
-    const double opt_c = std::min(0.0029869 + 0.00033554 * log_sec, 0.004905);
-    const double max_c = std::max(3.3744 + 3.0608 * log_sec, 3.1441);
-    opt_share = std::min(0.012112 + std::pow(game_ply + 3.22713, 0.46866) * opt_c, 0.19404 * clock / left) *
+    const double opt_c = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, 0.004905);
+    const double max_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, 3.1441);
+    opt_share = std::min(TmOptBase / 1e6 + std::pow(game_ply + 3.22713, TmOptPow / 1e5) * opt_c,
+                         TmOptClockCap / 1e5 * clock / left) *
                 g_clock.opening_adjust;
-    max_mult = std::min(6.873, max_c + game_ply / 12.352);
+    max_mult = std::min(6.873, max_c + game_ply / (TmMaxPlyDiv / 1e3));
   } else {
     // Idea 8 (04/10/2026): costanti del ramo movestogo come parametri, per uno SPSA dedicato al 40/15 di CCRL. I
     // default riproducono i valori di prima (la divisione IEEE e' arrotondata correttamente: 880/1000.0 == 0.88).
@@ -54,7 +56,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     max_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * horizon;
   }
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
-  g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(0.8097 * clock - overhead, max_mult * g_clock.optimum));
+  g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
   if (g_ponder_option)
     g_clock.optimum += g_clock.optimum / 4;
 }

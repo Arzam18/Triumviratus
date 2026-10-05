@@ -22,7 +22,8 @@
 [Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [Consilium](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) ·
 [Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA plan](#13-next-a-long-time-control-spsa) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
 [Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
-[Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
+[Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) ·
+[Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -39,9 +40,10 @@
 > - **The search restructured** (sections 16–17), following the structure of Stockfish 19's search and
 >   re-tuned on our network: **+85.8 ± 12.8 Elo** against the previous 8.0 at 20+0.2.
 >
-> Since then: speed work with an identical tree (about +4.8%, section 17), our own search ideas tested
-> one at a time (section 18), and a long time-control SPSA that found no gain (section 19). Current
-> `bench`: **141196**. The status and the open work are in section 11.
+> Since then: speed work with an identical tree (about +4.8%, section 17, and about 4% more in section 20),
+> our own search ideas tested one at a time (section 18), a long time-control SPSA that found no gain
+> (section 19), and the first idea adopted, a hash-move extension at low depth: **+4.5 ± 3.3 Elo**
+> (section 21). Current `bench`: **498873**. The status and the open work are in section 11.
 
 ---
 
@@ -816,3 +818,42 @@ its own with xperf, 6 rounds, PGO builds, 55.2 million identical nodes per engin
 On AVX2 the table-driven compaction costs more than the branch it removes, so the AVX2 builds keep the loops and
 gain only from the passed-pawn patch. The four kept patches are in the source; perft with a check at every node on
 the six standard positions and the 300 positions of the Chess960 suite are exact.
+
+## 21. The first idea adopted: a hash-move extension at low depth (5 October 2026)
+
+After the leans of section 18 dissolved when tested together, the testing rule changed: **every search SPRT now runs
+to at least 20,000 games** before it is judged. At this level a single search idea is worth one to three Elo, and a
+test stopped at 2,000–3,000 games reads mostly noise.
+
+**LDSE** (`LdseMargin`, `LdseMode`, section 20). Below the depth where the singular-extension test runs (here up to
+depth 7), the hash move of a cut node is extended by one ply when its entry is a lower or exact bound and the static
+evaluation is at least 80 below alpha. The entry says that move held a value; the static evaluation says the position
+looks bad: the node stands on that one move, and near the horizon one more ply decides whether the value was real.
+The idea appears in Reckless and Stormphrax; the form, the conditions and the values are ours.
+
+| test | games | Elo |
+|---|---:|---:|
+| on against off, UHO 2024, 10+0.1, SPRT [0, 3] | 11,604 | **+4.5 ± 3.3** (LLR 2.04 of 2.94) |
+| faster socket of the test machine (four memory channels, deeper search) | 6,644 | +6.8 ± 4.4 |
+| slower socket (two memory channels) | 4,960 | +1.5 ± 5.1 |
+
+The gain seems to grow with depth, which suits the longer time controls of the rating lists. It was stopped before
+20,000 games and baked: **bench 498873** (141196 with `LdseMargin=0`).
+
+**Tree size.** The bench total jumped, so the tree was measured position by position at fixed depth, on 80 positions:
+the geometric mean of the node ratio (on / off) is ×1.06 at depths 8, 10 and 12 and ×1.02 at depth 14, with a median
+near ×1.00. It does not grow with depth. A handful of positions explode, almost all rook endgames (×5 to ×16 at depth
+12): there every cut node down a line extends again, and the depth falls by one ply every two instead of one per ply.
+The bench jump is a single one of them. The fixed-time SPRT already paid that cost in the endgames its games reached;
+a test on a book of endgames is next in the queue.
+
+**The audit's divergences as options.** Six of the seven divergences found in section 20 are now options, off by
+default and tree-identical when off, each waiting for its own SPRT: `TTMoveRefresh` (a kept TT entry takes the new
+move), `SeePinned` (in SEE a pinned piece does not recapture while its pinner stays), `HashQsDepth` (quiescence
+entries at depth 0), `NullFiftyKeep` (the null move leaves the fifty-move counter alone), `EvalRefadeBridge` (one
+fade formula), `TmFenPly` (the game ply counts the move number of a FEN). The time-management constants of the
+increment branch are now parameters (`Tm*`, defaults identical), for a time-management SPSA played against an
+external engine: in self-play the side that spends more time wins, and the tuner would reward it.
+
+Queue, each to 20,000 games: quiet hash move in quiescence (endgame book), LDSE on the endgame book, the fifty-move
+correction bands (endgame book), no null move when the opponent has an easy capture, `TTMoveRefresh`, `HashQsDepth`.

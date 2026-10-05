@@ -66,9 +66,14 @@ other.</sub>
 | search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 | +27.6 ± 7.0 against 7.0 at 15+0.15 |
 | **restructured search** | the search reorganised following the structure of Stockfish 19's search, re-tuned by SPSA on our network, with techniques of our own | **+85.8 ± 12.8 against the previous 8.0 at 20+0.2** |
 
-Since the restructuring, speed work with an identical tree has added about +4.8%, and our own search ideas are
-being tested one at a time. The network, its training and every intermediate measurement are in
+Since the restructuring, speed work with an identical tree has added about +4.8%, then about 4% more, and our own
+search ideas are being tested one at a time: the first one adopted, a hash-move extension at low depth, added
+**+4.5 ± 3.3 Elo**. The network, its training and every intermediate measurement are in
 **[`NETWORKS.md`](NETWORKS.md)**.
+
+**Outside tests.** On **Mark Tang**'s run of the **IQ4** tactical suite (183 hard positions from Arasan's IQ
+collection, 1 s per position, 1 thread), the 8.0 prerelease solved **145 of 183**, the highest score among the
+engines tested. Details and his match results: **[`tests/`](tests/)**.
 
 8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
 `UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
@@ -169,6 +174,9 @@ curated **hard positions at long time controls** — the kind of qualitative str
 automated match-play cannot reach, and the project's only systematic testing of that sort — and has
 generously contributed his hardware for the long tuning and testing runs. Triumviratus would be
 materially weaker without his work.
+
+**Mark Tang** has tested the 8.0 prerelease against other engines and on the IQ4 tactical suite (results
+in [`tests/`](tests/)).
 
 ### Derived code
 

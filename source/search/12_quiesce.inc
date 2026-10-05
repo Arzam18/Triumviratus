@@ -9,6 +9,10 @@
 constexpr int HD_QUIESCE = -1;
 constexpr int HD_EVAL    = -2;
 constexpr int HD_SHIFT   = 3;
+// HashQsDepth (05/10/2026, audit del nucleo): la quiescenza a profondita' 0 come in SF19, che ha un livello in piu'
+// fra "solo valutazione" e quiescenza. Cosi' le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza
+// (non tagliano in quiesce) e a profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. 0 = schema storico.
+static inline int hd_qs() { return HashQsDepth ? 0 : HD_QUIESCE; }
 
 enum { BOUND_UP = hash_flag_alpha, BOUND_LOW = hash_flag_beta, BOUND_EXACT = hash_flag_exact, BOUND_NIL = hash_flag_none };
 
@@ -267,7 +271,7 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.enpassant = no_sq;
   td.hash_key ^= side_key;
   td.side ^= 1;
-  td.fifty++;
+  td.fifty += !NullFiftyKeep;   // NullFiftyKeep (05/10/2026, audit del nucleo): SF19 lascia il contatore com'e'
   td.plies_from_null = 0;
   nn_pos_do_null(td.nnpos, td.fifty);
   f->move = NULL_MOVE;
@@ -384,7 +388,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   hash_read(td, h);
   f->tt_hit = h.hit;
   const bool hash_pv = h.hit && h.pv;
-  if (!pv && h.depth >= HD_QUIESCE && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
+  if (!pv && h.depth >= hd_qs() && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
     return h.value;
 
   int best, fut_base, eval_raw = tt_eval_none;
@@ -496,6 +500,6 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
 
   if (!val_decided(best) && best > beta)
     best = (462 * best + 562 * beta) / 1024;
-  hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, HD_QUIESCE, best_move, eval_raw);
+  hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, hd_qs(), best_move, eval_raw);
   return best;
 }

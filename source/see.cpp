@@ -71,6 +71,7 @@ static inline int get_lva(U64 bb[12], U64 occ[3], int square, int side, int* fro
 // quiet tornano a SEE=0 (come 3.7: quiet-SEE-pruning e filtro CheckOrdering inerti)
 // e l'en-passant torna a rimuovere il pedone dalla casa sbagliata. Definita in threads.cpp.
 extern bool g_see_fix;
+extern int  g_see_pinned;   // SeePinned (copia del parametro della ricerca, 01_params.inc)
 
 // SEE implementation
 int td_see(ThreadData& td, int move) {
@@ -245,6 +246,13 @@ int td_see_ge(ThreadData& td, int move, int threshold) {
         attackers &= occupied;
         U64 stm_att = attackers & td.occupancies[stm];   // attackers e' gia' <= occupied
         if (!stm_att) break;                             // niente attaccanti: res corrente decide
+        // SeePinned (05/10/2026, audit del nucleo; regola di SF): finche' un inchiodatore avversario e' ancora sulla
+        // scacchiera (e non e' il pezzo appena catturato su `to`), i nostri pezzi inchiodati non ricatturano.
+        // Inchiodati e inchiodatori li calcola see_holds (11_queue.inc) una volta per posizione.
+        if (g_see_pinned && (td.see_pinners[stm ^ 1] & occupied & ~(1ULL << to))) {
+            stm_att &= ~td.see_pinned[stm];
+            if (!stm_att) break;
+        }
         res ^= 1;
 
         U64 bb;

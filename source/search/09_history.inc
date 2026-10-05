@@ -49,7 +49,9 @@ static inline int eval_unfade(int v, int fifty) {
 }
 static inline int eval_refade(int v, int fifty) {
   if (fifty > 100) fifty = 100;
-  return v * (199 - fifty) / 199;
+  // EvalRefadeBridge (05/10/2026, audit del nucleo): lo stesso troncamento del ponte (nn_scale, nn_finalize:
+  // v - v*f/199), cosi' la stessa posizione vale uguale fresca, dalla cache o dalla hash. 0 = formula di prima.
+  return EvalRefadeBridge ? v - v * fifty / 199 : v * (199 - fifty) / 199;
 }
 
 // Esperto della rete (fascia di materiale) per numero di pezzi: la stessa tabella di half_ka_v2_hm.h
