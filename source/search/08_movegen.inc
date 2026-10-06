@@ -50,6 +50,55 @@ static inline U64 td_attackers_to(ThreadData &td, int sq, int by) {
 // (MPS_GEN_QUIET) le genera gia', e attivarlo anche sullo stage tattico le
 // DUPLICHEREBBE nella main search. Default false = tutti i chiamanti invariati.
 #define MG_ADD(m) (mg_out[mg_cnt++] = (m))
+
+#if defined(__AVX512F__)
+#include <immintrin.h>
+// 05/10/2026 — EMISSIONE VETTORIALE delle mosse di un pezzo (AVX-512F). Il ciclo `while (attacks)` scrive una mossa
+// per bit e la sua uscita, con un numero di giri che cambia a ogni pezzo (0-27), e' un salto mal predetto: ~9 pezzi
+// per generazione e due generazioni per nodo quando si arriva alle quiete. Qui le 64 case sono quattro gruppi FISSI
+// di 16: per ogni gruppo si costruisce il vettore delle 16 mosse (origine e pezzo in comune, casa d'arrivo per
+// corsia, bit di cattura preso dalla maschera dei nemici) e lo si compatta con vpcompressd sui 16 bit di `attacks`
+// del gruppo. Stesso ordine LSB del ciclo, stesse mosse. Le scritture da 16 slot oltre il conteggio restano dentro
+// la lista (256 slot per al massimo 218 mosse pseudo-legali). -DTRIUMV_NO_MOVEGEN_VEC riporta al ciclo.
+// xperf 6 giri, build PGO avx512: cicli per nodo -1,51%, salti mal predetti -3,4%. Su AVX2 (compattazione con
+// vpermd) +0,29%: la build avx2 resta sul ciclo.
+static inline int mg_emit_vec(int *mg_out, int mg_cnt, U64 attacks, U64 enemies, int base) {
+  alignas(64) static const int kLane[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  const __m512i lane  = _mm512_load_si512(kLane);
+  const __m512i basev = _mm512_set1_epi32(base);
+  const __m512i cap   = _mm512_set1_epi32(1 << 20);   // bit di cattura di encode_move
+  for (int c = 0; c < 4; c++) {   // quattro gruppi fissi: il compilatore li svolge
+    const __mmask16 tm  = (__mmask16)(attacks >> (16 * c));
+    const __mmask16 em  = (__mmask16)(enemies >> (16 * c));
+    const __m512i   tgt = _mm512_slli_epi32(_mm512_add_epi32(lane, _mm512_set1_epi32(16 * c)), 6);
+    __m512i mv = _mm512_or_si512(basev, tgt);
+    mv         = _mm512_mask_or_epi32(mv, em, mv, cap);
+    _mm512_storeu_si512(mg_out + mg_cnt, _mm512_maskz_compress_epi32(tm, mv));
+    mg_cnt += count_bits(tm);
+  }
+  return mg_cnt;
+}
+#endif
+
+// Una mossa per ogni bit di `attacks`, in ordine LSB, col bit di cattura come bit (senza salto sul dato). Il
+// percorso vettoriale si usa quando NON si generano solo catture: con gli approdi pieni il ciclo fa 4-15 giri a
+// pezzo, con le sole catture 0-1 e il costo fisso dei quattro gruppi non rende.
+static inline int mg_emit_targets(int *mg_out, int mg_cnt, U64 attacks, U64 enemies, int source_square, int piece,
+                                  bool captures_only) {
+#if defined(__AVX512F__) && !defined(TRIUMV_NO_MOVEGEN_VEC)
+  if (!captures_only)
+    return mg_emit_vec(mg_out, mg_cnt, attacks, enemies, source_square | (piece << 12));
+#else
+  (void)captures_only;
+#endif
+  while (attacks) {
+    const int target_square = get_ls1b_index(attacks);
+    mg_out[mg_cnt++] = encode_move(source_square, target_square, piece, 0,
+                                   (int)((enemies >> target_square) & 1), 0, 0, 0);
+    pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
+  }
+  return mg_cnt;
+}
 // NPS 25/09/2026 — generatore TEMPLATE sul colore. Il profilo xperf (campioni su
 // BranchMispredictions) dava a td_generate_moves ~2,3 mispredict/nodo contro ~0,5 del
 // movegen di SF, concentrati sul ciclo dei tipi di pezzo: con il colore a runtime ogni
@@ -425,13 +474,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
       while (bitboard) {
         source_square = get_ls1b_index(bitboard);
         attacks = knight_attacks[source_square] & piece_allowed;
-        while (attacks) {
-          target_square = get_ls1b_index(attacks);
-          // flag di cattura come bit, senza salto sul dato (stessa mossa)
-          MG_ADD(encode_move(source_square, target_square, piece, 0,
-                             (int)((enemies >> target_square) & 1), 0, 0, 0));
-          pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
-        }
+        mg_cnt = mg_emit_targets(mg_out, mg_cnt, attacks, enemies, source_square, piece, captures_only);
         pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
       }
     }
@@ -441,13 +484,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
         source_square = get_ls1b_index(bitboard);
         attacks = get_bishop_attacks(source_square, td.occupancies[both]) &
                   piece_allowed;
-        while (attacks) {
-          target_square = get_ls1b_index(attacks);
-          // flag di cattura come bit, senza salto sul dato (stessa mossa)
-          MG_ADD(encode_move(source_square, target_square, piece, 0,
-                             (int)((enemies >> target_square) & 1), 0, 0, 0));
-          pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
-        }
+        mg_cnt = mg_emit_targets(mg_out, mg_cnt, attacks, enemies, source_square, piece, captures_only);
         pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
       }
     }
@@ -457,13 +494,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
         source_square = get_ls1b_index(bitboard);
         attacks = get_rook_attacks(source_square, td.occupancies[both]) &
                   piece_allowed;
-        while (attacks) {
-          target_square = get_ls1b_index(attacks);
-          // flag di cattura come bit, senza salto sul dato (stessa mossa)
-          MG_ADD(encode_move(source_square, target_square, piece, 0,
-                             (int)((enemies >> target_square) & 1), 0, 0, 0));
-          pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
-        }
+        mg_cnt = mg_emit_targets(mg_out, mg_cnt, attacks, enemies, source_square, piece, captures_only);
         pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
       }
     }
@@ -473,13 +504,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
         source_square = get_ls1b_index(bitboard);
         attacks = get_queen_attacks(source_square, td.occupancies[both]) &
                   piece_allowed;
-        while (attacks) {
-          target_square = get_ls1b_index(attacks);
-          // flag di cattura come bit, senza salto sul dato (stessa mossa)
-          MG_ADD(encode_move(source_square, target_square, piece, 0,
-                             (int)((enemies >> target_square) & 1), 0, 0, 0));
-          pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
-        }
+        mg_cnt = mg_emit_targets(mg_out, mg_cnt, attacks, enemies, source_square, piece, captures_only);
         pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
       }
     }
@@ -488,13 +513,7 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
       while (bitboard) {
         source_square = get_ls1b_index(bitboard);
         attacks = king_attacks[source_square] & allowed_squares;
-        while (attacks) {
-          target_square = get_ls1b_index(attacks);
-          // flag di cattura come bit, senza salto sul dato (stessa mossa)
-          MG_ADD(encode_move(source_square, target_square, piece, 0,
-                             (int)((enemies >> target_square) & 1), 0, 0, 0));
-          pop_lsb_bb(attacks);   // 2D: target_square E' l'LSB di attacks
-        }
+        mg_cnt = mg_emit_targets(mg_out, mg_cnt, attacks, enemies, source_square, piece, captures_only);
         pop_lsb_bb(bitboard);   // 2D: source_square E' l'LSB di bitboard
       }
     }

@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus
 
 **A strong UCI chess engine in C++** — NNUE evaluation · SPSA-tuned alpha-beta search · Syzygy tablebases
 
-[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
-[![C++](https://img.shields.io/badge/language-C%2B%2B-00599C.svg)](source/)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](../COPYING)
+[![C++](https://img.shields.io/badge/language-C%2B%2B-00599C.svg)](../source/)
 ![UCI](https://img.shields.io/badge/protocol-UCI-brightgreen.svg)
 ![NNUE](https://img.shields.io/badge/evaluation-NNUE-orange.svg)
 
@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[6.0 (prerelease)](#triumviratus-60-prerelease) · [Results](#results) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[6.0 (prerelease)](#triumviratus-60-prerelease) · [Results](#results) · [History](../HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -261,8 +261,8 @@ current source and in the published binaries; they are recorded because the firs
 
 Results below are **6.0** vs **5.1** (the current stable release) and **6.0** vs other engines. 5.1's
 own feature set, its own SPRT-confirmed gains, and its historical match results are archived in
-[`HISTORY.md`](HISTORY.md) alongside 5.0 and 4.2; source is in [`source/`](source/) and build
-instructions are in [`source/BUILD_NOTES.md`](source/BUILD_NOTES.md).
+[`HISTORY.md`](../HISTORY.md) alongside 5.0 and 4.2; source is in [`source/`](../source/) and build
+instructions are in [`source/BUILD_NOTES.md`](../source/BUILD_NOTES.md).
 
 #### 6.0 vs 5.1 — version-bump gate (2026-07-16)
 
@@ -326,17 +326,17 @@ out: the direct gate moved from **+14.6** (before the network work) to **+33.2**
 
 <sub>6.0: W 285 · L 165 · D 550. Pentanomial [0–2]: [3, 68, 241, 182, 6]. Where 5.1 was essentially
 even with Pawnocchio 1.9.1, 6.0 clears it by a confirmed margin — consistent with the +33 gate over
-5.1. 5.1's own results against Pawnocchio and other external engines: [`HISTORY.md`](HISTORY.md).</sub>
+5.1. 5.1's own results against Pawnocchio and other external engines: [`HISTORY.md`](../HISTORY.md).</sub>
 
 ## License
 
-[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](../COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv13 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](../COPYING). Only the **NNUE inference code** is derived from **Stockfish** (the SFNNv13 evaluation machinery in `nnue/`, GPLv3); the search and the rest of the engine are the project's own. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 
-See the [Credits section in the README](README.md#credits) — including the NNUE input-feature
+See the [Credits section in the README](../README.md#credits) — including the NNUE input-feature
 attribution (`PawnPair` shared with Stormphrax / Viridithas / Pawnocchio; `PassedPawns` original to
 this project).

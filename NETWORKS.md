@@ -75,6 +75,19 @@ What it is **not**: a network four times wider. The accumulator is still 1024 va
 unchanged (they already have 8 buckets by piece count). The experts specialise how those 1024 values are computed;
 they do not enlarge them.
 
+**Where the idea comes from, and what is new.** The idea is the author's own. It came from language models, where a
+mixture of experts gives a model many parameters but only a small active part for each token, and it was designed
+and built here without taking it from any chess engine. Consilium puts the experts where the parameters are, on the
+king-relative input block, trains them as a shared base plus per-phase deltas on about 700 GB of public data (mostly
+Leela games, re-labelled), and turns them into strength: with the parameters that depend on the network re-tuned,
+the 8.0 build beat the 7.0 release by **+27.3 ± 8.3 Elo** at 15+0.15. To our knowledge it is **the first
+mixture-of-experts network released in a top engine, and the first shown to gain strength**.
+
+Related work, independent of this one: the layers after the accumulator come in eight buckets by piece count in
+Stockfish's architecture and in most engines derived from it, a simple form of phase-dependent weights on the
+smallest part of the network. And **Mark Tang**, as we learned after Consilium was released, had tried a network of
+phase experts with fellow students in early 2026; it ran faster but did not play stronger, and it was not published.
+
 | | 7.0 — `legio-septima` | 8.0 — Consilium |
 |---|---|---|
 | Base architecture | SFNNv16 | SFNNv16 |
@@ -200,8 +213,8 @@ lower cycle from its end, took the validation loss below F3's.</sub>
 - **Batch:** 131,072 → 262,144 → 524,288 gains about 7 % per doubling. At 262,144 with the full recipe the run
   measured 3.28 M positions/s — too slow for the budget, so the run was restarted at 524,288.
 - **Cost:** about **0.17 $ per billion positions**, the same as the `legio-septima` machine (4× RTX 5060 Ti) but about
-  six times faster. The whole run, P, F3 and F4 included, cost **105 $**. An 8× RTX 3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot
-  feed the loader.
+  six times faster. The whole run, P, F3 and F4 included, cost **105 $**, shared with **Maurizio Platino**. An 8× RTX
+  3090 offer at 1.93 $/h was rejected: its 80-thread CPU cannot feed the loader.
 
 Steady state: 201–212 s per epoch, GPUs at 97–99 %, 63–68 °C, well below their power limit. The last 3 % of speed
 comes and goes with the GPU boost clock.
@@ -383,8 +396,9 @@ includes 8.0's speed work and ablations (+11.7 ± 4.6 at 60+0.6 on the old netwo
 - **Does not mean: our own data.** The training data is overwhelmingly **public** — Leela Chess Zero and Stockfish
   self-play binpacks. The project's own self-play contributed a small minority to one network (`rubicon-alea-v2`,
   ≈ 6.5 %) and none to the 8.0 run. What is ours is the training, the mix, and the resulting weights.
-- **Does not mean:** independence from Stockfish *code*. The NNUE inference and the base architecture are Stockfish's
-  (GPLv3), extended with our own input blocks, and the trainer is Stockfish's `nnue-pytorch`. The whole project is
+- **Does not mean:** independence from Stockfish *code*. The NNUE inference and the base architecture derive from
+  Stockfish's (GPLv3); the inference has since been reworked for our mixture-of-experts network (four phase experts,
+  our own input blocks), and the trainer is Stockfish's `nnue-pytorch`. The whole project is
   GPLv3 and credits Stockfish accordingly (see `README` / `COPYING`).
 - **Why it still matters:** what the project gets is a network whose weights, mix and feature extensions are its own
   rather than a redistribution of someone else's.

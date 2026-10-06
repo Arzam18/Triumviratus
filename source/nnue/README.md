@@ -6,6 +6,10 @@ repo root and the license headers kept verbatim in every file). Credit and
 copyright for the original machinery belong to the Stockfish developers.
 
 Triumviratus-specific contributions on top of the Stockfish base:
+- **Inference reworked for the Consilium mixture-of-experts network** (8.0): four
+  phase experts on the king-relative block (`TRIUMV_PSQ_PHASES=4`), the
+  PassedPawns block, refresh caches for the pawn blocks and for phase changes,
+  row permutation for cache locality, and many measured speed changes.
 - **PawnPair feature block** (`nnue/features/pawn_pair.*`): 4560 pawn-structure
   inputs grafted as a third feature block (Full_Threats + HalfKAv2_hm + PawnPair),
   with the composed serialization/hash handled across trainer and engine.

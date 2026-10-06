@@ -87,7 +87,6 @@ int  nn_get_eval_scale(void);   // current EvalScale %% (per normalizzare 'score
 int  nn_last_opt_base(void* handle);    // EvalCacheOptSplit: eval con optimism=0 (pre-rule50, post-scale)
 int  nn_last_opt_coeff(void* handle);   // EvalCacheOptSplit: coefficiente in MILLESIMI dell'optimism
 int  nn_last_unadjusted(void* handle);  // unadjusted (pre-rule50/scale) dell'ultima nn_scale (thread-local)
-int  nn_last_cplx(void* handle);        // psqt - positional dell'ultima nn_scale (Disagree*, 04/10/2026)
 // Ricostruisce l'eval finale dall'unadjusted. `bucket` = (pezzi - 1) / 4 della posizione
 // CORRENTE: serve a scegliere la scala per bucket, e qui non c'e' la Position.
 int  nn_finalize(int unadjusted, int rule50, int bucket);

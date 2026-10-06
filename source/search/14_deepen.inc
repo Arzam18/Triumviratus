@@ -16,6 +16,13 @@ struct ClockState {
   int    iter_idx = 0;
   double best_changes = 0;
   bool   increase_depth = true;
+  // Risposta prevista (TmExpect*): la posizione attesa dopo la nostra mossa e la risposta della linea principale, la
+  // nostra mossa successiva prevista, la valutazione e la profondita' della ricerca che le ha date.
+  U64    expect_key = 0;
+  int    expect_move = 0, expect_score = 0, expect_depth = 0;
+  bool   expected = false;          // questa ricerca parte dalla posizione attesa
+  bool   surprise = false;          // c'era una risposta prevista e l'avversario ne ha giocata un'altra
+  double start_clock = 0;           // orologio alla prima mossa della partita (TmSurpriseClock)
 };
 static ClockState g_clock;
 
@@ -23,6 +30,10 @@ static void clock_memory_reset() {
   g_clock.opening_adjust = -1;
   g_clock.prev_time_red = 0.85;
   g_clock.have_prev = false;
+  g_clock.expect_key = 0;
+  g_clock.expected = false;
+  g_clock.surprise = false;
+  g_clock.start_clock = 0;
 }
 
 int clock_hard_limit() { return g_clock.maximum; }
@@ -33,6 +44,8 @@ static void clock_plan(int us, int game_ply, int overhead) {
     return;
   }
   const double clock = g_limits.time[us], inc = g_limits.inc[us];
+  if (g_clock.start_clock <= 0)
+    g_clock.start_clock = clock;   // prima mossa della partita (TmSurpriseClock)
   int horizon = g_limits.movestogo ? std::min(g_limits.movestogo, 50) : 50;
   if (clock < 1000 && !g_limits.movestogo)
     horizon = (int)(clock * 0.05);
@@ -41,12 +54,14 @@ static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.movestogo) {
     if (g_clock.opening_adjust < 0)
       g_clock.opening_adjust = 0.3272 * std::log10(left) - 0.4141;
+    // Costanti come parametri Tm* (05/10/2026, per uno SPSA del tempo contro un motore esterno); default = valori di prima.
     const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
-    const double opt_c = std::min(0.0029869 + 0.00033554 * log_sec, 0.004905);
-    const double max_c = std::max(3.3744 + 3.0608 * log_sec, 3.1441);
-    opt_share = std::min(0.012112 + std::pow(game_ply + 3.22713, 0.46866) * opt_c, 0.19404 * clock / left) *
+    const double opt_c = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, 0.004905);
+    const double max_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, 3.1441);
+    opt_share = std::min(TmOptBase / 1e6 + std::pow(game_ply + 3.22713, TmOptPow / 1e5) * opt_c,
+                         TmOptClockCap / 1e5 * clock / left) *
                 g_clock.opening_adjust;
-    max_mult = std::min(6.873, max_c + game_ply / 12.352);
+    max_mult = std::min(6.873, max_c + game_ply / (TmMaxPlyDiv / 1e3));
   } else {
     // Idea 8 (04/10/2026): costanti del ramo movestogo come parametri, per uno SPSA dedicato al 40/15 di CCRL. I
     // default riproducono i valori di prima (la divisione IEEE e' arrotondata correttamente: 880/1000.0 == 0.88).
@@ -54,7 +69,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     max_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * horizon;
   }
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
-  g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(0.8097 * clock - overhead, max_mult * g_clock.optimum));
+  g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
   if (g_ponder_option)
     g_clock.optimum += g_clock.optimum / 4;
 }
@@ -167,7 +182,8 @@ static void deepen(ThreadData &td) {
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
   td.root_side = td.side;   // Contempt: la patta vale meno per chi muove alla radice
   td.deep_w = 0;
-  td.eval_cplx = 0;
+  td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
+  lt_update(td);
 
   if (main) {
     for (int &v : g_clock.iter_values)
@@ -192,6 +208,7 @@ static void deepen(ThreadData &td) {
     td.root_depth++;
     // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
     td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
+    lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
     if (main)
       g_clock.best_changes /= 2;
     for (int i = 0; i < td.root_count; i++) {
@@ -316,15 +333,31 @@ static void deepen(ThreadData &td) {
       double total_time = g_clock.optimum * falling * reduction * instability * heavy;
       if (td.root_count == 1)
         total_time = std::min(500.0, total_time);
+      // Risposta prevista (TmExpect*, vedi ClockState): il tempo si riduce solo finche' valgono tutte e tre le
+      // condizioni, ricontrollate a ogni iterazione; se una salta, la mossa riprende il tempo pieno.
+      if (g_clock.expected && TmExpectScale < 1000 && td.root_depth >= g_clock.expect_depth - TmExpectDepth &&
+          td.root[0].pv[0] == g_clock.expect_move && td.root[0].score >= g_clock.expect_score - TmExpectMargin)
+        total_time *= TmExpectScale / 1000.0;
+      // Sorpresa (TmSurpriseScale): l'avversario non ha giocato la risposta prevista, piu' tempo a questa mossa, ma
+      // solo con l'orologio ancora sopra TmSurpriseClock % di quello di inizio partita.
+      if (g_clock.surprise && TmSurpriseScale > 1000 &&
+          100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock)
+        total_time *= TmSurpriseScale / 1000.0;
       const int elapsed = get_time_ms() - g_limits.start_ms;
-      if (elapsed > std::min(total_time, (double)g_clock.maximum) || td.root[lines - 1].score >= mating_in(3) ||
-          td.root[0].score == mated_at(2)) {
+      // Pavimento dopo la risposta prevista (TmExpectFloor): sotto la profondita' di prima - k si continua, ma solo
+      // entro il tempo OTTIMALE della mossa. Prima il limite era il massimo: a 12+0.12 il lato col pavimento spendeva
+      // il 4% in piu' nelle mosse 10-30 e arrivava alle mosse 30-60 con il 20% di orologio in meno (1,00 s contro
+      // 1,25) e 0,3 ply in meno; SPRT -5,5 +- 13,4 su 696 partite, fermato (05/10/2026).
+      const bool below_floor = g_clock.expected && TmExpectFloor && td.root_depth < g_clock.expect_depth - TmExpectFloor &&
+                               elapsed < g_clock.optimum;
+      if ((elapsed > std::min(total_time, (double)g_clock.maximum) && !below_floor) ||
+          td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
         if (g_pondering.load(std::memory_order_relaxed))
           g_stop_at_ponderhit.store(true, std::memory_order_relaxed);
         else
           stop_threads.store(true, std::memory_order_relaxed);
       } else
-        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || elapsed <= total_time * 0.50;
+        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || below_floor || elapsed <= total_time * 0.50;
     }
     g_clock.iter_values[g_clock.iter_idx] = best;
     g_clock.iter_idx = (g_clock.iter_idx + 1) & 3;

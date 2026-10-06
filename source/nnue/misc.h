@@ -217,6 +217,7 @@ class ValueList {
    public:
     usize size() const { return size_; }
     int   ssize() const { return int(size_); }
+    void  clear() { size_ = 0; }   // Triumviratus 05/10/2026: liste riusate fuori dallo stack (AccumulatorStack::BothLists)
     void  push_back(const T& value) {
         assert(size_ < MaxSize);
         values_[size_++] = value;

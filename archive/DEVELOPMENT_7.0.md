@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus 7.0 — development log
 
@@ -18,7 +18,7 @@
 
 [The network](#1-the-network) · [Measured Elo](#2-measured-elo-incremental) ·
 [Speed work](#3-speed-work-nps) · [Limits and robustness](#4-limits-and-robustness) ·
-[6.0 log](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md)
+[6.0 log](DEVELOPMENT_6.0.md) · [8.0 log](../DEVELOPMENT_8.0.md) · [Networks](../NETWORKS.md)
 
 </div>
 
@@ -57,7 +57,7 @@ with the value/policy blend annealed. The shipped net is the final stage-2 check
 `legio-septima`.
 
 **Corpus, recipe, hyper-parameters, the epoch-by-epoch history and the reasoning behind the
-feature set are in [archive/NETWORKS_4.2-7.0.md](archive/NETWORKS_4.2-7.0.md#legio-septima--the-triumviratus-70-network).**
+feature set are in [NETWORKS_4.2-7.0.md](NETWORKS_4.2-7.0.md#legio-septima--the-triumviratus-70-network).**
 Nothing about training is repeated here.
 
 ---

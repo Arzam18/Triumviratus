@@ -9,6 +9,10 @@
 constexpr int HD_QUIESCE = -1;
 constexpr int HD_EVAL    = -2;
 constexpr int HD_SHIFT   = 3;
+// HashQsDepth (05/10/2026, audit del nucleo): la quiescenza a profondita' 0 come in SF19, che ha un livello in piu'
+// fra "solo valutazione" e quiescenza. Cosi' le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza
+// (non tagliano in quiesce) e a profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. 0 = schema storico.
+static inline int hd_qs() { return HashQsDepth ? 0 : HD_QUIESCE; }
 
 enum { BOUND_UP = hash_flag_alpha, BOUND_LOW = hash_flag_beta, BOUND_EXACT = hash_flag_exact, BOUND_NIL = hash_flag_none };
 
@@ -47,10 +51,12 @@ static inline int from_hash_value(int v, int ply, int fifty) {
   return v;
 }
 
+// Lettura e scrittura passano da tt_key (03_tables.inc): la chiave della scacchiera piu', se accesa, la fascia del
+// contatore delle 50 mosse (HashFiftyStep).
 static inline void hash_read(const ThreadData &td, HashView &h) {
   int move, value, depth, flag, ev;
   bool pv;
-  const bool usable = probe_tt(td.hash_key, move, value, depth, flag, ev, pv);
+  const bool usable = probe_tt(tt_key(td), move, value, depth, flag, ev, pv);
   h.hit = usable || flag == BOUND_NIL;
   if (!h.hit) {
     h.pv = false; h.move = 0; h.value = VAL_NONE; h.depth = -HD_SHIFT; h.bound = BOUND_NIL; h.eval_raw = tt_eval_none;
@@ -65,7 +71,7 @@ static inline void hash_read(const ThreadData &td, HashView &h) {
 }
 
 static inline void hash_write(const ThreadData &td, int value, bool pv, int bound, int depth, int move, int eval_raw) {
-  store_tt(td.hash_key, move, to_hash_value(value, td.ply), depth + HD_SHIFT, bound, 0, pv, eval_raw);
+  store_tt(tt_key(td), move, to_hash_value(value, td.ply), depth + HD_SHIFT, bound, 0, pv, eval_raw);
 }
 
 // Toglie un ply all'entry: un limite che non ha tagliato a profondita' sufficiente vale meno.
@@ -84,12 +90,6 @@ static inline void hash_soften(U64 key) {
 // Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
-    // La hash non porta il disaccordo della rete (Disagree*): si prende dalla cache delle valutazioni se la posizione
-    // c'e' ancora, altrimenti 0 (margini invariati). Serve soprattutto ai nodi singolari, che hanno sempre la hash.
-    if (disagree_on()) {
-      const ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-      td.eval_cplx = ce.key == td.hash_key ? ce.cplx : 0;
-    }
     raw = h.eval_raw;
     return eval_refade(h.eval_raw, td.fifty);
   }
@@ -271,7 +271,7 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.enpassant = no_sq;
   td.hash_key ^= side_key;
   td.side ^= 1;
-  td.fifty++;
+  td.fifty += !NullFiftyKeep;   // NullFiftyKeep (05/10/2026, audit del nucleo): SF19 lascia il contatore com'e'
   td.plies_from_null = 0;
   nn_pos_do_null(td.nnpos, td.fifty);
   f->move = NULL_MOVE;
@@ -370,7 +370,7 @@ static int qs_passer_push(const ThreadData &td) {
 
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   td.pv_length[td.ply] = td.ply;
-  if (alpha < 0 && td_upcoming_repetition(td)) {
+  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
     alpha = draw_score(td);
     if (alpha >= beta)
       return alpha;
@@ -388,7 +388,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   hash_read(td, h);
   f->tt_hit = h.hit;
   const bool hash_pv = h.hit && h.pv;
-  if (!pv && h.depth >= HD_QUIESCE && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
+  if (!pv && h.depth >= hd_qs() && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
     return h.value;
 
   int best, fut_base, eval_raw = tt_eval_none;
@@ -397,7 +397,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   } else {
     const int signal = corr_signal(td, f);
     const int plain = node_eval(td, h, eval_raw);
-    f->static_eval = best = corrected_eval(plain, signal);
+    f->static_eval = best = corrected_eval(plain, corr_eval_term(td, signal + corr_signal_extra(td)));
     if (h.hit && val_known(h.value) && !val_decided(h.value) && bound_covers(h.bound, h.value > best))
       best = h.value;
     if (best >= beta) {
@@ -419,16 +419,26 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   MoveSafety safety;
   safety.ready = false;
   int best_move = 0, count = 0, m;
-  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola.
+  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola. Se e' gia' la mossa hash la coda l'ha
+  // emessa per prima: riproporla la cercava due volte nello stesso nodo (05/10/2026, audit dei porting).
   const int qs_push = QsPasserPush && !in_check ? qs_passer_push(td) : 0;
-  bool push_left = qs_push != 0;
+  bool push_left = qs_push != 0 && qs_push != q.hash_move;
+  // QsQuietHash (nostra, 05/10/2026, da un'idea di Stormphrax e Integral): nei nodi non-PV la mossa hash QUIETA con
+  // limite inferiore o esatto si cerca come una tattica. La hash dice che quella mossa ha tenuto un valore qui: in
+  // quiescenza le quiete non si vedono e l'orizzonte la perderebbe (lo stesso buco di QsPasserPush, ma per ogni
+  // quieta che la ricerca ha gia' giudicato buona). La coda la restituisce gia' per prima; passa dalla stessa
+  // futility e dalla stessa SEE delle catture. Nota: chiedere anche che il limite salvato superi alpha non serve a
+  // nulla qui (05/10/2026, verificato: 0 alberi diversi su 80): con la finestra nulla dei nodi non-PV un limite
+  // inferiore sopra alpha e' >= beta e ha gia' tagliato all'ingresso; quelli che restano sono tutti <= alpha.
+  const bool quiet_hash = QsQuietHash && !pv && !in_check && h.move && !is_tactical(h.move) &&
+                          (h.bound == BOUND_LOW || h.bound == BOUND_EXACT);
 
   while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
     if (!legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
     const bool push = qs_push && m == qs_push;
-    const bool tact = is_tactical(m) || push;
+    const bool tact = is_tactical(m) || push || (quiet_hash && m == h.move);
     count++;
 
     if (!val_lost(best)) {
@@ -490,6 +500,6 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
 
   if (!val_decided(best) && best > beta)
     best = (462 * best + 562 * beta) / 1024;
-  hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, HD_QUIESCE, best_move, eval_raw);
+  hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, hd_qs(), best_move, eval_raw);
   return best;
 }

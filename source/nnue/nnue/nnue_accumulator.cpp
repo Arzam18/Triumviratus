@@ -54,11 +54,12 @@ void update_accumulator_incremental(Color                     perspective,
 
 #ifndef TRIUMV_NO_PERSP_BOTH
 template<bool Forward>
-void update_accumulator_incremental_both(const FeatureTransformer& featureTransformer,
-                                         const Square              ksqW,
-                                         const Square              ksqB,
-                                         AccumulatorState&         target_state,
-                                         const AccumulatorState&   computed);
+void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
+                                         const Square                 ksqW,
+                                         const Square                 ksqB,
+                                         AccumulatorState&            target_state,
+                                         const AccumulatorState&      computed,
+                                         AccumulatorStack::BothLists& lists);
 #endif
 
 void update_accumulator_refresh_cache(Color                     perspective,
@@ -135,7 +136,7 @@ void AccumulatorStack::evaluate(const Position&           pos,
                 // sempre.
                 if (next > lastW && next > lastB)
                     update_accumulator_incremental_both<true>(
-                      featureTransformer, ksqW, ksqB, accumulators[next], accumulators[next - 1]);
+                      featureTransformer, ksqW, ksqB, accumulators[next], accumulators[next - 1], both_lists);
                 else if (next > lastW)
                     update_accumulator_incremental<true>(WHITE, featureTransformer, ksqW,
                                                          accumulators[next], accumulators[next - 1]);
@@ -207,7 +208,14 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         // cambio di fascia sono le righe HalfKA della fascia nuova (entry della finny vecchia di molte mosse, 4 x 46
         // MB di pesi), che l'ibrido deve applicare lo stesso. Le threat erano la parte piccola.
         //   - `add_sq == SQ_NONE` esclude anche le promozioni, che restano sul refresh
-        constexpr int MIN_PC_COUNT_HYBRID = 15;
+        // 05/10/2026 sera — SOGLIA DEI PEZZI TOLTA (15 -> 0). Il 15 veniva dalla rete di SF e non era mai stato misurato
+        // sulla nostra. Conteggio per causa (build di profilo, 30 posizioni a prof. 14 e 64 finali): il 21% dei refresh
+        // pieni era sotto i 15 pezzi, quasi tutti mosse del nostro re; con l'ibrido costano l'8-10% in meno. xperf 6
+        // giri a macchina quieta, build PGO, nodi identici: cicli per nodo -0,55% sulle 30 posizioni, -0,54% su 30 finali.
+        // Provato e SCARTATO nello stesso giro: col padre non calcolato (55-58% dei refresh pieni) portarlo al passo con
+        // update incrementali e poi l'ibrido costa ~2,5% IN PIU' sul tempo dei refresh: l'ibrido costa quasi quanto un
+        // refresh pieno (due ricostruzioni HalfKA da entry della finny vecchie, 4 fasce), l'update in piu' non si ripaga.
+        constexpr int MIN_PC_COUNT_HYBRID = 0;
         const auto&   dp                  = latest().dirtyPiece;
         const bool    ownKing             = dp.pc == make_piece(perspective, KING);
         if (size >= 2 && dp.to != SQ_NONE
@@ -515,6 +523,9 @@ inline void prefetch_psq_rows(const FeatureTransformer&       featureTransformer
     constexpr usize RowBytes = usize(FeatureTransformer::OutputDimensions) * sizeof(WeightType);
     const char*     base     = reinterpret_cast<const char*>(&featureTransformer.weights[0]);
 
+    // ⛔ 05/10/2026 — PROVATO E TOLTO (H): due prefetch fissi per lista (prima e ultima voce: le liste incrementali
+    // hanno 1 o 2 voci) al posto dei due cicli a conteggio variabile. xperf 6 giri, nodi identici: istruzioni +0,27%,
+    // cicli +0,07%, salti mal predetti -0,19%. Qui le uscite dei cicli erano gia' ben predette.
     for (int i = 0; i < a.ssize(); ++i)
         prefetch<PrefetchRw::READ, PrefetchLoc::LOW>(base + usize(a[i]) * RowBytes);
     for (int i = 0; i < b.ssize(); ++i)
@@ -703,17 +714,23 @@ void update_accumulator_incremental(Color                     perspective,
 // ordine, di due chiamate separate a update_accumulator_incremental. L'unica cosa
 // che cambia e' QUANTE volte si legge `dirty`. Il bench DEVE restare 207259.
 template<bool Forward>
-void update_accumulator_incremental_both(const FeatureTransformer& featureTransformer,
-                                         const Square              ksqW,
-                                         const Square              ksqB,
-                                         AccumulatorState&         target_state,
-                                         const AccumulatorState&   computed) {
+void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
+                                         const Square                 ksqW,
+                                         const Square                 ksqB,
+                                         AccumulatorState&            target_state,
+                                         const AccumulatorState&      computed,
+                                         AccumulatorStack::BothLists& lists) {
 
     assert(computed.computed[WHITE] && computed.computed[BLACK]);
     assert(!target_state.computed[WHITE] && !target_state.computed[BLACK]);
 
-    PSQFeatureSet::IndexList    psqRemW, psqAddW, psqRemB, psqAddB;
-    ThreatFeatureSet::IndexList thrRemW, thrAddW, thrRemB, thrAddB;
+    // Le liste vengono da AccumulatorStack (05/10/2026: fuori dallo stack, vedi BothLists) e partono vuote.
+    auto& psqRemW = lists.psqRemW; auto& psqAddW = lists.psqAddW;
+    auto& psqRemB = lists.psqRemB; auto& psqAddB = lists.psqAddB;
+    auto& thrRemW = lists.thrRemW; auto& thrAddW = lists.thrAddW;
+    auto& thrRemB = lists.thrRemB; auto& thrAddB = lists.thrAddB;
+    psqRemW.clear(); psqAddW.clear(); psqRemB.clear(); psqAddB.clear();
+    thrRemW.clear(); thrAddW.clear(); thrRemB.clear(); thrAddB.clear();
 
     const auto& dirtyPiece   = Forward ? target_state.dirtyPiece : computed.dirtyPiece;
     const auto& dirtyThreats = Forward ? target_state.dirtyThreats : computed.dirtyThreats;

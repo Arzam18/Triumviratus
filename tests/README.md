@@ -1,7 +1,7 @@
 # Tests
 
-Summaries of match results from outside the project's own SPRT pipeline. The complete game
-records (PGN) and the GUI crosstables are in
+Results from outside the project's own SPRT pipeline: matches and test suites run by other testers.
+For Maurizio Platino's matches, the complete game records (PGN) and the GUI crosstables are in
 **[Tors3/Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)**.
 
 ## Maurizio Platino — 7.0 against recent engines
@@ -27,3 +27,61 @@ Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 8.0 audi
 ([`DEVELOPMENT_8.0.md`](../DEVELOPMENT_8.0.md)). Bullet with an unbalanced book widens the gaps
 compared with a rating list, and the two August matches used a development build from a month
 before the release.
+
+## Maurizio Platino — ENET 2026 test suite
+
+**ENET 2026** by Eduard Nemeth: 110 hard positions. Intel Core i7-8700 @ 3.20 GHz, Fritz 18, 8 GB hash.
+
+| Triumviratus build | Solved |
+|---|---:|
+| 4.1 | 37 / 110 |
+| 4.2 | 37 / 110 |
+| 6.0 | 77 / 110 |
+| 6.0, later build | 82 / 110 |
+| 6.0 dev (2026-07-24) | 85 / 110 |
+| 6.0 dev (2026-07-25) | 81 / 110 |
+| 7.0 dev (2026-07-31) | 79 / 110 |
+| 8.0 dev (2026-10-01) | 81 / 110 |
+| **8.0 dev (2026-10-04)** | **89 / 110** |
+
+The same suite on the same machine, other engines:
+
+| Engine | Solved |
+|---|---:|
+| Stockfish 17.1 | 94 / 110 |
+| Stockfish 19 | 91 / 110 |
+| Stockfish dev (2026-09-13) | 91 / 110 |
+| ShashChess 41 | 91 / 110 |
+| Theoria 0.2 | 91 / 110 |
+| Berserk 14 | 90 / 110 |
+| **Triumviratus 8.0 dev (2026-10-04)** | **89 / 110** |
+| Stockfish 18 | 82 / 110 |
+
+From 6.0 to the 1 October build every version solved about three quarters of the suite. The build
+of 4 October, the first with the restructured search, solves **89**: the best Triumviratus so far,
+eight more than three days earlier, and within two positions of Stockfish 19.
+
+## Mark Tang — 8.0 prerelease
+
+Tests run by **Mark Tang** on the 8.0 prerelease build of 5 October 2026.
+
+### Tactics: the IQ4 suite
+
+**IQ4** is a set of 183 hard tactical positions from the IQ test series (Arasan's collection).
+
+| Engine | Solved | |
+|---|---:|---:|
+| **Triumviratus 8.0 (prerelease)** | **145 / 183** | **79.2%** |
+| Quanticade | 137 / 183 | 74.9% |
+| Stockfish | 134 / 183 | 73.2% |
+
+<sub>1 second per position · 1 thread · 64 MB hash · one engine process at a time. Triumviratus
+had the highest score among the engines tested.</sub>
+
+### Match against Stockfish dev
+
+| Date | Opponent | Games | Result | Score | TC |
+|---|---|---:|---:|---:|---|
+| 2026-10-05 | Stockfish (development version) | 30 | +3 =17 −10 | 38.3% | 2 min + 1 s |
+
+<sub>About −83 Elo; with 30 games the 95% interval runs from about −170 to −5.</sub>

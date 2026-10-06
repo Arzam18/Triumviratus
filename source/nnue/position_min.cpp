@@ -13,6 +13,17 @@
 #include "position.h"
 #include "types.h"
 
+// Emissione vettoriale delle tuple di minaccia: su ICL (VBMI/VBMI2) dal 02/07/2026, su AVX-512 F/BW dal
+// 05/10/2026 (vedi write_multiple_dirties qui sotto). -DTRIUMV_NO_THREATS_VECTOR_F riporta il target `avx512`
+// al ciclo scalare, per l'A/B. Su AVX2 la stessa idea (compattazione con vpermd e tabella) costava +2,3% di cicli:
+// le build avx2 restano sul ciclo scalare.
+#if defined(USE_AVX512ICL) || (defined(USE_AVX512) && !defined(TRIUMV_NO_THREATS_VECTOR_F))
+    #define TRIUMV_THREATS_VECTOR
+#endif
+#ifdef TRIUMV_THREATS_VECTOR
+    #include <immintrin.h>
+#endif
+
 namespace Triumviratus {
 
 using namespace Attacks;  // ray_pass_bb / PseudoAttacks / PawnPushOrAttacks / attacks_bb
@@ -89,6 +100,51 @@ void write_multiple_dirties(const Position& p,
     const __m512i dirties =
       _mm512_ternarylogic_epi32(template_v, threat_squares, threat_pieces, 254 /* A | B | C */);
     _mm512_storeu_si512(write, dirties);
+}
+#elif defined(TRIUMV_THREATS_VECTOR)
+// 05/10/2026 — Emissione VETTORIALE anche su AVX-512 F/BW (Skylake-X e Cascade Lake, il nostro target `avx512`),
+// che non ha VBMI/VBMI2 e finiva nel ciclo scalare. I due cicli `while (threatened)` e `while (incoming_threats)`
+// hanno un numero di giri che cambia a ogni chiamata (0-8 e 0-16) e la loro uscita e' un salto mal predetto; con
+// due o quattro chiamate per mossa specchiata sono fra i salti piu' cari del lato rete. Qui niente cicli sul dato:
+// la scacchiera (64 byte) si allarga a quattro vettori di 16 dword (vpmovzxbd) e ogni gruppo di 16 case si compatta
+// con vpcompressd (AVX-512F) sui suoi 16 bit della maschera, con la casa e il pezzo gia' spostati al loro posto nel
+// tuple. Le tuple escono per casa crescente, come nel ciclo scalare, e gli indici che ne nascono si sommano
+// nell'accumulatore come interi: stesso risultato, stesso albero. Le scritture da 16 dword oltre il conteggio
+// cadono nelle 16 voci di scorta della DirtyThreatList (types.h), come nel percorso ICL.
+// xperf 6 giri, build PGO avx512: cicli per nodo -1,11%, salti mal predetti -5,7%.
+template<int SqShift, int PcShift>
+void write_multiple_dirties(const Position& p,
+                            Bitboard        mask,
+                            DirtyThreat     dt_template,
+                            DirtyThreats*   dts) {
+    static_assert(sizeof(DirtyThreat) == 4);
+
+    const int dt_count = popcount(mask);
+    auto*     write    = dts->list.make_space(dt_count);
+
+    const __m512i template_v = _mm512_set1_epi32(dt_template.raw());
+    const u8*     board      = reinterpret_cast<const u8*>(p.piece_array().data());
+
+    alignas(64) static constexpr u32 lane[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    const __m512i lanev = _mm512_load_si512(lane);
+
+    // Quattro gruppi fissi di 16 case: nessun salto dipende dalla maschera.
+    const auto chunk = [&](const int c) {
+        const __mmask16 m = __mmask16(mask >> (16 * c));
+        __m512i pieces =
+          _mm512_cvtepu8_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(board + 16 * c)));
+        __m512i squares = _mm512_add_epi32(lanev, _mm512_set1_epi32(16 * c));
+        squares         = _mm512_slli_epi32(squares, SqShift);
+        pieces          = _mm512_slli_epi32(pieces, PcShift);
+        const __m512i dirties =
+          _mm512_ternarylogic_epi32(template_v, squares, pieces, 254 /* A | B | C */);
+        _mm512_storeu_si512(write, _mm512_maskz_compress_epi32(m, dirties));
+        write += popcount(m);
+    };
+    chunk(0);
+    chunk(1);
+    chunk(2);
+    chunk(3);
 }
 #endif
 }  // namespace
@@ -210,9 +266,9 @@ void Position::update_piece_threats(Piece               pc,
         break;
     }
 
-#ifdef USE_AVX512ICL
-    // F-009: emissione vettoriale. `sliders` non e' ancora consumato qui (la
-    // lambda lo svuota dopo) -> i loro attacchi DIRETTI entrano in all_attackers
+#ifdef TRIUMV_THREATS_VECTOR
+    // F-009: emissione vettoriale (ICL, e dal 05/10/2026 anche AVX-512 F/BW). `sliders` non e' ancora consumato
+    // qui (la lambda lo svuota dopo) -> i loro attacchi DIRETTI entrano in all_attackers
     // e process_sliders viene chiamata con addDirectAttacks=false (solo discovered).
     DirtyThreat dt_template{pc, NO_PIECE, s, Square(0), putPiece};
     write_multiple_dirties<DirtyThreat::ThreatenedSqOffset, DirtyThreat::ThreatenedPcOffset>(
@@ -234,9 +290,9 @@ void Position::update_piece_threats(Piece               pc,
 
     if constexpr (ComputeRay)
     {
-#ifndef USE_AVX512ICL
+#ifndef TRIUMV_THREATS_VECTOR
         process_sliders(true);
-#else  // for ICL, direct threats were processed earlier (all_attackers)
+#else  // percorso vettoriale: gli attacchi diretti dei pezzi lunghi sono gia' usciti (all_attackers)
         process_sliders(false);
 #endif
     }
@@ -245,7 +301,7 @@ void Position::update_piece_threats(Piece               pc,
         incoming_threats |= directSliders;
     }
 
-#ifndef USE_AVX512ICL
+#ifndef TRIUMV_THREATS_VECTOR
     while (incoming_threats)
     {
         Square srcSq = pop_lsb(incoming_threats);

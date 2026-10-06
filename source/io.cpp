@@ -159,10 +159,14 @@ void reset_board()
     memset(repetition_table, 0ULL, sizeof(repetition_table));
 }
 
+// Ply di partita della posizione data (dal numero di mossa della FEN), per la gestione del tempo (TmFenPly).
+int g_fen_ply = 0;
+
 // parse FEN string - IMPROVED to parse halfmove clock
 void parse_fen(const char* fen)
 {
     reset_board();
+    g_fen_ply = 0;
 
     for (int rank = 0; rank < 8; rank++)
     {
@@ -265,13 +269,17 @@ void parse_fen(const char* fen)
         }
     }
 
-    // Skip space and parse fullmove number (we don't use this but parse it anyway)
+    // Numero di mossa: la gestione del tempo lo usa come ply di partita (TmFenPly, 05/10/2026, audit del nucleo):
+    // dai libri .epd (UHO "... 0 9") la partita non parte da ply 0. Stessa regola di SF: 2*(fullmove-1) + nero.
     if (*fen == ' ')
     {
         fen++;
-        // Skip fullmove number
-        while (*fen >= '0' && *fen <= '9') fen++;
+        int fullmove = 0;
+        while (*fen >= '0' && *fen <= '9') fullmove = fullmove * 10 + (*fen++ - '0');
+        if (fullmove > 1)
+            g_fen_ply = 2 * (fullmove - 1);
     }
+    g_fen_ply += side == black;
 
     // Build occupancy bitboards
     for (int piece = P; piece <= K; piece++)

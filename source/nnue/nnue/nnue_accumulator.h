@@ -115,6 +115,17 @@ class AccumulatorStack {
                   // Silence spurious warning on GCC 10
                   [[maybe_unused]] AccumulatorCaches& cache) noexcept;
 
+    // Triumviratus 05/10/2026: le otto liste di indici dell'aggiornamento a due prospettive
+    // (update_accumulator_incremental_both) stanno qui, una copia per thread, invece che sullo stack. Le quattro
+    // liste threat da 1,2 KB portavano il frame di evaluate oltre i 4 KB, e su Windows ogni valutazione passava
+    // dalla sonda dello stack (__chkstk). Si svuotano a ogni uso: contenuto e ordine identici.
+    // xperf 6 giri (release PGO avx512): da sola cicli +0,09% (rumore), insieme alla coda delle mosse fuori da
+    // queue_next (11_queue.inc) -1,55% contro -0,81% di quella sola.
+    struct BothLists {
+        PSQFeatureSet::IndexList    psqRemW, psqAddW, psqRemB, psqAddB;
+        ThreatFeatureSet::IndexList thrRemW, thrAddW, thrRemB, thrAddB;
+    };
+
    private:
     [[nodiscard]] AccumulatorState& mut_latest() noexcept;
 
@@ -138,6 +149,7 @@ class AccumulatorStack {
 
     std::array<AccumulatorState, MaxSize> accumulators;
     usize                                 size = 1;
+    BothLists                             both_lists;
 };
 
 }  // namespace Triumviratus::Eval::NNUE

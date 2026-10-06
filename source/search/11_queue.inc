@@ -1,11 +1,39 @@
 // search/11_queue.inc -- Ordinamento delle mosse.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
 
+// SeePinned (05/10/2026, audit del nucleo): inchiodati e inchiodatori dei due colori, una volta per posizione, per la
+// SEE (see.cpp). Per ogni re: i pezzi lunghi avversari sulle sue linee a scacchiera vuota sono i cecchini; un
+// cecchino con un solo pezzo in mezzo, e quel pezzo nostro, lo inchioda. SF fa lo stesso conto in ogni posizione.
+static void see_pins_update(ThreadData &td) {
+  for (int c = white; c <= black; c++) {
+    const int off = c == white ? 0 : 6, eoff = 6 - off;
+    const int ksq = get_ls1b_index(td.bitboards[K + off]);
+    U64 snipers = (get_rook_attacks(ksq, 0) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
+                  (get_bishop_attacks(ksq, 0) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
+    const U64 occ = td.occupancies[both] ^ snipers;
+    U64 pinned = 0, pinners = 0;
+    while (snipers) {
+      const int sn = get_ls1b_index(snipers);
+      const U64 b = between_tbl[ksq][sn] & occ;
+      if (b && !(b & (b - 1)) && (b & td.occupancies[c])) {
+        pinned |= b;
+        pinners |= 1ULL << sn;
+      }
+      pop_lsb_bb(snipers);
+    }
+    td.see_pinned[c] = pinned;
+    td.see_pinners[c ^ 1] = pinners;
+  }
+  td.see_pin_key = td.hash_key;
+}
+
 // SEE con la convenzione della ricerca: promozioni, arrocco ed en passant valgono 0.
 static inline bool see_holds(ThreadData &td, int m, int threshold) {
   if (get_move_promoted(m) || get_move_castling(m) || get_move_enpassant(m))
     return 0 >= threshold;
   PROF_GUARD(prof_see);
+  if (SeePinned && td.see_pin_key != td.hash_key)
+    see_pins_update(td);
   return td_see_ge(td, m, threshold) != 0;
 }
 
@@ -61,32 +89,53 @@ struct MoveQueue {
 // incrementi condizionati, non con salti. n <= 256, quindi la posizione sta in 8 bit.
 // Misura (xperf, PGO, nodi identici): con chiavi a 64 bit salti mal predetti -10,8% per nodo ma istruzioni +1,2% e
 // cicli invariati. Chiavi a 32 bit (Wide = false): 16 confronti per istruzione AVX-512 invece di 8. Valgono per
-// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza); le parate dallo
-// scacco usano 1 << 28 per le catture e restano a 64 bit.
+// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza). Dal 05/10/2026
+// anche le parate dallo scacco (fill_evasions): prima usavano 1 << 28 per le catture e chiavi a 64 bit.
 // 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
 // vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
 // (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
+#if defined(__AVX512F__)
+#include <immintrin.h>
+#endif
+// 05/10/2026 — CONTEGGIO A MASCHERE (AVX-512). Il ciclo `r += key[j] > x` ha un conteggio nh che cambia a ogni
+// chiamata: il compilatore lo vettorizza ma lascia una coda scalare di nh % 16 giri (ognuno confronto, somma e salto)
+// e una riduzione orizzontale per ogni mossa. Qui le chiavi oltre nh valgono INT_MIN (sotto ogni chiave vera, che e'
+// almeno -(1 << 30)), cosi' un gruppo parziale si confronta intero: per ogni mossa 16 confronti alla volta ->
+// maschera -> popcount, niente coda. La chiave si scrive gia' nel primo passaggio, nello slot corrente della lista
+// alta, e conta solo se la mossa ci entra: il secondo ciclo su hi[] e' sparito. Stesse chiavi, stesse posizioni.
+// xperf 6 giri, build PGO avx512: cicli per nodo -0,70%. Le build avx2 tengono il ciclo scalare.
 template <bool Wide>
 static void rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   using Key = std::conditional_t<Wide, long long, int>;
-  alignas(64) Key key[256];
+  alignas(64) Key key[256 + 16];   // 16 slot in piu' per il riempimento INT_MIN del percorso vettoriale
   unsigned char hi[256], lo[256];
   int nh = 0, nl = 0;
   for (int i = 0; i < n; i++) {
-    const int up = sc[i] >= limit;
+    const int s  = sc[i];
+    const int up = s >= limit;
     hi[nh] = (unsigned char)i;
     lo[nl] = (unsigned char)i;
+    if constexpr (Wide)
+      key[nh] = ((long long)s << 8) | (255 - i);
+    else
+      key[nh] = (int)((unsigned)std::clamp(s, -(1 << 22), (1 << 22) - 1) << 8) | (255 - i);
     nh += up;
     nl += 1 - up;
   }
-  for (int k = 0; k < nh; k++) {
-    const int s = sc[hi[k]];
-    if constexpr (Wide)
-      key[k] = ((long long)s << 8) | (255 - hi[k]);
-    else
-      key[k] = (int)((unsigned)std::clamp(s, -(1 << 22), (1 << 22) - 1) << 8) | (255 - hi[k]);
-  }
+#if defined(__AVX512F__)
+  if constexpr (!Wide) {
+    _mm512_storeu_si512(key + nh, _mm512_set1_epi32(INT_MIN));   // riempimento fino al gruppo di 16 successivo
+    const int nchunk = (nh + 15) >> 4;
+    for (int k = 0; k < nh; k++) {
+      const __m512i x = _mm512_set1_epi32(key[k]);
+      int r = 0;
+      for (int c = 0; c < nchunk; c++)
+        r += count_bits((U64)_mm512_cmpgt_epi32_mask(_mm512_load_si512(key + 16 * c), x));
+      out[r] = {mv[hi[k]], sc[hi[k]]};
+    }
+  } else
+#endif
   for (int k = 0; k < nh; k++) {
     const Key x = key[k];
     int r = 0;
@@ -190,7 +239,13 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   }
 }
 
-static void fill_tactics(MoveQueue &q) {
+// 05/10/2026 — FUORI DA queue_next (noinline). Incorporate, le tre fill portavano in queue_next le loro liste (mosse
+// del generatore, punteggi, chiavi dell'ordinamento): frame da 5.048 byte, oltre la pagina da 4 KB, e su Windows ogni
+// chiamata di queue_next, cioe' una per mossa, passava dalla sonda dello stack (__chkstk). Le fill girano una volta
+// per fase del nodo: il loro frame resta sotto i 4 KB e la sonda sparisce (verificato nel disassemblato PGO).
+// xperf 6 giri, release PGO avx512, 57,8 M nodi identici: istruzioni -2,76%, cicli -0,81%; insieme alle liste della
+// valutazione fuori dallo stack (AccumulatorStack::BothLists) cicli -1,55%.
+__attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -211,7 +266,7 @@ static void fill_tactics(MoveQueue &q) {
   q.cur = 0;
 }
 
-static void fill_quiets(MoveQueue &q) {
+__attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -230,7 +285,7 @@ static void fill_quiets(MoveQueue &q) {
   q.cur = q.n_tact;
 }
 
-static void fill_evasions(MoveQueue &q) {
+__attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
@@ -242,13 +297,16 @@ static void fill_evasions(MoveQueue &q) {
     n += m != q.hash_move;
   }
   const PieceToRow &c1 = *q.f[-1].cont_hist;
+  // Le tattiche davanti a tutte le quiete: 1 << 20 basta (|quiete| <= LIM_QUIET + LIM_FOLLOW = 37.183) e sta nei 22
+  // bit delle chiavi a 32 bit; prima 1 << 28 con chiavi a 64 bit (frame di fill_evasions oltre i 4 KB). Stesso
+  // ordine, stesso albero (05/10/2026).
   for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];
-    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 28)
+    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 20)
                            : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
   }
   q.n_all = q.n_tact = n;
-  rank_into<true>(q.list, ml->moves, sc, n, INT_MIN);
+  rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 

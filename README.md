@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -56,94 +56,40 @@ other.</sub>
 
 ## Triumviratus 8.0 — in development
 
-8.0 is built in three steps: **speed, ablations, a new network**.
+| step | result |
+|---|---:|
+| speed: faster code, identical search tree, new transposition table | +14.7 ± 5.4 against 7.0 |
+| **Consilium**, the new network, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
+| **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 
-**Current result:** the 8.0 release build beats the **official 7.0 binary** by **+27.6 ± 7.0 Elo** at
-15+0.15 (2,760 games, SPRT passed). The 8.0 side has its tuning frozen and no options set.
+**Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
+to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
+(an idea of the author's own, from language models: [`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)).
+Since then: about 9% more speed with an identical tree, and our own ideas tested one at a time. The first six
+adopted (a hash-move extension at low depth, a guard on it, more time after an unexpected reply, depth 0 for
+quiescence hash entries, pins in the exchange evaluation, per-expert corrections) measured +4.5, +6.3, +6.2, +3.4,
++4.5 and +3.2 Elo ([dev log](DEVELOPMENT_8.0.md#the-path-so-far)). 8.0 is also the
+first version to support **Chess960**.
 
-| step | what changed | against 7.0 |
-|---|---|---:|
-| speed | same network, faster code around it, identical search tree: **+8.7% NPS**, **+11.5%** with the new transposition table | +14.7 ± 5.4 at 12+0.12 |
-| ablations | two search features switched off after ablation tests | +11.7 ± 4.6 at 60+0.6 |
-| **new network** | **Consilium**: four experts by game phase instead of one network, trained on the vast.ai GPUs; the parameters that depend on the network re-tuned with SPSA | +27.3 ± 8.3 at 15+0.15 |
-| search SPSA | 45 search parameters re-tuned around the new network at 20+0.2 (+9.9 ± 6.6 against its own defaults) | **+27.6 ± 7.0 at 15+0.15** |
+**Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
+the best Triumviratus so far; on Mark Tang's IQ4 suite the prerelease solves **145 of 183**, the highest among the
+engines tested.
 
-The last step's gain against its own defaults does not show against 7.0: the two release numbers are
-the same within error. Measured against Stockfish 19 with the same compiler and the same network size,
-the engine executes **fewer instructions per node (5,647 vs 6,087)** and has fewer branch
-mispredictions. The network, its training and every intermediate measurement are in
-**[`NETWORKS.md`](NETWORKS.md)**.
-
-8.0 is also the **first version to support Chess960 (Fischer Random Chess)**, through the standard
-`UCI_Chess960` option. It is checked against the full FRC perft suite (960 positions), with zero
-errors, and it leaves the standard-chess search tree unchanged.
-
-`source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`. Details, method and
-numbers: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)**.
+Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)**. `source/` holds the 8.0
+development code; the 7.0 release is the tag `v7.0`.
 
 ---
 
 ## Triumviratus 7.0 — current release
 
-7.0 is a **network project**: a July 2026 audit put the remaining gap to the strongest engines at
-**≈ 25–40 Elo of network**, not of search. Its network, **`legio-septima`**, is the first the project
-trains **from scratch with base and feature blocks together**, instead of grafting a new block onto a
-frozen predecessor, on a much larger corpus re-labelled with Leela's BT4 network. The architecture
-moves to **`TRANN2`**: Stockfish's SFNNv16 feature set plus the **`PassedPawns`** block that no other
-engine has.
+A network project: **`legio-septima`**, the first network the project trained from scratch with all its blocks
+together (`TRANN2`: the SFNNv16 feature set plus our own **`PassedPawns`** block), on a large corpus re-labelled with
+Leela's BT4. **+21.3 ± 6.7 Elo over 6.0** at 25+0.25 (3,000 games). On Stefan Pohl's
+[EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm), which scores playing style, 7.0 is the **fourth most
+aggressive of 16 engines**.
 
-#### Ahead of 6.0
-
-| TC | hash | depth 7.0 / 6.0 | games | Elo |
-|---|---:|---:|---:|---:|
-| **25+0.25** | **256 MB** | **15.7 / 15.0** | **3,000** | **+21.34 ± 6.66** |
-| 5+0.05 | 64 MB | 11.7 / 11.2 | 9,000 | +25.18 ± 4.28 |
-
-<sub>The release binaries against each other, AVX2 on both sides, each with its own network; 1 thread,
-UHO 2024 (+0.85/+0.94), LOS 100% at both points, depths measured from the PGNs. Stage-by-stage
-measurements, speed work and training: **[`DEVELOPMENT_7.0.md`](DEVELOPMENT_7.0.md)** ·
-**[`NETWORKS.md`](NETWORKS.md)**.</sub>
-
-<details>
-<summary><b>Against other engines</b></summary>
-
-<br>
-
-| Opponent | Elo (7.0) | Games | TC · threads |
-|---|---:|---:|---|
-| Stormphrax 8.0.0 | +50 ± 12 | 1,000 | 25+0.25 · 1 |
-| Hobbes 3.0 | +51 ± 9 | 1,972 | 15+0.15 · 1 |
-| Caissa 1.26 | +20 | 300 | 1+1 · 4 |
-| Cinder 0.6.1 | −10 ± 11 | 1,000 | 25+0.25 · 1 |
-| Caissa 2.0 | −27 ± 15 | 300 | 1+1 · 4 |
-| Coda 0.9.4 | −38 ± 16 | 300 | 1+1 · 4 |
-| pawnocchio 3.0-dev | −38 ± 15 | 300 | 1+1 · 4 |
-| PlentyChess 8.0.0 | −63 ± 16 | 300 | 1+1 · 4 |
-
-<sub>1 thread: our runs, release binaries, 128 MB, UHO 2024 (+0.85/+0.94). 4 threads: Maurizio
-Platino, i7-8700, Fritz 18, 1024 MB, ponder on, UHO 2024 (+1.10/+1.29); pawnocchio and PlentyChess
-met a 7.0 build from a month before the release. Games and details: **[`tests/`](tests/)**. Fast
-time controls and unbalanced books widen the gaps compared with a rating list.</sub>
-
-</details>
-
-#### Playing style
-
-On Stefan Pohl's **[EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm)**, which scores style
-rather than strength (computed from sacrifices, short wins and draws in the 120,000 games of the
-UHO-Top15 list), **Triumviratus 7.0 is the fourth most aggressive of 16 engines**, behind only Torch and
-two Stockfish builds, with the second-highest sacrifice rate after Torch.
-
-| Rank | Engine | EAS-Score | sacs | early sacs | short wins | bad draws |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | Torch 4d | 249,549 | 19.09% | 29.50% | 27.54% | 15.15% |
-| 2 | Stockfish 19 | 247,367 | 16.84% | 32.16% | 26.91% | 12.95% |
-| 3 | Stockfish 260913 | 231,239 | 16.66% | 29.60% | 25.84% | 14.51% |
-| **4** | **Triumviratus 7.0** | **175,162** | **17.63%** | **32.57%** | **16.99%** | **19.75%** |
-| 5 | PlentyChess 8.0.0 | 172,527 | 12.99% | 29.64% | 21.88% | 20.46% |
-
-<sub>Update of 2026-09-24. Further down: Cinder 6.0, Reckless, Obsidian, Caissa 2.0, Alexandria 9.0,
-Stormphrax 8, Integral 8, Quanticade, Coda 0.9.4, Pawnocchio 2.0, Viridithas 20.</sub>
+Measurements, training and matches against other engines:
+**[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`tests/`](tests/)**.
 
 ---
 
@@ -161,7 +107,7 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3), and has since been reworked for our own mixture-of-experts network, Consilium (see [Credits](#credits)). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 
@@ -171,8 +117,14 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 SPSA search-parameter tuning, he probes the engine's real playing strength by running it against
 curated **hard positions at long time controls** — the kind of qualitative strength testing that fast
 automated match-play cannot reach, and the project's only systematic testing of that sort — and has
-generously contributed his hardware for the long tuning and testing runs. Triumviratus would be
-materially weaker without his work.
+generously contributed his hardware for the long tuning and testing runs. He also shares with the
+author the cost of the cloud GPUs on which the project's networks are trained, Consilium included.
+Triumviratus would be materially weaker without his work.
+
+**Mark Tang** has tested the 8.0 prerelease against other engines and on the IQ4 tactical suite (results
+in [`tests/`](tests/)). His remark that Stoofvlees answers very quickly between two moves, even at long time
+controls, started the train of thought that led the author to the "surprise" rule of 8.0's time management: more
+time on a move when the opponent did not play the reply the engine expected.
 
 ### Derived code
 

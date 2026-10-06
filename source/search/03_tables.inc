@@ -14,13 +14,35 @@ static void build_reduction_table() {
 }
 
 // ---------------------------------------------------------------------------
+// Chiave della tabella hash (nostra, 05/10/2026). Con HashFiftyStep > 0 la chiave porta anche la fascia del
+// contatore delle 50 mosse: una fascia ogni HashFiftyStep semimosse sopra HashFiftyFrom (fino a 15 fasce). Una
+// posizione raggiunta a 70 semimosse dall'ultima cattura non e' la stessa posizione raggiunta a 10: il limite
+// salvato in hash e' stato cercato con un'altra distanza dalla patta e la rete la valuta smorzata. Sotto From la
+// chiave e' quella di sempre: apertura e mediogioco non perdono trasposizioni. La chiave della scacchiera (td.hash_key)
+// resta intatta per le ripetizioni e per la cache delle valutazioni (che salva l'eval senza smorzamento).
+// A HashFiftyStep = 0 la funzione restituisce td.hash_key: albero identico, nella release il ramo sparisce.
+// ---------------------------------------------------------------------------
+static constexpr U64 fifty_hash_keys[16] = {
+    0, 0x2B4AE6736F4FC7BEULL, 0xEAD209722A16E0CBULL, 0x89AE5F87DF9B4018ULL, 0x8B26E98280A48722ULL,
+    0x08BD40C8D758D0F7ULL, 0xF64A5A01895149D9ULL, 0x445D6E85630EE7C1ULL, 0x91423FEEA7C93B58ULL,
+    0xAD3FBFD5C23F9759ULL, 0xD8DD9840329B5C29ULL, 0x7CB97C9AE2AC9416ULL, 0x1934510935C788F3ULL,
+    0xDC22B41127891257ULL, 0xA2FE2D5BA8CB11FBULL, 0x24A5B78779ED9899ULL};
+
+static inline U64 tt_key(const ThreadData &td) {
+  if (!HashFiftyStep || td.fifty <= HashFiftyFrom)
+    return td.hash_key;
+  return td.hash_key ^ fifty_hash_keys[std::min(1 + (td.fifty - HashFiftyFrom - 1) / HashFiftyStep, 15)];
+}
+
+// ---------------------------------------------------------------------------
 // Statistiche condivise fra i thread. Le tabelle di seguito (continuation), di struttura pedonale e di correzione
 // sono una sola per tutto il motore e crescono col numero di thread: ogni thread porta la sua fetta di spazio e
 // tutti imparano nella stessa tabella. Le scritture concorrenti su int16 sono innocue per una statistica.
 // ---------------------------------------------------------------------------
 struct CorrSlot {           // le correzioni lette con chiavi diverse ma nello stesso array
   int16_t pawn, minor, np_white, np_black;
-  int16_t major;            // nostra: torri e donne (CorrMajorW, spenta = 0)
+  // 06/10/2026: tolto il campo `major` di CorrMajorW (idea chiusa: -2,1 +- 20,7). Slot da 10 a 8 byte: riga da 16
+  // byte, quattro righe per linea di cache, tabella da 1,31 a 1,05 MB per thread (rapporto N_CORREZIONI 4.6).
 };
 
 struct SharedStats {
@@ -28,6 +50,7 @@ struct SharedStats {
   PieceToRow (*follow)[2][NO_PC + 1][64] = nullptr;
   PieceToRow* pawn_rows = nullptr;      // [indice struttura pedonale]
   CorrSlot  (*corr)[2] = nullptr;       // [indice chiave][lato al tratto]
+  int16_t   (*corr_x)[2] = nullptr;     // CorrExpertW: pedoni per esperto, in aggiunta alla condivisa [indice][lato]
   U64 pawn_mask = 0;
   U64 corr_mask = 0;
   int slots = 0;                        // potenza di due >= numero di thread
@@ -46,9 +69,11 @@ static void shared_stats_alloc(int threads) {
   delete[] g_stats.follow;
   delete[] g_stats.pawn_rows;
   delete[] g_stats.corr;
+  delete[] g_stats.corr_x;
   g_stats.follow    = new PieceToRow[2][2][NO_PC + 1][64];
   g_stats.pawn_rows = new PieceToRow[(size_t)PAWN_ROWS_PER_SLOT * slots];
   g_stats.corr      = new CorrSlot[(size_t)CORR_ROWS_PER_SLOT * slots][2];
+  g_stats.corr_x    = new int16_t[(size_t)CORR_ROWS_PER_SLOT * slots][2];   // 256 KB per slot
   g_stats.pawn_mask = (U64)PAWN_ROWS_PER_SLOT * slots - 1;
   g_stats.corr_mask = (U64)CORR_ROWS_PER_SLOT * slots - 1;
   g_stats.slots     = slots;
@@ -64,6 +89,7 @@ static void shared_stats_reset() {
   fill_with(&g_stats.follow[0][0][0][0], (size_t)2 * 2 * (NO_PC + 1) * 64, -586);
   fill_with(g_stats.pawn_rows, (size_t)g_stats.pawn_mask + 1, -1338);
   fill_with(&g_stats.corr[0][0], (size_t)(g_stats.corr_mask + 1) * 2, -5);
+  fill_with(&g_stats.corr_x[0][0], (size_t)(g_stats.corr_mask + 1) * 2, 0);
 }
 
 static void thread_stats_reset(ThreadData &td) {
@@ -168,4 +194,5 @@ void copy_board_to_thread(ThreadData &td) {
   memcpy(td.repetition_table, repetition_table, sizeof(repetition_table));
   td.repetition_index = repetition_index;
   td.ply = 0;
+  td.see_pin_key = ~td.hash_key;   // SeePinned: inchiodature da ricalcolare alla prima SEE
 }
