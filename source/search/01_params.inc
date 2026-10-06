@@ -44,6 +44,11 @@
 // il prefetch giusto e la pulizia bakata: 12+0.12, UHO, 34/34, +3,22 +- 3,84 su 8.634 partite (LLR 1,00; socket 0
 // +2,2, socket 1 +4,3), fermata da un blackout a 1.400 partite dalla soglia scelta (10.000) e bakata su decisione
 // dell'utente. Bench 309067 (con CorrPhase=0 torna 370886).
+// BAKE HASHDAMP (06/10/2026 notte): HashDamp 0 -> 41 (taglio della hash da limite inferiore spinto verso beta,
+// 13_search.inc). Tre prove, tutte positive: 15+0.15 su t80_nm2 (05/10, prima dei bake) +2,64 +- 6,79 / 2.768;
+// 15+0.15 su t80_tm12 +2,18 +- 5,35 / 4.138; 20+0.2 su t80_tm13 +2,02 +- 4,96 / 4.818 (socket 0 +2,9, socket 1 +1,2).
+// Sul codice attuale insieme +2,09 +- 3,64 / 8.956; tutte e tre +2,22 +- 3,21 / 11.774 (P(Elo > 0) ~ 91%). Bakata su
+// decisione dell'utente prima delle 20.000 partite. Bench 430151 (con HashDamp=0 torna 309067).
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -213,7 +218,8 @@
   /* tecniche nostre sopra la ricerca nuova (04/10/2026), spente = albero invariato */                    \
   P(KingShield, 0, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
-  P(HashDamp, 0, 0, 200)                 /* taglio da limite inferiore spinto verso beta (decimi) */      \
+  P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
+                                         /* inferiore spinto verso beta (decimi)                         */ \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
   P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
   P(PassedPushRed, 1125, 0, 4096)           /* finali: meno riduzione e niente potatura per la spinta di un */ \
@@ -309,6 +315,10 @@
   P(TmMaxPlyDiv, 12352, 4000, 30000)     /* /1e3 */                                                         \
   P(TmMaxMultCap, 6873, 3000, 10000)     /* /1e3: tetto del moltiplicatore del massimo (06/10/2026, rapporto */ \
                                          /* Q_TEMPO: sopra ~14 s di orologio decide lui; prova a 5000, 40+0.4) */ \
+                                         /* 06/10: 5000 -27,1 +- 17,0 / 308, 8000 -3,6 +- 10,2 / ~950: resta 6873 */ \
+  P(TmRedLo, 496, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
+  P(TmRedHi, 1879, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
+                                         /* tranquille e critiche; prova a 1200 = rampa piu' corta, 40+0.4) */ \
   P(TmMaxClock, 8097, 6500, 8800)        /* /1e4: il massimo non supera questa frazione dell'orologio */    \
   /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
   P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \

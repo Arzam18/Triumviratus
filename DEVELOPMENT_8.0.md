@@ -38,7 +38,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **309067**.
+> each step starting from what the previous one found. Current `bench`: **430151**.
 
 ## The path so far
 
@@ -55,6 +55,7 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
 | **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease and against Stockfish 19 | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October; **50.0%** against Stockfish 19 at 133+1 (320 games) | 309067 |
+| **The TT cutoff damping adopted** | 27 | the damping of section 18 (an idea from Coda) retried twice on the current code | +2.2 ± 3.2 over 11,774 games in three SPRTs | **430151** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -64,8 +65,8 @@ prerelease the speed work alone is about **−8.9% cycles per node** with an ide
 ## Where things stand (6 October 2026)
 
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
-  in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
-  of 6 October evening, with all of these adoptions: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
+  in sections 21–25, two consistency fixes and the TT cutoff damping (section 27). Bench **430151**. The prerelease
+  builds on the tag `v8.0` are those of 6 October evening (bench 309067), before the damping: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
   (section 26).
 - **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%** with this build; at 30+0.3 on
   random openings −4.4 ± 7.1 over 395 (section 27).
@@ -997,11 +998,16 @@ against under 1 above 60 s). Lowering the cap on the longest thinks lost clearly
 40+0.4 (both sides with the game's move number, as in a PGN book). The long thinks are needed; the opposite
 direction is under test.
 
-**Also closed today.** The hash cutoff damping of section 18, retried on the current build at 15+0.15: +2.2 ± 5.4
-over 4,138 games, small and unproven, to be retried at 20+0.2. Learning corrections in exact PV nodes in either
+**The TT cutoff damping adopted.** The damping of section 18 (a lower-bound cutoff value from the hash is pulled
+towards beta; an idea from Coda), retried on the current code: +2.2 ± 5.4 over 4,138 games at 15+0.15 and
++2.0 ± 5.0 over 4,818 at 20+0.2, both sockets positive. With the first test the three give **+2.2 ± 3.2 over
+11,774 games** (about a 91% chance of a positive effect, under 3% of costing more than one Elo): adopted before
+20,000 games on that evidence. Bench **430151**.
+
+**Also closed today.** Learning corrections in exact PV nodes in either
 direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quiescence hash depth, the two consistency
 fixes) became fixed code; in release builds the remaining tuning copies read outside the search are compile-time
-constants. Bench unchanged, 309067.
+constants (bench unchanged by these, 309067 before the damping).
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1043,6 +1049,7 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | The same at the regression weight | 26 | 8+0.08 UHO | 1,806 | −4.8 ± 8.7 | off |
 | No correction learning in excluded nodes | 26 | 12+0.12 UHO | 2,114 | −1.6 ± 7.8 | off |
 | **Today's build against the 4 October prerelease** | 26 | 10+0.1 UHO | 2,798 | **+17.2 ± 6.8** | progress check |
-| Hash cutoff damping, retried on the current build | 27 | 15+0.15 UHO | 4,138 | +2.2 ± 5.4 | off, retry at 20+0.2 |
+| Hash cutoff damping, retried on the current build | 27 | 15+0.15 UHO | 4,138 | +2.2 ± 5.4 | retried at 20+0.2 |
+| **Hash cutoff damping** at 20+0.2 (three tests together: +2.2 ± 3.2 over 11,774) | 27 | 20+0.2 UHO | 4,818 | **+2.0 ± 5.0** | **adopted** |
 | Corrections learned in exact PV nodes in either direction | 27 | 8+0.08 UHO | 3,258 | −2.8 ± 6.6 | off |
 | Lower cap on the longest thinks (time manager) | 27 | 40+0.4 UHO | 308 | −27.1 ± 17.0 | off |

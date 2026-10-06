@@ -326,7 +326,8 @@ static void deepen(ThreadData &td) {
       double falling = (TmFallBase / 100.0 + TmFallPrev / 100.0 * (prev_avg - best) +
                         TmFallIter / 100.0 * (g_clock.iter_values[g_clock.iter_idx] - best)) / 100.0;
       falling = std::clamp(falling, 0.576, 1.728);
-      time_red = lerp_clamped(td.root_depth - last_best_depth, 4.96, 18.79, 0.639, 1.712, 0.629, 1.544);
+      // TmRedLo/TmRedHi (06/10/2026): estremi della rampa come parametri; 496/1e2 == 4.96, 1879/1e2 == 18.79.
+      time_red = lerp_clamped(td.root_depth - last_best_depth, TmRedLo / 1e2, TmRedHi / 1e2, 0.639, 1.712, 0.629, 1.544);
       const double reduction = (1.468 + g_clock.prev_time_red) / (2.284 * time_red);
       const double instability = TmInstabBase / 1000.0 + TmInstabMul / 1000.0 * g_clock.best_changes / num_threads;
       const double heavy = lerp_clamped((double)effort, 75800, 104510, 0.969, 0.714, 0.693, 0.838);
