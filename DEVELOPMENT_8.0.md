@@ -44,8 +44,9 @@
 > Since then: speed work with an identical tree (about −8.9% cycles per node, sections 17, 20, 22, 23), our own
 > search ideas tested one at a time (section 18), a long time-control SPSA that found no gain (section 19), and
 > the first three ideas adopted: a hash-move extension at low depth (**+4.5 ± 3.3**, section 21), a guard on it
-> (**+6.3 ± 7.9**), more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23) and depth 0 for
-> quiescence hash entries (**+3.4 ± 2.6**, section 24). Current `bench`: **222624**. The status and the open work are in section 11.
+> (**+6.3 ± 7.9**), more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23), depth 0 for
+> quiescence hash entries (**+3.4 ± 2.6**) and pins in the exchange evaluation (**+4.5 ± 6.8**, section 24).
+> Current `bench`: **507070**. The status and the open work are in section 11.
 
 ---
 
@@ -299,9 +300,9 @@ block, after the next network.
 
 **On the morning of 6 October 2026.** The sections after this one follow the order in which the work was done.
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, and the
-  first four ideas adopted: LDSE, its guard, the surprise rule and depth 0 for quiescence hash entries
-  (sections 21–24). Bench **222624**. The
-  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these four.
+  first five ideas adopted: LDSE, its guard, the surprise rule, depth 0 for quiescence hash entries and
+  pins in the exchange evaluation (sections 21–24). Bench **507070**. The
+  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these five.
 - **Speed since the 4 October prerelease:** about −8.9% cycles per node with an identical tree (sections 20–23).
 - **Open:** LDSE at 40+0.4 (section 24); a few tests closed
   early or never run (contempt in a gauntlet, `SeePinned`); large pages, which the test machine does not grant,
@@ -836,7 +837,7 @@ tree-identical patches; measured at rest, none gained (from +0.07% to +1.19% cyc
 machine only removing work pays, while prefetching and reordering loads do not. A 300-game match against
 Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) followed (section 24).
 
-## 24. Against Stockfish 19, the printed scale, and one more idea adopted (6 October 2026)
+## 24. Against Stockfish 19, the printed scale, and two more ideas adopted (6 October 2026)
 
 **The match.** 300 games against Stockfish 19 at the conditions of the morning gauntlet (133+1, TopGM 8-move book,
 1 thread): **+3 =291 −6, −3.5 ± 6.0** (morning build: +4 =189 −7, −5.2 ± 11.3 over 200). On the 100 openings both
@@ -853,8 +854,14 @@ at 40+0.4, so the printed centipawns are now divided by 400 instead of 449: **+1
 Display only, bench unchanged.
 
 **SPRTs.** The quiescence search now stores and reads depth 0 in the hash instead of −1 (`HashQsDepth`):
-**+3.38 ± 2.58** over 20,162 games at 10+0.1 (+1.0 on the faster socket, +6.6 on the one that searches about 0.4 ply
-deeper), adopted. New bench **222624**. Closed neutral and left off: refreshing the hash move when a deeper entry is
-kept (−0.65 ± 2.77 over 17,574) and no null move when the opponent has an easy capture (−0.34 ± 4.04 over 8,164).
-LDSE was adopted at 10+0.1 with a larger gain on the shallower socket; whether it holds at longer time controls is
-being measured at 40+0.4.
+**+3.38 ± 2.58** over 20,162 games at 10+0.1, adopted (bench 222624). In the static exchange evaluation, pieces pinned
+to their king no longer recapture while the pinner is on the board (`SeePinned`): **+4.5 ± 6.8** over 2,934 games,
+adopted. New bench **507070**. Closed neutral and left off: refreshing the hash move when a deeper entry is kept
+(−0.65 ± 2.77 over 17,574), no null move when the opponent has an easy capture (−0.34 ± 4.04 over 8,164), and
+separate correction histories by fifty-move band in endgames (+1.25 ± 2.87 over 5,294).
+
+Both adopted ideas gain on one socket only: +1.0 and −2.1 on socket 0, +6.6 and +13.4 on socket 1. Socket 0 runs 40
+games on 20 cores with hyperthreading and searches about 0.4 ply less deep than socket 1, so its 10+0.1 is
+effectively shorter. Ideas that act deep in the tree show up only when the search goes a little deeper; search SPRTs
+now run at 15+0.15 (about 0.5–0.9 ply deeper on both sockets, with 76 games at once instead of 70). Whether LDSE
+holds at longer time controls is postponed to a 40+0.4 test after the fast ones.

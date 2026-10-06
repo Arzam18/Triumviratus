@@ -26,6 +26,12 @@
 // 12_quiesce.inc). SPRT a 10+0.1, UHO, 40/30: +3,38 +- 2,58 su 20.162 partite (LLR 2,39, zero escluso); socket 0
 // +1,0 +- 3,5, socket 1 (~0,4 ply piu' profondo) +6,6 +- 3,9. Bakato su decisione dell'utente. Bench 222624 (con
 // HashQsDepth=0 torna 308883).
+// BAKE SEEPINNED (06/10/2026): SeePinned 0 -> 1 (nella SEE i pezzi inchiodati al re non ricatturano finche'
+// l'inchiodatore e' sulla scacchiera; see.cpp, 11_queue.inc). SPRT a 10+0.1, UHO, 40/30: +4,50 +- 6,78 su 2.934
+// partite, socket 0 (40 partite, hyperthread, meno profondo) -2,1 +- 9,0, socket 1 (~0,4 ply piu' profondo) +13,4
+// +- 10,2. Lettura dell'utente: neutra a TC effettivo basso, positiva appena la ricerca scava un po' di piu'; fermato
+// e bakato su sua decisione. Albero a profondita' fissa quasi invariato (mediana x1,00 a prof. 10-16; il bench salta
+// per una sola posizione). Bench 507070 (con SeePinned=0 torna 222624).
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -191,7 +197,8 @@
      uno per uno, ognuno con una forma alternativa. Spenti = comportamento di prima (albero identico); ognuno va      \
      provato con uno SPRT. */                                                                                       \
   P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
-  P(SeePinned, 0, 0, 1)                  /* 1: nella SEE i pezzi inchiodati non ricatturano finche' c'e' l'inchiodatore */ \
+  P(SeePinned, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
+                                         /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   P(HashQsDepth, 1, 0, 1)                /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la quiescenza     */ \
                                          /* scrive e legge profondita' 0 in hash, non -1                 */ \
   P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse */ \
@@ -295,8 +302,10 @@ bool      g_tt_twolevel   = true;
 bool      g_ttmove24      = true;
 int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV)
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
-bool      g_tt_move_refresh = false; // copia di TTMoveRefresh per tt.h (vedi store_tt)
-int       g_see_pinned    = 0;    // copia di SeePinned per see.cpp (vedi td_see_ge)
+// Le copie partono dal default del parametro (06/10/2026: con SeePinned bakata a 1 la copia restava a 0 finche' non
+// arrivava un setoption, e la SEE restava spenta: bench 222624 invece di 507070).
+bool      g_tt_move_refresh = TTMoveRefresh != 0; // copia di TTMoveRefresh per tt.h (vedi store_tt)
+int       g_see_pinned    = SeePinned;            // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
 bool      g_large_pages   = true;
 bool      g_see_fix       = true;
