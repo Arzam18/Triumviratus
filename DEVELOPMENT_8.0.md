@@ -27,6 +27,7 @@
 [Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
 [Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) ·
 [Against Stockfish 19](#24-against-stockfish-19-and-the-printed-scale-6-october-2026) · [Depth, pins, corrections](#25-ideas-that-need-depth-pins-and-the-correction-history-6-october-2026) ·
+[Opponent's plan, progress check](#26-the-opponents-plan-a-combined-spsa-and-a-progress-check-6-october-2026-evening) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -52,6 +53,7 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **The search restructured** | 17 | Stockfish 19's search structure, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
 | **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
+| **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October | 309067 |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -62,10 +64,10 @@ prerelease the speed work alone is about **−8.9% cycles per node** with an ide
 
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
   in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
-  of the morning of 5 October, before these adoptions.
-- **Running:** the correction options proposed by the analysis of section 25 (a continuation correction six plies
-  back, conditions on learning), one SPRT at a time; then a new match against Stockfish 19.
-- **Open:** an SPSA of the correction update constants; LDSE at 40+0.4; contempt in a gauntlet; large pages, which
+  of 6 October evening, with all of these adoptions: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
+  (section 26).
+- **Running:** a new match against Stockfish 19 at 133+1, on the openings of 5 October and on new ones.
+- **Open:** the combined SPSA CORR1 (section 26); LDSE at 40+0.4; contempt in a gauntlet; large pages, which
   the test machine does not grant, so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next
   network.
 - **Test rules,** as they evolved: one idea at a time on the same binary; at least 20,000 games or a clear verdict
@@ -916,6 +918,40 @@ endgame games (fewer than 2% of exact nodes), which fits the result of the corre
 **−2.7 ± 4.3** on the endgame book (2,572 games), closed. The correction slot shrank from 10 to 8 bytes (the field of
 a closed idea removed): neutral in speed (cycles per node +0.00% middlegame, +0.26% endgames), kept as a clean-up.
 
+## 26. The opponent's plan, a combined SPSA, and a progress check (6 October 2026, evening)
+
+**Two more continuation corrections.** The continuation correction indexes the last move by our moves two and four
+plies back. Adding our move six plies back (`CorrCont6W`) gave **−0.8 ± 5.6** over 3,894 games at 15+0.15, with the
+two sockets in disagreement (+4.3 and −5.9): off, to be looked at again. The author then proposed the dual idea: if,
+while searching the opponent's reply, a move turns out better or worse than expected, the correction should learn
+that too. It was built as the pair of the opponent's own last two moves (three plies back and one ply back), in the
+same table (`CorrContOppW`). At the weight of the existing terms it gave **−5.2 ± 12.7** over 742 games at 12+0.12.
+
+**Analysed before closing it.** A diagnostic build let those cells learn at weight 0 and compared them with the error
+left after the existing corrections (600 positions, 1M nodes each). They carry real information: correlation +0.24
+with the remaining error in exact nodes, as much as the two-ply cell (+0.25). With the term on, the tree at a fixed
+node count is unchanged (depth 21.25 against 21.26) and the speed cost is about 1% under full load. A regression
+suggested twice the weight; at that weight it gave **−4.8 ± 8.7** over 1,806 games at 8+0.08. The same regression,
+read correctly, says that every correction weight should be larger, the two-ply one about twice its value, while the
+SPSA, which optimises games won, chose half of that: reducing the evaluation error is not the same as winning, because
+the correction also moves pruning margins and at fail-high or fail-low nodes the error is only a bound. So the weight
+is left to an SPSA: `CorrContOppW` starts there at the first weight, with zero (off) within its range.
+
+**Conditions on learning.** No learning in nodes searched with a move excluded (`CorrLearnMode` 2): **−1.6 ± 7.8**
+over 2,114 games at 12+0.12, off. Variant 1 (only excluded nodes without moves) never fires on the bench positions.
+
+**A combined SPSA, CORR1.** 29 parameters at 20+0.2: the 17 constants of the correction history (update steps,
+bonuses and their caps, weights, the divisors of the correction in the singular, reverse-futility and reduction
+margins), the opponent's-plan weight and step, and ten reduction, reverse-futility and singular parameters that
+depend on the corrected evaluation. Parameters that depend strongly on the time control stay out (the depth ramps and
+the logarithmic reduction multiplier); the final values will also be checked at 40+0.4 before adoption.
+
+**Progress since the 4 October prerelease.** The 4 October prerelease was rebuilt for AVX-512 from the tag `v8.0`
+(the published AVX2 build gives the same `bench`, 141196) and played against today's development build (bench
+309067), each with its own defaults: **+17.2 ± 6.8** over 2,798 games at 10+0.1 (UHO, 34 games per socket; socket 0
++20.5, socket 1 +13.7). It is the sum of everything since 4 October: the ideas adopted in sections 21–25 and the
+speed work of sections 17–23.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -951,3 +987,8 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Two consistency fixes** (null move and fifty-move counter, one fade formula) | 25 | 5+0.05 endgames | 9,774 | **+1.6 ± 2.6** | **adopted** |
 | **`CorrPhase`** (after the fix) | 25 | 12+0.12 UHO | 8,634 | **+3.2 ± 3.8** | **adopted** |
 | Correction faded with the fifty-move counter | 25 | 10+0.1 endgames | 2,572 | −2.7 ± 4.3 | off |
+| Continuation correction six plies back | 26 | 15+0.15 UHO | 3,894 | −0.8 ± 5.6 | off, sockets disagree |
+| The opponent's plan in the continuation correction (author's idea) | 26 | 12+0.12 UHO | 742 | −5.2 ± 12.7 | analysed, to the SPSA |
+| The same at the regression weight | 26 | 8+0.08 UHO | 1,806 | −4.8 ± 8.7 | off |
+| No correction learning in excluded nodes | 26 | 12+0.12 UHO | 2,114 | −1.6 ± 7.8 | off |
+| **Today's build against the 4 October prerelease** | 26 | 10+0.1 UHO | 2,798 | **+17.2 ± 6.8** | progress check |

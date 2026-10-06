@@ -223,6 +223,11 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
     cont = CorrContW * ((*f[-2].cont_corr)[pc][to] + (*f[-4].cont_corr)[pc][to]);
     if (CorrCont6W)   // f[-6] esiste sempre: prima della radice ci sono 7 frame con la riga sentinella
       cont += CorrCont6W * (*f[-6].cont_corr)[pc][to];
+    // CorrContOppW (idea dell'utente, 06/10/2026): la coppia delle due ultime mosse dell'AVVERSARIO (a -3 e a -1),
+    // cioe' il suo piano, invece della nostra mossa con la sua risposta. Stessa tabella; la versione con la sola
+    // ultima mossa, senza contesto, era chiusa (-7,6 +- 7,8 a 20+0.2).
+    if (CorrContOppW)
+      cont += CorrContOppW * (*f[-3].cont_corr)[pc][to];
   }
   return CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
 }
@@ -276,6 +281,8 @@ static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
     stat_push((*f[-4].cont_corr)[pc][to], bonus * CorrCont4Upd / 128, LIM_CORR);
     if (CorrCont6W)
       stat_push((*f[-6].cont_corr)[pc][to], bonus * CorrCont6Upd / 128, LIM_CORR);
+    if (CorrContOppW)
+      stat_push((*f[-3].cont_corr)[pc][to], bonus * CorrContOppUpd / 128, LIM_CORR);
   }
   if (CorrExpertW)
     stat_push(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR);

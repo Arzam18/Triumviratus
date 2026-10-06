@@ -178,9 +178,19 @@
   P(CorrNonPawnUpd, 186, 0, 400)                                                                          \
   /* Correzioni, proposte del rapporto docs/audit_8.0/N_CORREZIONI.md (06/10/2026); spente = albero invariato */ \
   P(CorrCont6W, 0, 0, 30000)             /* continuazione anche con la nostra mossa a -6 (0 = spenta) */  \
+                                         /* 06/10: =4011 a 15+0.15 -0,80 +- 5,56 / 3.894 (socket in disaccordo, */ \
+                                         /* fermata; costo NPS -0,1%): spenta, da rivalutare                    */ \
   P(CorrCont6Upd, 38, 0, 256)            /* passo della continuazione a -6, /128 */                       \
+  P(CorrContOppW, 0, 0, 30000)           /* idea dell'utente (06/10): continuazione col PIANO avversario, la */ \
+                                         /* coppia (sua mossa a -3, sua mossa a -1); 0 = spenta          */ \
+                                         /* =4011 a 12+0.12 -5,15 +- 12,68 / 742; =8000 a 8+0.08 -4,81 +- 8,67 */ \
+                                         /* / 1.806. Le celle hanno segnale (corr. col residuo +0,24), costo  */ \
+                                         /* NPS ~1%, albero invariato: spenta, va nello SPSA CORR1 da 4011     */ \
+  P(CorrContOppUpd, 70, 0, 256)          /* passo della continuazione avversaria, /128 */                 \
   P(CorrLearnMode, 0, 0, 15)             /* bit 1: niente se escluso senza mosse; 2: niente nei nodi esclusi; */ \
                                          /* 4: niente da valori decisi; 8: nodi PV esatti in ogni direzione   */ \
+                                         /* 06/10 a 12+0.12: =1 non cambia il bench (saltata); =2 -1,64 +-    */ \
+                                         /* 7,80 / 2.114 (spenta); 4 e 8 non ancora provati                  */ \
   P(CorrFade, 0, 0, 3)                   /* 1: correzione smorzata col contatore delle 50 mosse come l'eval; */ \
                                          /* 2: bonus riportato in unita' non smorzate                       */ \
   P(CorrExpertW, 0, 0, 40000)            /* tabella dei pedoni per esperto che si AGGIUNGE alla condivisa (0 = */ \
