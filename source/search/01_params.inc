@@ -22,6 +22,10 @@
 // partite (LLR 0,65, LOS ~96%; socket 0 +6,2, socket 1 +6,3), fermato e bakato su decisione dell'utente. Dai PGN: sulle
 // mosse dopo una sorpresa (~26%) +0,35-0,4 ply. A 16+0.16 era neutra (+0,7): dipende dal TC (vedi il parametro).
 // Il bench (profondita' fissa) non usa il tempo: resta 308883.
+// BAKE HASHQSDEPTH (06/10/2026): HashQsDepth 0 -> 1 (la quiescenza scrive e legge profondita' 0 in hash, non -1;
+// 12_quiesce.inc). SPRT a 10+0.1, UHO, 40/30: +3,38 +- 2,58 su 20.162 partite (LLR 2,39, zero escluso); socket 0
+// +1,0 +- 3,5, socket 1 (~0,4 ply piu' profondo) +6,6 +- 3,9. Bakato su decisione dell'utente. Bench 222624 (con
+// HashQsDepth=0 torna 308883).
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -188,7 +192,8 @@
      provato con uno SPRT. */                                                                                       \
   P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
   P(SeePinned, 0, 0, 1)                  /* 1: nella SEE i pezzi inchiodati non ricatturano finche' c'e' l'inchiodatore */ \
-  P(HashQsDepth, 0, 0, 1)                /* 1: la quiescenza scrive e legge profondita' 0 in hash, non -1 */ \
+  P(HashQsDepth, 1, 0, 1)                /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la quiescenza     */ \
+                                         /* scrive e legge profondita' 0 in hash, non -1                 */ \
   P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse */ \
   P(EvalRefadeBridge, 0, 0, 1)           /* 1: la rilettura smorzata usa la formula del ponte (v - v*f/199) */ \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \

@@ -44,8 +44,8 @@
 > Since then: speed work with an identical tree (about −8.9% cycles per node, sections 17, 20, 22, 23), our own
 > search ideas tested one at a time (section 18), a long time-control SPSA that found no gain (section 19), and
 > the first three ideas adopted: a hash-move extension at low depth (**+4.5 ± 3.3**, section 21), a guard on it
-> (**+6.3 ± 7.9**) and more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23).
-> Current `bench`: **308883**. The status and the open work are in section 11.
+> (**+6.3 ± 7.9**), more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23) and depth 0 for
+> quiescence hash entries (**+3.4 ± 2.6**, section 24). Current `bench`: **222624**. The status and the open work are in section 11.
 
 ---
 
@@ -297,12 +297,13 @@ block, after the next network.
 
 ## 11. Status
 
-**On the evening of 5 October 2026.** The sections after this one follow the order in which the work was done.
+**On the morning of 6 October 2026.** The sections after this one follow the order in which the work was done.
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, and the
-  first three ideas adopted: LDSE, its guard and the surprise rule (sections 21–23). Bench **308883**. The
-  prerelease builds on the tag `v8.0` are the morning ones, before these three.
+  first four ideas adopted: LDSE, its guard, the surprise rule and depth 0 for quiescence hash entries
+  (sections 21–24). Bench **222624**. The
+  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these four.
 - **Speed since the 4 October prerelease:** about −8.9% cycles per node with an identical tree (sections 20–23).
-- **Open:** the queued SPRTs (`TTMoveRefresh`, `HashQsDepth`, the null-move rule resumed); a few tests closed
+- **Open:** LDSE at 40+0.4 (section 24); a few tests closed
   early or never run (contempt in a gauntlet, `SeePinned`); large pages, which the test machine does not grant,
   so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next network.
 
@@ -833,4 +834,27 @@ surprise rule does not show. No null move when the opponent has an easy capture 
 4,308 games, to be resumed. Three more speed reviews of the network and of the search hot spots produced six
 tree-identical patches; measured at rest, none gained (from +0.07% to +1.19% cycles), confirming that on this
 machine only removing work pays, while prefetching and reordering loads do not. A 300-game match against
-Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) is running on the new build.
+Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) followed (section 24).
+
+## 24. Against Stockfish 19, the printed scale, and one more idea adopted (6 October 2026)
+
+**The match.** 300 games against Stockfish 19 at the conditions of the morning gauntlet (133+1, TopGM 8-move book,
+1 thread): **+3 =291 −6, −3.5 ± 6.0** (morning build: +4 =189 −7, −5.2 ± 11.3 over 200). On the 100 openings both
+matches played, 98/200 against 98.5/200. Three morning wins became draws; the moves that differ come from LDSE (at
+fixed nodes, the evening build with LDSE off reproduces the morning search exactly). Ten replays of each of the two
+openings with each build settled it: as White both builds win the Modern with f4 every time (5/5 and 4/5) and the
+Italian with Bxf7+ rarely (0/5 and 1/5). The morning wins were chance, not lost strength.
+
+**Do we see Stockfish's advantage late?** In the lost games Stockfish's evaluation crossed ±1.00 about seven moves
+before ours. Most of that is the printed scale: over 24,761 consecutive positions Stockfish prints 1.26 times our
+number. On 15 of those positions, at the same depth and rescaled, the two evaluations agree (−0.92 against −0.95); the
+rest is depth. Our self-play games put a 50% win chance at +0.89 printed, at every amount of material, at 10+0.1 and
+at 40+0.4, so the printed centipawns are now divided by 400 instead of 449: **+1.00 means a 50% chance to win**.
+Display only, bench unchanged.
+
+**SPRTs.** The quiescence search now stores and reads depth 0 in the hash instead of −1 (`HashQsDepth`):
+**+3.38 ± 2.58** over 20,162 games at 10+0.1 (+1.0 on the faster socket, +6.6 on the one that searches about 0.4 ply
+deeper), adopted. New bench **222624**. Closed neutral and left off: refreshing the hash move when a deeper entry is
+kept (−0.65 ± 2.77 over 17,574) and no null move when the opponent has an easy capture (−0.34 ± 4.04 over 8,164).
+LDSE was adopted at 10+0.1 with a larger gain on the shallower socket; whether it holds at longer time controls is
+being measured at 40+0.4.

@@ -83,12 +83,17 @@ static inline int static_evaluate(ThreadData &td) {
   return std::clamp(v, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
-// Valore per lo schermo: dalle unita' della ricerca ai centipedoni (scala della rete e normalizzazione 449).
+// Valore per lo schermo: dalle unita' della ricerca ai centipedoni (scala della rete e normalizzazione 400).
+// SCALA 06/10/2026 (richiesta dell'utente): 449 -> 400, cosi' +1,00 = 50% di probabilita' di vincere. Taratura sui
+// NOSTRI dati di autogioco (match_moe/fit_cp_scale.py): con 449 il 50% di vittorie cadeva a +0,89 stampato, piatto
+// col materiale (86-95 da 17 a 78 punti di materiale) sia a 10+0.1 (563.496 posizioni) sia a 40+0.4 (99.438):
+// basta una costante, non serve una curva per materiale. Solo stampa: la ricerca usa le unita' interne, il bench non
+// cambia. Cambiano le soglie di aggiudicazione delle GUI (stessa posizione = cifra +12%).
 static inline int units_to_cp(int v) {
   const long long net = (long long)v * 1024 / EvalUnits;
   const int es = nn_get_eval_scale();
   const long long cp = es == 100 ? net : net * 100 / es;
-  return (int)(cp * 100 / 449);
+  return (int)(cp * 100 / 400);
 }
 
 // ============================================================================
