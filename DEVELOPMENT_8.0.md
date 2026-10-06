@@ -53,7 +53,7 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **The search restructured** | 17 | Stockfish 19's search structure, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
 | **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
-| **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October | 309067 |
+| **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease and against Stockfish 19 | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October; **50.0%** against Stockfish 19 at 133+1 (320 games) | 309067 |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -66,7 +66,8 @@ prerelease the speed work alone is about **−8.9% cycles per node** with an ide
   in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
   of 6 October evening, with all of these adoptions: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
   (section 26).
-- **Running:** a new match against Stockfish 19 at 133+1, on the openings of 5 October and on new ones.
+- **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%** with this build. Running: the
+  same match at 30+0.3 on random openings, and the analysis of the endgame king move that lost one game.
 - **Open:** the combined SPSA CORR1 (section 26); LDSE at 40+0.4; contempt in a gauntlet; large pages, which
   the test machine does not grant, so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next
   network.
@@ -951,6 +952,20 @@ the logarithmic reduction multiplier); the final values will also be checked at 
 309067), each with its own defaults: **+17.2 ± 6.8** over 2,798 games at 10+0.1 (UHO, 34 games per socket; socket 0
 +20.5, socket 1 +13.7). It is the sum of everything since 4 October: the ideas adopted in sections 21–25 and the
 speed work of sections 17–23.
+
+**Against Stockfish 19 again, with the current build.** The release built from this source (bench 309067) played the
+same 300 games as in section 24 (133+1, TopGM 8-move book, openings 1–150 with both colours, 1 thread, Hash 512,
+Syzygy 3-4-5), then the first 20 games of openings 151–155 and 226–230: **+5 =310 −5 over 320, 50.0%** (the 300 of
+section 24: +5 =290 −5, 0.0 ± 5.6, against +3 =291 −6, −3.5 ± 6.0 for the 5 October build; the 20 new games all
+drawn). Every loss and every changed result was checked move by move with Stockfish 19 at 5 s per position. Three
+of the five losses were decided by the book (Stockfish gives Black −1.15, −1.50 and −1.72 as the book ends, and finds
+no move of ours worse than its own by 0.20 before the game is lost); one had an unfavourable book exit (−0.82) plus
+two small inaccuracies of about 0.3. One was lost by a single move in a rook and
+knight endgame: with Stockfish at −0.24, our king walked to the centre (66...Ke5 instead of Kg6) into the reach of
+both rooks and the knight (−2.48). We chose it at depth 22; replayed from the same game history with the same time,
+our engine played Kg6 twice, and in one of the replays it preferred Ke5 at depths 8–12: the refutation is found late
+and not every time. An analysis of why is under way. The two
+5 October wins that became draws contain no move of ours that Stockfish rates 0.20 worse than its own.
 
 ## Appendix: every search idea tested since the restructured search
 
