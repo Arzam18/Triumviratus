@@ -396,8 +396,9 @@ includes 8.0's speed work and ablations (+11.7 ± 4.6 at 60+0.6 on the old netwo
 - **Does not mean: our own data.** The training data is overwhelmingly **public** — Leela Chess Zero and Stockfish
   self-play binpacks. The project's own self-play contributed a small minority to one network (`rubicon-alea-v2`,
   ≈ 6.5 %) and none to the 8.0 run. What is ours is the training, the mix, and the resulting weights.
-- **Does not mean:** independence from Stockfish *code*. The NNUE inference and the base architecture are Stockfish's
-  (GPLv3), extended with our own input blocks, and the trainer is Stockfish's `nnue-pytorch`. The whole project is
+- **Does not mean:** independence from Stockfish *code*. The NNUE inference and the base architecture derive from
+  Stockfish's (GPLv3); the inference has since been reworked for our mixture-of-experts network (four phase experts,
+  our own input blocks), and the trainer is Stockfish's `nnue-pytorch`. The whole project is
   GPLv3 and credits Stockfish accordingly (see `README` / `COPYING`).
 - **Why it still matters:** what the project gets is a network whose weights, mix and feature extensions are its own
   rather than a redistribution of someone else's.

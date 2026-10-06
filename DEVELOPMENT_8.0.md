@@ -501,8 +501,8 @@ each rule only works tuned together with the others.
 
 Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but
 disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of
-Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), and its
-parameters were then re-tuned by SPSA on our own network. It is Triumviratus' own code, with techniques of our own
+Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own
+ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own
 such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network.
 
 **What changed.** `source/search/` now holds:
