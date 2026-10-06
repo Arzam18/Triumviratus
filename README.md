@@ -68,7 +68,7 @@ to gain strength: four experts on the network's largest block, one per phase of 
 Since then: about 9% more speed with an identical tree, and our own ideas tested one at a time. The first six
 adopted (a hash-move extension at low depth, a guard on it, more time after an unexpected reply, depth 0 for
 quiescence hash entries, pins in the exchange evaluation, per-expert corrections) measured +4.5, +6.3, +6.2, +3.4,
-+4.5 and +3.2 Elo ([dev log](DEVELOPMENT_8.0.md#24-against-stockfish-19-the-printed-scale-and-three-more-ideas-adopted-6-october-2026)). 8.0 is also the
++4.5 and +3.2 Elo ([dev log](DEVELOPMENT_8.0.md#the-path-so-far)). 8.0 is also the
 first version to support **Chess960**.
 
 **Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,

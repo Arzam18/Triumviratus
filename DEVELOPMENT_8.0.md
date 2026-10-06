@@ -16,15 +16,18 @@
 
 <div align="center">
 
+[The path so far](#the-path-so-far) · [Where things stand](#where-things-stand-6-october-2026) ·
 [Why speed](#1-why-speed) · [How it is measured](#2-how-it-is-measured) ·
 [Where we started](#3-where-we-started) · [What changed](#4-what-changed-identical-tree) ·
 [Tried and dropped](#5-tried-and-dropped) · [TT16](#6-tt16-the-one-change-that-alters-the-tree) ·
-[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [Consilium](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status](#11-status) ·
+[Result](#7-result-against-70) · [Ablations](#8-ablations-switching-off-instead-of-adding) · [Consilium](#9-the-80-network-consilium-against-70) · [Endgame depth](#10-endgame-depth-study) · [Status on 1 October](#11-status-on-1-october-and-the-tools) ·
 [Correctness](#12-correctness-audit-smp-and-the-ccrl-games) · [SPSA M20](#13-a-search-wide-spsa-on-the-old-search-1-october-2026) · [Chess960](#14-chess960-fischer-random-chess) · [Code layout](#15-code-layout) ·
 [Gap to Stockfish](#16-where-the-gap-to-stockfish-comes-from-and-a-pruning-rework-3-october-2026) · [Search restructured](#17-the-search-restructured-4-october-2026) ·
 [Our own ideas](#18-our-own-search-ideas-tested-one-at-a-time-5-october-2026) · [Long-TC SPSA](#19-a-long-time-control-spsa-of-what-rw1-could-not-see-5-october-2026) ·
 [Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
-[Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) · [7.0 log](archive/DEVELOPMENT_7.0.md)
+[Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) ·
+[Against Stockfish 19](#24-against-stockfish-19-and-the-printed-scale-6-october-2026) · [Depth, pins, corrections](#25-ideas-that-need-depth-pins-and-the-correction-history-6-october-2026) ·
+[All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -32,21 +35,42 @@
 
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
-> the current 8.0 prerelease is the tag `v8.0`. 8.0 went through four steps, in this order.
-> - **Speed** (sections 2–7): the same search tree as 7.0, **+11.5% faster** with the new transposition
->   table; +14.7 ± 5.4 Elo against the 7.0 release at 12+0.12.
-> - **Ablations** (section 8): two search features switched off; +11.7 ± 4.6 against 7.0 at 60+0.6.
-> - **A new network, Consilium** (section 9), with its SPSA: the release build beat the official 7.0 by
->   **+27.3 ± 8.3 Elo** at 15+0.15, and +27.6 ± 7.0 with the 45-parameter search SPSA (section 13).
-> - **The search restructured** (sections 16–17), following the structure of Stockfish 19's search and
->   re-tuned on our network: **+85.8 ± 12.8 Elo** against the previous 8.0 at 20+0.2.
->
-> Since then: speed work with an identical tree (about −8.9% cycles per node, sections 17, 20, 22, 23), our own
-> search ideas tested one at a time (section 18), a long time-control SPSA that found no gain (section 19), and
-> the first three ideas adopted: a hash-move extension at low depth (**+4.5 ± 3.3**, section 21), a guard on it
-> (**+6.3 ± 7.9**), more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23), depth 0 for
-> quiescence hash entries (**+3.4 ± 2.6**) pins in the exchange evaluation (**+4.5 ± 6.8**) and per-expert corrections (**+3.2 ± 3.8**,
-> section 24). Current `bench`: **309067**. The status and the open work are in section 11.
+> the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
+> each step starting from what the previous one found. Current `bench`: **309067**.
+
+## The path so far
+
+8.0 started from the 7.0 release (CCRL Blitz 8th among single-CPU engines) with one question: where does our time
+go, compared with Stockfish? Each step answered the question the previous one left open.
+
+| step | sections | what | measured against the step before | bench after |
+|---|---|---|---|---:|
+| **Speed**, same tree | 1–7 | the code around the network made faster, a new transposition table (TT16) | **+11.5% NPS** with an identical tree; +14.7 ± 5.4 Elo against 7.0 at 12+0.12 | 240500 |
+| **Ablations** | 8 | switch off what was accepted on weak evidence | two features off; +11.7 ± 4.6 against 7.0 at 60+0.6 | 273477 |
+| **A new network, Consilium** | 9, 13 | four phase experts on the king-relative block, network SPSA, then a 45-parameter search SPSA | **+27.3 ± 8.3** against 7.0 at 15+0.15 (+27.6 ± 7.0 with the search SPSA) | 402358 |
+| **The gap to Stockfish** | 10, 16 | why we need more nodes for the same depth: selectivity, not evaluation; a pruning rework | +6.3 ± 6.0 at 20+0.2 | 337035 |
+| **The search restructured** | 17 | Stockfish 19's search structure, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
+| **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
+| **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
+
+The direction, in short: first make the same search faster, then give it a better network, then find why it needed
+more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
+is an SPRT or a match against the step before, on the same machine, with its 95% interval. Since the 4 October
+prerelease the speed work alone is about **−8.9% cycles per node** with an identical tree (sections 17, 20, 22, 23).
+
+## Where things stand (6 October 2026)
+
+- **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
+  in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
+  of the morning of 5 October, before these adoptions.
+- **Running:** the correction options proposed by the analysis of section 25 (a continuation correction six plies
+  back, conditions on learning), one SPRT at a time; then a new match against Stockfish 19.
+- **Open:** an SPSA of the correction update constants; LDSE at 40+0.4; contempt in a gauntlet; large pages, which
+  the test machine does not grant, so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next
+  network.
+- **Test rules,** as they evolved: one idea at a time on the same binary; at least 20,000 games or a clear verdict
+  (section 21); search ideas that act deep in the tree at 15+0.15, the others at 10–12 s (section 25); an idea meant
+  to gain Elo that comes out flat is analysed before it is closed (section 25).
 
 ---
 
@@ -296,21 +320,12 @@ our tree. Stockfish's tree shape comes from all its parameters tuned together, a
 The options are in the code (off) as axes for a long-time-control tuning of the LMR and null-move
 block, after the next network.
 
-## 11. Status
+## 11. Status on 1 October, and the tools
 
-**On the morning of 6 October 2026.** The sections after this one follow the order in which the work was done.
-- **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, and the
-  first six ideas adopted: LDSE, its guard, the surprise rule, depth 0 for quiescence hash entries, pins in
-  the exchange evaluation and per-expert corrections, plus two consistency fixes (sections 21–24). Bench **309067**. The
-  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these six.
-- **Speed since the 4 October prerelease:** about −8.9% cycles per node with an identical tree (sections 20–23).
-- **Open:** the correction options and their SPSA, LDSE at 40+0.4 (section 24); a few tests closed
-  early or never run (contempt in a gauntlet, `SeePinned`); large pages, which the test machine does not grant,
-  so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next network.
-
-Before the restructured search (1 October): TT16 adopted (+6.3 ± 5.1), 8.0 against 7.0 +14.7 ± 5.4 at 12+0.12
-and +11.7 ± 4.6 at 60+0.6, two features switched off by ablation, about 2,000 lines of finished switches removed,
-Consilium in training, the M20 SPSA (section 13), Chess960 support (section 14).
+The current status is at the top of this log. On 1 October, before the restructured search: TT16 adopted
+(+6.3 ± 5.1), 8.0 against 7.0 +14.7 ± 5.4 at 12+0.12 and +11.7 ± 4.6 at 60+0.6, two features switched off by
+ablation, about 2,000 lines of finished switches removed, Consilium in training, the M20 SPSA (section 13), Chess960
+support (section 14). The sections that follow pick up from there.
 
 **Tools** (`build/`): `nps_pair.py` (paired simultaneous NPS), `cpu_topology.py` (hyperthread
 siblings), `node_identity.py` (same tree check), `uci_workload.py` (common workload for any UCI engine).
@@ -837,45 +852,102 @@ tree-identical patches; measured at rest, none gained (from +0.07% to +1.19% cyc
 machine only removing work pays, while prefetching and reordering loads do not. A 300-game match against
 Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) followed (section 24).
 
-## 24. Against Stockfish 19, the printed scale, and three more ideas adopted (6 October 2026)
+## 24. Against Stockfish 19, and the printed scale (6 October 2026)
 
 **The match.** 300 games against Stockfish 19 at the conditions of the morning gauntlet (133+1, TopGM 8-move book,
 1 thread): **+3 =291 −6, −3.5 ± 6.0** (morning build: +4 =189 −7, −5.2 ± 11.3 over 200). On the 100 openings both
 matches played, 98/200 against 98.5/200. Three morning wins became draws; the moves that differ come from LDSE (at
 fixed nodes, the evening build with LDSE off reproduces the morning search exactly). Ten replays of each of the two
 openings with each build settled it: as White both builds win the Modern with f4 every time (5/5 and 4/5) and the
-Italian with Bxf7+ rarely (0/5 and 1/5). The morning wins were chance, not lost strength.
+Italian with Bxf7+ rarely (0/5 and 1/5). The morning wins were chance, not lost strength. Half of the decisive games
+against Stockfish are decided as the book ends (both engines see ±1.2 to ±1.7 at move 9); in the rest, Stockfish
+converts an advantaged side better than we do (in the same Italian, as White it won 6 of 10 replays, we won 1).
 
 **Do we see Stockfish's advantage late?** In the lost games Stockfish's evaluation crossed ±1.00 about seven moves
 before ours. Most of that is the printed scale: over 24,761 consecutive positions Stockfish prints 1.26 times our
 number. On 15 of those positions, at the same depth and rescaled, the two evaluations agree (−0.92 against −0.95); the
 rest is depth. Our self-play games put a 50% win chance at +0.89 printed, at every amount of material, at 10+0.1 and
 at 40+0.4, so the printed centipawns are now divided by 400 instead of 449: **+1.00 means a 50% chance to win**.
-Display only, bench unchanged.
+Display only, bench unchanged. Rescaled, Stockfish's lead in the lost games falls from 7.4 to 1.3 moves. None of the
+losses after an even book exit was caused by a pinned piece.
 
-**SPRTs.** The quiescence search now stores and reads depth 0 in the hash instead of −1 (`HashQsDepth`):
-**+3.38 ± 2.58** over 20,162 games at 10+0.1, adopted (bench 222624). In the static exchange evaluation, pieces pinned
-to their king no longer recapture while the pinner is on the board (`SeePinned`): **+4.5 ± 6.8** over 2,934 games,
-adopted. New bench **507070**. Closed neutral and left off: refreshing the hash move when a deeper entry is kept
-(−0.65 ± 2.77 over 17,574), no null move when the opponent has an easy capture (−0.34 ± 4.04 over 8,164), and
-separate correction histories by fifty-move band in endgames (+1.25 ± 2.87 over 5,294).
+## 25. Ideas that need depth, pins, and the correction history (6 October 2026)
 
-Both adopted ideas gain on one socket only: +1.0 and −2.1 on socket 0, +6.6 and +13.4 on socket 1. Socket 0 runs 40
-games on 20 cores with hyperthreading and searches about 0.4 ply less deep than socket 1, so its 10+0.1 is
-effectively shorter. Ideas that act deep in the tree show up only when the search goes a little deeper; search SPRTs
-now run at 15+0.15 (about 0.5–0.9 ply deeper on both sockets, with 76 games at once instead of 70). Whether LDSE
-holds at longer time controls is postponed to a 40+0.4 test after the fast ones.
+**Two adoptions, and what they showed.** The quiescence search now stores and reads depth 0 in the hash instead of −1
+(`HashQsDepth`): **+3.38 ± 2.58** over 20,162 games at 10+0.1, adopted (bench 222624). In the static exchange
+evaluation, pieces pinned to their king no longer recapture while the pinner is on the board (`SeePinned`):
+**+4.5 ± 6.8** over 2,934 games, adopted (bench 507070); at fixed depth its tree is unchanged in most positions
+(median ×1.00 at depths 10–16). Both gained on one socket only: +1.0 and −2.1 on socket 0, +6.6 and +13.4 on socket
+1. Socket 0 ran 40 games on 20 cores with hyperthreading and searched about 0.4 ply less deep than socket 1, so its
+10+0.1 was effectively shorter. **Ideas that act deep in the tree show up only when the search goes a little
+deeper**: from here on, search SPRTs run at 15+0.15 (0.5–0.9 ply deeper on both sockets), the others at 10–12 s.
+Saturating socket 1 (two memory channels) costs depth too, so both sockets now run 34 games at once.
 
-**The correction history, studied.** Searching per-phase corrections (`CorrPhase`: the pawn and minor-piece correction
-keys salted with the network expert, so each expert learns its own error) first came out at −5.1 ± 8.1. Before closing
-it, an analysis agent read the whole correction code and found the cause: the move generator prefetched the
-correction rows with the unsalted keys, so with the option on the rows actually read were never prefetched and two
-useless loads were issued. The same defect had penalised the fifty-move-band corrections. Fixed (identical tree with
-the options off), `CorrPhase` measured **+3.2 ± 3.8** over 8,634 games at 12+0.12, both sockets positive, and is now the
-default (bench **309067**). Two consistency fixes went in before it: the null move no longer advances the fifty-move
-counter, and an evaluation read back from the cache or the hash is re-faded with exactly the formula used when it was
-computed (+1.6 ± 2.6 over 9,774 endgame games, no harm in the middlegame). The agent's other proposals are in the
-source as options, all off: a continuation correction at −6 plies, learning conditions, a correction faded with the
-fifty-move counter like the evaluation (our idea), an additive per-expert table, and the update constants that came
-with the restructured search, now parameters for an SPSA. A diagnostic build measures how much of the evaluation error
-the corrections remove, by expert and by fifty-move band.
+**Closed, and left off.** Refreshing the hash move when a deeper entry is kept: −0.65 ± 2.77 over 17,574 games. No null
+move when the opponent has an easy capture: −0.34 ± 4.04 over 8,164. Ideas retried on the restructured search at
+15+0.15: no "improving" discount in reverse futility when the opponent has an easy capture −3.5 ± 8.4 (1,704 games,
+both sockets negative); the transition extension −18.2 ± 16.4 (402), likely inflating the tree together with the
+other extensions; the passed-pawn push in quiescence −0.77 ± 7.48 (2,264), flat, to be retried with more games.
+
+**Two consistency fixes.** The null move no longer advances the fifty-move counter, and an evaluation read back from
+the cache or the hash is re-faded with exactly the formula used when it was computed. Both act only with a high
+fifty-move counter, so they were measured where that happens: on the endgame book, **+1.6 ± 2.6** over 9,774 games
+at 5+0.05 (−2.2 ± 7.5 on UHO at 6+0.06, no harm in the middlegame). Adopted (bench 370886); at fixed depth the
+endgame tree gets smaller as depth grows (×0.91 at depth 16).
+
+**The correction history, studied.** Corrections separated by network expert (`CorrPhase`: the pawn and minor-piece
+correction keys salted with the expert, so each expert learns its own error) first came out at **−5.1 ± 8.1** (1,976
+games). An idea with that rationale should not lose, so before closing it an analysis agent read the whole correction
+code. It found the cause: the move generator prefetched the correction rows with the unsalted keys, so with the option
+on, the rows actually read were never prefetched and two useless loads were issued. The same defect had penalised
+the fifty-move-band corrections (+1.25 ± 2.87 over 5,294, closed neutral before the fix). Fixed, with an identical
+tree when the options are off, `CorrPhase` measured **+3.2 ± 3.8** over 8,634 games at 12+0.12, both sockets
+positive, and is now the default (bench **309067**). Rule kept from this: an idea meant to gain Elo that comes out
+flat is analysed before it is closed.
+
+The agent's other proposals went into the source as options, all off: a continuation correction six plies back,
+conditions on learning, a correction faded with the fifty-move counter like the evaluation (our idea), an additive
+per-expert table, and the update constants that came with the restructured search, now parameters for an SPSA. A
+diagnostic build measures how much of the evaluation error the corrections remove (200 positions, 1M nodes each, exact
+nodes): **58.8% with `CorrPhase` against 57.3% without**, the gain coming from endgames with nine pieces or fewer
+(residual rms 110.6 against 131.6). After the correction the mean residual is similar for every expert, so an
+additional per-expert table has little left to learn. Positions with a high fifty-move counter are rare even in
+endgame games (fewer than 2% of exact nodes), which fits the result of the correction faded with the counter:
+**−2.7 ± 4.3** on the endgame book (2,572 games), closed. The correction slot shrank from 10 to 8 bytes (the field of
+a closed idea removed): neutral in speed (cycles per node +0.00% middlegame, +0.26% endgames), kept as a clean-up.
+
+## Appendix: every search idea tested since the restructured search
+
+One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
+the same binary, with its 95% interval; "lean" means stopped early while positive.
+
+| idea | section | TC, book | games | Elo | outcome |
+|---|---|---|---:|---:|---|
+| Disagree (prune less where the network's outputs disagree) | 18 | 10+0.1 UHO | 690 | −12.6 ± 15.2 | removed |
+| PhaseEdge margin / improving | 18 | 10+0.1 UHO | 1,262 / 296 | −2.5 / −14.1 | removed |
+| PhaseEdge, no futility across experts | 18 | 10+0.1 UHO | 24,292 | +1.3 ± 2.3 | neutral, off |
+| LateBranch | 18 | 10+0.1 UHO | 892 | −5.1 ± 12.9 | removed |
+| Near-miss TT cutoffs (corrected port) | 18 | 20+0.2 UHO | 1,142 | −6.7 ± 10.6 | removed |
+| TT cutoff damping | 18 | 15+0.15 UHO | 2,768 | +2.6 ± 6.8 | lean, off |
+| Defensive replies / endgame null-move verification | 18 | 10+0.1 endgames | 1,990 / 728 | −2.3 / −6.7 | removed |
+| The five leans together | 18 | 10+0.1 UHO | 3,120 | −0.1 ± 6.7 | nothing baked |
+| Depth ramp RW1 → LTC1 | 18 | 20+0.2 UHO | 1,486 | −0.9 ± 9.2 | off |
+| LTC1 SPSA vector (mean of the last 50) | 19 | 30+0.3 UHO | 606 | −4.6 ± 14.1 | RW1 values kept |
+| **LDSE**, hash-move extension at low depth | 21 | 10+0.1 UHO | 11,604 | **+4.5 ± 3.3** | **adopted** |
+| Quiet hash move in quiescence | 21 | 10+0.1 endgames | 2,984 | −1.05 ± 3.92 | closed |
+| **LDSE guard** (one extension per line) | 23 | 15+0.15 UHO | 2,112 | **+6.25 ± 7.89** | **adopted** |
+| Expected-reply floor | 23 | 12–16 s UHO | 696 / 1,090 | −5.5 / +0.6 | off |
+| **Surprise rule ×1.2** | 23 | 40+0.4 UHO | 2,174 | **+6.23 ± 6.75** | **adopted** |
+| The three adoptions together, against the morning build | 23 | 10+0.1 UHO | 1,902 | +1.3 ± 8.0 | no regression |
+| Hash-move refresh on a kept entry | 25 | 10+0.1 UHO | 17,574 | −0.65 ± 2.77 | off |
+| **Quiescence hash depth 0** | 25 | 10+0.1 UHO | 20,162 | **+3.38 ± 2.58** | **adopted** |
+| No null move against an easy capture | 25 | 10+0.1 UHO | 8,164 | −0.34 ± 4.04 | off |
+| **Pins in SEE** | 25 | 10+0.1 UHO | 2,934 | **+4.5 ± 6.8** | **adopted** |
+| Corrections per fifty-move band (before the prefetch fix) | 25 | 10+0.1 endgames | 5,294 | +1.25 ± 2.87 | off |
+| Reverse futility against an easy capture | 25 | 15+0.15 UHO | 1,704 | −3.5 ± 8.4 | off |
+| Transition extension | 25 | 15+0.15 UHO | 402 | −18.2 ± 16.4 | off |
+| Passed-pawn push in quiescence | 25 | 15+0.15 UHO | 2,264 | −0.77 ± 7.48 | off, to retry |
+| `CorrPhase` (before the prefetch fix) | 25 | 12+0.12 UHO | 1,976 | −5.1 ± 8.1 | analysed |
+| **Two consistency fixes** (null move and fifty-move counter, one fade formula) | 25 | 5+0.05 endgames | 9,774 | **+1.6 ± 2.6** | **adopted** |
+| **`CorrPhase`** (after the fix) | 25 | 12+0.12 UHO | 8,634 | **+3.2 ± 3.8** | **adopted** |
+| Correction faded with the fifty-move counter | 25 | 10+0.1 endgames | 2,572 | −2.7 ± 4.3 | off |
