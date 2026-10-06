@@ -28,6 +28,7 @@
 [Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) ·
 [Against Stockfish 19](#24-against-stockfish-19-and-the-printed-scale-6-october-2026) · [Depth, pins, corrections](#25-ideas-that-need-depth-pins-and-the-correction-history-6-october-2026) ·
 [Opponent's plan, progress check](#26-the-opponents-plan-a-combined-spsa-and-a-progress-check-6-october-2026-evening) ·
+[One lost game, examined](#27-one-lost-game-examined-and-the-clock-6-october-2026-night) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -66,8 +67,10 @@ prerelease the speed work alone is about **−8.9% cycles per node** with an ide
   in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
   of 6 October evening, with all of these adoptions: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
   (section 26).
-- **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%** with this build. Running: the
-  same match at 30+0.3 on random openings, and the analysis of the endgame king move that lost one game.
+- **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%** with this build; at 30+0.3 on
+  random openings −4.4 ± 7.1 over 395 (section 27).
+- **Running:** a time-management SPRT at 40+0.4 (section 27), a search speed study and a measurement of the time
+  manager's instability signal.
 - **Open:** the combined SPSA CORR1 (section 26); LDSE at 40+0.4; contempt in a gauntlet; large pages, which
   the test machine does not grant, so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next
   network.
@@ -964,8 +967,41 @@ two small inaccuracies of about 0.3. One was lost by a single move in a rook and
 knight endgame: with Stockfish at −0.24, our king walked to the centre (66...Ke5 instead of Kg6) into the reach of
 both rooks and the knight (−2.48). We chose it at depth 22; replayed from the same game history with the same time,
 our engine played Kg6 twice, and in one of the replays it preferred Ke5 at depths 8–12: the refutation is found late
-and not every time. An analysis of why is under way. The two
+and not every time (analysed in section 27). The two
 5 October wins that became draws contain no move of ours that Stockfish rates 0.20 worse than its own.
+
+## 27. One lost game, examined, and the clock (6 October 2026, night)
+
+**The game.** Of the five losses against Stockfish 19 in section 26, one came from a single move with the position
+still holdable: a rook and knight endgame where our king walked to the centre (66...Ke5 instead of Kg6) and was
+hunted down for ten moves until a skewer won a rook. Three analyses, each run before drawing a conclusion:
+- **The move itself.** Replayed with the same game history and the same time, our engine plays Kg6 or Kg5 22 times
+  out of 22. In the game it had about 4.5 s on the clock and the hard time limit stopped the iteration; searched
+  alone, Ke5 is refuted clearly from depth 20. A rare instability under time pressure, not a pattern: no other game
+  of either match shows it. A cap on root reductions changes nothing measurable (a reduced root move that looks good
+  is always searched again at full depth); it stays in the code as an option, off.
+- **Checks.** Do we reduce or prune the checks of a king hunt too much? No. From depth 20 every move of the
+  refutation is the first one tried, is never pruned or reduced, and gets 1 to 2.6 plies of singular extension.
+  Meaningless tweaks of unrelated parameters move the depth at which a single position is solved by up to seven
+  plies, so every lever was judged against such controls on a set of 19 positions: none stood out. Extending checks
+  costs 1.45 plies in endgames.
+- **Endgames.** Do we recognise won endgames later than Stockfish? Not on 124 decided endgames: our static
+  evaluation is 0.90 of Stockfish's, which is only the difference in printed scale (Stockfish prints about 1.12 times
+  our number since our centipawns are divided by 400), and in nodes we reach a decisive score no later.
+
+**The clock.** Over 820 games against Stockfish 19 at 133+1 (clocks rebuilt from the game records and checked to the
+millisecond on 17,850 moves where the GUI logged them), our time manager is the same function of clock and move
+number as Stockfish's. We spend more in the longest thinks of moves 11–40 and so reach moves 40–60 with 3–4 s less in
+over half of the games, and errors concentrate when the clock is under three increments (17–30 per 1,000 moves,
+against under 1 above 60 s). Lowering the cap on the longest thinks lost clearly: **−27.1 ± 17.0** over 308 games at
+40+0.4 (both sides with the game's move number, as in a PGN book). The long thinks are needed; the opposite
+direction is under test.
+
+**Also closed today.** The hash cutoff damping of section 18, retried on the current build at 15+0.15: +2.2 ± 5.4
+over 4,138 games, small and unproven, to be retried at 20+0.2. Learning corrections in exact PV nodes in either
+direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quiescence hash depth, the two consistency
+fixes) became fixed code; in release builds the remaining tuning copies read outside the search are compile-time
+constants. Bench unchanged, 309067.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1007,3 +1043,6 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | The same at the regression weight | 26 | 8+0.08 UHO | 1,806 | −4.8 ± 8.7 | off |
 | No correction learning in excluded nodes | 26 | 12+0.12 UHO | 2,114 | −1.6 ± 7.8 | off |
 | **Today's build against the 4 October prerelease** | 26 | 10+0.1 UHO | 2,798 | **+17.2 ± 6.8** | progress check |
+| Hash cutoff damping, retried on the current build | 27 | 15+0.15 UHO | 4,138 | +2.2 ± 5.4 | off, retry at 20+0.2 |
+| Corrections learned in exact PV nodes in either direction | 27 | 8+0.08 UHO | 3,258 | −2.8 ± 6.6 | off |
+| Lower cap on the longest thinks (time manager) | 27 | 40+0.4 UHO | 308 | −27.1 ± 17.0 | off |
