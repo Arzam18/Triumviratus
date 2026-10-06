@@ -221,32 +221,62 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];
     cont = CorrContW * ((*f[-2].cont_corr)[pc][to] + (*f[-4].cont_corr)[pc][to]);
+    if (CorrCont6W)   // f[-6] esiste sempre: prima della radice ci sono 7 frame con la riga sentinella
+      cont += CorrCont6W * (*f[-6].cont_corr)[pc][to];
   }
-  int signal = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
-  if (CorrMajorW)
-    signal += CorrMajorW * corr_slot(td.mm_key[1], us).major;
-  return signal;
+  return CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
+}
+
+// CorrExpertW (06/10/2026, rapporto N_CORREZIONI 4.8): una tabella dei pedoni per esperto della rete che si somma
+// alle correzioni condivise invece di sostituirne la chiave (come CorrPhase). La condivisa resta come base, quella per
+// esperto impara solo la differenza propria dell'esperto. Il termine entra nella valutazione ma NON in n.signal, che
+// regola RFP, LMR e singolare (rapporto 4.2): cosi' si misura solo la precisione. A 0 il termine vale 0.
+static inline U64 corr_expert_key(const ThreadData &td) {
+  static constexpr U64 keys[4] = {0x3C6EF372FE94F82BULL, 0xA54FF53A5F1D36F1ULL, 0x510E527FADE682D1ULL,
+                                  0x9B05688C2B3E6C1FULL};
+  const int pcs = count_bits(td.occupancies[both]);
+  const int band = CorrExpertBands == 2 ? (pcs <= 15 ? 0 : 3) : net_phase(pcs);
+  return td.pawn_key ^ keys[band];
+}
+
+static inline int corr_signal_extra(const ThreadData &td) {
+  if (!CorrExpertW)
+    return 0;
+  return CorrExpertW * g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side];
 }
 
 static inline int corrected_eval(int v, int signal) {
   return std::clamp(v + signal / 131072, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
+// CorrFade (nostra, 06/10/2026, rapporto N_CORREZIONI 4.7): la rete smorza la valutazione col contatore delle 50 mosse,
+// la correzione si somma dopo e resta piena. Bit 1: anche la correzione si smorza alla lettura (solo nella
+// valutazione, la selettivita' usa |signal| intero). Bit 2: il bonus si riporta in unita' non smorzate.
+static inline int corr_eval_term(const ThreadData &td, int signal) {
+  if (!(CorrFade & 1))
+    return signal;
+  return (int)((long long)signal * (199 - std::min(td.fifty, 100)) / 199);
+}
+
 static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
   PROF_GUARD(prof_corr);
+  if (CorrFade & 2)
+    bonus = bonus * 199 / (199 - std::min(td.fifty, 100));   // fino a x2: stat_push limita comunque
   const int us = td.side;
   const U64 phk = corr_phase_key(td);
   const U64 fk = corr_fifty_key(td);
-  stat_push(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus, LIM_CORR);
+  stat_push(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus * CorrPawnUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[white] ^ fk, us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
   stat_push(corr_slot(td.np_key[black] ^ fk, us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
-  if (CorrMajorW)
-    stat_push(corr_slot(td.mm_key[1], us).major, bonus * CorrMajorUpd / 128, LIM_CORR);
   const int prev = f[-1].move;
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];
-    stat_push((*f[-2].cont_corr)[pc][to], bonus * 130 / 128, LIM_CORR);
-    stat_push((*f[-4].cont_corr)[pc][to], bonus * 70 / 128, LIM_CORR);
+    stat_push((*f[-2].cont_corr)[pc][to], bonus * CorrCont2Upd / 128, LIM_CORR);
+    stat_push((*f[-4].cont_corr)[pc][to], bonus * CorrCont4Upd / 128, LIM_CORR);
+    if (CorrCont6W)
+      stat_push((*f[-6].cont_corr)[pc][to], bonus * CorrCont6Upd / 128, LIM_CORR);
   }
+  if (CorrExpertW)
+    stat_push(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR);
 }

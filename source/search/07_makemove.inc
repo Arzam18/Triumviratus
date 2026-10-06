@@ -1,6 +1,12 @@
 // search/07_makemove.inc -- Attacchi, make_move e unmake_move per thread.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, nell'ordine
 // fissato li' (divisione del 27/09/2026, codice generato identico: vedi l'intestazione di threads.cpp).
+
+// Chiavi aggiuntive delle correzioni (09_history.inc): servono al prefetch in td_make_move.
+static inline U64 corr_phase_key(const ThreadData &td);
+static inline U64 corr_fifty_key(const ThreadData &td);
+static inline U64 corr_expert_key(const ThreadData &td);
+
 // ============================================================================
 // ATTACK DETECTION
 // ============================================================================
@@ -447,12 +453,19 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   // Prefetch delle correzioni che il figlio legge per prime: struttura pedonale e pezzi minori (chiavi gia'
   // aggiornate qui sopra). td.side e' gia' quello del figlio. Dal 04/10/2026 le tabelle sono condivise fra i
   // thread e grandi (1 MB per thread), non piu' 64 KB in L2: il prefetch qui ha di nuovo dei miss da nascondere.
-  TT_PREFETCH(&g_stats.corr[td.pawn_key & g_stats.corr_mask][td.side]);
-  TT_PREFETCH(&g_stats.corr[td.mm_key[0] & g_stats.corr_mask][td.side]);
+  // 06/10/2026 (rapporto docs/audit_8.0/N_CORREZIONI.md): le righe si anticipano con le STESSE chiavi che legge
+  // corr_signal, sale di fase (CorrPhase) e di fascia delle 50 mosse (CorrFiftyStep) compresi. Prima si usavano le
+  // chiavi senza sale: a opzioni spente identico, ad opzioni accese due prefetch a vuoto e nessuna riga anticipata,
+  // cioe' CorrPhase e CorrFifty pagavano velocita' negli SPRT. A opzioni spente i sali valgono 0: codice equivalente.
+  const U64 pf_phk = corr_phase_key(td), pf_fk = corr_fifty_key(td);
+  TT_PREFETCH(&g_stats.corr[(td.pawn_key ^ pf_phk ^ pf_fk) & g_stats.corr_mask][td.side]);
+  TT_PREFETCH(&g_stats.corr[(td.mm_key[0] ^ pf_phk) & g_stats.corr_mask][td.side]);
   // 04/10/2026 sera: anche i due slot dei non-pedoni, che corr_signal legge subito dopo (tabella da 1,3 MB per
   // thread: fuori da L2, ogni slot non anticipato e' un'attesa di L3 nel figlio).
-  TT_PREFETCH(&g_stats.corr[td.np_key[white] & g_stats.corr_mask][td.side]);
-  TT_PREFETCH(&g_stats.corr[td.np_key[black] & g_stats.corr_mask][td.side]);
+  TT_PREFETCH(&g_stats.corr[(td.np_key[white] ^ pf_fk) & g_stats.corr_mask][td.side]);
+  TT_PREFETCH(&g_stats.corr[(td.np_key[black] ^ pf_fk) & g_stats.corr_mask][td.side]);
+  if (CorrExpertW)
+    TT_PREFETCH(&g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side]);
 
   // La chiave della hash puo' portare la fascia delle 50 mosse (tt_key, HashFiftyStep): se differisce dalla stima si
   // richiama la riga giusta. A opzione spenta tt_key e' td.hash_key e il test e' quello di prima.

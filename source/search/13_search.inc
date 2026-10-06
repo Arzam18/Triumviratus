@@ -15,6 +15,7 @@ struct NodeState {
   int  best, best_move, cap_value;
   int  moves;                     // mosse legali cercate (il contatore del frame lo riusa la ricerca singolare)
   int  eval, eval_raw, signal;
+  int  signal_x;                  // correzioni sperimentali solo nella valutazione, non nella selettivita' (CorrExpertW)
   int  prev_to;
   int  excluded;
   int  prior_red;
@@ -227,6 +228,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   f->stat_score = 0;
   f[2].cutoff_cnt = 0;
   n.signal = corr_signal(td, f);
+  n.signal_x = corr_signal_extra(td);
   n.excluded = f->excluded;
 
   hash_read(td, n.h);
@@ -345,7 +347,7 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.eval_raw = n.h.hit ? n.h.eval_raw : tt_eval_none;
   } else {
     const int plain = node_eval(td, n.h, n.eval_raw);
-    f->static_eval = n.eval = corrected_eval(plain, n.signal);
+    f->static_eval = n.eval = corrected_eval(plain, corr_eval_term(td, n.signal + n.signal_x));
     if (n.h.hit) {
       if (val_known(n.h.value) && bound_covers(n.h.bound, n.h.value > n.eval))
         n.eval = n.h.value;
@@ -573,7 +575,7 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   const int v = explore(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
   f->excluded = 0;
   if (v < s_beta) {
-    const int corr_adj = std::abs(n.signal) / 198368;
+    const int corr_adj = std::abs(n.signal) / SingCorrDiv;
     const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * !n.tact_hash - corr_adj -
                     1175 * td.tt_move_hist / 114178 - (f->ply > td.root_depth) * 38;
     const int tpl = SingTripleBase + SingTriplePv * n.pv - SingTripleQuiet * !n.tact_hash + SingTripleTtPv * f->tt_pv -
@@ -584,7 +586,7 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   if (v >= n.beta && !val_decided(v)) {
     stat_push(td.tt_move_hist, -421 - 110 * n.depth, LIM_TTMOVE);
     if (!n.in_check && v > f->static_eval) {
-      const int bonus = std::clamp((v - f->static_eval) * s_depth * 177 / 1024, -LIM_CORR / 4, LIM_CORR / 4);
+      const int bonus = std::clamp((v - f->static_eval) * s_depth * CorrSingMul / 1024, -LIM_CORR / 4, LIM_CORR / 4);
       corr_learn(td, f, bonus);
     }
     *cutoff = v;
@@ -841,9 +843,25 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
                n.best >= n.beta ? BOUND_LOW : (n.pv && n.best_move) ? BOUND_EXACT : BOUND_UP,
                n.moves ? n.depth : std::min(max_ply - 1, n.depth + 6), n.best_move, n.eval_raw);
 
-  if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && (n.best > f->static_eval) == (n.best_move != 0)) {
-    const int bonus = std::clamp((n.best - f->static_eval) * n.depth * (n.best_move ? 12 : 18) / 128,
-                                 -LIM_CORR / 4, LIM_CORR / 4);
+  // CorrLearnMode (06/10/2026, rapporto N_CORREZIONI 4.5): a 0 la condizione di sempre.
+  const bool learn_ok = !((CorrLearnMode & 1) && n.excluded && !n.moves) && !((CorrLearnMode & 2) && n.excluded) &&
+                        !((CorrLearnMode & 4) && val_decided(n.best));
+  const bool dir_ok = (n.best > f->static_eval) == (n.best_move != 0) ||
+                      ((CorrLearnMode & 8) && n.pv && n.best_move && n.best < n.beta);
+#ifdef TRIUMV_CORRSTATS
+  // Residuo prima e dopo la correzione (cstats.h), PRIMA del filtro di direzione (che sceglierebbe il segno):
+  // nodi fuori scacco, non esclusi, senza cattura migliore, con un'eval della rete nota.
+  if (!n.in_check && !n.excluded && !(n.best_move && get_move_capture(n.best_move)) && n.eval_raw != tt_eval_none &&
+      !val_decided(n.best)) {
+    const int plain = eval_refade(n.eval_raw, td.fifty);
+    const int fb = td.fifty < 20 ? 0 : td.fifty < 60 ? 1 : 2;
+    const int kind = n.best_move ? (n.best >= n.beta ? 0 : 1) : 2;   // fail-high, esatto, fail-low
+    CSTAT(net_phase(count_bits(td.occupancies[both])), fb, kind, n.best - plain, n.best - f->static_eval);
+  }
+#endif
+  if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && dir_ok && learn_ok) {
+    const int bonus = std::clamp((n.best - f->static_eval) * n.depth * (n.best_move ? CorrBonusHi : CorrBonusLo) / 128,
+                                 -CorrBonusMaxLo, CorrBonusMaxHi);
     corr_learn(td, f, 1061 * bonus / 1024);
   }
   return n.best;

@@ -45,8 +45,8 @@
 > search ideas tested one at a time (section 18), a long time-control SPSA that found no gain (section 19), and
 > the first three ideas adopted: a hash-move extension at low depth (**+4.5 ± 3.3**, section 21), a guard on it
 > (**+6.3 ± 7.9**), more time after an unexpected reply (**+6.2 ± 6.8** at 40+0.4, section 23), depth 0 for
-> quiescence hash entries (**+3.4 ± 2.6**) and pins in the exchange evaluation (**+4.5 ± 6.8**, section 24).
-> Current `bench`: **507070**. The status and the open work are in section 11.
+> quiescence hash entries (**+3.4 ± 2.6**) pins in the exchange evaluation (**+4.5 ± 6.8**) and per-expert corrections (**+3.2 ± 3.8**,
+> section 24). Current `bench`: **309067**. The status and the open work are in section 11.
 
 ---
 
@@ -300,11 +300,11 @@ block, after the next network.
 
 **On the morning of 6 October 2026.** The sections after this one follow the order in which the work was done.
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, and the
-  first five ideas adopted: LDSE, its guard, the surprise rule, depth 0 for quiescence hash entries and
-  pins in the exchange evaluation (sections 21–24). Bench **507070**. The
-  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these five.
+  first six ideas adopted: LDSE, its guard, the surprise rule, depth 0 for quiescence hash entries, pins in
+  the exchange evaluation and per-expert corrections, plus two consistency fixes (sections 21–24). Bench **309067**. The
+  prerelease builds on the tag `v8.0` are the 5 October morning ones, before these six.
 - **Speed since the 4 October prerelease:** about −8.9% cycles per node with an identical tree (sections 20–23).
-- **Open:** LDSE at 40+0.4 (section 24); a few tests closed
+- **Open:** the correction options and their SPSA, LDSE at 40+0.4 (section 24); a few tests closed
   early or never run (contempt in a gauntlet, `SeePinned`); large pages, which the test machine does not grant,
   so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next network.
 
@@ -837,7 +837,7 @@ tree-identical patches; measured at rest, none gained (from +0.07% to +1.19% cyc
 machine only removing work pays, while prefetching and reordering loads do not. A 300-game match against
 Stockfish 19 at the conditions of the earlier gauntlet (133+1, TopGM 8-move book) followed (section 24).
 
-## 24. Against Stockfish 19, the printed scale, and two more ideas adopted (6 October 2026)
+## 24. Against Stockfish 19, the printed scale, and three more ideas adopted (6 October 2026)
 
 **The match.** 300 games against Stockfish 19 at the conditions of the morning gauntlet (133+1, TopGM 8-move book,
 1 thread): **+3 =291 −6, −3.5 ± 6.0** (morning build: +4 =189 −7, −5.2 ± 11.3 over 200). On the 100 openings both
@@ -865,3 +865,17 @@ games on 20 cores with hyperthreading and searches about 0.4 ply less deep than 
 effectively shorter. Ideas that act deep in the tree show up only when the search goes a little deeper; search SPRTs
 now run at 15+0.15 (about 0.5–0.9 ply deeper on both sockets, with 76 games at once instead of 70). Whether LDSE
 holds at longer time controls is postponed to a 40+0.4 test after the fast ones.
+
+**The correction history, studied.** Searching per-phase corrections (`CorrPhase`: the pawn and minor-piece correction
+keys salted with the network expert, so each expert learns its own error) first came out at −5.1 ± 8.1. Before closing
+it, an analysis agent read the whole correction code and found the cause: the move generator prefetched the
+correction rows with the unsalted keys, so with the option on the rows actually read were never prefetched and two
+useless loads were issued. The same defect had penalised the fifty-move-band corrections. Fixed (identical tree with
+the options off), `CorrPhase` measured **+3.2 ± 3.8** over 8,634 games at 12+0.12, both sockets positive, and is now the
+default (bench **309067**). Two consistency fixes went in before it: the null move no longer advances the fifty-move
+counter, and an evaluation read back from the cache or the hash is re-faded with exactly the formula used when it was
+computed (+1.6 ± 2.6 over 9,774 endgame games, no harm in the middlegame). The agent's other proposals are in the
+source as options, all off: a continuation correction at −6 plies, learning conditions, a correction faded with the
+fifty-move counter like the evaluation (our idea), an additive per-expert table, and the update constants that came
+with the restructured search, now parameters for an SPSA. A diagnostic build measures how much of the evaluation error
+the corrections remove, by expert and by fifty-move band.

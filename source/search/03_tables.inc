@@ -41,7 +41,8 @@ static inline U64 tt_key(const ThreadData &td) {
 // ---------------------------------------------------------------------------
 struct CorrSlot {           // le correzioni lette con chiavi diverse ma nello stesso array
   int16_t pawn, minor, np_white, np_black;
-  int16_t major;            // nostra: torri e donne (CorrMajorW, spenta = 0)
+  // 06/10/2026: tolto il campo `major` di CorrMajorW (idea chiusa: -2,1 +- 20,7). Slot da 10 a 8 byte: riga da 16
+  // byte, quattro righe per linea di cache, tabella da 1,31 a 1,05 MB per thread (rapporto N_CORREZIONI 4.6).
 };
 
 struct SharedStats {
@@ -49,6 +50,7 @@ struct SharedStats {
   PieceToRow (*follow)[2][NO_PC + 1][64] = nullptr;
   PieceToRow* pawn_rows = nullptr;      // [indice struttura pedonale]
   CorrSlot  (*corr)[2] = nullptr;       // [indice chiave][lato al tratto]
+  int16_t   (*corr_x)[2] = nullptr;     // CorrExpertW: pedoni per esperto, in aggiunta alla condivisa [indice][lato]
   U64 pawn_mask = 0;
   U64 corr_mask = 0;
   int slots = 0;                        // potenza di due >= numero di thread
@@ -67,9 +69,11 @@ static void shared_stats_alloc(int threads) {
   delete[] g_stats.follow;
   delete[] g_stats.pawn_rows;
   delete[] g_stats.corr;
+  delete[] g_stats.corr_x;
   g_stats.follow    = new PieceToRow[2][2][NO_PC + 1][64];
   g_stats.pawn_rows = new PieceToRow[(size_t)PAWN_ROWS_PER_SLOT * slots];
   g_stats.corr      = new CorrSlot[(size_t)CORR_ROWS_PER_SLOT * slots][2];
+  g_stats.corr_x    = new int16_t[(size_t)CORR_ROWS_PER_SLOT * slots][2];   // 256 KB per slot
   g_stats.pawn_mask = (U64)PAWN_ROWS_PER_SLOT * slots - 1;
   g_stats.corr_mask = (U64)CORR_ROWS_PER_SLOT * slots - 1;
   g_stats.slots     = slots;
@@ -85,6 +89,7 @@ static void shared_stats_reset() {
   fill_with(&g_stats.follow[0][0][0][0], (size_t)2 * 2 * (NO_PC + 1) * 64, -586);
   fill_with(g_stats.pawn_rows, (size_t)g_stats.pawn_mask + 1, -1338);
   fill_with(&g_stats.corr[0][0], (size_t)(g_stats.corr_mask + 1) * 2, -5);
+  fill_with(&g_stats.corr_x[0][0], (size_t)(g_stats.corr_mask + 1) * 2, 0);
 }
 
 static void thread_stats_reset(ThreadData &td) {

@@ -32,6 +32,18 @@
 // +- 10,2. Lettura dell'utente: neutra a TC effettivo basso, positiva appena la ricerca scava un po' di piu'; fermato
 // e bakato su sua decisione. Albero a profondita' fissa quasi invariato (mediana x1,00 a prof. 10-16; il bench salta
 // per una sola posizione). Bench 507070 (con SeePinned=0 torna 222624).
+// BAKE PULIZIA (06/10/2026): NullFiftyKeep 0 -> 1 (la mossa nulla non incrementa il contatore delle 50 mosse) e
+// EvalRefadeBridge 0 -> 1 (la valutazione riletta da cache/hash si rismorza con la stessa formula del ponte: la stessa
+// posizione vale uguale fresca o riletta). Agiscono col contatore alto: SPRT sui finali (endgame_12_18, 5+0.05,
+// -NoDrawAdj, 40/40) +1,60 +- 2,61 su 9.774 partite (socket 0 +1,1, socket 1 +2,1); sul libro UHO a 6+0.06 -2,19 +-
+// 7,45 su 2.698 (nessun danno nel mediogioco). Albero a profondita' fissa: mediogioco x0,97-1,16, finali x1,05 -> x0,91
+// a prof. 16. Bakato su decisione dell'utente come correzione di coerenza. Bench 370886 (con le due a 0 torna 507070).
+// BAKE CORRPHASE (06/10/2026): CorrPhase 0 -> 1 (correzioni dei pedoni e dei minori separate per esperto della rete:
+// costante per fascia di fase mescolata nella chiave). Prima prova -5,10 +- 8,13 su 1.976 partite, ma la make
+// anticipava le righe con le chiavi senza sale (rapporto docs/audit_8.0/N_CORREZIONI.md, E1, corretto). Di nuovo, con
+// il prefetch giusto e la pulizia bakata: 12+0.12, UHO, 34/34, +3,22 +- 3,84 su 8.634 partite (LLR 1,00; socket 0
+// +2,2, socket 1 +4,3), fermata da un blackout a 1.400 partite dalla soglia scelta (10.000) e bakata su decisione
+// dell'utente. Bench 309067 (con CorrPhase=0 torna 370886).
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -164,11 +176,31 @@
   P(CorrContW, 8022, 0, 30000)                                                                            \
   P(CorrMinorUpd, 150, 0, 400)           /* /128 */                                                       \
   P(CorrNonPawnUpd, 186, 0, 400)                                                                          \
+  /* Correzioni, proposte del rapporto docs/audit_8.0/N_CORREZIONI.md (06/10/2026); spente = albero invariato */ \
+  P(CorrCont6W, 0, 0, 30000)             /* continuazione anche con la nostra mossa a -6 (0 = spenta) */  \
+  P(CorrCont6Upd, 38, 0, 256)            /* passo della continuazione a -6, /128 */                       \
+  P(CorrLearnMode, 0, 0, 15)             /* bit 1: niente se escluso senza mosse; 2: niente nei nodi esclusi; */ \
+                                         /* 4: niente da valori decisi; 8: nodi PV esatti in ogni direzione   */ \
+  P(CorrFade, 0, 0, 3)                   /* 1: correzione smorzata col contatore delle 50 mosse come l'eval; */ \
+                                         /* 2: bonus riportato in unita' non smorzate                       */ \
+  P(CorrExpertW, 0, 0, 40000)            /* tabella dei pedoni per esperto che si AGGIUNGE alla condivisa (0 = */ \
+                                         /* spenta); entra solo nella valutazione, non nella selettivita'       */ \
+  P(CorrExpertUpd, 128, 0, 400)          /* passo della tabella per esperto, /128 */                      \
+  P(CorrExpertBands, 4, 2, 4)            /* 4 = un esperto per fascia; 2 = due fasce (<=15 / >=16 pezzi) */ \
+  /* Costanti dell'aggiornamento delle correzioni, prima scritte fisse nel codice: ora leve per lo SPSA CORR1 (rapporto \
+     N_CORREZIONI 4.3). I default sono i valori di prima: albero identico. */                                \
+  P(CorrPawnUpd, 128, 32, 256)           /* passo della tabella dei pedoni, /128 */                       \
+  P(CorrCont2Upd, 130, 0, 256)           /* passo della continuazione a -2, /128 */                       \
+  P(CorrCont4Upd, 70, 0, 256)            /* passo della continuazione a -4, /128 */                       \
+  P(CorrBonusHi, 12, 4, 32)              /* bonus per profondita' quando c'e' una mossa migliore, /128 */ \
+  P(CorrBonusLo, 18, 4, 40)              /* bonus per profondita' nel fail-low, /128 */                   \
+  P(CorrBonusMaxHi, 256, 64, 600)        /* tetto del bonus positivo */                                   \
+  P(CorrBonusMaxLo, 256, 64, 600)        /* tetto del bonus negativo */                                   \
+  P(CorrSingMul, 177, 0, 600)            /* bonus del multi-cut della singolare per profondita', /1024 */ \
+  P(SingCorrDiv, 198368, 50000, 800000)  /* |signal| nei margini doppio/triplo della singolare */         \
   /* tecniche nostre sopra la ricerca nuova (04/10/2026), spente = albero invariato */                    \
   P(KingShield, 0, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
-  P(CorrMajorW, 0, 0, 40000)             /* correzione per i pezzi maggiori (torri e donne) */            \
-  P(CorrMajorUpd, 150, 0, 400)                                                                            \
   P(HashDamp, 0, 0, 200)                 /* taglio da limite inferiore spinto verso beta (decimi) */      \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
   P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
@@ -189,7 +221,8 @@
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
-  P(CorrPhase, 0, 0, 1)                  /* idea 9: correzione dei pedoni/minori separata per esperto */  \
+  P(CorrPhase, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): idea 9, correzione dei */ \
+                                         /* pedoni/minori separata per esperto                           */ \
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
@@ -201,8 +234,10 @@
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   P(HashQsDepth, 1, 0, 1)                /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la quiescenza     */ \
                                          /* scrive e legge profondita' 0 in hash, non -1                 */ \
-  P(NullFiftyKeep, 0, 0, 1)              /* 1: la mossa nulla non incrementa il contatore delle 50 mosse */ \
-  P(EvalRefadeBridge, 0, 0, 1)           /* 1: la rilettura smorzata usa la formula del ponte (v - v*f/199) */ \
+  P(NullFiftyKeep, 1, 0, 1)              /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la mossa nulla non */ \
+                                         /* incrementa il contatore delle 50 mosse                        */ \
+  P(EvalRefadeBridge, 1, 0, 1)           /* BAKE 06/10/2026 (era 0): 1 = la rilettura smorzata usa la     */ \
+                                         /* formula del ponte (v - v*f/199)                               */ \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
      al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
      LtKnee + LtSpan in su, senza estrapolare oltre. Gli Lt sono scostamenti dal valore base: a 0 albero identico, e   \

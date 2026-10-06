@@ -397,7 +397,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   } else {
     const int signal = corr_signal(td, f);
     const int plain = node_eval(td, h, eval_raw);
-    f->static_eval = best = corrected_eval(plain, signal);
+    f->static_eval = best = corrected_eval(plain, corr_eval_term(td, signal + corr_signal_extra(td)));
     if (h.hit && val_known(h.value) && !val_decided(h.value) && bound_covers(h.bound, h.value > best))
       best = h.value;
     if (best >= beta) {
