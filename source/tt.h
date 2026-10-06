@@ -136,15 +136,24 @@ extern bool g_tt_twolevel;
 // TTMove24 (UCI "TTMove24", default ON) — ablazione del FIX P0.1: quando OFF lo
 // store tronca la mossa a 21 bit come la 3.7 (i flag double/ep/castling si perdono
 // di nuovo). Definita in threads.cpp.
+// P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
+// dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
+// evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
+#ifdef TRIUMV_RELEASE
+// Release (06/10/2026): nessuna opzione le cambia, quindi costanti che il compilatore piega in store_tt/probe.
+// I valori sono i default di threads.cpp (01_params.inc); TTMoveRefresh e' verificata con static_assert.
+constexpr bool g_ttmove24 = true;
+constexpr int  g_tt_keep_margin = 3;
+constexpr bool g_tt_move_keep = true;
+constexpr bool g_tt_move_refresh = false;
+constexpr bool g_tt_age_refresh = false;
+#else
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
 extern bool g_tt_move_refresh; // TTMoveRefresh: la mossa nuova entra anche quando si conserva l'entry piu' profonda
-
-// P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
-// dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
-// evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
 extern bool g_tt_age_refresh;
+#endif
 
 // LargePages (UCI, default ON) — alloca la TT su large pages 2MB (VirtualAlloc
 // MEM_LARGE_PAGES, come i pesi NNUE). Toggle per l'A/B NPS pulito sullo STESSO

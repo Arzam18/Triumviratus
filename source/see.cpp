@@ -70,8 +70,14 @@ static inline int get_lva(U64 bb[12], U64 occ[3], int square, int side, int* fro
 // SeeFix (UCI "SeeFix", default ON) — ablazione del FIX P0.2: quando OFF, le mosse
 // quiet tornano a SEE=0 (come 3.7: quiet-SEE-pruning e filtro CheckOrdering inerti)
 // e l'en-passant torna a rimuovere il pedone dalla casa sbagliata. Definita in threads.cpp.
+#ifdef TRIUMV_RELEASE
+// Release (06/10/2026): costanti (default di 01_params.inc; SeePinned verificata con static_assert).
+constexpr bool g_see_fix = true;
+constexpr int  g_see_pinned = 1;
+#else
 extern bool g_see_fix;
 extern int  g_see_pinned;   // SeePinned (copia del parametro della ricerca, 01_params.inc)
+#endif
 
 // SEE implementation
 int td_see(ThreadData& td, int move) {

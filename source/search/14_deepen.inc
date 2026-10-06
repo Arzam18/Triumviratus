@@ -61,7 +61,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     opt_share = std::min(TmOptBase / 1e6 + std::pow(game_ply + 3.22713, TmOptPow / 1e5) * opt_c,
                          TmOptClockCap / 1e5 * clock / left) *
                 g_clock.opening_adjust;
-    max_mult = std::min(6.873, max_c + game_ply / (TmMaxPlyDiv / 1e3));
+    max_mult = std::min(TmMaxMultCap / 1e3, max_c + game_ply / (TmMaxPlyDiv / 1e3));   // 6873/1e3 == 6.873
   } else {
     // Idea 8 (04/10/2026): costanti del ramo movestogo come parametri, per uno SPSA dedicato al 40/15 di CCRL. I
     // default riproducono i valori di prima (la divisione IEEE e' arrotondata correttamente: 880/1000.0 == 0.88).

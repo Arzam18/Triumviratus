@@ -9,10 +9,11 @@
 constexpr int HD_QUIESCE = -1;
 constexpr int HD_EVAL    = -2;
 constexpr int HD_SHIFT   = 3;
-// HashQsDepth (05/10/2026, audit del nucleo): la quiescenza a profondita' 0 come in SF19, che ha un livello in piu'
-// fra "solo valutazione" e quiescenza. Cosi' le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza
-// (non tagliano in quiesce) e a profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. 0 = schema storico.
-static inline int hd_qs() { return HashQsDepth ? 0 : HD_QUIESCE; }
+// La quiescenza scrive e legge profondita' 0 in hash (05/10/2026, audit del nucleo; BAKE HASHQSDEPTH 06/10, opzione
+// ritirata la sera: +3,38 +- 2,58 su 20.162 partite). C'e' un livello in piu' fra "solo valutazione" (-2) e
+// quiescenza: le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza (non tagliano in quiesce) e a
+// profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. Lo schema storico usava HD_QUIESCE = -1.
+static inline int hd_qs() { return 0; }
 
 enum { BOUND_UP = hash_flag_alpha, BOUND_LOW = hash_flag_beta, BOUND_EXACT = hash_flag_exact, BOUND_NIL = hash_flag_none };
 
@@ -271,7 +272,8 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.enpassant = no_sq;
   td.hash_key ^= side_key;
   td.side ^= 1;
-  td.fifty += !NullFiftyKeep;   // NullFiftyKeep (05/10/2026, audit del nucleo): SF19 lascia il contatore com'e'
+  // La mossa nulla non incrementa il contatore delle 50 mosse (05/10/2026, audit del nucleo; BAKE PULIZIA 06/10,
+  // opzione NullFiftyKeep ritirata la sera).
   td.plies_from_null = 0;
   nn_pos_do_null(td.nnpos, td.fifty);
   f->move = NULL_MOVE;

@@ -152,6 +152,8 @@
   P(LmrOffset, 697, -1500, 2500)                                                                          \
   P(LmrMoveCount, 60, 0, 300)                                                                             \
   P(LmrCorrDiv, 26310, 5000, 100000)                                                                      \
+  P(RootRedCap, -1, -1, 8192)            /* 06/10/2026 (rapporto O_RE_AL_CENTRO): tetto alla riduzione delle */ \
+                                         /* mosse di radice dopo la prima, /1024 di ply; -1 = nessun tetto  */ \
   P(LmrCutNode, 4093, 1000, 7000)                                                                         \
   P(LmrCutNoTT, 933, 0, 3000)                                                                             \
   P(LmrTTCapture, 1079, 0, 3000)                                                                          \
@@ -242,12 +244,9 @@
   P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
   P(SeePinned, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
-  P(HashQsDepth, 1, 0, 1)                /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la quiescenza     */ \
-                                         /* scrive e legge profondita' 0 in hash, non -1                 */ \
-  P(NullFiftyKeep, 1, 0, 1)              /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la mossa nulla non */ \
-                                         /* incrementa il contatore delle 50 mosse                        */ \
-  P(EvalRefadeBridge, 1, 0, 1)           /* BAKE 06/10/2026 (era 0): 1 = la rilettura smorzata usa la     */ \
-                                         /* formula del ponte (v - v*f/199)                               */ \
+  /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \
+     (codice fisso in 12_quiesce.inc e 09_history.inc). SeePinned e CorrPhase restano opzioni: prove piu' sottili,  \
+     candidate a un'ablazione a TC lunghi. */                                                                       \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
      al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
      LtKnee + LtSpan in su, senza estrapolare oltre. Gli Lt sono scostamenti dal valore base: a 0 albero identico, e   \
@@ -308,6 +307,8 @@
   P(TmMaxCBase, 33744, 20000, 50000)     /* /1e4: tempo massimo = (base + log * log10 s + ply/div) x ottimo */ \
   P(TmMaxCLog, 30608, 0, 60000)          /* /1e4 */                                                         \
   P(TmMaxPlyDiv, 12352, 4000, 30000)     /* /1e3 */                                                         \
+  P(TmMaxMultCap, 6873, 3000, 10000)     /* /1e3: tetto del moltiplicatore del massimo (06/10/2026, rapporto */ \
+                                         /* Q_TEMPO: sopra ~14 s di orologio decide lui; prova a 5000, 40+0.4) */ \
   P(TmMaxClock, 8097, 6500, 8800)        /* /1e4: il massimo non supera questa frazione dell'orologio */    \
   /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
   P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \
@@ -344,6 +345,7 @@ U64       hash_entries    = 0;
 bool      g_tt_pow2       = false;
 int       current_age     = 0;
 bool      g_tt_twolevel   = true;
+#ifndef TRIUMV_RELEASE
 bool      g_ttmove24      = true;
 int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV)
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
@@ -352,8 +354,13 @@ bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchi
 bool      g_tt_move_refresh = TTMoveRefresh != 0; // copia di TTMoveRefresh per tt.h (vedi store_tt)
 int       g_see_pinned    = SeePinned;            // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
-bool      g_large_pages   = true;
 bool      g_see_fix       = true;
+#else
+// Release (06/10/2026): queste copie sono costanti in tt.h e see.cpp; devono coincidere coi default dei parametri.
+static_assert(TTMoveRefresh == 0, "tt.h congela g_tt_move_refresh = false nella release");
+static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
+#endif
+bool      g_large_pages   = true;
 bool      g_ep_key_fix    = true;
 static const bool g_evasion_gen = true;
 

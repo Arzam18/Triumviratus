@@ -745,6 +745,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     if (passer)
       r -= PassedPushRed;
+    if (n.root && RootRedCap >= 0)   // RootRedCap (06/10/2026): -1 = come prima
+      r = std::min(r, RootRedCap);
 
     if (n.depth >= 2 && n.moves > 1) {
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + 2)) + n.pv;
