@@ -28,6 +28,21 @@ Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 8.0 audi
 compared with a rating list, and the two August matches used a development build from a month
 before the release.
 
+## Maurizio Platino — 8.0 development builds and prerelease
+
+Same machine, GUI, hash, time control and openings as the 7.0 matches above; threads and ponder as listed.
+
+| Date | Opponent | Triumviratus build | Threads · ponder | Games | Score | Elo (Triumviratus) |
+|---|---|---|---|---:|---:|---:|
+| 2026-09-30 | Caissa 2.0 | 8.0 dev (2026-09-30) | 4 · on | 300 | 46.2% | −27 ± 15 |
+| 2026-10-01 | Caissa 2.0 | 8.0 dev (2026-10-01) | 4 · on | 300 | 48.0% | −14 ± 15 |
+| 2026-10-03 | Caissa 2.0 | 8.0 dev (2026-10-01) | 1 · off | 300 | 51.5% | +10 ± 14 |
+| 2026-10-05 | **Stormphrax 8.0.0** | **8.0 prerelease (2026-10-04)** | 1 · off | 300 | **63.2%** | **+94 ± 16** |
+
+<sub>+149 =81 −70 against Stormphrax 8.0.0. ± is the 95% interval on the 150 opening pairs (pentanomial).
+The 4 October prerelease is the first build with the restructured search; the builds of 30 September and
+1 October came before it.</sub>
+
 ## Maurizio Platino — ENET 2026 test suite
 
 **ENET 2026** by Eduard Nemeth: 110 hard positions. Intel Core i7-8700 @ 3.20 GHz, Fritz 18, 8 GB hash.
