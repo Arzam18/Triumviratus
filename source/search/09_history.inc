@@ -135,10 +135,13 @@ static inline int  quiet_key(int m) { return move_from(m) | (move_to(m) << 6) | 
 // Mossa "tattica": cattura o promozione a donna (codice Q = 4 o q = 10: bit 4 e 10 della maschera 0x410). Le altre
 // promozioni si ordinano fra le quiete.
 static inline bool is_tactical(int m) { return (get_move_capture(m) | ((0x410u >> get_move_promoted(m)) & 1)) != 0; }
+// Tipo di pezzo P..K da un codice P..k, senza modulo (06/10/2026, velocita', stessi valori): `pc % 6` costava una
+// moltiplicazione e tre operazioni per mossa (score_quiets, checks_before, victim_kind...). L'indice 15 e' "nessun
+// pezzo" (-1 & 15) e da' CAPT_NONE, cosi' anche la casa vuota passa dalla tabella senza salto.
+static constexpr signed char kPieceKind[16] = {0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, CAPT_NONE, CAPT_NONE, CAPT_NONE, CAPT_NONE};
 // Tipo del pezzo catturato (CAPT_NONE per l'en passant e per la promozione senza cattura, come la casa vuota).
 static inline int  victim_kind(const ThreadData &td, int m) {
-  const int v = td.piece_on[move_to(m)];
-  return v < 0 ? CAPT_NONE : v % 6;
+  return kPieceKind[td.piece_on[move_to(m)] & 15];
 }
 
 static inline PieceToRow &pawn_row(const ThreadData &td) {
@@ -189,10 +192,17 @@ static inline CorrSlot &corr_slot(U64 key, int side_to_move) {
 
 // Idea 9 (CorrPhase, 04/10/2026): con quattro esperti l'errore sistematico su una stessa struttura cambia con
 // l'esperto. Una costante per fascia mescolata nelle chiavi dei pedoni e dei minori separa le correzioni.
+// 06/10/2026 (velocita', stessi valori): la chiave si legge da una tabella per numero di pezzi, senza i due o
+// tre confronti di net_phase. Contatori: ~2,1 chiamate per nodo (prefetch nella make, corr_signal, corr_learn).
+static constexpr auto corr_phase_keys_by_count = [] {
+  constexpr U64 keys[4] = {0x9E3779B97F4A7C15ULL, 0xC2B2AE3D27D4EB4FULL, 0x165667B19E3779F9ULL, 0xD6E8FEB86659FD93ULL};
+  std::array<U64, 65> t{};   // fino a 64: anche una FEN con troppi pezzi resta nella tabella
+  for (int c = 0; c <= 64; c++)
+    t[c] = keys[c <= 9 ? 0 : c <= 15 ? 1 : c <= 23 ? 2 : 3];   // = net_phase(c)
+  return t;
+}();
 static inline U64 corr_phase_key(const ThreadData &td) {
-  static constexpr U64 keys[4] = {0x9E3779B97F4A7C15ULL, 0xC2B2AE3D27D4EB4FULL, 0x165667B19E3779F9ULL,
-                                  0xD6E8FEB86659FD93ULL};
-  return CorrPhase ? keys[net_phase(count_bits(td.occupancies[both]))] : 0;
+  return CorrPhase ? corr_phase_keys_by_count[count_bits(td.occupancies[both])] : 0;
 }
 
 // CorrFifty (nostra, 05/10/2026, da un'idea di Reckless): l'errore sistematico della valutazione su una stessa

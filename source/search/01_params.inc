@@ -48,7 +48,9 @@
 // 13_search.inc). Tre prove, tutte positive: 15+0.15 su t80_nm2 (05/10, prima dei bake) +2,64 +- 6,79 / 2.768;
 // 15+0.15 su t80_tm12 +2,18 +- 5,35 / 4.138; 20+0.2 su t80_tm13 +2,02 +- 4,96 / 4.818 (socket 0 +2,9, socket 1 +1,2).
 // Sul codice attuale insieme +2,09 +- 3,64 / 8.956; tutte e tre +2,22 +- 3,21 / 11.774 (P(Elo > 0) ~ 91%). Bakata su
-// decisione dell'utente prima delle 20.000 partite. Bench 430151 (con HashDamp=0 torna 309067).
+// decisione dell'utente prima delle 20.000 partite. Bench 430151 (con HashDamp=0 torna 309067). Albero a profondita'
+// fissa (tree_depth.py, tm13): mediogioco x0,94/0,92/0,91/1,02 alle prof. 12/14/16/18, finali x0,87/0,92/1,02/0,99:
+// nessuna crescita con la profondita'.
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una

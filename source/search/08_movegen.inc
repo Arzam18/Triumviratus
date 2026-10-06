@@ -292,7 +292,13 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
           const U64 cap_mask  = quiets_only ? 0ULL : enemies & evasion_mask;
           const U64 ep_bb     = (!quiets_only && td.enpassant != no_sq) ? (1ULL << td.enpassant) : 0ULL;
           const int ep_sq     = td.enpassant;   // se assente la mossa scritta non viene contata
-          U64 bb = rest;
+          // 06/10/2026 (velocita', albero identico): si scorrono solo i pedoni che hanno almeno una mossa. Un pedone
+          // senza spinta, senza doppio passo e senza cattura/e.p. scriveva cinque slot senza contarne nessuno: nelle
+          // sole catture (quiescenza e fase tattica, ~1,4 pedoni per nodo) erano quasi tutti cosi'. I pedoni che
+          // catturano su `tgt` sono le case attaccate da un pedone NERO posto su `tgt` (stesse maschere di
+          // mask_pawn_attacks). Stesso insieme di mosse contate, stesso ordine (LSB): nodi identici.
+          const U64 tgt       = cap_mask | ep_bb;
+          U64 bb = rest & ((single_to << 8) | (double_to << 16) | ((tgt << 7) & not_h_file) | ((tgt << 9) & not_a_file));
           while (bb) {
             const int s  = get_ls1b_index(bb);
             const U64 pa = pawn_attacks[white][s];
@@ -353,7 +359,10 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
           const U64 cap_mask  = quiets_only ? 0ULL : enemies & evasion_mask;
           const U64 ep_bb     = (!quiets_only && td.enpassant != no_sq) ? (1ULL << td.enpassant) : 0ULL;
           const int ep_sq     = td.enpassant;
-          U64 bb = rest;
+          // Solo i pedoni che hanno almeno una mossa (vedi il bianco): catturano su `tgt` le case attaccate da un
+          // pedone BIANCO posto su `tgt`.
+          const U64 tgt       = cap_mask | ep_bb;
+          U64 bb = rest & ((single_to >> 8) | (double_to >> 16) | ((tgt >> 7) & not_a_file) | ((tgt >> 9) & not_h_file));
           while (bb) {
             const int s  = get_ls1b_index(bb);
             const U64 pa = pawn_attacks[black][s];

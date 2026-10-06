@@ -56,11 +56,13 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
 | **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease and against Stockfish 19 | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October; **50.0%** against Stockfish 19 at 133+1 (320 games) | 309067 |
 | **The TT cutoff damping adopted** | 27 | the damping of section 18 (an idea from Coda) retried twice on the current code | +2.2 ± 3.2 over 11,774 games in three SPRTs | **430151** |
+| **Search speed** | 27 | eight patches that only remove work, same tree | −1.75% cycles per node in the middlegame (all nine with AVX-512 gathers: −1.5% to −1.8% in endgames) | 430151 |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
 is an SPRT or a match against the step before, on the same machine, with its 95% interval. Since the 4 October
-prerelease the speed work alone is about **−8.9% cycles per node** with an identical tree (sections 17, 20, 22, 23).
+prerelease the speed work alone is about **−10.5% cycles per node** with an identical tree (sections 17, 20, 22, 23,
+27).
 
 ## Where things stand (6 October 2026)
 
@@ -1003,6 +1005,20 @@ towards beta; an idea from Coda), retried on the current code: +2.2 ± 5.4 over 
 +2.0 ± 5.0 over 4,818 at 20+0.2, both sockets positive. With the first test the three give **+2.2 ± 3.2 over
 11,774 games** (about a 91% chance of a positive effect, under 3% of costing more than one Elo): adopted before
 20,000 games on that evidence. Bench **430151**.
+
+**The search side made faster.** The search costs about 3,200 cycles per node against about 1,750 for Stockfish 19,
+spread over move ordering, the TT, the SEE and make/unmake with no dominant function. An analysis agent counted how
+often each step runs per node and wrote nine patches that only remove work, each with the same tree: pawns without
+moves are no longer visited, the SEE of a quiet move is skipped when the enemy attack map already decides it (28% of
+all SEE calls), empty-board slider attacks come from a small table, the common case of two per-move functions is
+inlined, the TT store reads its bucket once, the piece type comes without a division, and the expert key of the
+corrections from a table. Every patch kept the bench and passed perft and Chess960 perft; three of them carry a
+build switch that compares the shortcut with the original code at every node. Measured with hardware counters on a
+quiet machine, the nine together remove 5.4% of the instructions but only 1.0–1.5% of the cycles in the middlegame
+(1.5–1.8% in endgames): the engine waits on memory more than it executes. One patch scored sixteen quiet moves at
+a time with AVX-512 gathers; it removed 3.9% of the instructions, but on this Xeon a gather costs as much as sixteen
+scalar loads, and without it the other eight give **−1.75% cycles per node** in the middlegame. Those eight were
+adopted. Bench unchanged, 430151.
 
 **Also closed today.** Learning corrections in exact PV nodes in either
 direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quiescence hash depth, the two consistency

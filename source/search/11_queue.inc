@@ -8,8 +8,8 @@ static void see_pins_update(ThreadData &td) {
   for (int c = white; c <= black; c++) {
     const int off = c == white ? 0 : 6, eoff = 6 - off;
     const int ksq = get_ls1b_index(td.bitboards[K + off]);
-    U64 snipers = (get_rook_attacks(ksq, 0) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
-                  (get_bishop_attacks(ksq, 0) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
+    U64 snipers = (empty_rook_att[ksq] & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
+                  (empty_bishop_att[ksq] & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
     const U64 occ = td.occupancies[both] ^ snipers;
     U64 pinned = 0, pinners = 0;
     while (snipers) {
@@ -74,7 +74,34 @@ struct MoveQueue {
   int           n_lose, cur_lose;
   ScoredMove    list[256];
   unsigned char losers[256];
+  // Attacchi dell'avversario nella posizione del nodo, calcolati da score_quiets (06/10/2026, SEE delle quiete):
+  // opp_att = tutte le case che attacca, opp_slider = quelle viste dai suoi pezzi lunghi. Valide se opp_ready.
+  bool          opp_ready;
+  U64           opp_att, opp_slider;
 };
+
+// SEE di una mossa quieta decisa senza scambio (06/10/2026, velocita', albero identico). Per una quieta semplice
+// (casa d'arrivo vuota, niente promozione, arrocco, en passant) td_see_ge esce con "soglia > 0 -> no" o, per
+// soglia <= 0, con "si'" appena l'avversario non ha attaccanti sulla casa d'arrivo. Gli attaccanti li conta con
+// l'occupazione SENZA la casa di partenza: togliere quella casa apre linee solo ai pezzi lunghi che gia' la vedono.
+// Quindi, se la casa d'arrivo non e' attaccata dall'avversario e nessun suo pezzo lungo vede la casa di partenza,
+// il risultato e' gia' noto: 0 >= soglia. La mappa la prepara score_quiets per le quiete della coda; la mossa hash
+// (che esce prima della mappa) e le parate dallo scacco passano dalla SEE di sempre.
+// Contatori (bench 14 su fens30): ~0,57 SEE di quiete per nodo.
+static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int threshold) {
+  constexpr int SPECIAL = 0x100000 | 0xf0000 | 0x400000 | 0x800000;   // cattura, promozione, e.p., arrocco
+  if (q.opp_ready && !(m & SPECIAL) && !((q.opp_att >> move_to(m)) & 1) && !((q.opp_slider >> move_from(m)) & 1)) {
+#ifdef TRIUMV_VERIFY_SEEQ   // verifica: la SEE vera deve dare lo stesso esito
+    if ((0 >= threshold) != see_holds(td, m, threshold)) {
+      printf("info string SEEQ SBAGLIATA: mossa %d soglia %d\n", m, threshold);
+      fflush(stdout);
+      abort();
+    }
+#endif
+    return 0 >= threshold;
+  }
+  return see_holds(td, m, threshold);
+}
 
 // Inserimento stabile: le mosse con punteggio >= limit vanno in testa in ordine decrescente, le altre restano
 // dopo, nell'ordine di generazione.
@@ -157,6 +184,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.cut_threshold = 0;
   q.n_tact = q.n_all = q.cur = 0;
   q.n_lose = q.cur_lose = 0;
+  q.opp_ready = false;
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -176,21 +204,28 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   ThreadData &td = *q.td;
   NodeFrame *f = q.f;
   const int us = td.side, them = us ^ 1;
-  const int eoff = them == white ? 0 : 6;
+  const int eoff = them == white ? 0 : 6, us_off = 6 - eoff;
   const U64 occ = td.occupancies[both];
 
-  U64 by_minor = 0, by_rook = 0;
+  U64 by_knight = 0, by_bishop = 0, by_rook = 0, by_queen = 0;
   // Case attaccate da tutti i pedoni avversari insieme: gli stessi due shift di mask_pawn_attacks (attacks.cpp)
   // applicati alla bitboard intera, quindi la stessa unione del ciclo per pedone (04/10/2026).
   const U64 epawns = td.bitboards[P + eoff];
   const U64 by_pawn = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
                                     : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
   U64 bb = td.bitboards[N + eoff];
-  while (bb) { by_minor |= knight_attacks[get_ls1b_index(bb)]; pop_lsb_bb(bb); }
+  while (bb) { by_knight |= knight_attacks[get_ls1b_index(bb)]; pop_lsb_bb(bb); }
   bb = td.bitboards[B + eoff];
-  while (bb) { by_minor |= get_bishop_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
+  while (bb) { by_bishop |= get_bishop_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
   bb = td.bitboards[R + eoff];
   while (bb) { by_rook |= get_rook_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
+  bb = td.bitboards[Q + eoff];
+  while (bb) { by_queen |= get_queen_attacks(get_ls1b_index(bb), occ); pop_lsb_bb(bb); }
+  const U64 by_minor = by_knight | by_bishop;
+  // Mappa per see_holds_q (la donna e il re non entrano in lesser[], solo qui).
+  q.opp_slider = by_bishop | by_rook | by_queen;
+  q.opp_att = by_pawn | by_knight | q.opp_slider | king_attacks[get_ls1b_index(td.bitboards[K + eoff])];
+  q.opp_ready = true;
   U64 lesser[6];
   lesser[P] = 0;
   lesser[N] = lesser[B] = by_pawn;
@@ -224,11 +259,11 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
-    const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc % 6;
+    const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc - us_off;   // mossa nostra
     const int key = quiet_key(m);
     int s = 2 * td.quiet_hist[us][key] + 2 * prow[pc][to];
     s += c1[pc][to] + c2[pc][to] + c3[pc][to] + c4[pc][to] + c6[pc][to];
-    if (((checks.chk[pt] >> to) & 1) && see_holds(td, m, -75))
+    if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, -75))
       s += CheckOrderBonus;
     s += unit_value[pt] * ThreatOrderMul * (int((lesser[pt] >> from) & 1) - int((lesser[pt] >> to) & 1));
     if (ply < LOW_PLY_SIZE)

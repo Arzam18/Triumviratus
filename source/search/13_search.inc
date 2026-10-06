@@ -491,7 +491,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     // Il sacrificio dell'ultimo pezzo con alpha sotto la patta non si pota (puo' portare allo stallo).
     const int own_count = count_bits(own_pieces);
     const bool last_piece = own_count == 1 && (own_pieces >> move_from(m) & 1);
-    if ((n.alpha >= contempt(td) || !last_piece) && !see_holds(td, m, -margin))
+    if ((n.alpha >= contempt(td) || !last_piece) && !see_holds_q(td, q, m, -margin))
       return true;
     return false;
   }
@@ -528,13 +528,13 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     return true;
   }
   red_depth = std::max(red_depth, 0);
-  return !see_holds(td, m, -QuietSeeMul * red_depth * red_depth);
+  return !see_holds_q(td, q, m, -QuietSeeMul * red_depth * red_depth);
 }
 
 // Spinta di un pedone passato in 6a o 7a traversa in un finale (nostra). La rete vede i pedoni passati con il suo
 // blocco PassedPawns; la ricerca li tratterebbe come quiete qualsiasi e potrebbe ridurli di parecchi ply.
 static bool passed_push(const ThreadData &td, int m) {
-  if (move_piece(m) % 6 != P || get_move_capture(m) || get_move_promoted(m))
+  if (kPieceKind[move_piece(m)] != P || get_move_capture(m) || get_move_promoted(m))
     return false;
   const int to = move_to(m), us = td.side, row = to / 8, file = to % 8;   // row 0 = ottava traversa
   if (us == white ? (row != 1 && row != 2) : (row != 5 && row != 6))
@@ -723,7 +723,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       r -= LmrTTMove;
     if (tact) {
       // Pezzo davvero catturato (per l'en passant e' il pedone, non la casa d'arrivo vuota).
-      const int took = u.captured_piece >= 0 ? u.captured_piece % 6 : CAPT_NONE;
+      const int took = kPieceKind[u.captured_piece & 15];
       f->stat_score = 873 * unit_value[took] / 128 + td.capt_hist[pc][to][took];
     }
     else
