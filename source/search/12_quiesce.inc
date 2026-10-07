@@ -286,7 +286,7 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   // La mossa nulla non incrementa il contatore delle 50 mosse (05/10/2026, audit del nucleo; BAKE PULIZIA 06/10,
   // opzione NullFiftyKeep ritirata la sera).
   td.plies_from_null = 0;
-  nn_pos_do_null(td.nnpos, td.fifty);
+  // La rete non registra nulla: i pezzi non si muovono, e gli accumulatori non dipendono dal lato al tratto.
   f->move = NULL_MOVE;
   f->captured = -1;
   f->cont_hist = &g_stats.follow[0][0][NO_PC][0];
@@ -294,7 +294,6 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
 }
 
 static inline void step_out_null(ThreadData &td, NullUndo &u) {
-  nn_pos_undo(td.nnpos);
   td.side ^= 1;
   td.enpassant = u.enpassant;
   td.fifty = u.fifty;

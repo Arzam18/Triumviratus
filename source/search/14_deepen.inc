@@ -68,6 +68,12 @@ static void clock_plan(int us, int game_ply, int overhead) {
     opt_share = std::min((TmMtgBase / 1000.0 + game_ply / (TmMtgPly / 10.0)) / horizon, TmMtgClock / 1000.0 * clock / left);
     max_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * horizon;
   }
+  // TmBehindMul (07/10/2026): con meno orologio dell'avversario si spende meno (vantaggio relativo solo se negativo).
+  // Non con movestogo == 1: a fine ciclo l'orologio dell'avversario puo' gia' contenere il tempo del ciclo dopo.
+  if (TmBehindMul && g_limits.movestogo != 1) {
+    const double mine = g_limits.time[us], theirs = g_limits.time[us ^ 1];
+    opt_share *= 1 + TmBehindMul / 1000.0 * std::min((mine - theirs) / (1.0 + mine + theirs), 0.0);
+  }
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
   g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
   if (g_ponder_option)
@@ -203,6 +209,7 @@ static void deepen(ThreadData &td) {
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * 729 / 1024);
 
   int best = -infinity;
+  int fh_recovery = 0;   // FhRecovery (07/10/2026): ply tolti alla prossima iterazione dopo un fail-high
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
@@ -236,8 +243,11 @@ static void deepen(ThreadData &td) {
       nn_root_sync(td);
 
       int failed_high = 0;
+      if (FhRecovery && td.pv_idx == 0)
+        fh_recovery = std::max(0, fh_recovery - 2);
       for (;;) {
-        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4);
+        const int depth = std::max(1, td.root_depth - failed_high - (td.pv_idx == 0 ? fh_recovery : 0) -
+                                          3 * (again + 1) / 4);
         td.root_delta = beta - alpha;
         best = explore(td, root, alpha, beta, depth, false, true);
         settle_lines(td, td.pv_idx, td.pv_last);
@@ -263,6 +273,9 @@ static void deepen(ThreadData &td) {
           break;
         delta += AspGrow * delta / 128;
       }
+      // FhRecovery: dopo uno o piu' fail-high la profondita' torna piena per gradi (2 ply per iterazione).
+      if (FhRecovery && td.pv_idx == 0 && failed_high > 0)
+        fh_recovery = (failed_high + 1) / 2 + 2;
 
       settle_lines(td, 0, td.pv_idx + 1);
       if (main && !stop_threads.load(std::memory_order_relaxed)) {

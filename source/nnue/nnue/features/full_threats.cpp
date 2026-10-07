@@ -33,11 +33,16 @@
 #include "../../attacks.h"
 #include "../../bitboard.h"
 #include "../../misc.h"
-#include "../../position.h"
+#include "../../nn_board.h"
 #include "../../types.h"
 #include "../nnue_common.h"
+#include "../../../nn_attacks.h"   // attacchi del motore (stessa numerazione delle case)
 
 namespace Triumviratus::Eval::NNUE::Features {
+
+// Le tabelle qui sotto fino a index_lut2 sono costruite nella numerazione della RETE (a1 = 0, codici W_PAWN..B_KING),
+// come il trainer: sono la definizione degli indici. A runtime si usano le loro copie nella numerazione del motore
+// (EngineThreatTables, piu' in basso), costruite a compilazione dalle stesse.
 
 struct HelperOffsets {
     int cumulativePieceOffset, cumulativeOffset;
@@ -230,79 +235,158 @@ constexpr auto index_lut1 = init_index_luts();
 // Queste tabelle restano gia' in L1 fra un update e l'altro: popcount, bzhi e le scritture doppie costano di piu'.
 constexpr auto index_lut2 = index_lut2_array();
 
-// Index of a feature for a given king position and another piece on some square
-inline sf_always_inline IndexType FullThreats::make_index(
-  Color perspective, Piece attacker, Square from, Square to, Piece attacked, Square ksq) {
-    const i8 orientation   = OrientTBL[ksq] ^ (56 * perspective);
-    unsigned from_oriented = u8(from) ^ orientation;
-    unsigned to_oriented   = u8(to) ^ orientation;
+// ---------------------------------------------------------------------------------------------------------------------
+// Le stesse tabelle nella numerazione del MOTORE (07/10/2026, scacchiera unica v2). Nessuna conversione a runtime.
+//
+// Case: la rete numera a1 = 0, il motore a8 = 0, cioe' casa_rete = casa ^ 56. La rete orienta una casa con
+// (casa_rete ^ OrientTBL[re] ^ 56 * p); siccome OrientTBL dipende solo dalla colonna (vedi lo static_assert),
+// (casa ^ 56 ^ OrientTBL[re] ^ 56 * p) = (casa ^ OrientTBL[re] ^ 56 * (1 - p)): con la riflessione del colore
+// complementare la casa ORIENTATA e' la stessa, e lut2/offsets si leggono nelle stesse righe.
+// Pezzi: la rete orienta un pezzo scambiandone il colore per il nero (codice ^ 8). Qui l'orientamento e' nelle tabelle,
+// indicizzate per [prospettiva][codice del motore]: lut1 e offsets per pezzo, lut2 per riga (le righe di lut2 dipendono
+// solo dal tipo, e per il pedone dal colore orientato: sette righe, 28 KB invece di 64).
+// ---------------------------------------------------------------------------------------------------------------------
+constexpr bool threat_orient_by_file_only() {
+    for (int s = 0; s < SQUARE_NB; ++s)
+        if (FullThreats::OrientTBL[s] != FullThreats::OrientTBL[s ^ 56])
+            return false;
+    return true;
+}
+static_assert(threat_orient_by_file_only(), "FullThreats::OrientTBL deve dipendere solo dalla colonna");
 
-    i8       swap              = 8 * perspective;
-    unsigned attacker_oriented = attacker ^ swap;
-    unsigned attacked_oriented = attacked ^ swap;
+// codice del motore (0..11) -> codice della rete (W_PAWN..B_KING)
+constexpr int net_piece(int e) { return e + 1 + 2 * (e >= NN_BLACK); }
 
-    return index_lut1[attacker_oriented][attacked_oriented][from_oriented < to_oriented]
-         + offsets[attacker_oriented][from_oriented]
-         + index_lut2[attacker_oriented][from_oriented][to_oriented];
+struct EngineThreatTables {
+    u32 lut1[COLOR_NB][12][12][2];       // [prospettiva][attaccante][attaccato][from < to orientati]
+    u32 offsets[COLOR_NB][12][SQUARE_NB];  // [prospettiva][attaccante][from orientato]
+    u8  lut2Row[COLOR_NB][12];           // [prospettiva][attaccante] -> riga di lut2
+    u8  lut2[7][SQUARE_NB][SQUARE_NB];   // righe: pedone bianco, pedone nero (orientati), cavallo .. re
+};
+
+constexpr EngineThreatTables make_engine_threat_tables() {
+    EngineThreatTables t{};
+    for (int p = 0; p < COLOR_NB; ++p)
+        for (int a = 0; a < 12; ++a)
+        {
+            const int na = net_piece(a) ^ (8 * p);  // pezzo orientato, codice della rete
+            for (int d = 0; d < 12; ++d)
+                for (int lt = 0; lt < 2; ++lt)
+                    t.lut1[p][a][d][lt] = index_lut1[na][net_piece(d) ^ (8 * p)][lt];
+            for (int s = 0; s < SQUARE_NB; ++s)
+                t.offsets[p][a][s] = offsets[na][s];
+            const int type = (na & 7) - 1;  // 0 = pedone .. 5 = re
+            t.lut2Row[p][a] = u8(type == 0 ? (na >> 3) : type + 1);
+        }
+    for (int row = 0; row < 7; ++row)
+    {
+        const int na = row == 0 ? W_PAWN : row == 1 ? B_PAWN : W_PAWN + row - 1;
+        for (int f = 0; f < SQUARE_NB; ++f)
+            for (int s = 0; s < SQUARE_NB; ++s)
+                t.lut2[row][f][s] = index_lut2[na][f][s];
+    }
+    return t;
 }
 
-// Get a list of indices for active features in ascending order
+// La riga di lut2 di un pezzo deve essere uguale per i due colori (tranne il pedone): e' cio' che permette sette righe.
+constexpr bool lut2_rows_by_type() {
+    for (int pt = KNIGHT; pt <= KING; ++pt)
+        for (int f = 0; f < SQUARE_NB; ++f)
+            for (int s = 0; s < SQUARE_NB; ++s)
+                if (index_lut2[pt][f][s] != index_lut2[pt + 8][f][s])
+                    return false;
+    return true;
+}
+static_assert(lut2_rows_by_type(), "index_lut2: le righe dei pezzi (non pedoni) devono valere per i due colori");
 
-void FullThreats::append_active_indices(Color perspective, const Position& pos, IndexList& active) {
-    const Square   ksq      = pos.square<KING>(perspective);
-    const Bitboard occupied = pos.pieces();
+constexpr EngineThreatTables ThreatTbl = make_engine_threat_tables();
+
+// Index of a feature for a given king position and another piece on some square (numerazione del motore)
+inline sf_always_inline IndexType
+FullThreats::make_index(Color perspective, int attacker, int from, int to, int attacked, int ksq) {
+    const int      orientation   = OrientTBL[ksq] ^ (56 * (1 - int(perspective)));
+    const unsigned from_oriented = unsigned(from ^ orientation);
+    const unsigned to_oriented   = unsigned(to ^ orientation);
+
+    return ThreatTbl.lut1[perspective][attacker][attacked][from_oriented < to_oriented]
+         + ThreatTbl.offsets[perspective][attacker][from_oriented]
+         + ThreatTbl.lut2[ThreatTbl.lut2Row[perspective][attacker]][from_oriented][to_oriented];
+}
+
+// Attacchi di un pezzo non pedone, dalle tabelle del motore (nn_attacks.h).
+static inline Bitboard engine_attacks(int pt, int s, Bitboard occupied) {
+    switch (pt)
+    {
+    case NN_KNIGHT :
+        return knight_attacks[s];
+    case NN_BISHOP :
+        return get_bishop_attacks(s, occupied);
+    case NN_ROOK :
+        return get_rook_attacks(s, occupied);
+    default :  // NN_QUEEN
+        return get_bishop_attacks(s, occupied) | get_rook_attacks(s, occupied);
+    }
+}
+
+// Get a list of indices for active features (refresh), sulla nostra scacchiera.
+
+void FullThreats::append_active_indices(Color perspective, const NnBoard& pos, IndexList& active) {
+    const int      ksq      = pos.king(perspective);
+    const Bitboard occupied = pos.occ();
 
     // SF 83514e49 (2026-07-03): filter invalid threat pairs early — pairs outside
     // these masks map to excluded features anyway (index == Dimensions), skipping
     // them here is a pure speedup. No functional change.
-    const Bitboard pawnTargets        = pos.pieces(KNIGHT, ROOK);
-    const Bitboard minorSliderTargets = pos.pieces(PAWN, KNIGHT, BISHOP, ROOK);
-    const Bitboard queenTargets       = pos.pieces(PAWN, KNIGHT, BISHOP, ROOK, QUEEN);
+    const Bitboard pawnTargets        = pos.type(NN_KNIGHT) | pos.type(NN_ROOK);
+    const Bitboard minorSliderTargets = pawnTargets | pos.type(NN_PAWN) | pos.type(NN_BISHOP);
+    const Bitboard queenTargets       = minorSliderTargets | pos.type(NN_QUEEN);
 
     for (Color color : {WHITE, BLACK})
     {
         const Color c = Color(perspective ^ color);
 
         {
-            const Piece    attacker = make_piece(c, PAWN);
-            const Bitboard cPawns   = pos.pieces(c, PAWN);
+            const int      attacker = NN_PAWN + NN_BLACK * c;
+            const Bitboard cPawns   = pos.bb(attacker);
 
-            auto process_pawn_attacks = [&](Bitboard attacks, Direction attkDir) {
+            // `fromDelta`: dalla casa attaccata alla casa del pedone. Nella nostra numerazione il bianco avanza verso
+            // gli indici piu' bassi: un pedone bianco su s attacca s - 7 (colonna + 1) e s - 9 (colonna - 1).
+            auto process_pawn_attacks = [&](Bitboard attacks, int fromDelta) {
                 while (attacks)
                 {
-                    Square to       = pop_lsb(attacks);
-                    Square from     = to - attkDir;
-                    Piece  attacked = pos.piece_on(to);
-                    IndexType index = make_index(perspective, attacker, from, to, attacked, ksq);
+                    const int to       = pop_lsb(attacks);
+                    const int from     = to + fromDelta;
+                    const int attacked = pos.piece_on(to);
+                    IndexType index    = make_index(perspective, attacker, from, to, attacked, ksq);
                     active.push_back_if_lt(feat_row(index), FeatRows);
                 }
             };
 
             if (c == WHITE)
             {
-                process_pawn_attacks(shift<NORTH_EAST>(cPawns) & pawnTargets, NORTH_EAST);
-                process_pawn_attacks(shift<NORTH_WEST>(cPawns) & pawnTargets, NORTH_WEST);
+                process_pawn_attacks(((cPawns & ~FileHBB) >> 7) & pawnTargets, 7);
+                process_pawn_attacks(((cPawns & ~FileABB) >> 9) & pawnTargets, 9);
             }
             else
             {
-                process_pawn_attacks(shift<SOUTH_WEST>(cPawns) & pawnTargets, SOUTH_WEST);
-                process_pawn_attacks(shift<SOUTH_EAST>(cPawns) & pawnTargets, SOUTH_EAST);
+                process_pawn_attacks(((cPawns & ~FileABB) << 7) & pawnTargets, -7);
+                process_pawn_attacks(((cPawns & ~FileHBB) << 9) & pawnTargets, -9);
             }
         }
 
-        for (PieceType pt = KNIGHT; pt < KING; ++pt)
+        for (int pt = NN_KNIGHT; pt < NN_KING; ++pt)
         {
-            Piece    attacker = make_piece(c, pt);
-            Bitboard bb       = pos.pieces(c, pt);
+            const int attacker = pt + NN_BLACK * c;
+            Bitboard  bb       = pos.bb(attacker);
             while (bb)
             {
-                Square   from    = pop_lsb(bb);
-                Bitboard targets = pt == KNIGHT || pt == QUEEN ? queenTargets : minorSliderTargets;
-                Bitboard attacks = Attacks::attacks_bb(pt, from, occupied) & targets;
+                const int from    = pop_lsb(bb);
+                Bitboard  targets = pt == NN_KNIGHT || pt == NN_QUEEN ? queenTargets : minorSliderTargets;
+                Bitboard  attacks = engine_attacks(pt, from, occupied) & targets;
                 while (attacks)
                 {
-                    Square    to       = pop_lsb(attacks);
-                    Piece     attacked = pos.piece_on(to);
+                    const int to       = pop_lsb(attacks);
+                    const int attacked = pos.piece_on(to);
                     IndexType index    = make_index(perspective, attacker, from, to, attacked, ksq);
                     active.push_back_if_lt(feat_row(index), FeatRows);
                 }
@@ -314,15 +398,16 @@ void FullThreats::append_active_indices(Color perspective, const Position& pos, 
 // Get a list of indices for recently changed features
 
 void FullThreats::append_changed_indices(Color                   perspective,
-                                         Square                  ksq,
+                                         int                     ksq,
                                          const DiffType&         diff,
                                          IndexList&              removed,
                                          IndexList&              added,
                                          const ThreatWeightType* prefetchBase,
                                          IndexType               prefetchStride) {
 
-    for (const auto& dirty : diff.list)
+    for (u32 i = 0; i < diff.n; ++i)
     {
+        const DirtyThreat dirty(diff.list[i]);
         auto attacker = dirty.pc();
         auto attacked = dirty.threatened_pc();
         auto from     = dirty.pc_sq();
@@ -345,7 +430,7 @@ void FullThreats::append_changed_indices(Color                   perspective,
         {
             prof_n_thr_dead++;
             // Chi sono le tuple ancora scartate? [tipo attaccante][tipo attaccato]
-            prof_dead_pair[type_of(attacker)][type_of(attacked)]++;
+            prof_dead_pair[attacker % 6 + 1][attacked % 6 + 1]++;
         }
 #endif
         // ⛔ PROVATO E RIGETTATO il 3/08/2026: prefetchare i 4 tile SIMD della riga
@@ -366,8 +451,8 @@ void FullThreats::append_changed_indices(Color                   perspective,
 
 // Porting completo di SF 7b550409 — vedi il commento in full_threats.h per la
 // differenza voluta rispetto alla loro forma (niente alternanza delle scritture).
-void FullThreats::append_changed_indices_both(Square                  ksqW,
-                                              Square                  ksqB,
+void FullThreats::append_changed_indices_both(int                     ksqW,
+                                              int                     ksqB,
                                               const DiffType&         diff,
                                               IndexList&              removedW,
                                               IndexList&              addedW,
@@ -376,8 +461,9 @@ void FullThreats::append_changed_indices_both(Square                  ksqW,
                                               const ThreatWeightType* prefetchBase,
                                               IndexType               prefetchStride) {
 
-    for (const auto& dirty : diff.list)
+    for (u32 i = 0; i < diff.n; ++i)
     {
+        const DirtyThreat dirty(diff.list[i]);
         // Decodifica UNA volta sola: e' l'unica cosa condivisibile fra le due
         // prospettive, piu' il fatto che `dirty` si legge una volta invece di due
         // a distanza di un intero aggiornamento di accumulatore.
@@ -397,12 +483,12 @@ void FullThreats::append_changed_indices_both(Square                  ksqW,
         if (iW >= FeatRows)
         {
             prof_n_thr_dead++;
-            prof_dead_pair[type_of(attacker)][type_of(attacked)]++;
+            prof_dead_pair[attacker % 6 + 1][attacked % 6 + 1]++;
         }
         if (iB >= FeatRows)
         {
             prof_n_thr_dead++;
-            prof_dead_pair[type_of(attacker)][type_of(attacked)]++;
+            prof_dead_pair[attacker % 6 + 1][attacked % 6 + 1]++;
         }
 #endif
         // UNA linea per riga, come nel percorso singolo: le altre 15 sono

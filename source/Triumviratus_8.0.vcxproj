@@ -61,6 +61,10 @@
     <ClInclude Include="search\12_negamax.inc" />
     <ClInclude Include="search\13_iterdeep.inc" />
     <ClInclude Include="search\14_smp.inc" />
+    <ClInclude Include="search\06_nndirty.inc" />
+    <ClInclude Include="nn_dirty.h" />
+    <ClInclude Include="nn_attacks.h" />
+    <ClInclude Include="nnue\nn_board.h" />
     <ClInclude Include="chess960.h" />
     <ClInclude Include="uci.h" />
     <ClInclude Include="syzygy.h" />
@@ -87,13 +91,10 @@
     <ClCompile Include="nnue_bridge.cpp" />
     <!-- Vendored Stockfish-master SFNNv13 NNUE (FullThreats + HalfKAv2_hm, L1=1024).
          Replaces the SFNNv10 + Bullet code (removed in M2). We compile only the subset
-         the NNUE eval needs: position_min.cpp provides Position::set_pieces (the heavy
-         master position.cpp / nnue_misc.cpp / evaluate.cpp pull movegen/uci closures and
-         are NOT compiled). ObjectFileName routes objects to a subdir so nnue's
+         the NNUE eval needs. Dal 07/10/2026 (scacchiera unica v2) la rete legge la scacchiera del
+         motore e le dirty le scrive la make (search/06_nndirty.inc): position_min.cpp e la
+         Position sono stati tolti. ObjectFileName routes objects to a subdir so nnue's
          misc.cpp / attacks.cpp / bitboard.cpp do not clash with the engine's own. -->
-    <ClCompile Include="nnue\position_min.cpp">
-      <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
-    </ClCompile>
     <ClCompile Include="nnue\bitboard.cpp">
       <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
     </ClCompile>

@@ -11,6 +11,8 @@
 // the PassedPawns segment). Keeps all Stockfish headers/types/macros out of the
 // rest of the engine so there is no clash with Triumviratus's own globals.
 
+#include "nn_dirty.h"   // le dirty di ogni mossa (tipi semplici, condivisi con la rete)
+
 // Initialize the shared substrate tables: bitboards + slider-magic attacks.
 // (Attacks::init() is SEPARATE from Bitboards::init() in the master.)
 void nn_init_tables(void);
@@ -50,14 +52,6 @@ void nn_set_incremental(int on);
 // first mismatches). Halves NPS; single-thread recommended. Default OFF.
 void nn_set_verify(int on);
 
-// N-1 (2026-07-05): lazy mirror apply. nn_pos_do/nn_pos_do_null normally defer the
-// SF-mirror board mutation + DirtyThreats computation until an nn_pos_eval actually
-// needs them (many nodes never evaluate: TT cutoffs return before td_evaluate,
-// in-check nodes skip eval entirely) -> those plies are undone for free, never
-// mirrored at all. Default ON. Toggle OFF to fall back to the pre-N1 eager apply
-// (every legal move mirrored immediately in nn_pos_do), for bisection.
-void nn_set_lazy_mirror(int on);
-
 // Eval output scale in PERCENT (default 100 = x1.0). The SFNNv13 cp formula lands on
 // a different scale than the engine's SPSA-tuned (for SFNNv10) search margins expect;
 // this re-aligns the two. UCI option "EvalScale". Diagnostic sweep at fixed depth.
@@ -91,59 +85,39 @@ int  nn_last_unadjusted(void* handle);  // unadjusted (pre-rule50/scale) dell'ul
 // CORRENTE: serve a scegliere la scala per bucket, e qui non c'e' la Position.
 int  nn_finalize(int unadjusted, int rule50, int bucket);
 
-// Evaluate a position from scratch (full refresh).
-//   side_white : 1 if white is to move, 0 if black
-//   pieces[i]  : Stockfish piece code (W_PAWN=1..W_KING=6, B_PAWN=9..B_KING=14)
-//   squares[i] : Stockfish square (a1=0, b1=1, ... h8=63)
-//   count      : number of entries in pieces[]/squares[]
-//   rule50     : halfmove (fifty-move) clock
-// Returns the evaluation (stm-relative, Stockfish internal units == the engine's
-// eval scale). Stateless oracle for the "eval" command + the NNUE_VERIFY check.
-int nn_eval(int side_white, const int* pieces, const int* squares, int count, int rule50,
+// Valutazione da zero (refresh completo) della scacchiera globale, per il comando "eval": bb[12] nell'ordine
+// P,N,B,R,Q,K,p,n,b,r,q,k, occ[3] = bianco/nero/tutti, case a8 = 0 (la numerazione del motore, l'unica).
+// Returns the evaluation (stm-relative, internal units == the engine's eval scale).
+int nn_eval(int side_white, const unsigned long long* bb, const unsigned long long* occ, int rule50,
             int* raw_out = nullptr);
 
 // ---------------------------------------------------------------------------
-// Per-thread incremental position handle. In M2 it only tracks side-to-move and
-// the fifty-move clock across make/undo (nn_pos_eval receives the board via the
-// engine's own bitboards and rebuilds the SF Position each call). M3 will hang
-// the real AccumulatorStack chain off the SfMove dirty lists.
+// Handle per thread (07/10/2026, scacchiera unica v2): catena degli accumulatori e finny table. La rete non tiene una
+// scacchiera sua: legge quella del motore in nn_pos_eval. Le dirty di ogni mossa le scrive la make del motore sulla
+// pila dell'handle (nn_pos_stack, tipi in nn_dirty.h): uno stato per mossa fatta, tolto alla unmake; le mosse nulle
+// non aggiungono stati.
 // ---------------------------------------------------------------------------
-
-// Description of a single move in Stockfish encoding (the moving piece must be
-// movedPiece). M2 reads only rule50; the rest is populated by the engine for M3.
-struct SfMove {
-    int movedPiece;     // SF code of the moving piece
-    int from;           // SF square the piece leaves
-    int to;             // SF square the piece arrives on
-    int promoPiece;     // SF code of the promotion result, or 0 if not a promotion
-    int capturedPiece;  // SF code of the captured piece, or 0 if no capture
-    int capturedSq;     // SF square of the captured piece (= to for a normal
-                        //   capture, the e.p. pawn square for en passant), or -1
-    int rookPiece;      // SF code of the castling rook, or 0 if not castling
-    int rookFrom;       // SF square the rook leaves (castling), or -1
-    int rookTo;         // SF square the rook arrives on (castling), or -1
-    int rule50;         // fifty-move clock value for the resulting position
-};
 
 // Create / destroy a per-thread incremental position handle (opaque).
 void* nn_pos_create(void);
 void  nn_pos_destroy(void* handle);
 void  nn_pos_set_optimism(void* handle, int w, int b);   // OptPerThread
 
-// (Re)initialise the handle for a search from the root: set side-to-move + the
-// fifty-move clock. Call at the start of a search from the root.
-void  nn_pos_set(void* handle, int side_white, const int* pieces,
-                 const int* squares, int count, int rule50);
+// Riparte dalla radice: la pila torna a un solo stato e l'accumulatore della radice si calcola alla prima valutazione.
+void  nn_pos_set(void* handle);
 
-// Apply / retract a move on the handle (track stm + rule50 for nn_pos_eval).
-void  nn_pos_do(void* handle, const struct SfMove* m);
-void  nn_pos_do_null(void* handle, int rule50);
-void  nn_pos_undo(void* handle);
+// La pila delle dirty dell'handle, che la make e la unmake del motore scrivono direttamente.
+NnStack* nn_pos_stack(void* handle);
 
 // Evaluate the current position (centipawns / internal units, stm-relative).
-// bb / occ are the ENGINE's own bitboards (bb[12] in P,N,B,R,Q,K,p,n,b,r,q,k
-// order; occ[3] = white,black,both) in the engine's a8=0..h1=63 layout. They are
-// vflip'd + remapped into the SF board the NNUE reads.
-int   nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ);
+// La rete legge la NOSTRA scacchiera: bb[12] nell'ordine P,N,B,R,Q,K,p,n,b,r,q,k, occ[3] = bianco/nero/tutti,
+// mailbox[64] con -1 = vuota, tutto con a8 = 0. side_white e rule50 sono quelli della ricerca. Le dirty delle mosse
+// fino a questa posizione devono essere complete (nn_dirty_catch_up del motore, prima).
+int   nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                  int side_white, int rule50);
+
+// Controllo nnueverify: valutazioni confrontate e valutazioni diverse dall'avvio.
+unsigned long long nn_verify_count(void);
+unsigned long long nn_verify_bad(void);
 
 #endif // SF_BRIDGE_H

@@ -127,6 +127,7 @@ struct UndoInfo {
 };
 
 static void init_cuckoo();
+static void nn_dirty_init();
 
 void init_threads(int thread_count) {
   if (thread_count < 1)
@@ -138,11 +139,13 @@ void init_threads(int thread_count) {
     if (td.nnpos) {
       nn_pos_destroy(td.nnpos);
       td.nnpos = nullptr;
+      td.nnstack = nullptr;
     }
 
   static bool cuckoo_ready = false;
   if (!cuckoo_ready) {
     init_cuckoo();
+    nn_dirty_init();   // raggi per le minacce scoperte delle dirty della rete (06_nndirty.inc)
     cuckoo_ready = true;
   }
 
@@ -153,6 +156,7 @@ void init_threads(int thread_count) {
     ThreadData &td = thread_data[i];
     td.thread_id = i;
     td.nnpos = nn_pos_create();
+    td.nnstack = nn_pos_stack(td.nnpos);
     td.nodes = td.tb_hits = 0;
     td.best_move = td.best_reply = td.depth = 0;
     td.completed_depth = 0;

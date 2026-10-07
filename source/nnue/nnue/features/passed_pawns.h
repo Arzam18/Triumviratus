@@ -27,7 +27,7 @@
 #include "pawn_pair.h"     // catena FoldOffset: i pesi passed vivono DOPO il segmento pawn-pair
 
 namespace Triumviratus {
-class Position;
+class NnBoard;
 }
 
 namespace Triumviratus::Eval::NNUE::Features {
@@ -55,21 +55,23 @@ class PassedPawns {
 
     // 0..47 own passer, 48..95 enemy passer (oriented squares 8..55 -> -8),
     // identico al pawn_id del PawnPair.
-    static inline IndexType make_index(Color perspective, Square ksq, Color pc, Square sq) {
-        const i8 orientation = FullThreats::OrientTBL[ksq] ^ (56 * perspective);
-        return (pc != perspective ? 48 : 0) + (u8(sq) ^ orientation) - 8;
+    // Case del MOTORE (a8 = 0), con la riflessione del colore complementare (vedi PawnPair::make_index).
+    static inline IndexType make_index(Color perspective, int ksq, int pc, int sq) {
+        const int orientation = FullThreats::OrientTBL[ksq] ^ (56 * (1 - int(perspective)));
+        return (pc != int(perspective) ? 48 : 0) + (sq ^ orientation) - 8;
     }
 
     // Bitboard of passed pawns of color c given both RAW pawn sets (the
     // orientation enters only at index time, like PawnPair's band check).
+    // Nella nostra numerazione il bianco avanza verso gli indici piu' bassi.
     static Bitboard passers(Color c, Bitboard ownPawns, Bitboard oppPawns);
 
     // Get a list of indices for active features (full refresh)
-    static void append_active_indices(Color perspective, const Position& pos, IndexList& active);
+    static void append_active_indices(Color perspective, const NnBoard& pos, IndexList& active);
 
     // Get a list of indices for recently changed features (incremental)
     static void append_changed_indices(Color           perspective,
-                                       Square          ksq,
+                                       int             ksq,
                                        const DiffType& diff,
                                        IndexList&      removed,
                                        IndexList&      added);

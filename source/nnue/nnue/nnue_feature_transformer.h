@@ -28,7 +28,7 @@
 #include <iterator>
 
 #include "../../profile.h"
-#include "../position.h"
+#include "../nn_board.h"
 #include "../types.h"
 #include "nnue_accumulator.h"
 #include "nnue_architecture.h"
@@ -336,7 +336,7 @@ class FeatureTransformer {
     }
 
     // Convert input features
-    i32 transform(const Position&            pos,
+    i32 transform(const NnBoard&             pos,
                   AccumulatorStack&          accumulatorStack,
                   AccumulatorCaches&         cache,
                   OutputType*                output,

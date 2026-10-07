@@ -10,7 +10,7 @@
 #include <array>
 
 #include "../../bitboard.h"
-#include "../../position.h"
+#include "../../nn_board.h"
 
 namespace Triumviratus::Eval::NNUE::Features {
 
@@ -24,8 +24,9 @@ namespace Triumviratus::Eval::NNUE::Features {
 // pedone, viste dal colore c) con shift a cascata; il pedone e' passato se non cade in nessuna delle due ombre.
 // Stesso insieme, stesso albero. xperf 6 giri, build PGO avx512: cicli per nodo -0,81%, salti mal predetti -2,7%.
 Bitboard PassedPawns::passers(Color c, Bitboard ownPawns, Bitboard oppPawns) {
-    // Verso "indietro" per il colore c: il bianco avanza a nord (indici crescenti), quindi la sua ombra scende.
-    const auto back = [c](Bitboard b, int n) { return c == WHITE ? b >> n : b << n; };
+    // Verso "indietro" per il colore c. Nella nostra numerazione (a8 = 0, 07/10/2026) il bianco avanza verso gli indici
+    // piu' bassi, quindi la sua ombra sale di indice; la colonna e lo spostamento di colonna (<< 1, >> 1) non cambiano.
+    const auto back = [c](Bitboard b, int n) { return c == WHITE ? b << n : b >> n; };
     // Pedoni avversari allargati alle colonne adiacenti, poi tutte le case strettamente dietro di loro.
     Bitboard oppShadow = back(oppPawns | ((oppPawns & ~FileHBB) << 1) | ((oppPawns & ~FileABB) >> 1), 8);
     oppShadow |= back(oppShadow, 8);
@@ -40,10 +41,10 @@ Bitboard PassedPawns::passers(Color c, Bitboard ownPawns, Bitboard oppPawns) {
 }
 
 // Full refresh: one feature per passed pawn of either color.
-void PassedPawns::append_active_indices(Color perspective, const Position& pos, IndexList& active) {
-    const Square   ksq = pos.square<KING>(perspective);
-    const Bitboard wp  = pos.pieces(WHITE, PAWN);
-    const Bitboard bp  = pos.pieces(BLACK, PAWN);
+void PassedPawns::append_active_indices(Color perspective, const NnBoard& pos, IndexList& active) {
+    const int      ksq = pos.king(perspective);
+    const Bitboard wp  = pos.pawns(WHITE);
+    const Bitboard bp  = pos.pawns(BLACK);
 
     Bitboard pw = passers(WHITE, wp, bp);
     while (pw)
@@ -61,19 +62,19 @@ void PassedPawns::append_active_indices(Color perspective, const Position& pos, 
 // XOR-iamo: emissione esatta per costruzione, tutti i casi (cattura,
 // promozione, en passant) gestiti uniformemente.
 void PassedPawns::append_changed_indices(Color           perspective,
-                                         Square          ksq,
+                                         int             ksq,
                                          const DiffType& diff,
                                          IndexList&      removed,
                                          IndexList&      added) {
     if (!diff.any)
         return;
 
-    Bitboard before[COLOR_NB] = {diff.pawnsBefore[WHITE], diff.pawnsBefore[BLACK]};
+    Bitboard before[COLOR_NB] = {diff.before[WHITE], diff.before[BLACK]};
     Bitboard after[COLOR_NB]  = {before[WHITE], before[BLACK]};
     for (int i = 0; i < diff.nRemoved; i++)
-        after[diff.removedC[i]] &= ~square_bb(diff.removedSq[i]);
-    if (diff.addedSq != SQ_NONE)
-        after[diff.addedC] |= square_bb(diff.addedSq);
+        after[diff.removedC[i]] &= ~(1ULL << diff.removedSq[i]);
+    if (diff.addedSq != NN_SQ_NONE)
+        after[diff.addedC] |= 1ULL << diff.addedSq;
 
     for (Color c : {WHITE, BLACK})
     {

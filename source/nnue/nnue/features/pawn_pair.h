@@ -22,7 +22,7 @@
 #include "full_threats.h"  // OrientTBL (stessa orientazione per tutti i blocchi)
 
 namespace Triumviratus {
-class Position;
+class NnBoard;
 }
 
 namespace Triumviratus::Eval::NNUE::Features {
@@ -53,13 +53,14 @@ class PawnPair {
     using DiffType  = DirtyPawns;
 
     // 0..47 own pawns, 48..95 enemy pawns (oriented squares 8..55 -> -8)
-    static inline IndexType pawn_id(Color perspective, i8 orientation, Color pc, Square sq) {
-        return (pc != perspective ? 48 : 0) + (u8(sq) ^ orientation) - 8;
+    static inline IndexType pawn_id(Color perspective, int orientation, int pc, int sq) {
+        return (pc != int(perspective) ? 48 : 0) + (sq ^ orientation) - 8;
     }
 
-    static inline IndexType
-    make_index(Color perspective, Square ksq, Square s1, Color c1, Square s2, Color c2) {
-        const i8        orientation = FullThreats::OrientTBL[ksq] ^ (56 * perspective);
+    // Case del MOTORE (a8 = 0): la riflessione del colore e' la complementare di quella della rete, cosi' la casa
+    // orientata e' la stessa (vedi full_threats.cpp, EngineThreatTables).
+    static inline IndexType make_index(Color perspective, int ksq, int s1, int c1, int s2, int c2) {
+        const int       orientation = FullThreats::OrientTBL[ksq] ^ (56 * (1 - int(perspective)));
         const IndexType a           = pawn_id(perspective, orientation, c1, s1);
         const IndexType b           = pawn_id(perspective, orientation, c2, s2);
         const IndexType hi          = a > b ? a : b;
@@ -68,11 +69,11 @@ class PawnPair {
     }
 
     // Get a list of indices for active features (full refresh)
-    static void append_active_indices(Color perspective, const Position& pos, IndexList& active);
+    static void append_active_indices(Color perspective, const NnBoard& pos, IndexList& active);
 
     // Get a list of indices for recently changed features (incremental)
     static void append_changed_indices(Color           perspective,
-                                       Square          ksq,
+                                       int             ksq,
                                        const DiffType& diff,
                                        IndexList&      removed,
                                        IndexList&      added);

@@ -82,6 +82,7 @@ unsigned long long prof_dead_pair[8][8] = {};
 #include "search/01_params.inc"
 #include "search/02_state.inc"
 #include "search/03_tables.inc"
+#include "search/06_nndirty.inc"
 #include "search/07_makemove.inc"
 #include "search/08_movegen.inc"
 #include "search/09_history.inc"

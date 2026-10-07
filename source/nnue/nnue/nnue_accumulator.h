@@ -32,7 +32,7 @@
 #include "nnue_common.h"
 
 namespace Triumviratus {
-class Position;
+class NnBoard;
 }
 
 namespace Triumviratus::Eval::NNUE {
@@ -42,11 +42,11 @@ struct alignas(CacheLineSize) Accumulator;
 class FeatureTransformer;
 
 // Class that holds the result of affine transformation of input features,
-// combined HalfKA + Threats
+// combined HalfKA + Threats. Se e' calcolato (per prospettiva) lo dice lo stato della stessa mossa (NnState::computed,
+// ../../nn_dirty.h), che la make del motore azzera quando lo crea.
 struct alignas(CacheLineSize) Accumulator {
     std::array<std::array<i16, L1>, COLOR_NB>          accumulation;
     std::array<std::array<i32, PSQTBuckets>, COLOR_NB> psqtAccumulation;
-    std::array<bool, COLOR_NB>                         computed = {};
 };
 
 
@@ -62,11 +62,13 @@ struct AccumulatorCaches {
         clear(network);
     }
 
+    // 07/10/2026 (scacchiera unica v2): la posizione di una entry sono i dodici bitboard per pezzo del motore (codici
+    // 0..11, case a8 = 0), confrontati pezzo per pezzo con quelli della scacchiera. Prima era la mailbox in forma rete
+    // (64 byte) piu' l'occupazione.
     struct alignas(CacheLineSize) Entry {
         std::array<BiasType, L1>                accumulation;
         std::array<PSQTWeightType, PSQTBuckets> psqtAccumulation;
-        std::array<Piece, SQUARE_NB>            pieces;
-        Bitboard                                pieceBB;
+        std::array<Bitboard, 12>                pieces;
 
         // To initialize a refresh entry, we set all its bitboards empty,
         // so we put the biases in the accumulation, without any weights on top
@@ -94,23 +96,21 @@ struct AccumulatorCaches {
 };
 
 
-struct AccumulatorState: public Accumulator {
-    DirtyPiece   dirtyPiece;
-    DirtyThreats dirtyThreats;
-    DirtyPawns   dirtyPawns;  // TRANN1: delta pedoni per il blocco PawnPair
-};
-
+// Catena degli accumulatori di un thread (07/10/2026, scacchiera unica v2). Le dirty di ogni mossa e i flag "calcolato"
+// stanno in `ds` (NnStack, ../../nn_dirty.h): li scrive la make del motore, che vi aggiunge uno stato per mossa e lo
+// toglie alla unmake (nnue_bridge.h: nn_pos_stack). La rete legge le dirty, calcola gli accumulatori e segna i flag.
 class AccumulatorStack {
    public:
-    static constexpr usize MaxSize = MAX_PLY + 1;
+    static constexpr usize MaxSize = NN_STACK_SIZE;
+    static_assert(MaxSize == MAX_PLY + 1, "NN_STACK_SIZE deve essere MAX_PLY + 1");
 
-    [[nodiscard]] const AccumulatorState& latest() const noexcept;
+    [[nodiscard]] const Accumulator& latest() const noexcept;
 
+    // Riparte da una radice da calcolare: un solo stato, nessun accumulatore calcolato.
     void reset() noexcept;
-    std::tuple<DirtyPiece&, DirtyThreats&, DirtyPawns&> push() noexcept;
-    void pop() noexcept;
+    NnStack& dirty_stack() noexcept { return ds; }
 
-    void evaluate(const Position&           pos,
+    void evaluate(const NnBoard&            pos,
                   const FeatureTransformer& featureTransformer,
                   // Silence spurious warning on GCC 10
                   [[maybe_unused]] AccumulatorCaches& cache) noexcept;
@@ -127,10 +127,11 @@ class AccumulatorStack {
     };
 
    private:
-    [[nodiscard]] AccumulatorState& mut_latest() noexcept;
+    [[nodiscard]] Accumulator& mut_latest() noexcept;
+    [[nodiscard]] usize        size() const noexcept { return usize(ds.size); }
 
     void evaluate_side(Color                     perspective,
-                       const Position&           pos,
+                       const NnBoard&            pos,
                        const FeatureTransformer& featureTransformer,
                        // Silence spurious warning on GCC 10
                        [[maybe_unused]] AccumulatorCaches& cache) noexcept;
@@ -138,18 +139,18 @@ class AccumulatorStack {
     [[nodiscard]] usize find_last_usable_accumulator(Color perspective) const noexcept;
 
     void forward_update_incremental(Color                     perspective,
-                                    const Position&           pos,
+                                    const NnBoard&            pos,
                                     const FeatureTransformer& featureTransformer,
                                     const usize               begin) noexcept;
 
     void backward_update_incremental(Color                     perspective,
-                                     const Position&           pos,
+                                     const NnBoard&            pos,
                                      const FeatureTransformer& featureTransformer,
                                      const usize               end) noexcept;
 
-    std::array<AccumulatorState, MaxSize> accumulators;
-    usize                                 size = 1;
-    BothLists                             both_lists;
+    std::array<Accumulator, MaxSize> accumulators;
+    BothLists                        both_lists;
+    NnStack                          ds;
 };
 
 }  // namespace Triumviratus::Eval::NNUE

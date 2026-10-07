@@ -97,6 +97,17 @@
   P(GoodCaptSeeDiv, 18, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 442, 100, 1200)                                                                             \
+  /* Idee dai commit di Stockfish dopo SF19 (07/10/2026), come opzioni spente (0 = albero invariato); i valori di  \
+     prova sono nostri, nelle nostre unita' (pedone ~356), da tarare con SPRT/SPSA:                              \
+     RazorAllLin: razoring lineare (margine RazorAllLin * prof.) solo nei nodi all, mai a caccia di matto;        \
+     NmpPriorFH: la soglia della mossa nulla scende di tanto per ogni mossa nulla gia' riuscita fra i fratelli;   \
+     FhRecovery: dopo un fail-high alla radice la profondita' risale per gradi nelle iterazioni seguenti.         \
+     RazorAllLin=600 a 10+0.1: H0, -2,32 +- 2,52 su 20.032 partite (07/10; socket 0 +0,7, socket 1 -5,4).        \
+     NmpPriorFH=48 a 15+0.15: neutra, +0,46 +- 2,66 su 17.308 partite (07/10; socket 0 -1,2, socket 1 +2,1).     \
+     FhRecovery=1 a 15+0.15: chiusa, -1,82 +- 4,54 su 5.932 partite (07/10; socket 0 -3,4, socket 1 -0,1). */      \
+  P(RazorAllLin, 0, 0, 2000)                                                                              \
+  P(NmpPriorFH, 0, 0, 200)                                                                                \
+  P(FhRecovery, 0, 0, 1)                                                                                  \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -318,6 +329,11 @@
   P(TmMaxMultCap, 6873, 3000, 10000)     /* /1e3: tetto del moltiplicatore del massimo (06/10/2026, rapporto */ \
                                          /* Q_TEMPO: sopra ~14 s di orologio decide lui; prova a 5000, 40+0.4) */ \
                                          /* 06/10: 5000 -27,1 +- 17,0 / 308, 8000 -3,6 +- 10,2 / ~950: resta 6873 */ \
+  P(TmBehindMul, 600, 0, 2000)           /* /1000 (07/10/2026, idea dell'utente): con meno orologio            */ \
+                                         /* dell'avversario l'ottimo si riduce di TmBehindMul x svantaggio   */ \
+                                         /* relativo ((noi - lui) / (noi + lui), solo se negativo); 0 = spento */ \
+                                         /* BAKED 07/10 a 600: 6+0.06 +5,23 +- 4,72 / 6.378 (zero escluso, */ \
+                                         /* s0 +2,5 s1 +8,0); 30+0.3 neutra +0,36 +- 5,13 / 3.876. Bench ugual. */ \
   P(TmRedLo, 496, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
   P(TmRedHi, 1879, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
                                          /* tranquille e critiche; prova a 1200 = rampa piu' corta, 40+0.4) */ \
@@ -375,9 +391,6 @@ static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
 bool      g_large_pages   = true;
 bool      g_ep_key_fix    = true;
 static const bool g_evasion_gen = true;
-
-// Codice di ogni pezzo nella posizione della rete, per pezzo di Triumviratus (P,N,B,R,Q,K,p,n,b,r,q,k).
-static const int nn_piece_code[12] = {1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14};
 
 static inline bool parse_bool_value(int v) { return v != 0; }
 

@@ -12,6 +12,8 @@
 #include <atomic>
 #include <mutex>
 
+struct NnStack;   // pila delle dirty della rete (nn_dirty.h)
+
 // ============================================================================
 // Ricerca di Triumviratus, riscritta il 04/10/2026 sulla logica della ricerca di Stockfish 19 (GPLv3).
 // Strutture, nomi e codice sono nostri; le regole e i numeri seguono SF19 (vedi
@@ -49,6 +51,7 @@ struct NodeFrame {
     bool follow_pv;
     unsigned char ldse;           // la mossa in ricerca da questo frame e' stata estesa da Ldse (LdseMax)
     unsigned char ldse_path;      // estensioni Ldse lungo la linea fino a questo nodo
+    unsigned char nmp_fh;         // mosse nulle riuscite fra i figli dello stesso padre (NmpPriorFH)
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
@@ -164,6 +167,7 @@ struct ThreadData {
 
     // Rete incrementale e cache della valutazione
     void* nnpos = nullptr;
+    NnStack* nnstack = nullptr;   // pila delle dirty dell'handle nnpos: la scrivono make e unmake (06_nndirty.inc)
     static constexpr int EVAL_CACHE_BITS = 16;
     static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;

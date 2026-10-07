@@ -25,7 +25,7 @@
 #include "../../profile.h"
 #include "../bitboard.h"
 #include "../misc.h"
-#include "../position.h"
+#include "../nn_board.h"
 #include "../types.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"
@@ -38,12 +38,16 @@ using namespace SIMD;
 
 namespace {
 
+// 07/10/2026 (scacchiera unica v2): una transizione della catena e' una coppia (accumulatore, stato) per parte; lo
+// stato (NnState, ../../nn_dirty.h) porta le dirty della mossa e i flag "calcolato".
 template<bool Forward>
 void update_accumulator_incremental(Color                     perspective,
                                     const FeatureTransformer& featureTransformer,
-                                    const Square              ksq,
-                                    AccumulatorState&         target_state,
-                                    const AccumulatorState&   computed);
+                                    const int                 ksq,
+                                    Accumulator&              target,
+                                    NnState&                  target_state,
+                                    const Accumulator&        computed,
+                                    const NnState&            computed_state);
 
 // NPS 25/09/2026 — macro di RIAPERTURA per rimisurare su Intel (Skylake-SP, AVX-512 nativo a
 // 512 bit) le tre vie spente su AVX-512 dopo le misure a tempo di agosto su Zen4 (AVX-512 a
@@ -55,55 +59,47 @@ void update_accumulator_incremental(Color                     perspective,
 #ifndef TRIUMV_NO_PERSP_BOTH
 template<bool Forward>
 void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
-                                         const Square                 ksqW,
-                                         const Square                 ksqB,
-                                         AccumulatorState&            target_state,
-                                         const AccumulatorState&      computed,
+                                         const int                    ksqW,
+                                         const int                    ksqB,
+                                         Accumulator&                 target,
+                                         NnState&                     target_state,
+                                         const Accumulator&           computed,
+                                         const NnState&               computed_state,
                                          AccumulatorStack::BothLists& lists);
 #endif
 
 void update_accumulator_refresh_cache(Color                     perspective,
                                       const FeatureTransformer& featureTransformer,
-                                      const Position&           pos,
-                                      AccumulatorState&         accumulatorState,
+                                      const NnBoard&            pos,
+                                      Accumulator&              accumulator,
+                                      NnState&                  state,
                                       AccumulatorCaches&        cache);
 
 void update_accumulator_hybrid(Color                     perspective,
-                               const Position&           pos,
+                               const NnBoard&            pos,
                                const FeatureTransformer& featureTransformer,
-                               AccumulatorState&         target,
-                               const AccumulatorState&   computed,
+                               Accumulator&              target,
+                               NnState&                  target_state,
+                               const Accumulator&        computed,
                                AccumulatorCaches&        cache);
 }
 
-const AccumulatorState& AccumulatorStack::latest() const noexcept { return accumulators[size - 1]; }
+const Accumulator& AccumulatorStack::latest() const noexcept { return accumulators[size() - 1]; }
 
-AccumulatorState& AccumulatorStack::mut_latest() noexcept { return accumulators[size - 1]; }
+Accumulator& AccumulatorStack::mut_latest() noexcept { return accumulators[size() - 1]; }
 
 void AccumulatorStack::reset() noexcept {
-    accumulators[0].dirtyPiece = {};
-    new (&accumulators[0].dirtyThreats) DirtyThreats;
-    accumulators[0].computed.fill(false);
-    size = 1;
+    ds.size  = 1;
+    ds.ready = 1;
+    // La radice non ha una mossa: dirty vuote (nessuno le legge, ma restano definite).
+    ds.st[0].dp        = {};
+    ds.st[0].dp.to     = ds.st[0].dp.remove_sq = ds.st[0].dp.add_sq = NN_SQ_NONE;
+    ds.st[0].pawns.any = 0;
+    ds.st[0].threats.n = 0;
+    ds.st[0].computed[WHITE] = ds.st[0].computed[BLACK] = 0;
 }
 
-std::tuple<DirtyPiece&, DirtyThreats&, DirtyPawns&>
-AccumulatorStack::push() noexcept {
-    assert(size < MaxSize);
-    auto& st = accumulators[size];
-    st.computed.fill(false);
-    new (&st.dirtyThreats) DirtyThreats;
-    st.dirtyPawns.any = false;  // TRANN1: apply_move la riempie se la mossa tocca pedoni
-    size++;
-    return {st.dirtyPiece, st.dirtyThreats, st.dirtyPawns};
-}
-
-void AccumulatorStack::pop() noexcept {
-    assert(size > 1);
-    size--;
-}
-
-void AccumulatorStack::evaluate(const Position&           pos,
+void AccumulatorStack::evaluate(const NnBoard&            pos,
                                 const FeatureTransformer& featureTransformer,
                                 // Silence spurious warning on GCC 10
                                 [[maybe_unused]] AccumulatorCaches& cache) noexcept {
@@ -117,17 +113,17 @@ void AccumulatorStack::evaluate(const Position&           pos,
         const auto lastW = find_last_usable_accumulator(WHITE);
         const auto lastB = find_last_usable_accumulator(BLACK);
 
-        if (accumulators[lastW].computed[WHITE] && accumulators[lastB].computed[BLACK])
+        if (ds.st[lastW].computed[WHITE] && ds.st[lastB].computed[BLACK])
         {
 #ifdef TRIUMV_PROFILE
             prof_n_inc += 2;
 #endif
             PROF_GUARD(prof_acc_inc);
-            const Square ksqW  = pos.square<KING>(WHITE);
-            const Square ksqB  = pos.square<KING>(BLACK);
-            const usize  start = lastW < lastB ? lastW : lastB;
+            const int   ksqW  = pos.king(WHITE);
+            const int   ksqB  = pos.king(BLACK);
+            const usize start = lastW < lastB ? lastW : lastB;
 
-            for (usize next = start + 1; next < size; next++)
+            for (usize next = start + 1; next < size(); next++)
             {
                 // Le due ancore possono stare a profondita' DIVERSE: la passata
                 // condivisa vale solo dove entrambe le prospettive devono ancora
@@ -135,14 +131,15 @@ void AccumulatorStack::evaluate(const Position&           pos,
                 // percorso a prospettiva singola, che e' esattamente il codice di
                 // sempre.
                 if (next > lastW && next > lastB)
-                    update_accumulator_incremental_both<true>(
-                      featureTransformer, ksqW, ksqB, accumulators[next], accumulators[next - 1], both_lists);
+                    update_accumulator_incremental_both<true>(featureTransformer, ksqW, ksqB, accumulators[next],
+                                                              ds.st[next], accumulators[next - 1],
+                                                              ds.st[next - 1], both_lists);
                 else if (next > lastW)
-                    update_accumulator_incremental<true>(WHITE, featureTransformer, ksqW,
-                                                         accumulators[next], accumulators[next - 1]);
+                    update_accumulator_incremental<true>(WHITE, featureTransformer, ksqW, accumulators[next],
+                                                         ds.st[next], accumulators[next - 1], ds.st[next - 1]);
                 else if (next > lastB)
-                    update_accumulator_incremental<true>(BLACK, featureTransformer, ksqB,
-                                                         accumulators[next], accumulators[next - 1]);
+                    update_accumulator_incremental<true>(BLACK, featureTransformer, ksqB, accumulators[next],
+                                                         ds.st[next], accumulators[next - 1], ds.st[next - 1]);
             }
             return;
         }
@@ -154,13 +151,13 @@ void AccumulatorStack::evaluate(const Position&           pos,
 }
 
 void AccumulatorStack::evaluate_side(Color                     perspective,
-                                     const Position&           pos,
+                                     const NnBoard&            pos,
                                      const FeatureTransformer& featureTransformer,
                                      AccumulatorCaches&        cache) noexcept {
 
     const auto last_usable_accum = find_last_usable_accumulator(perspective);
 
-    if (accumulators[last_usable_accum].computed[perspective])
+    if (ds.st[last_usable_accum].computed[perspective])
     {
 #ifdef TRIUMV_PROFILE
         prof_n_inc++;
@@ -216,19 +213,20 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         // update incrementali e poi l'ibrido costa ~2,5% IN PIU' sul tempo dei refresh: l'ibrido costa quasi quanto un
         // refresh pieno (due ricostruzioni HalfKA da entry della finny vecchie, 4 fasce), l'update in piu' non si ripaga.
         constexpr int MIN_PC_COUNT_HYBRID = 0;
-        const auto&   dp                  = latest().dirtyPiece;
-        const bool    ownKing             = dp.pc == make_piece(perspective, KING);
-        if (size >= 2 && dp.to != SQ_NONE
-            && accumulators[size - 2].computed[perspective]
-            && pos.count<ALL_PIECES>() >= MIN_PC_COUNT_HYBRID
-            && (!ownKing || (int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == SQ_NONE)
+        const usize   n                   = size();
+        const auto&   dp                  = ds.st[n - 1].dp;
+        const bool    ownKing             = dp.pc == NN_KING + NN_BLACK * int(perspective);
+        if (n >= 2 && dp.to != NN_SQ_NONE
+            && ds.st[n - 2].computed[perspective]
+            && pos.count() >= MIN_PC_COUNT_HYBRID
+            && (!ownKing || (int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == NN_SQ_NONE)
         {
     #ifdef TRIUMV_PROFILE
             prof_refresh_same_orient++;
     #endif
             PROF_GUARD(prof_acc_refresh);
-            update_accumulator_hybrid(perspective, pos, featureTransformer, mut_latest(),
-                                      accumulators[size - 2], cache);
+            update_accumulator_hybrid(perspective, pos, featureTransformer, mut_latest(), ds.st[n - 1],
+                                      accumulators[n - 2], cache);
             return;
         }
     #ifdef TRIUMV_PROFILE
@@ -239,7 +237,8 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         prof_n_refresh++;
 #endif
         PROF_GUARD(prof_acc_refresh);
-        update_accumulator_refresh_cache(perspective, featureTransformer, pos, mut_latest(), cache);
+        update_accumulator_refresh_cache(perspective, featureTransformer, pos, mut_latest(), ds.st[size() - 1],
+                                         cache);
         backward_update_incremental(perspective, pos, featureTransformer, last_usable_accum);
     }
 }
@@ -248,14 +247,14 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
 // state just before a change that requires full refresh.
 usize AccumulatorStack::find_last_usable_accumulator(Color perspective) const noexcept {
 
-    for (usize curr_idx = size - 1; curr_idx > 0; curr_idx--)
+    for (usize curr_idx = size() - 1; curr_idx > 0; curr_idx--)
     {
-        if (accumulators[curr_idx].computed[perspective])
+        if (ds.st[curr_idx].computed[perspective])
             return curr_idx;
 
         // Threat feature set refreshes require a king move across the center, i.e.,
         // a subset of halfka refreshes
-        if (PSQFeatureSet::requires_refresh(accumulators[curr_idx].dirtyPiece, perspective))
+        if (PSQFeatureSet::requires_refresh(ds.st[curr_idx].dp, perspective))
             return curr_idx;
     }
 
@@ -263,46 +262,46 @@ usize AccumulatorStack::find_last_usable_accumulator(Color perspective) const no
 }
 
 void AccumulatorStack::forward_update_incremental(Color                     perspective,
-                                                  const Position&           pos,
+                                                  const NnBoard&            pos,
                                                   const FeatureTransformer& featureTransformer,
                                                   const usize               begin) noexcept {
 
     assert(begin < accumulators.size());
-    assert(accumulators[begin].computed[perspective]);
+    assert(ds.st[begin].computed[perspective]);
 
-    const Square ksq = pos.square<KING>(perspective);
+    const int ksq = pos.king(perspective);
 
-    for (usize next = begin + 1; next < size; next++)
-        update_accumulator_incremental<true>(perspective, featureTransformer, ksq,
-                                             accumulators[next], accumulators[next - 1]);
+    for (usize next = begin + 1; next < size(); next++)
+        update_accumulator_incremental<true>(perspective, featureTransformer, ksq, accumulators[next], ds.st[next],
+                                             accumulators[next - 1], ds.st[next - 1]);
 
-    assert(latest().computed[perspective]);
+    assert(ds.st[size() - 1].computed[perspective]);
 }
 
 void AccumulatorStack::backward_update_incremental(Color                     perspective,
-                                                   const Position&           pos,
+                                                   const NnBoard&            pos,
                                                    const FeatureTransformer& featureTransformer,
                                                    const usize               end) noexcept {
 
     assert(end < accumulators.size());
-    assert(end < size);
-    assert(latest().computed[perspective]);
+    assert(end < size());
+    assert(ds.st[size() - 1].computed[perspective]);
 
-    const Square ksq = pos.square<KING>(perspective);
+    const int ksq = pos.king(perspective);
 
-    for (i64 next = i64(size) - 2; next >= i64(end); next--)
-        update_accumulator_incremental<false>(perspective, featureTransformer, ksq,
-                                              accumulators[next], accumulators[next + 1]);
+    for (i64 next = i64(size()) - 2; next >= i64(end); next--)
+        update_accumulator_incremental<false>(perspective, featureTransformer, ksq, accumulators[next],
+                                              ds.st[next], accumulators[next + 1], ds.st[next + 1]);
 
-    assert(accumulators[end].computed[perspective]);
+    assert(ds.st[end].computed[perspective]);
 }
 
 namespace {
 
 void apply_combined(Color                              perspective,
                     const FeatureTransformer&          featureTransformer,
-                    const AccumulatorState&            from,
-                    AccumulatorState&                  to,
+                    const Accumulator&                 from,
+                    Accumulator&                       to,
                     const PSQFeatureSet::IndexList&    psqAdded,
                     const PSQFeatureSet::IndexList&    psqRemoved,
                     const ThreatFeatureSet::IndexList& thrAdded,
@@ -550,11 +549,13 @@ inline void prefetch_thr_psqt(const FeatureTransformer&          ft,
 template<bool Forward>
 void update_accumulator_incremental(Color                     perspective,
                                     const FeatureTransformer& featureTransformer,
-                                    const Square              ksq,
-                                    AccumulatorState&         target_state,
-                                    const AccumulatorState&   computed) {
+                                    const int                 ksq,
+                                    Accumulator&              target,
+                                    NnState&                  target_state,
+                                    const Accumulator&        computed,
+                                    const NnState&            computed_state) {
 
-    assert(computed.computed[perspective]);
+    assert(computed_state.computed[perspective]);
     assert(!target_state.computed[perspective]);
 
     // The size must be enough to contain the largest possible update.
@@ -564,9 +565,9 @@ void update_accumulator_incremental(Color                     perspective,
     PSQFeatureSet::IndexList    psqRemoved, psqAdded;
     ThreatFeatureSet::IndexList thrRemoved, thrAdded;
 
-    const auto& dirtyPiece   = Forward ? target_state.dirtyPiece : computed.dirtyPiece;
-    const auto& dirtyThreats = Forward ? target_state.dirtyThreats : computed.dirtyThreats;
-    const auto& dirtyPawns   = Forward ? target_state.dirtyPawns : computed.dirtyPawns;
+    const auto& dirtyPiece   = Forward ? target_state.dp : computed_state.dp;
+    const auto& dirtyThreats = Forward ? target_state.threats : computed_state.threats;
+    const auto& dirtyPawns   = Forward ? target_state.pawns : computed_state.pawns;
 
     const auto* pfBase   = &featureTransformer.threatWeights[0];
     IndexType   pfStride = FeatureTransformer::OutputDimensions;
@@ -696,10 +697,10 @@ void update_accumulator_incremental(Color                     perspective,
 #ifdef TRIUMV_PREFETCH_THR_PSQT
     prefetch_thr_psqt(featureTransformer, thrAdded, thrRemoved);
 #endif
-    apply_combined(perspective, featureTransformer, computed, target_state, psqAdded, psqRemoved,
-                   thrAdded, thrRemoved);
+    apply_combined(perspective, featureTransformer, computed, target, psqAdded, psqRemoved, thrAdded,
+                   thrRemoved);
 
-    target_state.computed[perspective] = true;
+    target_state.computed[perspective] = 1;
 }
 
 #ifndef TRIUMV_NO_PERSP_BOTH
@@ -715,13 +716,15 @@ void update_accumulator_incremental(Color                     perspective,
 // che cambia e' QUANTE volte si legge `dirty`. Il bench DEVE restare 207259.
 template<bool Forward>
 void update_accumulator_incremental_both(const FeatureTransformer&    featureTransformer,
-                                         const Square                 ksqW,
-                                         const Square                 ksqB,
-                                         AccumulatorState&            target_state,
-                                         const AccumulatorState&      computed,
+                                         const int                    ksqW,
+                                         const int                    ksqB,
+                                         Accumulator&                 target,
+                                         NnState&                     target_state,
+                                         const Accumulator&           computed,
+                                         const NnState&               computed_state,
                                          AccumulatorStack::BothLists& lists) {
 
-    assert(computed.computed[WHITE] && computed.computed[BLACK]);
+    assert(computed_state.computed[WHITE] && computed_state.computed[BLACK]);
     assert(!target_state.computed[WHITE] && !target_state.computed[BLACK]);
 
     // Le liste vengono da AccumulatorStack (05/10/2026: fuori dallo stack, vedi BothLists) e partono vuote.
@@ -732,9 +735,9 @@ void update_accumulator_incremental_both(const FeatureTransformer&    featureTra
     psqRemW.clear(); psqAddW.clear(); psqRemB.clear(); psqAddB.clear();
     thrRemW.clear(); thrAddW.clear(); thrRemB.clear(); thrAddB.clear();
 
-    const auto& dirtyPiece   = Forward ? target_state.dirtyPiece : computed.dirtyPiece;
-    const auto& dirtyThreats = Forward ? target_state.dirtyThreats : computed.dirtyThreats;
-    const auto& dirtyPawns   = Forward ? target_state.dirtyPawns : computed.dirtyPawns;
+    const auto& dirtyPiece   = Forward ? target_state.dp : computed_state.dp;
+    const auto& dirtyThreats = Forward ? target_state.threats : computed_state.threats;
+    const auto& dirtyPawns   = Forward ? target_state.pawns : computed_state.pawns;
 
     const auto* pfBase   = &featureTransformer.threatWeights[0];
     IndexType   pfStride = FeatureTransformer::OutputDimensions;
@@ -781,98 +784,69 @@ void update_accumulator_incremental_both(const FeatureTransformer&    featureTra
     prefetch_thr_psqt(featureTransformer, thrAddB, thrRemB);
 #endif
     // Applicazioni SEQUENZIALI: e' la differenza voluta da Stockfish.
-    apply_combined(WHITE, featureTransformer, computed, target_state, psqAddW, psqRemW, thrAddW,
-                   thrRemW);
-    apply_combined(BLACK, featureTransformer, computed, target_state, psqAddB, psqRemB, thrAddB,
-                   thrRemB);
+    apply_combined(WHITE, featureTransformer, computed, target, psqAddW, psqRemW, thrAddW, thrRemW);
+    apply_combined(BLACK, featureTransformer, computed, target, psqAddB, psqRemB, thrAddB, thrRemB);
 
-    target_state.computed[WHITE] = true;
-    target_state.computed[BLACK] = true;
+    target_state.computed[WHITE] = 1;
+    target_state.computed[BLACK] = 1;
 }
 #endif  // !TRIUMV_NO_PERSP_BOTH
 
-Bitboard get_changed_pieces(const std::array<Piece, SQUARE_NB>& oldPieces,
-                            const std::array<Piece, SQUARE_NB>& newPieces) {
-#if defined(USE_AVX2)
-    static_assert(sizeof(Piece) == 1);
-    Bitboard sameBB = 0;
-
-    for (int i = 0; i < 64; i += 32)
-    {
-        const __m256i old_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&oldPieces[i]));
-        const __m256i new_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&newPieces[i]));
-        const __m256i cmpEqual  = _mm256_cmpeq_epi8(old_v, new_v);
-        const u32     equalMask = _mm256_movemask_epi8(cmpEqual);
-        sameBB |= static_cast<Bitboard>(equalMask) << i;
+// Codice del pezzo (0..11) su una casa, da dodici bitboard per pezzo, senza salti: tre piani di bit per il tipo
+// (bit 0 = N R K, bit 1 = B R, bit 2 = Q K) e il nero (+6).
+struct PiecePlanes {
+    Bitboard p0, p1, p2, blk;
+    template<typename BB>
+    explicit PiecePlanes(const BB* b) :
+        p0(b[1] | b[3] | b[5] | b[7] | b[9] | b[11]),
+        p1(b[2] | b[3] | b[8] | b[9]),
+        p2(b[4] | b[5] | b[10] | b[11]),
+        blk(b[6] | b[7] | b[8] | b[9] | b[10] | b[11]) {}
+    int operator()(int s) const {
+        return (int((p0 >> s) & 1) | int((p1 >> s) & 1) << 1 | int((p2 >> s) & 1) << 2) + int((blk >> s) & 1) * 6;
     }
-    return ~sameBB;
-#elif defined(USE_LASX)
-    static_assert(sizeof(Piece) == 1);
+};
 
-    Bitboard changed = 0;
-
-    for (int i = 0; i < 64; i += 32)
+// Differenza fra la posizione di una entry della finny table e una posizione voluta, entrambe come dodici bitboard per
+// pezzo (07/10/2026, scacchiera unica v2). Prima le case cambiate, in blocco e senza salti; poi due soli cicli (case da
+// togliere dalla entry, case da aggiungere) col pezzo letto dai piani di bit. La versione con due cicli per ognuno dei
+// dodici pezzi faceva +6% di salti mal previsti per nodo. L'ordine degli indici non conta: l'accumulatore e' una
+// somma di interi (con avvolgimento a 16 e 32 bit), quindi il risultato e' identico in ogni bit.
+template<typename List, typename BB>
+inline void diff_entry(Color                           perspective,
+                       const std::array<Bitboard, 12>& have,
+                       const BB*                       want,
+                       int                             ksq,
+                       int                             phase,
+                       List&                           removed,
+                       List&                           added) {
+    Bitboard changed = 0, haveOcc = 0, wantOcc = 0;
+    for (int pc = 0; pc < 12; ++pc)
     {
-        const __m256i old_v = __lasx_xvld(reinterpret_cast<const void*>(&oldPieces[i]), 0);
-        const __m256i new_v = __lasx_xvld(reinterpret_cast<const void*>(&newPieces[i]), 0);
-        const __m256i diff  = __lasx_xvxor_v(old_v, new_v);
-        const __m256i mask  = __lasx_xvmsknz_b(diff);
-        const auto    lo    = __lasx_xvpickve2gr_d(mask, 0);
-        const auto    hi    = __lasx_xvpickve2gr_d(mask, 2);
-
-        changed |= (static_cast<Bitboard>(lo) | (static_cast<Bitboard>(hi) << 16)) << i;
+        changed |= have[pc] ^ want[pc];
+        haveOcc |= have[pc];
+        wantOcc |= want[pc];
     }
-
-    return changed;
-#elif defined(USE_LSX)
-    static_assert(sizeof(Piece) == 1);
-
-    Bitboard changed = 0;
-
-    for (int i = 0; i < 64; i += 16)
+    Bitboard rem = changed & haveOcc;
+    Bitboard add = changed & wantOcc;
+    if (rem)
     {
-        const __m128i old_v = __lsx_vld(reinterpret_cast<const void*>(&oldPieces[i]), 0);
-        const __m128i new_v = __lsx_vld(reinterpret_cast<const void*>(&newPieces[i]), 0);
-        const __m128i diff  = __lsx_vxor_v(old_v, new_v);
-        const __m128i mask  = __lsx_vmsknz_b(diff);
-
-        changed |= static_cast<Bitboard>(__lsx_vpickve2gr_d(mask, 0)) << i;
+        const PiecePlanes look(have.data());
+        while (rem)
+        {
+            const Square s = pop_lsb(rem);
+            removed.push_back(PSQFeatureSet::make_index(perspective, s, look(s), ksq, phase));
+        }
     }
-
-    return changed;
-#elif defined(USE_NEON)
-    uint8x16x4_t old_v = vld4q_u8(reinterpret_cast<const u8*>(oldPieces.data()));
-    uint8x16x4_t new_v = vld4q_u8(reinterpret_cast<const u8*>(newPieces.data()));
-    auto         cmp   = [=](const int i) { return vceqq_u8(old_v.val[i], new_v.val[i]); };
-
-    uint8x16_t cmp0_1 = vsriq_n_u8(cmp(1), cmp(0), 1);
-    uint8x16_t cmp2_3 = vsriq_n_u8(cmp(3), cmp(2), 1);
-    uint8x16_t merged = vsriq_n_u8(cmp2_3, cmp0_1, 2);
-    merged            = vsriq_n_u8(merged, merged, 4);
-    uint8x8_t sameBB  = vshrn_n_u16(vreinterpretq_u16_u8(merged), 4);
-
-    return ~vget_lane_u64(vreinterpret_u64_u8(sameBB), 0);
-#elif defined(USE_SSE2)
-    Bitboard sameBB = 0;
-
-    for (int i = 0; i < 64; i += 16)
+    if (add)
     {
-        const __m128i old_v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&oldPieces[i]));
-        const __m128i new_v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&newPieces[i]));
-        const __m128i same  = _mm_cmpeq_epi8(old_v, new_v);
-
-        sameBB |= static_cast<Bitboard>(_mm_movemask_epi8(same)) << i;
+        const PiecePlanes look(want);
+        while (add)
+        {
+            const Square s = pop_lsb(add);
+            added.push_back(PSQFeatureSet::make_index(perspective, s, look(s), ksq, phase));
+        }
     }
-
-    return ~sameBB;
-#else
-    Bitboard changed = 0;
-
-    for (Square sq = SQUARE_ZERO; sq < SQUARE_NB; ++sq)
-        changed |= static_cast<Bitboard>(oldPieces[sq] != newPieces[sq]) << sq;
-
-    return changed;
-#endif
 }
 
 // ============================================================================
@@ -895,91 +869,57 @@ Bitboard get_changed_pieces(const std::array<Piece, SQUARE_NB>& oldPieces,
 //  pedoni (3/08) copre gia' il 40,4% delle colonne: questo copre il resto.
 // ============================================================================
 void update_accumulator_hybrid(Color                     perspective,
-                               const Position&           pos,
+                               const NnBoard&            pos,
                                const FeatureTransformer& featureTransformer,
-                               AccumulatorState&         target,
-                               const AccumulatorState&   computed,
+                               Accumulator&              target,
+                               NnState&                  target_state,
+                               const Accumulator&        computed,
                                AccumulatorCaches&        cache) {
     constexpr IndexType Dimensions = FeatureTransformer::OutputDimensions;
     using Tiling [[maybe_unused]]  = SIMDTiling<Dimensions, Dimensions, PSQTBuckets>;
 
-    const auto&  dirtyPiece = target.dirtyPiece;
-    const Square newKsq     = pos.square<KING>(perspective);
+    const auto& dirtyPiece = target_state.dp;
+    const int   newKsq     = pos.king(perspective);
     // Mossa del nostro re, oppure (04/10/2026) cattura che cambia fascia a re fermo.
-    const Square oldKsq     = dirtyPiece.pc == make_piece(perspective, KING) ? dirtyPiece.from : newKsq;
+    const int   oldKsq     = dirtyPiece.pc == NN_KING + NN_BLACK * int(perspective) ? int(dirtyPiece.from) : newKsq;
 
-    // Ricostruzione della posizione PRECEDENTE: si libera la casa d'arrivo, si
-    // rimette l'eventuale pezzo catturato (anche en passant, fuori dalla casa
-    // d'arrivo) e il pezzo mosso sulla casa di partenza. Arrocco e promozioni NON
-    // passano di qui (esclusi dal gate): muovono o cambiano un secondo pezzo.
-    const auto& currentPieces  = pos.piece_array();
-    auto        previousPieces = currentPieces;
-    Bitboard    previousPieceBB = pos.pieces();
-
-    previousPieces[dirtyPiece.to] = NO_PIECE;
-    previousPieceBB &= ~square_bb(dirtyPiece.to);
-    if (dirtyPiece.remove_sq != SQ_NONE)
-    {
-        previousPieces[dirtyPiece.remove_sq] = dirtyPiece.remove_pc;
-        previousPieceBB |= square_bb(dirtyPiece.remove_sq);
-    }
-    previousPieces[dirtyPiece.from] = dirtyPiece.pc;
-    previousPieceBB |= square_bb(dirtyPiece.from);
+    // Ricostruzione della posizione PRECEDENTE (dodici bitboard per pezzo): il pezzo mosso torna dalla casa d'arrivo
+    // a quella di partenza e l'eventuale catturato (anche en passant, fuori dalla casa d'arrivo) ricompare. Arrocco e
+    // promozioni NON passano di qui (esclusi dal gate): muovono o cambiano un secondo pezzo.
+    const auto*     currentPieces = pos.bbs();
+    Bitboard        previousPieces[12];
+    for (int pc = 0; pc < 12; ++pc)
+        previousPieces[pc] = currentPieces[pc];
+    previousPieces[dirtyPiece.pc] ^= (1ULL << dirtyPiece.to) | (1ULL << dirtyPiece.from);
+    const bool captured = dirtyPiece.remove_sq != NN_SQ_NONE;
+    if (captured)
+        previousPieces[dirtyPiece.remove_pc] |= 1ULL << dirtyPiece.remove_sq;
 
     // Fascia (HalfKA a esperti): la entry vecchia sta nella fascia della posizione PRIMA della mossa, che con una
     // cattura a cavallo di soglia e' diversa da quella di adesso.
     const int   psqPhase = PSQFeatureSet::phase_of(dirtyPiece);
-    const int   oldPhase = PSQFeatureSet::phase_of_count(popcount(previousPieceBB));
-    const auto& oldEntry = cache.at(oldPhase, oldKsq)[perspective];
-    auto&       newEntry = cache.at(psqPhase, newKsq)[perspective];
+    const int   oldPhase = PSQFeatureSet::phase_of_count(pos.count() + int(captured));
+    const auto& oldEntry = cache.at(oldPhase, Square(oldKsq))[perspective];
+    auto&       newEntry = cache.at(psqPhase, Square(newKsq))[perspective];
     // La entry nuova si riscrive prima di leggere la vecchia: non devono essere la stessa.
     assert(&oldEntry != &newEntry);
 
     // "Remove"/"Add" = cosa togliere/aggiungere ALLA ENTRY per ottenere
     // l'accumulatore HalfKA voluto.
     PSQFeatureSet::IndexList oldRemove, oldAdd, newRemove, newAdd;
-
-    Bitboard oldChangedBB = get_changed_pieces(oldEntry.pieces, previousPieces);
-    Bitboard oldRemovedBB = oldChangedBB & oldEntry.pieceBB;
-    Bitboard oldAddedBB   = oldChangedBB & previousPieceBB;
-
-    Bitboard newChangedBB = get_changed_pieces(newEntry.pieces, currentPieces);
-    Bitboard newRemovedBB = newChangedBB & newEntry.pieceBB;
-    Bitboard newAddedBB   = newChangedBB & pos.pieces();
-
-    while (oldRemovedBB)
-    {
-        Square sq = pop_lsb(oldRemovedBB);
-        oldRemove.push_back(
-          PSQFeatureSet::make_index(perspective, sq, oldEntry.pieces[sq], oldKsq, oldPhase));
-    }
-    while (oldAddedBB)
-    {
-        Square sq = pop_lsb(oldAddedBB);
-        oldAdd.push_back(PSQFeatureSet::make_index(perspective, sq, previousPieces[sq], oldKsq, oldPhase));
-    }
-    while (newRemovedBB)
-    {
-        Square sq = pop_lsb(newRemovedBB);
-        newRemove.push_back(
-          PSQFeatureSet::make_index(perspective, sq, newEntry.pieces[sq], newKsq, psqPhase));
-    }
-    while (newAddedBB)
-    {
-        Square sq = pop_lsb(newAddedBB);
-        newAdd.push_back(PSQFeatureSet::make_index(perspective, sq, currentPieces[sq], newKsq, psqPhase));
-    }
+    diff_entry(perspective, oldEntry.pieces, previousPieces, oldKsq, oldPhase, oldRemove, oldAdd);
+    diff_entry(perspective, newEntry.pieces, currentPieces, newKsq, psqPhase, newRemove, newAdd);
 
     // Delta dei tre blocchi non-HalfKA. Gli indici di PawnPair/PassedPawns sono
     // "folded" nelle stesse liste (gia' offsettati), come nel percorso incrementale.
     ThreatFeatureSet::IndexList thrRemoved, thrAdded;
     const auto*                 pfBase   = &featureTransformer.threatWeights[0];
     IndexType                   pfStride = Dimensions;
-    ThreatFeatureSet::append_changed_indices(perspective, newKsq, target.dirtyThreats, thrRemoved,
+    ThreatFeatureSet::append_changed_indices(perspective, newKsq, target_state.threats, thrRemoved,
                                              thrAdded, pfBase, pfStride);
-    PawnFeatureSet::append_changed_indices(perspective, newKsq, target.dirtyPawns, thrRemoved,
+    PawnFeatureSet::append_changed_indices(perspective, newKsq, target_state.pawns, thrRemoved,
                                            thrAdded);
-    PassedFeatureSet::append_changed_indices(perspective, newKsq, target.dirtyPawns, thrRemoved,
+    PassedFeatureSet::append_changed_indices(perspective, newKsq, target_state.pawns, thrRemoved,
                                              thrAdded);
 
     const auto& fromAcc     = computed.accumulation[perspective];
@@ -987,7 +927,7 @@ void update_accumulator_hybrid(Color                     perspective,
     const auto& fromPsqtAcc = computed.psqtAccumulation[perspective];
     auto&       toPsqtAcc   = target.psqtAccumulation[perspective];
 
-    target.computed[perspective] = true;
+    target_state.computed[perspective] = 1;
 
 #ifdef VECTOR
     vec_t      acc[Tiling::NumRegs];
@@ -1155,8 +1095,8 @@ void update_accumulator_hybrid(Color                     perspective,
         tile(j, std::false_type{});
 
     // Le entry della finny ora riflettono le rispettive posizioni HalfKA.
-    newEntry.pieceBB = pos.pieces();
-    newEntry.pieces  = currentPieces;
+    for (int pc = 0; pc < 12; ++pc)
+        newEntry.pieces[pc] = currentPieces[pc];
 #else
     (void) fromAcc, (void) toAcc, (void) fromPsqtAcc, (void) toPsqtAcc;
     (void) oldEntry, (void) newEntry;
@@ -1168,41 +1108,23 @@ void update_accumulator_hybrid(Color                     perspective,
 // from the active threat features
 void update_accumulator_refresh_cache(Color                     perspective,
                                       const FeatureTransformer& featureTransformer,
-                                      const Position&           pos,
-                                      AccumulatorState&         accumulator,
+                                      const NnBoard&            pos,
+                                      Accumulator&              accumulator,
+                                      NnState&                  state,
                                       AccumulatorCaches&        cache) {
     constexpr auto Dimensions = FeatureTransformer::OutputDimensions;
 
     using Tiling [[maybe_unused]] = SIMDTiling<Dimensions, Dimensions, PSQTBuckets>;
 
-    const Square ksq = pos.square<KING>(perspective);
+    const int ksq = pos.king(perspective);
     // Fascia (HalfKA a esperti) della posizione da ricostruire: si lavora sulla finny table di quella fascia.
-    const int                psqPhase = PSQFeatureSet::phase_of_count(pos.count<ALL_PIECES>());
-    auto&                    entry    = cache.at(psqPhase, ksq)[perspective];
+    const int                psqPhase = PSQFeatureSet::phase_of_count(pos.count());
+    auto&                    entry    = cache.at(psqPhase, Square(ksq))[perspective];
     PSQFeatureSet::IndexList removed, added;
 
-    const Bitboard changedBB = get_changed_pieces(entry.pieces, pos.piece_array());
-    Bitboard       removedBB = changedBB & entry.pieceBB;
-    Bitboard       addedBB   = changedBB & pos.pieces();
-
-#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
-    PSQFeatureSet::write_indices(entry.pieces, pos.piece_array(), removedBB, addedBB, perspective,
-                                 ksq, removed, added);
-#else
-    while (removedBB)
-    {
-        Square sq = pop_lsb(removedBB);
-        removed.push_back(PSQFeatureSet::make_index(perspective, sq, entry.pieces[sq], ksq, psqPhase));
-    }
-    while (addedBB)
-    {
-        Square sq = pop_lsb(addedBB);
-        added.push_back(PSQFeatureSet::make_index(perspective, sq, pos.piece_on(sq), ksq, psqPhase));
-    }
-#endif
-
-    entry.pieceBB = pos.pieces();
-    entry.pieces  = pos.piece_array();
+    diff_entry(perspective, entry.pieces, pos.bbs(), ksq, psqPhase, removed, added);
+    for (int pc = 0; pc < 12; ++pc)
+        entry.pieces[pc] = pos.bb(pc);
 
 #ifdef TRIUMV_REFRESH_PREFETCH
     // 01/10/2026 (Consilium, HalfKA a 4 esperti): prefetch delle righe HalfKA del refresh, stessa forma di
@@ -1223,9 +1145,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
     // La chiave e' i due bitboard PER INTERO, non un hash: nessuna collisione possibile.
     // `orientation` (non ksq) perche' e' l'unico modo in cui il re entra negli indici, e ha
     // due soli valori per prospettiva (OrientTBL dipende dalla meta' di scacchiera del re).
-    const Bitboard wpBB   = pos.pieces(WHITE, PAWN);
-    const Bitboard bpBB   = pos.pieces(BLACK, PAWN);
-    const int      orient = int(Features::FullThreats::OrientTBL[ksq]) ^ (56 * int(perspective));
+    const Bitboard wpBB   = pos.pawns(WHITE);
+    const Bitboard bpBB   = pos.pawns(BLACK);
+    const int      orient = int(Features::FullThreats::OrientTBL[ksq]) ^ (56 * (1 - int(perspective)));
 
     struct PawnRefreshEntry {
         Bitboard wp = ~Bitboard(0), bp = ~Bitboard(0);  // stato iniziale impossibile => miss
@@ -1280,7 +1202,7 @@ void update_accumulator_refresh_cache(Color                     perspective,
         prof_max_active = active.size();
 #endif
 
-    accumulator.computed[perspective] = true;
+    state.computed[perspective] = 1;
 
 #ifdef VECTOR
     vec_t      acc[Tiling::NumRegs];

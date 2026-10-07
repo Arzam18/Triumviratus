@@ -31,7 +31,7 @@
 #include "../../profile.h"
 #include "../evaluate.h"
 #include "../misc.h"
-#include "../position.h"
+#include "../nn_board.h"
 #include "../types.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"
@@ -176,7 +176,7 @@ bool Network::save(const std::optional<std::string>& filename) const {
 }
 
 
-NetworkOutput Network::evaluate(const Position&    pos,
+NetworkOutput Network::evaluate(const NnBoard&     pos,
                                 AccumulatorStack&  accumulatorStack,
                                 AccumulatorCaches& cache) const {
 
@@ -188,7 +188,7 @@ NetworkOutput Network::evaluate(const Position&    pos,
 
     NNZInfo<L1> nnzInfo;
 
-    const int bucket = nnue_output_bucket(pos.count<ALL_PIECES>());
+    const int bucket = nnue_output_bucket(pos.count());
     Value     psqt_v, pos_v;
     {
         PROF_GUARD(prof_ft);
@@ -204,13 +204,13 @@ NetworkOutput Network::evaluate(const Position&    pos,
 }
 
 
-Network::MensLayerTrace Network::mens_trace(const Position&    pos,
+Network::MensLayerTrace Network::mens_trace(const NnBoard&     pos,
                                             AccumulatorStack&  accumulatorStack,
                                             AccumulatorCaches& cache) const {
     constexpr u64 alignment = CacheLineSize;
     alignas(alignment) TransformedFeatureType transformedFeatures[FeatureTransformer::BufferSize];
     NNZInfo<L1> nnzInfo;
-    const int  bucket = nnue_output_bucket(pos.count<ALL_PIECES>());
+    const int  bucket = nnue_output_bucket(pos.count());
     const auto psqt   = featureTransformer.transform(pos, accumulatorStack, cache,
                                                      transformedFeatures, bucket, nnzInfo);
     MensLayerTrace t;
@@ -267,7 +267,7 @@ void Network::verify(std::string                                  evalfilePath,
 }
 
 
-NnueEvalTrace Network::trace_evaluate(const Position&    pos,
+NnueEvalTrace Network::trace_evaluate(const NnBoard&     pos,
                                       AccumulatorStack&  accumulatorStack,
                                       AccumulatorCaches& cache) const {
 
@@ -278,7 +278,7 @@ NnueEvalTrace Network::trace_evaluate(const Position&    pos,
     ASSERT_ALIGNED(transformedFeatures, alignment);
 
     NnueEvalTrace t{};
-    t.correctBucket = (pos.count<ALL_PIECES>() - 1) / 4;
+    t.correctBucket = (pos.count() - 1) / 4;
     for (IndexType bucket = 0; bucket < LayerStacks; ++bucket)
     {
         NNZInfo<L1> nnzInfo;

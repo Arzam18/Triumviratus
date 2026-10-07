@@ -1025,6 +1025,88 @@ direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quies
 fixes) became fixed code; in release builds the remaining tuning copies read outside the search are compile-time
 constants (bench unchanged by these, 309067 before the damping).
 
+## 28. One board for the search and the network (7 October 2026)
+
+**The starting point.** The network code came from Stockfish together with its own board: every thread kept a
+second position, a Stockfish `Position`, next to the search's board. Each move made by the search was translated
+into that second board (squares mirrored vertically, piece codes remapped), and from that copy the network derived
+what a move changes for its inputs: the piece that moves, the pawn features and the threat features. Since July the
+copy was lazy: a move was applied to it only when an evaluation actually needed it, so the many nodes that end
+before evaluating (hash cutoffs, nodes in check, pruned moves) never touched it. The aim, chosen by the author, was
+to remove the second board by changing the network side, so that the network reads the search's board directly and
+the inference code becomes our own.
+
+**Measuring.** Every version below keeps the tree identical (bench 430151 on AVX2, AVX-512 and release builds), and
+correctness was checked the same way each time: perft with the full accumulator compared against a fresh refresh at
+every node (126 standard positions at depth 4, all 960 Chess960 start positions at depth 3, 120 of them at depth 4,
+over 100 million evaluations each time), incremental against refresh in two-thread searches, UCI play identical to
+the reference, and static evaluations identical on 2,855 positions. Speed was measured with hardware counters on a
+quiet machine (PGO release builds, six alternating rounds on 30 middlegame and 30 endgame positions, AVX-512); the
+noise of this measurement is about ±0.3% in cycles.
+
+**First version: the copy removed, the translation kept.** The network read the search's board through a thin view,
+and before an evaluation the pending moves were replayed: the search's mailbox was walked back to the last computed
+accumulator and then forward, move by move, computing what each move changes. Correct everywhere, and slower:
++4.2% instructions and +1.0% cycles per node in the middlegame, +4.6% and +1.5% in endgames. The translation had
+only moved: the two boards number their squares in mirrored order, so every bitboard read now
+paid a byte swap, and every pending move was played twice.
+
+**Second version: one numbering, the changes written by the make.** The tables that turn a piece on a square into a
+feature index were rebuilt in the search's own numbering (the mirror is applied once, when the tables are built, so
+every feature index stays the same and the network file is unchanged), and the search's make writes what a move
+changes onto a per-thread stack, as Stockfish's `do_move` does. The old `Position` code and three debugging tools
+that depended on it were removed: 41 files, +1,239 / −3,289 lines. A build switch checks at every evaluation that
+the stack describes the search's board, and a deliberately broken make was caught at the first bench. Two variants:
+threats computed in every make (a), or computed only before an evaluation from a 64-byte copy of the board saved by
+the make (b).
+
+| per node, against the old code | middlegame instr. | middlegame cycles | endgame instr. | endgame cycles |
+|---|---:|---:|---:|---:|
+| first version | +4.19% | +1.04% | +4.64% | +1.47% |
+| second version (a) | +2.68% | +0.89% | +3.40% | +1.18% |
+| second version (b) | +2.71% | +1.22% | +3.19% | +1.31% |
+| (c): only the moved piece in the make | +0.60% | +0.59% | +1.13% | +0.52% |
+| (c) with a branch-free refresh | +1.21% | **−0.41%** | +1.66% | **−0.51%** |
+
+**Why "like Stockfish" was slower here.** Stockfish's make computes the threat changes on its only board, where that
+work replaces nothing. Here the search's make already existed and did its own work, so variant (a) added the threat
+computation to every move, including the moves whose nodes never evaluate, which the lazy copy had never paid for.
+Variant (b) evaluated lazily but paid for saving the board in every make and for reading pieces from bit planes.
+
+**Variant (c).** The make records only the moved piece (from, to, capture, promotion, castling, material band).
+Before an evaluation, the board before the first pending move is rebuilt from the search's current board by undoing
+the pending moves on local copies (XOR on the bitboards, a 256-byte copy of the mailbox), and the moves are then
+replayed forward computing pawns and threats with the same fast mailbox read as (a). In most nodes the parent was
+already evaluated, so a single move is pending. This brought the extra instructions from +2.7% down to +0.6–1.1%,
+but the cycles stayed +0.5–0.6% above the old code.
+
+**The branch mispredictions.** In every second version, mispredicted branches per node rose by 5–6% (about two per
+node), present in both (a) and (c), so not tied to where threats are computed. The cause was the comparison between
+an entry of the accumulator refresh cache and the current position, rewritten in the second version as twelve
+iterations, one per piece type, each with two loops whose trip count depends on the position and is almost always
+zero: 24 hard-to-predict branches on every refresh, and refreshes are frequent (every king move across a bucket and
+every change of material band). Replaced by a branch-free XOR and OR of the twelve bitboards that gives the changed
+squares at once, followed by two loops (squares to remove, squares to add) with the piece read from three bit planes,
+the mispredictions fell from +6.2% to +1.9% and the cycles went below the old code: **−0.41%** in the middlegame and
+**−0.51%** in endgames, with more instructions (+1.2–1.7%) executed at a higher rate (IPC 1.33 → 1.36). The order of
+the indices changes, but an accumulator is a sum of integers, so the result is identical in every bit.
+
+**A branch-free step that lost.** The undo and redo of the pending moves still branched on "is there a capture, a
+promotion, a castling rook". These were made unconditional: a table maps the "no square" value 64 to an empty
+bitboard, so the XOR always runs, and the local mailbox got a 65th cell that absorbs writes to "no square". All
+checks passed, instructions and mispredictions went down (+1.04% and +1.45% against the old code), and the cycles
+went up: +0.80% in the middlegame and 0.00% in endgames, about one point worse than the version above. At that point
+there is almost always one pending move of the usual kind, so those branches were well predicted and cost nothing;
+the replacement added table loads on the critical path and stores that the vector code reads back at once in 64-byte
+blocks. A branch costs only when it is mispredicted: the refresh comparison had 24 unpredictable branches, these had
+none. Reverted.
+
+**Result.** Variant (c) with the branch-free refresh comparison is the version kept: the network reads the search's
+board with no second copy and no translation, 2,000 fewer lines, and **0.4–0.7% fewer cycles per node** than the old
+code with the identical tree (−0.40% and −0.69% measured again on the integrated source). It replaced the old code in
+the development source on 7 October, with the stack check kept as a build switch, and it is in the 7 October
+pre-release.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on

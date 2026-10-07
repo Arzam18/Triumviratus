@@ -337,6 +337,33 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   const U64 pf_key = td_child_key_guess(td, move);
   td_prefetch_child(td, pf_key);
 
+  // Pezzo catturato e sua casa, dalla scacchiera ancora intatta (07/10/2026: calcolati qui in cima, prima di ogni
+  // modifica, perche' servono anche alle dirty della rete qui sotto; stessi valori di prima).
+  if (capture) {
+    if (enpass) {
+      undo.captured_square = (td.side == white) ? target + 8 : target - 8;
+      undo.captured_piece = (td.side == white) ? p : P;
+    } else {
+      undo.captured_square = target;
+      int start = (td.side == white) ? p : P;
+      int end = (td.side == white) ? k : K;
+      // Il test di range replica esattamente il ciclo sostituito, che cercava solo fra i pezzi AVVERSARI e lasciava
+      // -1 se non trovava nulla.
+      const int mb_pc = td.piece_on[target];
+      if (mb_pc >= start && mb_pc <= end)
+        undo.captured_piece = mb_pc;
+    }
+  }
+
+  // Le dirty della rete per questa mossa, sulla scacchiera PRIMA della mossa (06_nndirty.inc): un nuovo stato sulla
+  // pila dell'handle. Se la mossa risulta illegale, lo stato si toglie qui sotto insieme al resto.
+  {
+    int rook_pc = -1, rf = 0, rt = 0;
+    if (castling)
+      td_castle_rook(target, rook_pc, rf, rt);
+    nn_make_dirty(td, piece, source, target, promoted, undo.captured_piece, undo.captured_square, rook_pc, rf, rt);
+  }
+
   pop_bit(td.bitboards[piece], source);
   set_bit(td.bitboards[piece], target);
   td.hash_key ^= piece_keys[piece][source];
@@ -348,21 +375,6 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
   if (capture) {
     td.fifty = 0;
-
-    if (enpass) {
-      undo.captured_square = (td.side == white) ? target + 8 : target - 8;
-      undo.captured_piece = (td.side == white) ? p : P;
-    } else {
-      undo.captured_square = target;
-      int start = (td.side == white) ? p : P;
-      int end = (td.side == white) ? k : K;
-      // La mailbox e' ancora quella PRE-mossa qui: si aggiorna piu' sotto, insieme
-      // a td_occ_update. Il test di range replica esattamente il ciclo sostituito,
-      // che cercava solo fra i pezzi AVVERSARI e lasciava -1 se non trovava nulla.
-      const int mb_pc = td.piece_on[target];
-      if (mb_pc >= start && mb_pc <= end)
-        undo.captured_piece = mb_pc;
-    }
 
     if (undo.captured_piece != -1) {
       pop_bit(td.bitboards[undo.captured_piece], undo.captured_square);
@@ -454,6 +466,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
     td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
                       undo.captured_square, castling);  // sito 2/3: mossa illegale
     MB_VERIFY(td, "rollback-illegale");
+    nn_unmake_dirty(td);  // lo stato della rete scritto in cima non serve piu'
 
     return 0;
   }
@@ -483,38 +496,12 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
     TT_PREFETCH(&td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK]);
   }
 
-  // Mirror the (now legal) move on the incremental NNUE position, in
-  // Stockfish encoding. The moving piece is dirtyPiece[0] (king-refresh).
-  // (NPS 25/09/2026: provata la SfMove PIGRA, convertita solo nel catch-up. Misurata con i
-  //  contatori hardware: +0,15% di istruzioni/nodo, nessun guadagno. Quasi ogni mossa
-  //  fatta arriva a una valutazione, quindi rimandare la conversione non risparmia nulla.
-  //  Rimossa.)
-  {
-    SfMove sm;
-    sm.movedPiece = nn_piece_code[piece];
-    sm.from = nnue_squares[source];
-    sm.to = nnue_squares[target];
-    sm.promoPiece = promoted ? nn_piece_code[promoted] : 0;
-    sm.capturedPiece =
-        (undo.captured_piece != -1) ? nn_piece_code[undo.captured_piece] : 0;
-    sm.capturedSq =
-        (undo.captured_piece != -1) ? nnue_squares[undo.captured_square] : -1;
-    sm.rookPiece = 0;
-    sm.rookFrom = -1;
-    sm.rookTo = -1;
-    if (castling) {
-      int rpc, rf, rt;
-      td_castle_rook(target, rpc, rf, rt);
-      sm.rookPiece = nn_piece_code[rpc];
-      sm.rookFrom = nnue_squares[rf];
-      sm.rookTo = nnue_squares[rt];
-    }
-    sm.rule50 = td.fifty;
-    nn_pos_do(td.nnpos, &sm);
-    // ⛔ 04/10/2026 — PROVATO E TOLTO: prefetch qui, alla mossa, delle righe HalfKA che l'aggiornamento del figlio
-    // usera' (pezzo che parte/arriva/catturato, due prospettive, fascia del figlio). xperf 6 giri, nodi identici:
-    // cicli +0,58%, miss di L3 per nodo invariati (19,9 contro 19,8). Non anticipa nulla di utile.
-  }
+  // ⛔ 04/10/2026 — PROVATO E TOLTO: prefetch qui, alla mossa, delle righe HalfKA che l'aggiornamento del figlio
+  // usera' (pezzo che parte/arriva/catturato, due prospettive, fascia del figlio). xperf 6 giri, nodi identici:
+  // cicli +0,58%, miss di L3 per nodo invariati (19,9 contro 19,8). Non anticipa nulla di utile.
+#ifdef TRIUMV_VERIFY_NNSYNC
+  td.nnstack->st[td.nnstack->size - 1].key = nn_piece_key(td);  // controllo di sincronia (06_nndirty.inc)
+#endif
 
   td.plies_from_null++; // P2.2: una mossa reale in piu' dall'ultima null
 
@@ -527,7 +514,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
 static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
   PROF_GUARD(prof_make);
-  nn_pos_undo(td.nnpos); // retract the move on the incremental NNUE mirror
+  nn_unmake_dirty(td);   // lo stato della rete di questa mossa esce dalla pila
   td.plies_from_null--;  // P2.2 (speculare al ++ del make riuscito)
   td.side ^= 1;
 
