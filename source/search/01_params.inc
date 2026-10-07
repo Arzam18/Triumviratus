@@ -44,6 +44,13 @@
 // il prefetch giusto e la pulizia bakata: 12+0.12, UHO, 34/34, +3,22 +- 3,84 su 8.634 partite (LLR 1,00; socket 0
 // +2,2, socket 1 +4,3), fermata da un blackout a 1.400 partite dalla soglia scelta (10.000) e bakata su decisione
 // dell'utente. Bench 309067 (con CorrPhase=0 torna 370886).
+// BAKE HASHDAMP (06/10/2026 notte): HashDamp 0 -> 41 (taglio della hash da limite inferiore spinto verso beta,
+// 13_search.inc). Tre prove, tutte positive: 15+0.15 su t80_nm2 (05/10, prima dei bake) +2,64 +- 6,79 / 2.768;
+// 15+0.15 su t80_tm12 +2,18 +- 5,35 / 4.138; 20+0.2 su t80_tm13 +2,02 +- 4,96 / 4.818 (socket 0 +2,9, socket 1 +1,2).
+// Sul codice attuale insieme +2,09 +- 3,64 / 8.956; tutte e tre +2,22 +- 3,21 / 11.774 (P(Elo > 0) ~ 91%). Bakata su
+// decisione dell'utente prima delle 20.000 partite. Bench 430151 (con HashDamp=0 torna 309067). Albero a profondita'
+// fissa (tree_depth.py, tm13): mediogioco x0,94/0,92/0,91/1,02 alle prof. 12/14/16/18, finali x0,87/0,92/1,02/0,99:
+// nessuna crescita con la profondita'.
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -152,6 +159,8 @@
   P(LmrOffset, 697, -1500, 2500)                                                                          \
   P(LmrMoveCount, 60, 0, 300)                                                                             \
   P(LmrCorrDiv, 26310, 5000, 100000)                                                                      \
+  P(RootRedCap, -1, -1, 8192)            /* 06/10/2026 (rapporto O_RE_AL_CENTRO): tetto alla riduzione delle */ \
+                                         /* mosse di radice dopo la prima, /1024 di ply; -1 = nessun tetto  */ \
   P(LmrCutNode, 4093, 1000, 7000)                                                                         \
   P(LmrCutNoTT, 933, 0, 3000)                                                                             \
   P(LmrTTCapture, 1079, 0, 3000)                                                                          \
@@ -178,9 +187,19 @@
   P(CorrNonPawnUpd, 186, 0, 400)                                                                          \
   /* Correzioni, proposte del rapporto docs/audit_8.0/N_CORREZIONI.md (06/10/2026); spente = albero invariato */ \
   P(CorrCont6W, 0, 0, 30000)             /* continuazione anche con la nostra mossa a -6 (0 = spenta) */  \
+                                         /* 06/10: =4011 a 15+0.15 -0,80 +- 5,56 / 3.894 (socket in disaccordo, */ \
+                                         /* fermata; costo NPS -0,1%): spenta, da rivalutare                    */ \
   P(CorrCont6Upd, 38, 0, 256)            /* passo della continuazione a -6, /128 */                       \
+  P(CorrContOppW, 0, 0, 30000)           /* idea dell'utente (06/10): continuazione col PIANO avversario, la */ \
+                                         /* coppia (sua mossa a -3, sua mossa a -1); 0 = spenta          */ \
+                                         /* =4011 a 12+0.12 -5,15 +- 12,68 / 742; =8000 a 8+0.08 -4,81 +- 8,67 */ \
+                                         /* / 1.806. Le celle hanno segnale (corr. col residuo +0,24), costo  */ \
+                                         /* NPS ~1%, albero invariato: spenta, va nello SPSA CORR1 da 4011     */ \
+  P(CorrContOppUpd, 70, 0, 256)          /* passo della continuazione avversaria, /128 */                 \
   P(CorrLearnMode, 0, 0, 15)             /* bit 1: niente se escluso senza mosse; 2: niente nei nodi esclusi; */ \
                                          /* 4: niente da valori decisi; 8: nodi PV esatti in ogni direzione   */ \
+                                         /* 06/10 a 12+0.12: =1 non cambia il bench (saltata); =2 -1,64 +-    */ \
+                                         /* 7,80 / 2.114 (spenta); 4 e 8 non ancora provati                  */ \
   P(CorrFade, 0, 0, 3)                   /* 1: correzione smorzata col contatore delle 50 mosse come l'eval; */ \
                                          /* 2: bonus riportato in unita' non smorzate                       */ \
   P(CorrExpertW, 0, 0, 40000)            /* tabella dei pedoni per esperto che si AGGIUNGE alla condivisa (0 = */ \
@@ -201,7 +220,8 @@
   /* tecniche nostre sopra la ricerca nuova (04/10/2026), spente = albero invariato */                    \
   P(KingShield, 0, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
-  P(HashDamp, 0, 0, 200)                 /* taglio da limite inferiore spinto verso beta (decimi) */      \
+  P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
+                                         /* inferiore spinto verso beta (decimi)                         */ \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
   P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
   P(PassedPushRed, 1125, 0, 4096)           /* finali: meno riduzione e niente potatura per la spinta di un */ \
@@ -232,12 +252,9 @@
   P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
   P(SeePinned, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
-  P(HashQsDepth, 1, 0, 1)                /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la quiescenza     */ \
-                                         /* scrive e legge profondita' 0 in hash, non -1                 */ \
-  P(NullFiftyKeep, 1, 0, 1)              /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = la mossa nulla non */ \
-                                         /* incrementa il contatore delle 50 mosse                        */ \
-  P(EvalRefadeBridge, 1, 0, 1)           /* BAKE 06/10/2026 (era 0): 1 = la rilettura smorzata usa la     */ \
-                                         /* formula del ponte (v - v*f/199)                               */ \
+  /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \
+     (codice fisso in 12_quiesce.inc e 09_history.inc). SeePinned e CorrPhase restano opzioni: prove piu' sottili,  \
+     candidate a un'ablazione a TC lunghi. */                                                                       \
   /* Rampa "tempo lungo" (05/10/2026): le leve di selettivita' passano dal valore RW1 (tarato a 20+0.2, radice ~15)   \
      al valore dello SPSA LTC1 (40+0.4, radice ~17) secondo la profondita' di radice: peso 0 fino a LtKnee, 1 da       \
      LtKnee + LtSpan in su, senza estrapolare oltre. Gli Lt sono scostamenti dal valore base: a 0 albero identico, e   \
@@ -298,6 +315,12 @@
   P(TmMaxCBase, 33744, 20000, 50000)     /* /1e4: tempo massimo = (base + log * log10 s + ply/div) x ottimo */ \
   P(TmMaxCLog, 30608, 0, 60000)          /* /1e4 */                                                         \
   P(TmMaxPlyDiv, 12352, 4000, 30000)     /* /1e3 */                                                         \
+  P(TmMaxMultCap, 6873, 3000, 10000)     /* /1e3: tetto del moltiplicatore del massimo (06/10/2026, rapporto */ \
+                                         /* Q_TEMPO: sopra ~14 s di orologio decide lui; prova a 5000, 40+0.4) */ \
+                                         /* 06/10: 5000 -27,1 +- 17,0 / 308, 8000 -3,6 +- 10,2 / ~950: resta 6873 */ \
+  P(TmRedLo, 496, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
+  P(TmRedHi, 1879, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
+                                         /* tranquille e critiche; prova a 1200 = rampa piu' corta, 40+0.4) */ \
   P(TmMaxClock, 8097, 6500, 8800)        /* /1e4: il massimo non supera questa frazione dell'orologio */    \
   /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
   P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \
@@ -334,6 +357,7 @@ U64       hash_entries    = 0;
 bool      g_tt_pow2       = false;
 int       current_age     = 0;
 bool      g_tt_twolevel   = true;
+#ifndef TRIUMV_RELEASE
 bool      g_ttmove24      = true;
 int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV)
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
@@ -342,8 +366,13 @@ bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchi
 bool      g_tt_move_refresh = TTMoveRefresh != 0; // copia di TTMoveRefresh per tt.h (vedi store_tt)
 int       g_see_pinned    = SeePinned;            // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
-bool      g_large_pages   = true;
 bool      g_see_fix       = true;
+#else
+// Release (06/10/2026): queste copie sono costanti in tt.h e see.cpp; devono coincidere coi default dei parametri.
+static_assert(TTMoveRefresh == 0, "tt.h congela g_tt_move_refresh = false nella release");
+static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
+#endif
+bool      g_large_pages   = true;
 bool      g_ep_key_fix    = true;
 static const bool g_evasion_gen = true;
 

@@ -9,10 +9,11 @@
 constexpr int HD_QUIESCE = -1;
 constexpr int HD_EVAL    = -2;
 constexpr int HD_SHIFT   = 3;
-// HashQsDepth (05/10/2026, audit del nucleo): la quiescenza a profondita' 0 come in SF19, che ha un livello in piu'
-// fra "solo valutazione" e quiescenza. Cosi' le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza
-// (non tagliano in quiesce) e a profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. 0 = schema storico.
-static inline int hd_qs() { return HashQsDepth ? 0 : HD_QUIESCE; }
+// La quiescenza scrive e legge profondita' 0 in hash (05/10/2026, audit del nucleo; BAKE HASHQSDEPTH 06/10, opzione
+// ritirata la sera: +3,38 +- 2,58 su 20.162 partite). C'e' un livello in piu' fra "solo valutazione" (-2) e
+// quiescenza: le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza (non tagliano in quiesce) e a
+// profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. Lo schema storico usava HD_QUIESCE = -1.
+static inline int hd_qs() { return 0; }
 
 enum { BOUND_UP = hash_flag_alpha, BOUND_LOW = hash_flag_beta, BOUND_EXACT = hash_flag_exact, BOUND_NIL = hash_flag_none };
 
@@ -139,8 +140,8 @@ static void safety_init(ThreadData &td, MoveSafety &s) {
   s.our_king = get_ls1b_index(td.bitboards[K + off]);
   s.their_king = get_ls1b_index(td.bitboards[K + eoff]);
   const U64 occ = td.occupancies[both];
-  U64 snipers = (get_rook_attacks(s.our_king, 0) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
-                (get_bishop_attacks(s.our_king, 0) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
+  U64 snipers = (empty_rook_att[s.our_king] & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
+                (empty_bishop_att[s.our_king] & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
   s.pinned = 0;
   while (snipers) {
     const int sn = get_ls1b_index(snipers);
@@ -154,9 +155,11 @@ static void safety_init(ThreadData &td, MoveSafety &s) {
   s.ready = true;
 }
 
-static bool legal_before(ThreadData &td, MoveSafety &s, int m) {
-  PROF_GUARD(prof_gc);
-  if (!s.ready) safety_init(td, s);
+// 06/10/2026 (velocita', stessa logica): legal_before chiamata ~2,2 volte per nodo (contatori, bench 14 su fens30) e,
+// nel binario PGO, fuori linea con il prologo completo (otto registri salvati e ripresi) anche per il caso comune:
+// pezzo non re, niente arrocco ne' e.p., di solito non inchiodato, ~10 istruzioni di lavoro. Ora il caso comune e'
+// inline e i tre casi rari (arrocco, en passant, mosse di re) stanno in legal_before_slow, fuori linea.
+__attribute__((noinline)) static bool legal_before_slow(ThreadData &td, MoveSafety &s, int m) {
   const int from = move_from(m), to = move_to(m), us = td.side, them = us ^ 1;
   if (get_move_castling(m))
     return g_chess960 || !td_is_square_attacked(td, to, them);
@@ -172,10 +175,19 @@ static bool legal_before(ThreadData &td, MoveSafety &s, int m) {
   return !(s.pinned >> from & 1) || on_line(from, to, s.our_king);
 }
 
+static inline bool legal_before(ThreadData &td, MoveSafety &s, int m) {
+  PROF_GUARD(prof_gc);
+  if (!s.ready) safety_init(td, s);
+  const int from = move_from(m);
+  if ((m & 0xC00000) || from == s.our_king)   // arrocco (bit 23), en passant (bit 22), re
+    return legal_before_slow(td, s, m);
+  return !(s.pinned >> from & 1) || on_line(from, move_to(m), s.our_king);
+}
+
 static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
   PROF_GUARD(prof_gc);
   if (!s.ready) safety_init(td, s);
-  const int from = move_from(m), to = move_to(m), pc = move_piece(m), pt = pc % 6;
+  const int from = move_from(m), to = move_to(m), pc = move_piece(m), pt = pc - (td.side == white ? 0 : 6);
   const bool castling = get_move_castling(m) != 0;
   if (!castling && (s.checks.chk[pt] >> to & 1))
     return true;
@@ -271,7 +283,8 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.enpassant = no_sq;
   td.hash_key ^= side_key;
   td.side ^= 1;
-  td.fifty += !NullFiftyKeep;   // NullFiftyKeep (05/10/2026, audit del nucleo): SF19 lascia il contatore com'e'
+  // La mossa nulla non incrementa il contatore delle 50 mosse (05/10/2026, audit del nucleo; BAKE PULIZIA 06/10,
+  // opzione NullFiftyKeep ritirata la sera).
   td.plies_from_null = 0;
   nn_pos_do_null(td.nnpos, td.fifty);
   f->move = NULL_MOVE;
@@ -292,7 +305,10 @@ static inline void step_out_null(ThreadData &td, NullUndo &u) {
 }
 
 // Patta per la regola delle 50 mosse (salvo matto) o per ripetizione.
-static bool drawn_here(ThreadData &td, bool in_check) {
+// 06/10/2026 (velocita', stessa logica): drawn_here gira a ogni nodo (~1,1 volte per nodo) e nel binario PGO e' fuori
+// linea con un frame da 1,1 KB (la lista di mosse del caso "50 mosse sotto scacco"). In oltre l'80% delle chiamate la
+// finestra reversibile e' sotto i 4 ply e repeated_draw non fa nemmeno un giro: quel caso ora esce inline.
+__attribute__((noinline)) static bool drawn_here_slow(ThreadData &td, bool in_check) {
   PROF_GUARD(prof_rep);
   if (td.fifty > 99) {
     if (!in_check)
@@ -313,6 +329,17 @@ static bool drawn_here(ThreadData &td, bool in_check) {
     }
   }
   return repeated_draw(td);
+}
+
+static inline bool drawn_here(ThreadData &td, bool in_check) {
+  if (td.fifty <= 99) {   // stessa finestra di repeated_draw: con meno di 4 ply non c'e' ripetizione possibile
+    int end = td.fifty < td.plies_from_null ? td.fifty : td.plies_from_null;
+    if (end > td.repetition_index)
+      end = td.repetition_index;
+    if (end < 4)
+      return false;
+  }
+  return drawn_here_slow(td, in_check);
 }
 
 static bool has_legal_move(ThreadData &td) {

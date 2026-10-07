@@ -136,15 +136,24 @@ extern bool g_tt_twolevel;
 // TTMove24 (UCI "TTMove24", default ON) — ablazione del FIX P0.1: quando OFF lo
 // store tronca la mossa a 21 bit come la 3.7 (i flag double/ep/castling si perdono
 // di nuovo). Definita in threads.cpp.
+// P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
+// dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
+// evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
+#ifdef TRIUMV_RELEASE
+// Release (06/10/2026): nessuna opzione le cambia, quindi costanti che il compilatore piega in store_tt/probe.
+// I valori sono i default di threads.cpp (01_params.inc); TTMoveRefresh e' verificata con static_assert.
+constexpr bool g_ttmove24 = true;
+constexpr int  g_tt_keep_margin = 3;
+constexpr bool g_tt_move_keep = true;
+constexpr bool g_tt_move_refresh = false;
+constexpr bool g_tt_age_refresh = false;
+#else
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
 extern bool g_tt_move_refresh; // TTMoveRefresh: la mossa nuova entra anche quando si conserva l'entry piu' profonda
-
-// P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
-// dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
-// evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
 extern bool g_tt_age_refresh;
+#endif
 
 // LargePages (UCI, default ON) — alloca la TT su large pages 2MB (VirtualAlloc
 // MEM_LARGE_PAGES, come i pesi NNUE). Toggle per l'A/B NPS pulito sullo STESSO
@@ -364,8 +373,25 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
     else if (score < -mate_score) score -= ply;
 
     int ev16 = tt_eval16(eval);
-    tt_entry* entry = tt_find(hash_key);
-    if (entry) {
+    // 06/10/2026 (velocita', albero identico): UNA lettura del bucket trova la posizione e, se manca, la vittima.
+    // Prima tt_find e tt_victim ricalcolavano ciascuna l'indice (moltiplicazione alta) e rileggevano le quattro vie, e
+    // tt_victim sceglieva con due salti per via sul dato (via vuota? valore piu' basso?). Contatori (bench 14 su
+    // fens30): 0,75 scritture per nodo, 0,44 con la ricerca della vittima.
+    tt_entry* const b = &hash_table[tt_base_index(hash_key)];
+    const U64 tag = tt_tag(hash_key);
+    U64 kk[TT_WAYS], dd[TT_WAYS];
+    unsigned found = 0;
+    for (int i = 0; i < TT_WAYS; i++) {
+        kk[i] = b[i].kw;
+        dd[i] = b[i].data;
+        found |= (unsigned)((((kk[i] ^ dd[i]) >> 16) == tag) & ((kk[i] | dd[i]) != 0)) << i;
+    }
+    tt_entry* entry;
+    if (found) {
+        entry = &b[get_ls1b_index(found)];   // a piu' vie uguali vince la prima, come tt_find
+#ifdef TRIUMV_VERIFY_TTSTORE
+        if (entry != tt_find(hash_key)) { printf("info string TTSTORE: via diversa\n"); fflush(stdout); abort(); }
+#endif
         const U64 old_data = entry->data;
         const U64 old_w    = entry->kw ^ old_data;
         if (g_tt_move_keep && move == 0) move = unpack_move(old_data);
@@ -388,7 +414,20 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
             return;
         }
     } else {
-        entry = tt_victim(hash_key);
+        // Vittima senza salti, stessa regola di tt_victim: la prima via vuota, altrimenti il valore depth - 8 * eta'
+        // piu' basso e a parita' la via piu' bassa. Chiave = valore * 4 + via (valore in [-248, 255]), le vie vuote a
+        // -2^20 + via: la chiave minima e' la via scelta da tt_victim, e i suoi due bit bassi sono la via.
+        int best = 1 << 30;
+        for (int i = 0; i < TT_WAYS; i++) {
+            const int rel_age = (current_age - unpack_age(dd[i])) & 0x1F;
+            const int val = unpack_depth(dd[i]) - 8 * rel_age;
+            const int key = ((kk[i] | dd[i]) == 0 ? -(1 << 20) : val * 4) + i;
+            best = key < best ? key : best;
+        }
+        entry = &b[best & 3];
+#ifdef TRIUMV_VERIFY_TTSTORE   // verifica: la stessa via di tt_victim
+        if (entry != tt_victim(hash_key)) { printf("info string TTSTORE: vittima diversa\n"); fflush(stdout); abort(); }
+#endif
     }
     const U64 new_data = pack_tt_data(move, score, depth, flag, current_age, pv ? 1 : 0);
     const U64 w = (tt_tag(hash_key) << 16) | (U64)ev16;

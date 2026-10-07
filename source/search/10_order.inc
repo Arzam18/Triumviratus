@@ -199,6 +199,10 @@ static void init_cuckoo() {
   memset(cuckoo_key, 0, sizeof(cuckoo_key));
   memset(cuckoo_move, 0, sizeof(cuckoo_move));
 
+  for (int s1 = 0; s1 < 64; s1++) {   // attacchi a scacchiera vuota (07_makemove.inc)
+    empty_rook_att[s1] = get_rook_attacks(s1, 0ULL);
+    empty_bishop_att[s1] = get_bishop_attacks(s1, 0ULL);
+  }
   for (int s1 = 0; s1 < 64; s1++)
     for (int s2 = 0; s2 < 64; s2++) {
       between_tbl[s1][s2] = 0;

@@ -27,6 +27,8 @@
 [Audits and speed](#20-audits-clean-up-and-more-speed-5-october-2026) · [First idea adopted](#21-the-first-idea-adopted-a-hash-move-extension-at-low-depth-5-october-2026) ·
 [Guard, stack probe, expected reply](#22-a-guard-for-ldse-the-stack-probe-and-the-expected-reply-5-october-2026) · [Surprise rule, refresh path](#23-the-guard-adopted-the-surprise-rule-and-the-refresh-path-5-october-2026-evening) ·
 [Against Stockfish 19](#24-against-stockfish-19-and-the-printed-scale-6-october-2026) · [Depth, pins, corrections](#25-ideas-that-need-depth-pins-and-the-correction-history-6-october-2026) ·
+[Opponent's plan, progress check](#26-the-opponents-plan-a-combined-spsa-and-a-progress-check-6-october-2026-evening) ·
+[One lost game, examined](#27-one-lost-game-examined-and-the-clock-6-october-2026-night) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -36,7 +38,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **309067**.
+> each step starting from what the previous one found. Current `bench`: **430151**.
 
 ## The path so far
 
@@ -52,20 +54,27 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **The search restructured** | 17 | Stockfish 19's search structure, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
 | **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
+| **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease and against Stockfish 19 | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October; **50.0%** against Stockfish 19 at 133+1 (320 games) | 309067 |
+| **The TT cutoff damping adopted** | 27 | the damping of section 18 (an idea from Coda) retried twice on the current code | +2.2 ± 3.2 over 11,774 games in three SPRTs | **430151** |
+| **Search speed** | 27 | eight patches that only remove work, same tree | −1.75% cycles per node in the middlegame (all nine with AVX-512 gathers: −1.5% to −1.8% in endgames) | 430151 |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
 is an SPRT or a match against the step before, on the same machine, with its 95% interval. Since the 4 October
-prerelease the speed work alone is about **−8.9% cycles per node** with an identical tree (sections 17, 20, 22, 23).
+prerelease the speed work alone is about **−10.5% cycles per node** with an identical tree (sections 17, 20, 22, 23,
+27).
 
 ## Where things stand (6 October 2026)
 
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
-  in sections 21–25 and two consistency fixes. Bench **309067**. The prerelease builds on the tag `v8.0` are those
-  of the morning of 5 October, before these adoptions.
-- **Running:** the correction options proposed by the analysis of section 25 (a continuation correction six plies
-  back, conditions on learning), one SPRT at a time; then a new match against Stockfish 19.
-- **Open:** an SPSA of the correction update constants; LDSE at 40+0.4; contempt in a gauntlet; large pages, which
+  in sections 21–25, two consistency fixes and the TT cutoff damping (section 27). Bench **430151**. The prerelease
+  builds on the tag `v8.0` are those of 6 October evening (bench 309067), before the damping: **+17.2 ± 6.8** at 10+0.1 against the 4 October prerelease
+  (section 26).
+- **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%** with this build; at 30+0.3 on
+  random openings −4.4 ± 7.1 over 395 (section 27).
+- **Running:** a time-management SPRT at 40+0.4 (section 27), a search speed study and a measurement of the time
+  manager's instability signal.
+- **Open:** the combined SPSA CORR1 (section 26); LDSE at 40+0.4; contempt in a gauntlet; large pages, which
   the test machine does not grant, so Triumviratus and Stockfish both run on 4 KB pages there; the shape of the next
   network.
 - **Test rules,** as they evolved: one idea at a time on the same binary; at least 20,000 games or a clear verdict
@@ -916,6 +925,106 @@ endgame games (fewer than 2% of exact nodes), which fits the result of the corre
 **−2.7 ± 4.3** on the endgame book (2,572 games), closed. The correction slot shrank from 10 to 8 bytes (the field of
 a closed idea removed): neutral in speed (cycles per node +0.00% middlegame, +0.26% endgames), kept as a clean-up.
 
+## 26. The opponent's plan, a combined SPSA, and a progress check (6 October 2026, evening)
+
+**Two more continuation corrections.** The continuation correction indexes the last move by our moves two and four
+plies back. Adding our move six plies back (`CorrCont6W`) gave **−0.8 ± 5.6** over 3,894 games at 15+0.15, with the
+two sockets in disagreement (+4.3 and −5.9): off, to be looked at again. The author then proposed the dual idea: if,
+while searching the opponent's reply, a move turns out better or worse than expected, the correction should learn
+that too. It was built as the pair of the opponent's own last two moves (three plies back and one ply back), in the
+same table (`CorrContOppW`). At the weight of the existing terms it gave **−5.2 ± 12.7** over 742 games at 12+0.12.
+
+**Analysed before closing it.** A diagnostic build let those cells learn at weight 0 and compared them with the error
+left after the existing corrections (600 positions, 1M nodes each). They carry real information: correlation +0.24
+with the remaining error in exact nodes, as much as the two-ply cell (+0.25). With the term on, the tree at a fixed
+node count is unchanged (depth 21.25 against 21.26) and the speed cost is about 1% under full load. A regression
+suggested twice the weight; at that weight it gave **−4.8 ± 8.7** over 1,806 games at 8+0.08. The same regression,
+read correctly, says that every correction weight should be larger, the two-ply one about twice its value, while the
+SPSA, which optimises games won, chose half of that: reducing the evaluation error is not the same as winning, because
+the correction also moves pruning margins and at fail-high or fail-low nodes the error is only a bound. So the weight
+is left to an SPSA: `CorrContOppW` starts there at the first weight, with zero (off) within its range.
+
+**Conditions on learning.** No learning in nodes searched with a move excluded (`CorrLearnMode` 2): **−1.6 ± 7.8**
+over 2,114 games at 12+0.12, off. Variant 1 (only excluded nodes without moves) never fires on the bench positions.
+
+**A combined SPSA, CORR1.** 29 parameters at 20+0.2: the 17 constants of the correction history (update steps,
+bonuses and their caps, weights, the divisors of the correction in the singular, reverse-futility and reduction
+margins), the opponent's-plan weight and step, and ten reduction, reverse-futility and singular parameters that
+depend on the corrected evaluation. Parameters that depend strongly on the time control stay out (the depth ramps and
+the logarithmic reduction multiplier); the final values will also be checked at 40+0.4 before adoption.
+
+**Progress since the 4 October prerelease.** The 4 October prerelease was rebuilt for AVX-512 from the tag `v8.0`
+(the published AVX2 build gives the same `bench`, 141196) and played against today's development build (bench
+309067), each with its own defaults: **+17.2 ± 6.8** over 2,798 games at 10+0.1 (UHO, 34 games per socket; socket 0
++20.5, socket 1 +13.7). It is the sum of everything since 4 October: the ideas adopted in sections 21–25 and the
+speed work of sections 17–23.
+
+**Against Stockfish 19 again, with the current build.** The release built from this source (bench 309067) played the
+same 300 games as in section 24 (133+1, TopGM 8-move book, openings 1–150 with both colours, 1 thread, Hash 512,
+Syzygy 3-4-5), then the first 20 games of openings 151–155 and 226–230: **+5 =310 −5 over 320, 50.0%** (the 300 of
+section 24: +5 =290 −5, 0.0 ± 5.6, against +3 =291 −6, −3.5 ± 6.0 for the 5 October build; the 20 new games all
+drawn). Every loss and every changed result was checked move by move with Stockfish 19 at 5 s per position. Three
+of the five losses were decided by the book (Stockfish gives Black −1.15, −1.50 and −1.72 as the book ends, and finds
+no move of ours worse than its own by 0.20 before the game is lost); one had an unfavourable book exit (−0.82) plus
+two small inaccuracies of about 0.3. One was lost by a single move in a rook and
+knight endgame: with Stockfish at −0.24, our king walked to the centre (66...Ke5 instead of Kg6) into the reach of
+both rooks and the knight (−2.48). We chose it at depth 22; replayed from the same game history with the same time,
+our engine played Kg6 twice, and in one of the replays it preferred Ke5 at depths 8–12: the refutation is found late
+and not every time (analysed in section 27). The two
+5 October wins that became draws contain no move of ours that Stockfish rates 0.20 worse than its own.
+
+## 27. One lost game, examined, and the clock (6 October 2026, night)
+
+**The game.** Of the five losses against Stockfish 19 in section 26, one came from a single move with the position
+still holdable: a rook and knight endgame where our king walked to the centre (66...Ke5 instead of Kg6) and was
+hunted down for ten moves until a skewer won a rook. Three analyses, each run before drawing a conclusion:
+- **The move itself.** Replayed with the same game history and the same time, our engine plays Kg6 or Kg5 22 times
+  out of 22. In the game it had about 4.5 s on the clock and the hard time limit stopped the iteration; searched
+  alone, Ke5 is refuted clearly from depth 20. A rare instability under time pressure, not a pattern: no other game
+  of either match shows it. A cap on root reductions changes nothing measurable (a reduced root move that looks good
+  is always searched again at full depth); it stays in the code as an option, off.
+- **Checks.** Do we reduce or prune the checks of a king hunt too much? No. From depth 20 every move of the
+  refutation is the first one tried, is never pruned or reduced, and gets 1 to 2.6 plies of singular extension.
+  Meaningless tweaks of unrelated parameters move the depth at which a single position is solved by up to seven
+  plies, so every lever was judged against such controls on a set of 19 positions: none stood out. Extending checks
+  costs 1.45 plies in endgames.
+- **Endgames.** Do we recognise won endgames later than Stockfish? Not on 124 decided endgames: our static
+  evaluation is 0.90 of Stockfish's, which is only the difference in printed scale (Stockfish prints about 1.12 times
+  our number since our centipawns are divided by 400), and in nodes we reach a decisive score no later.
+
+**The clock.** Over 820 games against Stockfish 19 at 133+1 (clocks rebuilt from the game records and checked to the
+millisecond on 17,850 moves where the GUI logged them), our time manager is the same function of clock and move
+number as Stockfish's. We spend more in the longest thinks of moves 11–40 and so reach moves 40–60 with 3–4 s less in
+over half of the games, and errors concentrate when the clock is under three increments (17–30 per 1,000 moves,
+against under 1 above 60 s). Lowering the cap on the longest thinks lost clearly: **−27.1 ± 17.0** over 308 games at
+40+0.4 (both sides with the game's move number, as in a PGN book). The long thinks are needed; the opposite
+direction is under test.
+
+**The TT cutoff damping adopted.** The damping of section 18 (a lower-bound cutoff value from the hash is pulled
+towards beta; an idea from Coda), retried on the current code: +2.2 ± 5.4 over 4,138 games at 15+0.15 and
++2.0 ± 5.0 over 4,818 at 20+0.2, both sockets positive. With the first test the three give **+2.2 ± 3.2 over
+11,774 games** (about a 91% chance of a positive effect, under 3% of costing more than one Elo): adopted before
+20,000 games on that evidence. Bench **430151**.
+
+**The search side made faster.** The search costs about 3,200 cycles per node against about 1,750 for Stockfish 19,
+spread over move ordering, the TT, the SEE and make/unmake with no dominant function. An analysis agent counted how
+often each step runs per node and wrote nine patches that only remove work, each with the same tree: pawns without
+moves are no longer visited, the SEE of a quiet move is skipped when the enemy attack map already decides it (28% of
+all SEE calls), empty-board slider attacks come from a small table, the common case of two per-move functions is
+inlined, the TT store reads its bucket once, the piece type comes without a division, and the expert key of the
+corrections from a table. Every patch kept the bench and passed perft and Chess960 perft; three of them carry a
+build switch that compares the shortcut with the original code at every node. Measured with hardware counters on a
+quiet machine, the nine together remove 5.4% of the instructions but only 1.0–1.5% of the cycles in the middlegame
+(1.5–1.8% in endgames): the engine waits on memory more than it executes. One patch scored sixteen quiet moves at
+a time with AVX-512 gathers; it removed 3.9% of the instructions, but on this Xeon a gather costs as much as sixteen
+scalar loads, and without it the other eight give **−1.75% cycles per node** in the middlegame. Those eight were
+adopted. Bench unchanged, 430151.
+
+**Also closed today.** Learning corrections in exact PV nodes in either
+direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quiescence hash depth, the two consistency
+fixes) became fixed code; in release builds the remaining tuning copies read outside the search are compile-time
+constants (bench unchanged by these, 309067 before the damping).
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -951,3 +1060,12 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Two consistency fixes** (null move and fifty-move counter, one fade formula) | 25 | 5+0.05 endgames | 9,774 | **+1.6 ± 2.6** | **adopted** |
 | **`CorrPhase`** (after the fix) | 25 | 12+0.12 UHO | 8,634 | **+3.2 ± 3.8** | **adopted** |
 | Correction faded with the fifty-move counter | 25 | 10+0.1 endgames | 2,572 | −2.7 ± 4.3 | off |
+| Continuation correction six plies back | 26 | 15+0.15 UHO | 3,894 | −0.8 ± 5.6 | off, sockets disagree |
+| The opponent's plan in the continuation correction (author's idea) | 26 | 12+0.12 UHO | 742 | −5.2 ± 12.7 | analysed, to the SPSA |
+| The same at the regression weight | 26 | 8+0.08 UHO | 1,806 | −4.8 ± 8.7 | off |
+| No correction learning in excluded nodes | 26 | 12+0.12 UHO | 2,114 | −1.6 ± 7.8 | off |
+| **Today's build against the 4 October prerelease** | 26 | 10+0.1 UHO | 2,798 | **+17.2 ± 6.8** | progress check |
+| Hash cutoff damping, retried on the current build | 27 | 15+0.15 UHO | 4,138 | +2.2 ± 5.4 | retried at 20+0.2 |
+| **Hash cutoff damping** at 20+0.2 (three tests together: +2.2 ± 3.2 over 11,774) | 27 | 20+0.2 UHO | 4,818 | **+2.0 ± 5.0** | **adopted** |
+| Corrections learned in exact PV nodes in either direction | 27 | 8+0.08 UHO | 3,258 | −2.8 ± 6.6 | off |
+| Lower cap on the longest thinks (time manager) | 27 | 40+0.4 UHO | 308 | −27.1 ± 17.0 | off |

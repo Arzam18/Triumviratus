@@ -49,6 +49,14 @@ static inline int td_is_square_attacked(ThreadData &td, int square,
 // (10_order.inc); usata qui (scacchi di scoperta), dalle evasioni (08_movegen.inc), dalla legalita' e
 // dall'upcoming-repetition.
 static U64 between_tbl[64][64];
+// Attacchi di torre e alfiere a scacchiera VUOTA (06/10/2026, velocita', albero identico): servono a trovare i cecchini
+// allineati con un re (td_lmp_chk_init, safety_init, see_pins_update: ~3,3 letture per nodo). Prima passavano da
+// get_rook_attacks(sq, 0) / get_bishop_attacks(sq, 0), cioe' dalla voce 0 della riga della casa nelle tabelle PEXT:
+// righe da 32 KB (torre) e 4 KB (alfiere): le 64 voci "vuote" di ciascun pezzo cadono nello STESSO insieme della L1
+// (bit 6-11 dell'indirizzo uguali, 8 vie), insieme alle voci 0-7 di ogni riga. Qui stanno in 1 KB contiguo. Stessi valori.
+// Riempite da init_cuckoo (10_order.inc) insieme a between_tbl.
+alignas(64) static U64 empty_rook_att[64];
+alignas(64) static U64 empty_bishop_att[64];
 
 // ---------------------------------------------------------------------------
 // LMPCheckGuard: "questa quiet da' scacco?" calcolato PRIMA della make.
@@ -90,7 +98,7 @@ static inline void td_lmp_chk_init(ThreadData &td, LmpChkCtx &c) {
   const U64 orq = td.bitboards[R + off] | td.bitboards[Q + off];
   const U64 obq = td.bitboards[B + off] | td.bitboards[Q + off];
   c.disc = 0;
-  U64 snipers = (get_rook_attacks(eksq, 0) & orq) | (get_bishop_attacks(eksq, 0) & obq);
+  U64 snipers = (empty_rook_att[eksq] & orq) | (empty_bishop_att[eksq] & obq);
   while (snipers) {
     const int sn = get_ls1b_index(snipers);
     const U64 between = between_tbl[eksq][sn] & occ;

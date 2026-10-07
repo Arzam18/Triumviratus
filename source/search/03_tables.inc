@@ -43,6 +43,8 @@ struct CorrSlot {           // le correzioni lette con chiavi diverse ma nello s
   int16_t pawn, minor, np_white, np_black;
   // 06/10/2026: tolto il campo `major` di CorrMajorW (idea chiusa: -2,1 +- 20,7). Slot da 10 a 8 byte: riga da 16
   // byte, quattro righe per linea di cache, tabella da 1,31 a 1,05 MB per thread (rapporto N_CORREZIONI 4.6).
+  // Misura xperf a macchina quieta (06/10/2026, PGO release, 6 giri): cicli/nodo mediogioco +0,00%, finali +0,26%:
+  // neutro in velocita'. Tenuto perche' toglie un campo morto.
 };
 
 struct SharedStats {
