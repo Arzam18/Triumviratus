@@ -341,6 +341,21 @@ void FullThreats::append_active_indices(Color perspective, const NnBoard& pos, I
     const Bitboard minorSliderTargets = pawnTargets | pos.type(NN_PAWN) | pos.type(NN_BISHOP);
     const Bitboard queenTargets       = minorSliderTargets | pos.type(NN_QUEEN);
 
+#ifdef TRIUMV_X4_VLREG
+    // X4 (08/10/2026, VLREG): contatore della lista in un registro (vedi ValueList::data in misc.h).
+    IndexType* const out = active.data();
+    usize            cnt = active.size();
+    #define X4_PUT_ACTIVE(row) \
+        do \
+        { \
+            const IndexType r_ = (row); \
+            out[cnt]           = r_; \
+            cnt += r_ < FeatRows; \
+        } while (0)
+#else
+    #define X4_PUT_ACTIVE(row) active.push_back_if_lt((row), FeatRows)
+#endif
+
     for (Color color : {WHITE, BLACK})
     {
         const Color c = Color(perspective ^ color);
@@ -358,7 +373,7 @@ void FullThreats::append_active_indices(Color perspective, const NnBoard& pos, I
                     const int from     = to + fromDelta;
                     const int attacked = pos.piece_on(to);
                     IndexType index    = make_index(perspective, attacker, from, to, attacked, ksq);
-                    active.push_back_if_lt(feat_row(index), FeatRows);
+                    X4_PUT_ACTIVE(feat_row(index));
                 }
             };
 
@@ -388,11 +403,15 @@ void FullThreats::append_active_indices(Color perspective, const NnBoard& pos, I
                     const int to       = pop_lsb(attacks);
                     const int attacked = pos.piece_on(to);
                     IndexType index    = make_index(perspective, attacker, from, to, attacked, ksq);
-                    active.push_back_if_lt(feat_row(index), FeatRows);
+                    X4_PUT_ACTIVE(feat_row(index));
                 }
             }
         }
     }
+#ifdef TRIUMV_X4_VLREG
+    active.set_size(cnt);
+#endif
+#undef X4_PUT_ACTIVE
 }
 
 // Get a list of indices for recently changed features
@@ -405,6 +424,31 @@ void FullThreats::append_changed_indices(Color                   perspective,
                                          const ThreatWeightType* prefetchBase,
                                          IndexType               prefetchStride) {
 
+#ifdef TRIUMV_X4_VLREG
+    // X4 (08/10/2026, VLREG): stesse voci nello stesso ordine, con i due contatori e il numero di tuple in registri
+    // (vedi ValueList::data in misc.h). La voce si scrive sempre nello slot libero della lista scelta e il contatore
+    // avanza solo se la riga e' viva, come push_back_if_lt.
+    IndexType* const rem  = removed.data();
+    IndexType* const addv = added.data();
+    usize            nRem = removed.size(), nAdd = added.size();
+    const u32        n    = diff.n;
+    for (u32 i = 0; i < n; ++i)
+    {
+        const DirtyThreat dirty(diff.list[i]);
+        const bool        add   = dirty.add();
+        const IndexType   index = feat_row(
+          make_index(perspective, dirty.pc(), dirty.pc_sq(), dirty.threatened_sq(), dirty.threatened_pc(), ksq));
+        if (prefetchBase)
+            prefetch<PrefetchRw::READ, PrefetchLoc::LOW>(reinterpret_cast<const void*>(
+              reinterpret_cast<uintptr_t>(prefetchBase) + index * prefetchStride));
+        const usize live = index < FeatRows;
+        *(add ? addv + nAdd : rem + nRem) = index;
+        nAdd += add ? live : 0;
+        nRem += add ? 0 : live;
+    }
+    removed.set_size(nRem);
+    added.set_size(nAdd);
+#else
     for (u32 i = 0; i < diff.n; ++i)
     {
         const DirtyThreat dirty(diff.list[i]);
@@ -447,6 +491,7 @@ void FullThreats::append_changed_indices(Color                   perspective,
               reinterpret_cast<uintptr_t>(prefetchBase) + index * prefetchStride));
         insert.push_back_if_lt(index, FeatRows);
     }
+#endif
 }
 
 // Porting completo di SF 7b550409 — vedi il commento in full_threats.h per la
@@ -461,6 +506,45 @@ void FullThreats::append_changed_indices_both(int                     ksqW,
                                               const ThreatWeightType* prefetchBase,
                                               IndexType               prefetchStride) {
 
+#ifdef TRIUMV_X4_VLREG
+    // X4 (08/10/2026, VLREG): come append_changed_indices, quattro contatori in registri.
+    IndexType* const remW = removedW.data();
+    IndexType* const addW = addedW.data();
+    IndexType* const remB = removedB.data();
+    IndexType* const addB = addedB.data();
+    usize nRemW = removedW.size(), nAddW = addedW.size(), nRemB = removedB.size(), nAddB = addedB.size();
+    const u32 n = diff.n;
+    for (u32 i = 0; i < n; ++i)
+    {
+        const DirtyThreat dirty(diff.list[i]);
+        const auto        attacker = dirty.pc();
+        const auto        attacked = dirty.threatened_pc();
+        const auto        from     = dirty.pc_sq();
+        const auto        to       = dirty.threatened_sq();
+        const bool        add      = dirty.add();
+
+        const IndexType iW = feat_row(make_index(WHITE, attacker, from, to, attacked, ksqW));
+        const IndexType iB = feat_row(make_index(BLACK, attacker, from, to, attacked, ksqB));
+        if (prefetchBase)
+        {
+            prefetch<PrefetchRw::READ, PrefetchLoc::LOW>(reinterpret_cast<const void*>(
+              reinterpret_cast<uintptr_t>(prefetchBase) + iW * prefetchStride));
+            prefetch<PrefetchRw::READ, PrefetchLoc::LOW>(reinterpret_cast<const void*>(
+              reinterpret_cast<uintptr_t>(prefetchBase) + iB * prefetchStride));
+        }
+        const usize liveW = iW < FeatRows, liveB = iB < FeatRows;
+        *(add ? addW + nAddW : remW + nRemW) = iW;
+        *(add ? addB + nAddB : remB + nRemB) = iB;
+        nAddW += add ? liveW : 0;
+        nRemW += add ? 0 : liveW;
+        nAddB += add ? liveB : 0;
+        nRemB += add ? 0 : liveB;
+    }
+    removedW.set_size(nRemW);
+    addedW.set_size(nAddW);
+    removedB.set_size(nRemB);
+    addedB.set_size(nAddB);
+#else
     for (u32 i = 0; i < diff.n; ++i)
     {
         const DirtyThreat dirty(diff.list[i]);
@@ -505,6 +589,7 @@ void FullThreats::append_changed_indices_both(int                     ksqW,
         (add ? addedW : removedW).push_back_if_lt(iW, FeatRows);
         (add ? addedB : removedB).push_back_if_lt(iB, FeatRows);
     }
+#endif
 }
 
 }  // namespace Triumviratus::Eval::NNUE::Features

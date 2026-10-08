@@ -648,8 +648,15 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
     // La catena degli accumulatori e' quella della ricerca, con le dirty gia' scritte dalla make; la posizione si
     // legge dalla nostra scacchiera.
     auto [psqt, positional] = NET_REF.evaluate(board, *p->accStack, *p->caches);
+#ifdef TRIUMV_X4_NOLAST
+    // X4 (08/10/2026, NOLAST): i termini dell'ultima valutazione (NnLast: unadjusted, opt_base, opt_coeff) servivano
+    // a EvalTTWrite ed EvalCacheOptSplit, ritirate: nn_last_* non ha piu' chiamanti. Senza `last` nn_scale salta due
+    // moltiplicazioni a 64 bit con divisione per costante e tre scritture per valutazione. Valore restituito identico.
+    int inc = nn_scale(board, psqt, positional, rule50, nullptr, g_opt_per_thread ? p->opt : nullptr);
+#else
     int  inc                = nn_scale(board, psqt, positional, rule50, &p->last,
                                        g_opt_per_thread ? p->opt : nullptr);
+#endif
 
     if (g_verify) {
         // Confronto con un refresh completo della stessa scacchiera, su uno stato di appoggio: oltre al valore

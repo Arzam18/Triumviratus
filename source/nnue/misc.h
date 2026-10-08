@@ -239,6 +239,26 @@ class ValueList {
         return result;
     }
 
+    // X4 (08/10/2026, VLREG): accesso diretto per i cicli caldi che accodano con il contatore in un registro. Con
+    // clang-cl l'analisi degli alias per tipo e' spenta (default delle destinazioni MSVC): dopo ogni push_back la
+    // scrittura di un valore puo' "toccare" size_ e il contatore si rilegge e si riscrive in memoria a ogni voce
+    // (catena scrittura -> lettura di ~5 cicli). Il chiamante tiene una copia locale e la restituisce con set_size.
+    T*   data() { return values_; }
+    void set_size(usize n) {
+        assert(n <= MaxSize);
+        size_ = n;
+    }
+    // Accodatore locale: puntatore e contatore copiati all'inizio, contatore restituito alla distruzione. Da usare solo
+    // come variabile locale di una funzione (inline): il compilatore lo scompone in due registri.
+    struct Tail {
+        ValueList& list;
+        T*         p;
+        usize      n;
+        explicit Tail(ValueList& l) : list(l), p(l.values_), n(l.size_) {}
+        ~Tail() { list.size_ = n; }
+        void push_back(const T& v) { p[n++] = v; }
+    };
+
    private:
     T     values_[MaxSize];
     usize size_ = 0;

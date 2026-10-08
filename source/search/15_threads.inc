@@ -260,7 +260,7 @@ void search_position_mt(int depth) {
   // Risposta prevista (TmExpect*): serve una linea di almeno tre mosse (nostra, risposta, nostra successiva). Si
   // calcola solo con l'opzione accesa, cosi' a opzione spenta nulla cambia.
   g_clock.expect_key = 0;
-  if ((TmExpectScale < 1000 || TmExpectFloor || TmSurpriseScale > 1000) && line.pv_len >= 3) {
+  if ((TmExpectScale < 1000 || TmSurpriseScale > 1000) && line.pv_len >= 3) {
     g_clock.expect_key = expected_key(thread_data[0], best_move, line.pv[1]);
     g_clock.expect_move = line.pv[2];
     g_clock.expect_score = line.score;

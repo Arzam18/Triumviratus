@@ -74,6 +74,11 @@ static void clock_plan(int us, int game_ply, int overhead) {
     const double mine = g_limits.time[us], theirs = g_limits.time[us ^ 1];
     opt_share *= 1 + TmBehindMul / 1000.0 * std::min((mine - theirs) / (1.0 + mine + theirs), 0.0);
   }
+  // TmEarlySave (08/10/2026, audit X3, spenta): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
+  // motori; la quota si riduce e il tempo resta per le fasi 10-23 pezzi, dove in difesa sbagliamo 3-4 volte di piu'.
+  // La scacchiera globale e' quella della radice (start_search la copia nel thread prima di chiamare clock_plan).
+  if (TmEarlySave && count_bits(occupancies[both]) >= 24)
+    opt_share *= 1 - TmEarlySave / 1000.0;
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
   g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
   if (g_ponder_option)
@@ -209,7 +214,6 @@ static void deepen(ThreadData &td) {
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * 729 / 1024);
 
   int best = -infinity;
-  int fh_recovery = 0;   // FhRecovery (07/10/2026): ply tolti alla prossima iterazione dopo un fail-high
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
@@ -243,11 +247,8 @@ static void deepen(ThreadData &td) {
       nn_root_sync(td);
 
       int failed_high = 0;
-      if (FhRecovery && td.pv_idx == 0)
-        fh_recovery = std::max(0, fh_recovery - 2);
       for (;;) {
-        const int depth = std::max(1, td.root_depth - failed_high - (td.pv_idx == 0 ? fh_recovery : 0) -
-                                          3 * (again + 1) / 4);
+        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4);
         td.root_delta = beta - alpha;
         best = explore(td, root, alpha, beta, depth, false, true);
         settle_lines(td, td.pv_idx, td.pv_last);
@@ -273,9 +274,6 @@ static void deepen(ThreadData &td) {
           break;
         delta += AspGrow * delta / 128;
       }
-      // FhRecovery: dopo uno o piu' fail-high la profondita' torna piena per gradi (2 ply per iterazione).
-      if (FhRecovery && td.pv_idx == 0 && failed_high > 0)
-        fh_recovery = (failed_high + 1) / 2 + 2;
 
       settle_lines(td, 0, td.pv_idx + 1);
       if (main && !stop_threads.load(std::memory_order_relaxed)) {
@@ -365,21 +363,27 @@ static void deepen(ThreadData &td) {
       if (g_clock.surprise && TmSurpriseScale > 1000 &&
           100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock)
         total_time *= TmSurpriseScale / 1000.0;
+      // TmDefendMul (08/10/2026, audit X3, spenta): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
+      // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
+      if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
+        total_time *= 1 + TmDefendMul / 1000.0;
       const int elapsed = get_time_ms() - g_limits.start_ms;
-      // Pavimento dopo la risposta prevista (TmExpectFloor): sotto la profondita' di prima - k si continua, ma solo
-      // entro il tempo OTTIMALE della mossa. Prima il limite era il massimo: a 12+0.12 il lato col pavimento spendeva
-      // il 4% in piu' nelle mosse 10-30 e arrivava alle mosse 30-60 con il 20% di orologio in meno (1,00 s contro
-      // 1,25) e 0,3 ply in meno; SPRT -5,5 +- 13,4 su 696 partite, fermato (05/10/2026).
-      const bool below_floor = g_clock.expected && TmExpectFloor && td.root_depth < g_clock.expect_depth - TmExpectFloor &&
-                               elapsed < g_clock.optimum;
-      if ((elapsed > std::min(total_time, (double)g_clock.maximum) && !below_floor) ||
+#ifdef TRIUMV_TMDEBUG   // diagnosi della gestione del tempo (08/10/2026): i fattori a ogni iterazione completata
+      printf("info string tm d %d el %d opt %d max %d fall %.3f red %.3f tr %.3f inst %.3f ch %.2f heavy %.3f "
+             "effort %llu exp %d sur %d best %d prev %.0f iter %d tot %.0f\n",
+             td.root_depth, elapsed, g_clock.optimum, g_clock.maximum, falling, reduction, time_red, instability,
+             g_clock.best_changes, heavy, (unsigned long long)effort, (int)g_clock.expected, (int)g_clock.surprise, best,
+             prev_avg, g_clock.iter_values[g_clock.iter_idx], total_time);
+      fflush(stdout);
+#endif
+      if (elapsed > std::min(total_time, (double)g_clock.maximum) ||
           td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
         if (g_pondering.load(std::memory_order_relaxed))
           g_stop_at_ponderhit.store(true, std::memory_order_relaxed);
         else
           stop_threads.store(true, std::memory_order_relaxed);
       } else
-        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || below_floor || elapsed <= total_time * 0.50;
+        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || elapsed <= total_time * 0.50;
     }
     g_clock.iter_values[g_clock.iter_idx] = best;
     g_clock.iter_idx = (g_clock.iter_idx + 1) & 3;

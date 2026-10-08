@@ -51,7 +51,8 @@ struct NodeFrame {
     bool follow_pv;
     unsigned char ldse;           // la mossa in ricerca da questo frame e' stata estesa da Ldse (LdseMax)
     unsigned char ldse_path;      // estensioni Ldse lungo la linea fino a questo nodo
-    unsigned char nmp_fh;         // mosse nulle riuscite fra i figli dello stesso padre (NmpPriorFH)
+    unsigned char negext;         // la mossa in ricerca da questo frame e' estesa da una riduzione negativa (NegExtMax)
+    unsigned char negext_path;    // estensioni da riduzione negativa lungo la linea fino a questo nodo
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.

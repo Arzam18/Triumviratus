@@ -327,6 +327,8 @@ void uci_loop()
             // name e' l'identita' del motore per GUI e liste rating, deve essere pulito.
             // La data di build in coda distingue le build giornaliere fra loro:
             // "Triumviratus - 7.0 2026-08-06".
+            // Anche nel binario universale l'id name resta questo: e' il nome che GUI e liste (CCRL) registrano. La
+            // variante scelta si legge nella riga d'avvio (main.cpp), solo in terminale.
             printf("id name %s%s %s\n", NAME, VERSION, build_date());
             printf("id author %s\n", AUTHOR);
             printf("option name Hash type spin default 64 min 1 max %d\n", max_hash);
