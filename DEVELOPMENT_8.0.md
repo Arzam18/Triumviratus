@@ -1169,17 +1169,17 @@ at depth 14 and 64 endgame positions at depth 16, perft on the standard and Ches
 
 Without the privilege to lock memory, every allocation falls back to normal pages, as before.
 
-**Measurement.** Hardware counters (xperf), 30 middlegame positions, profile-guided release builds with the same
-compiler, six rounds, per node against the previous source:
+**Measurement.** Hardware counters (xperf), 30 middlegame positions and a set of endgame positions, profile-guided
+release builds with the same compiler, six rounds, per node against the previous source:
 
-| build | instructions | cycles | IPC |
-|---|---:|---:|---:|
-| V1 + V3 (memory only) | +0.34% | −0.91% | 1.35 → 1.37 |
-| V2 (quiet ranges) | −0.15% | −0.55% | 1.35 → 1.36 |
-| all four | −0.06% | **−1.56%** | 1.35 → 1.37 |
+| build | middlegame instr. | middlegame cycles | endgame instr. | endgame cycles |
+|---|---:|---:|---:|---:|
+| V1 + V3 (memory only) | +0.34% | −0.91% | +0.36% | −1.43% |
+| V2 (quiet ranges) | −0.15% | −0.55% | −0.17% | −0.56% |
+| all four | −0.06% | **−1.56%** | −0.04% | **−1.56%** |
 
-The memory changes show the expected signature: the same instructions in fewer cycles. The gain is smaller than the
-1–4% estimated from the page counts. One caution for anyone repeating the measurement: with V0, `go nodes` prints the
+The memory changes show the expected signature: the same instructions in fewer cycles (IPC 1.35 → 1.37 in the
+middlegame, 1.33 → 1.36 in endgames). The gain is smaller than the 1–4% estimated from the page counts. One caution for anyone repeating the measurement: with V0, `go nodes` prints the
 full node count in its last line, while earlier builds print the count of the last completed iteration, so per-node
 figures from the last `info` line must be corrected by the ratio of the reported counts (1.357 here).
 
