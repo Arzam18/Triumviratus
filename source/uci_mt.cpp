@@ -858,10 +858,17 @@ void uci_loop()
             // Reallocating the TT under a running search would crash it.
             stop_search_threads();
             wait_for_search_done();
-            mb = atoi(input + 26);
-            if (mb < 1) mb = 1;
-            if (mb > max_hash) mb = max_hash;
-            init_hash_table(mb);
+            int newMb = atoi(input + 26);
+            if (newMb < 1) newMb = 1;
+            if (newMb > max_hash) newMb = max_hash;
+            // 08/10/2026: stessa dimensione = nessuna riallocazione. fastchess rimanda Hash dopo OGNI ucinewgame: la
+            // TT veniva liberata e riallocata a ogni partita, e su un nodo con la memoria frammentata le large pages
+            // potevano mancare (ripiego su pagine normali a caso, motore per motore). La pulizia della TT resta a
+            // ucinewgame.
+            if (newMb != mb || !hash_table) {
+                mb = newMb;
+                init_hash_table(mb);
+            }
         }
 
         // UCI command: "setoption name LargePages value 0|1" — ri-alloca subito
@@ -889,10 +896,20 @@ void uci_loop()
             char* e = val + strlen(val);              // trim stray CR/space/newline
             while (e > val && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\n')) *--e = '\0';
             std::string resolved = resolve_net_path(val);
-            if (resolved.empty())
+            // 08/10/2026: la stessa rete gia' caricata non si ricarica. fastchess rimanda EvalFile dopo OGNI
+            // ucinewgame: il lato con la rete esterna la ricaricava a ogni partita (~0,6 s, 245 MB di large pages
+            // allocati e liberati, area condivisa staccata e riattaccata), l'altro lato mai. Nell'SPRT ft2avg del
+            // 08/10 (6+0.06) quel lato sul socket 1 cercava 0,22 ply meno dell'altro (sul socket 0 0,02) e il
+            // socket 1 ha dato -20,8 Elo contro -0,1 del socket 0 con la stessa rete. Un file cambiato sotto lo
+            // stesso percorso richiede un percorso diverso o un riavvio.
+            static std::string s_loaded_net;
+            if (!resolved.empty() && resolved == s_loaded_net)
+                printf("info string EvalFile: %s already loaded\n", resolved.c_str());
+            else if (resolved.empty())
                 printf("info string EvalFile: '%s' not found (kept current net)\n", val);
             else if (nn_reload_big(resolved.c_str()))
             {
+                s_loaded_net = resolved;
                 // Net swapped: EVERY cached eval derived from the old net is stale
                 // (same family as the finny g_net_gen bug, 2026-07-14). The eval
                 // cache has no generation tag, and the TT carries old-net static

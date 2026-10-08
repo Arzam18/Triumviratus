@@ -67,6 +67,28 @@ inline void release() {
     v = View{};
 }
 
+// Apre in sola lettura un'area gia' esistente (prima come large pages, poi normale) e controlla la testata.
+// 1 = aperta e pronta; 0 = non esiste; -1 = esiste ma non e' (ancora) pronta o non corrisponde.
+// Si puo' chiamare anche senza il mutex: chi crea scrive `ready` per ultimo, dopo la barriera.
+inline int open_ready(const char* name, std::uint64_t hash, std::size_t size, int node, View& v, const void*& result,
+                      std::string& status) {
+    if ((v.map = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) == nullptr)
+        return 0;
+    v.base = MapViewOfFile(v.map, FILE_MAP_READ | FILE_MAP_LARGE_PAGES, 0, 0, 0);
+    if (!v.base) v.base = MapViewOfFile(v.map, FILE_MAP_READ, 0, 0, 0);
+    const Header* h = static_cast<const Header*>(v.base);
+    if (h && h->magic == Magic && h->hash == hash && h->size == size && h->ready == 1) {
+        result = static_cast<const char*>(v.base) + HeaderBytes;
+        status = std::string("shared (opened") + (h->largePages ? ", large pages" : "") + ", node "
+               + std::to_string(node) + ")";
+        return 1;
+    }
+    if (v.base) UnmapViewOfFile(v.base);
+    CloseHandle(v.map);
+    v = View{};
+    return -1;
+}
+
 // Ritorna un puntatore all'oggetto condiviso (sola lettura per chi lo apre, scritto una volta da chi lo crea),
 // oppure nullptr: allora il chiamante tiene la sua copia locale. `status` descrive l'esito per l'info string.
 inline const void* attach(const void* src, std::size_t size, std::uint64_t hash, std::string& status) {
@@ -79,29 +101,34 @@ inline const void* attach(const void* src, std::size_t size, std::uint64_t hash,
 
     HANDLE mtx = CreateMutexA(nullptr, FALSE, mtxName.c_str());
     if (!mtx) { status = "local (mutex)"; return nullptr; }
-    const DWORD w = WaitForSingleObject(mtx, 120000);
-    if (w != WAIT_OBJECT_0 && w != WAIT_ABANDONED) { CloseHandle(mtx); status = "local (mutex timeout)"; return nullptr; }
 
     const std::size_t total = HeaderBytes + size;
     View v;
     const void* result = nullptr;
 
-    // 1) L'area esiste gia': la apre in sola lettura (prima come large pages, poi normale) e controlla la testata.
-    if ((v.map = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) != nullptr) {
-        v.base = MapViewOfFile(v.map, FILE_MAP_READ | FILE_MAP_LARGE_PAGES, 0, 0, 0);
-        if (!v.base) v.base = MapViewOfFile(v.map, FILE_MAP_READ, 0, 0, 0);
-        const Header* h = static_cast<const Header*>(v.base);
-        if (h && h->magic == Magic && h->hash == hash && h->size == size && h->ready == 1) {
-            result = static_cast<const char*>(v.base) + HeaderBytes;
-            status = std::string("shared (opened") + (h->largePages ? ", large pages" : "") + ", node "
-                   + std::to_string(node) + ")";
-        } else {
-            if (v.base) UnmapViewOfFile(v.base);
-            CloseHandle(v.map);
-            v = View{};
-            status = "local (shared area not ready)";
+    // Attesa del mutex senza arrendersi (08/10/2026). Prima, dopo 120 s, il processo teneva la sua copia privata.
+    // Chi crea l'area tiene il mutex anche mentre il sistema cerca le large pages, e su un nodo con la memoria
+    // frammentata da ore di match questo puo' durare minuti: nell'SPRT del 08/10 (6+0.06, 140 motori) 9 motori
+    // sono rimasti con una copia privata (402 MB invece di 175), tutti avviati nello stesso secondo, e il socket 1
+    // ha dato -20,8 +- 3,6 Elo contro -0,1 +- 3,2 del socket 0 con la stessa rete, costante dall'inizio alla fine.
+    // Ora si aspetta a passi di 1 s e a ogni passo si prova ad aprire l'area gia' pronta senza mutex; la copia
+    // privata resta solo dopo 15 minuti.
+    DWORD w = WAIT_TIMEOUT;
+    for (int s = 0; s < 900 && w == WAIT_TIMEOUT; ++s) {
+        w = WaitForSingleObject(mtx, 1000);
+        if (w == WAIT_TIMEOUT && open_ready(name, hash, size, node, v, result, status) == 1) {
+            CloseHandle(mtx);
+            current() = v;
+            return result;
         }
-    } else {
+    }
+    if (w != WAIT_OBJECT_0 && w != WAIT_ABANDONED) { CloseHandle(mtx); status = "local (mutex timeout)"; return nullptr; }
+
+    // 1) L'area esiste gia': la apre in sola lettura.
+    const int op = open_ready(name, hash, size, node, v, result, status);
+    if (op == -1) {
+        status = "local (shared area not ready)";
+    } else if (op == 0) {
         // 2) Non esiste: la crea, prima con large pages (serve SeLockMemoryPrivilege), poi con pagine normali.
         DWORD lpErr = 0;   // perche' le large pages non sono riuscite (0 = privilegio non ottenuto)
         bool large = Triumviratus::windows_try_with_large_page_priviliges(

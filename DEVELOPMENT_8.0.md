@@ -1107,6 +1107,38 @@ code with the identical tree (−0.40% and −0.69% measured again on the integr
 the development source on 7 October, with the stack check kept as a build switch, and it is in the 7 October
 pre-release.
 
+## 29. Fine-tuning the network, a measurement artefact, and LDSE at a long time control (7–8 October 2026)
+
+**Fine-tuning.** Three attempts were made to add strength to Consilium without a new training run, on rented GPUs.
+(1) Each expert trained alone on the positions of its own material band, the other experts frozen, 8 epochs at a
+peak learning rate well below the end of the original schedule: +0.7 ± 6.1 Elo over 3,302 games at 15+0.15.
+(2) The whole network, 15 epochs on new positions of the same family (relabelled Leela data, Fischer random data
+included): the mean of the last two epochs gave −0.1 ± 3.2 over 13,807 games at 6+0.06. Its evaluations differ from
+Consilium's by 1% in scale, with a correlation of 0.9994 on 3,007 positions from real games: more epochs on data of
+the same family move a converged network very little. (3) A small extra input block on the two experts with many
+pieces, outposts (a knight or bishop on the fourth to sixth rank, supported by a pawn and out of reach of enemy
+pawns, 512 inputs), trained alone with the rest frozen. The training loss fell by 0.25% in two epochs and then stayed
+flat; in play the block cost more than it gave, −6.4 ± 3.9 over 9,392 games at 6+0.06. None of the three was kept.
+The engine side of the extra block (an optional input segment, switched on when the network file contains it) stays
+outside the published source.
+
+**A measurement artefact.** In the second test the two sockets of the test machine disagreed by 20 Elo with the
+same pair of networks (−0.1 ± 3.2 and −20.8 ± 3.6), and the gap was constant from the first games to the last. The
+cause was in the test, and partly in the engine. The match program sends every option again after each `ucinewgame`,
+and the engine reloaded the network file each time it received `EvalFile`, also when the file was the one already
+loaded: about 0.6 s and 245 MB of large pages allocated and freed before every game, on one side only, since the
+other side used the default network. On the socket with less memory the reloading side searched 0.22 plies less on
+average than its opponent (0.02 on the other socket). The same happened to `Hash`: the transposition table was freed
+and allocated again before every game. Both handlers now do nothing when the value is the one in use (the hash table
+is still cleared by `ucinewgame`). The engine also no longer gives up on the shared copy of the network after two
+minutes of waiting for another process that is creating it; it waits and checks once per second whether the copy is
+ready. With the fix every engine process in a 140-process match keeps exactly one load and the same memory footprint,
+and the two sides search to the same depth on both sockets. Earlier network tests at 10+0.1 show a small version of
+the same asymmetry (0.03 plies); tests of search options, which use the same network on both sides, are unaffected.
+
+**LDSE at a long time control.** The hash-move extension at low depth (section 21) was adopted at 10+0.1. Switching
+it off at 40+0.4 gave −1.15 ± 3.45 over 9,348 games: it stays on.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -1151,3 +1183,4 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Hash cutoff damping** at 20+0.2 (three tests together: +2.2 ± 3.2 over 11,774) | 27 | 20+0.2 UHO | 4,818 | **+2.0 ± 5.0** | **adopted** |
 | Corrections learned in exact PV nodes in either direction | 27 | 8+0.08 UHO | 3,258 | −2.8 ± 6.6 | off |
 | Lower cap on the longest thinks (time manager) | 27 | 40+0.4 UHO | 308 | −27.1 ± 17.0 | off |
+| LDSE switched off, long time control | 29 | 40+0.4 UHO | 9,348 | −1.15 ± 3.45 | LDSE kept |
