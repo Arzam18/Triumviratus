@@ -74,7 +74,7 @@ eight more than three days earlier, and within two positions of Stockfish 19.
 
 ## Mark Tang — 8.0 prerelease
 
-Tests run by **Mark Tang** on the 8.0 prerelease build of 5 October 2026.
+Tests run by **Mark Tang** on the 8.0 prerelease builds of 5 and 8 October 2026.
 
 ### Tactics: the IQ4 suite
 
@@ -89,10 +89,14 @@ Tests run by **Mark Tang** on the 8.0 prerelease build of 5 October 2026.
 <sub>1 second per position · 1 thread · 64 MB hash · one engine process at a time. Triumviratus
 had the highest score among the engines tested.</sub>
 
+A second run on the build of 8 October solved **143 / 183** (78.1%).
+
 ### Match against Stockfish dev
 
 | Date | Opponent | Games | Result | Score | TC |
 |---|---|---:|---:|---:|---|
 | 2026-10-05 | Stockfish (development version) | 30 | +3 =17 −10 | 38.3% | 2 min + 1 s |
+| 2026-10-08 | Stockfish (development version) | 30 | +5 =15 −10 | 41.7% | 5 min + 5 s |
 
-<sub>About −83 Elo; with 30 games the 95% interval runs from about −170 to −5.</sub>
+<sub>About −83 Elo for the first match (95% interval about −170 to −5) and −58 for the second, on the build of
+8 October (about −152 to +28). With 30 games each, both intervals are wide.</sub>

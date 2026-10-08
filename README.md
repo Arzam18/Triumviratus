@@ -78,9 +78,12 @@ first version to support **Chess960**.
 | Stockfish 18 | 20+0.2 | 600 | **+24.9 ± 13.7** |
 | Reckless 0.10.0-dev | 40+0.4 | 526 | **+68 ± 14** |
 
-**Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
-the best Triumviratus so far; on Mark Tang's IQ4 suite the prerelease solves **145 of 183**, the highest among the
-engines tested.
+**Outside tests** (summary in [`tests/`](tests/), games and crosstables in
+**[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)**): in Maurizio Platino's match against
+Stormphrax 8.0.0 the 4 October prerelease scores **+94 ± 16** Elo (300 games, 1 min + 1 s, 1 thread), and on his
+ENET 2026 suite it solves **89 of 110**, the best Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
+**145 of 183**, the highest among the engines tested (143 with the build of 8 October); in his matches against the
+development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 5 min + 5 s (30 games each).
 
 Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)**. `source/` holds the 8.0
 development code; the 7.0 release is the tag `v7.0`.
