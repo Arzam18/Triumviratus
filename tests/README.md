@@ -33,6 +33,7 @@ before the release.
 | Date | Opponent | Triumviratus build | Games | +W =D −L | Score | Elo (Triumviratus) |
 |---|---|---|---:|---|---:|---:|
 | 2026-10-05 | Stormphrax 8.0.0 | 8.0 prerelease (2026-10-04) | 300 | +149 =81 −70 | **63.2%** | **+94 ± 16** |
+| 2026-10-07 | Reckless 0.10.0-dev | 8.0 prerelease (2026-10-04) | 300 | +132 =58 −110 | **53.7%** | **+25.5 ± 14.6** |
 
 <sub>Same machine, GUI, hash, time control and openings as the 7.0 matches above, but 1 thread per engine and
 ponder off. ± is the 95% interval on the 150 opening pairs (pentanomial). The 4 October prerelease is the first
