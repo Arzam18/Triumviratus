@@ -320,6 +320,14 @@ static void deepen(ThreadData &td) {
       td.root[0].lower = td.root[0].upper = false;
     }
 
+    // V0 (08/10/2026): a ricerca fermata a meta' iterazione le linee sono state riordinate con i risultati parziali
+    // (solo mosse cercate per intero: root_record non gira dopo uno stop), ma la linea si stampava solo a iterazione
+    // finita. La bestmove poteva allora non essere la prima mossa dell'ultima pv stampata (fastchess: "Bestmove
+    // does not match beginning of last PV", ~1 volta ogni 3 partite). Si ristampa la linea definitiva, dopo il
+    // recupero del matto e della linea perduta.
+    if (main && stopped && td.completed_depth > 0 && lines == 1)
+      report_lines(td, td.root_depth);
+
     if (g_limits.mate && !stopped && val_mating(td.root[0].score) &&
         mate_value - std::abs(td.root[0].score) <= 2 * g_limits.mate)
       stop_threads.store(true, std::memory_order_relaxed);

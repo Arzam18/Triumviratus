@@ -553,9 +553,13 @@ namespace {
 
 // Stato per thread della rete (07/10/2026, scacchiera unica v2): la catena degli accumulatori, con la pila delle
 // dirty che scrive la make del motore, e la finny table. Nessuna scacchiera: la posizione e' quella del motore.
+// V3 (08/10/2026, velocita', albero identico): pila degli accumulatori e finny table su large pages, come la TT e i
+// pesi. Prima erano su std::make_unique, cioe' su pagine da 4 KB: la finny table (una riga per casa del re
+// e per esperto) si legge a ogni refresh in punti sparsi, e il profilo del 05/10 dava 8,6% dei cicli a
+// update_accumulator_refresh_cache. Senza il privilegio l'allocazione ripiega su pagine normali.
 struct SfPos {
-    std::unique_ptr<AccumulatorStack>  accStack;
-    std::unique_ptr<AccumulatorCaches> caches;
+    LargePagePtr<AccumulatorStack>  accStack;
+    LargePagePtr<AccumulatorCaches> caches;
 
     int    opt[2] = {0, 0};   // OptPerThread: optimism di QUESTO thread (per lato)
 
@@ -564,9 +568,9 @@ struct SfPos {
     NnLast last;  // termini dell'ultima nn_scale di QUESTO thread (ex thread_local)
 
     SfPos() {
-        accStack = std::make_unique<AccumulatorStack>();
+        accStack = make_unique_large_page<AccumulatorStack>();
         accStack->reset();
-        caches   = std::make_unique<AccumulatorCaches>(NET_REF);
+        caches   = make_unique_large_page<AccumulatorCaches>(NET_REF);
         netGen   = g_net_gen;
     }
 };
@@ -575,7 +579,7 @@ struct SfPos {
 // built. Called at root set (never mid-search: EvalFile reload stops search first).
 inline void ensure_caches_fresh(SfPos* p) {
     if (p->netGen != g_net_gen) {
-        p->caches = std::make_unique<AccumulatorCaches>(NET_REF);
+        p->caches = make_unique_large_page<AccumulatorCaches>(NET_REF);
         p->netGen = g_net_gen;
     }
 }

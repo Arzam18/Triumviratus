@@ -1139,6 +1139,50 @@ the same asymmetry (0.03 plies); tests of search options, which use the same net
 **LDSE at a long time control.** The hash-move extension at low depth (section 21) was adopted at 10+0.1. Switching
 it off at 40+0.4 gave −1.15 ± 3.45 over 9,348 games: it stays on.
 
+## 30. Search state on large pages, and the final line after a stop (8 October 2026)
+
+**Where the memory lives.** Stockfish 19 allocates the whole state of a search thread on large pages (2 MB): the
+worker object with its accumulator stack and accumulator refresh cache, and the shared history tables. Triumviratus
+used large pages only for the transposition table and the network weights. The rest sat on 4 KB pages: the shared
+continuation, pawn and correction tables (about 21 MB with one thread), the per-thread data (evaluation cache,
+continuation corrections, quiet histories, about 3 MB per thread), and the network's accumulator stack and refresh
+cache. These tables are read at scattered addresses in every node. On 4 KB pages they span about 6,000 pages, against
+about 1,500 entries in the second-level TLB of the test machine's Xeon Gold 6138; on 2 MB pages they span about a
+dozen. The profile of 5 October already attributed 2.9% of the cycles to a single prefetch instruction and 2.0% to
+four loads of correction entries, which are costs of memory access.
+
+**Changes.** Four changes, all with the identical tree (bench 430151, the same node counts on 30 middlegame positions
+at depth 14 and 64 endgame positions at depth 16, perft on the standard and Chess960 suites without errors):
+
+- V1: the shared tables and the per-thread data on large pages, through the allocator already used for the
+  transposition table (a minimal standard allocator for the vector of thread data).
+- V3: the accumulator stack and the refresh cache on large pages.
+- V2: when the quiet moves are fully sorted above the good-quiet threshold (depth 5 and above with the current
+  parameters), the good quiets form a prefix of the list. The boundary is found once, and the two quiet stages become
+  two ranges instead of two scans with a comparison per move. The order of the moves is unchanged; a build switch
+  checks the boundary in every node.
+- V0: when the search stops in the middle of an iteration, the root moves searched in full are re-sorted, and the
+  best move can change, but the line was printed only at the end of a completed iteration. The match program then
+  reported that the best move did not match the start of the last printed line, about once every three games. The
+  move choice was already correct; the engine now prints the final line after a stop. In 40 games the warning appeared
+  0 times, against 24 for the previous code.
+
+Without the privilege to lock memory, every allocation falls back to normal pages, as before.
+
+**Measurement.** Hardware counters (xperf), 30 middlegame positions, profile-guided release builds with the same
+compiler, six rounds, per node against the previous source:
+
+| build | instructions | cycles | IPC |
+|---|---:|---:|---:|
+| V1 + V3 (memory only) | +0.34% | −0.91% | 1.35 → 1.37 |
+| V2 (quiet ranges) | −0.15% | −0.55% | 1.35 → 1.36 |
+| all four | −0.06% | **−1.56%** | 1.35 → 1.37 |
+
+The memory changes show the expected signature: the same instructions in fewer cycles. The gain is smaller than the
+1–4% estimated from the page counts. One caution for anyone repeating the measurement: with V0, `go nodes` prints the
+full node count in its last line, while earlier builds print the count of the last completed iteration, so per-node
+figures from the last `info` line must be corrected by the ratio of the reported counts (1.357 here).
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on

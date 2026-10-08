@@ -175,9 +175,36 @@ struct ThreadData {
     EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
 };
 
+// V1 (08/10/2026, velocita', albero identico): i ThreadData su large pages. Ognuno e' ~3 MB letti a caso a ogni
+// nodo (cache delle valutazioni 1 MB, correzioni di continuazione 1,4 MB, storie delle quiete): su pagine da 4 KB
+// ~750 pagine per thread, su pagine da 2 MB 2. Senza il privilegio l'allocazione ripiega su pagine normali.
+namespace Triumviratus {
+void* aligned_large_pages_alloc(std::size_t size);
+void  aligned_large_pages_free(void* mem);
+}
+template <class T>
+struct LargePageAllocator {
+    using value_type = T;
+    LargePageAllocator() = default;
+    template <class U>
+    LargePageAllocator(const LargePageAllocator<U>&) {}
+    T* allocate(std::size_t n) {
+        void* p = Triumviratus::aligned_large_pages_alloc(n * sizeof(T));
+        if (!p)
+            throw std::bad_alloc();
+        return static_cast<T*>(p);
+    }
+    void deallocate(T* p, std::size_t) { Triumviratus::aligned_large_pages_free(p); }
+    template <class U>
+    bool operator==(const LargePageAllocator<U>&) const { return true; }
+    template <class U>
+    bool operator!=(const LargePageAllocator<U>&) const { return false; }
+};
+using ThreadDataVec = std::vector<ThreadData, LargePageAllocator<ThreadData>>;
+
 // Global thread management
 extern std::vector<std::thread> search_threads;
-extern std::vector<ThreadData> thread_data;
+extern ThreadDataVec thread_data;
 extern std::atomic<bool> stop_threads;
 extern int num_threads;
 
