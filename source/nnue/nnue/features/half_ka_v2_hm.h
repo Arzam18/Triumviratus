@@ -24,6 +24,7 @@
 #include "../../misc.h"
 #include "../../types.h"
 #include "../nnue_common.h"
+#include "feat_perm.h"
 
 namespace Triumviratus::Eval::NNUE::Features {
 
@@ -48,13 +49,13 @@ class HalfKAv2_hm {
         PS_NB       = 11 * SQUARE_NB
     };
 
-    static constexpr IndexType PieceSquareIndex[COLOR_NB][PIECE_NB] = {
-      // Convention: W - us, B - them
-      // Viewed from other side, W and B are reversed
-      {PS_NONE, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING, PS_NONE,
-       PS_NONE, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING, PS_NONE},
-      {PS_NONE, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING, PS_NONE,
-       PS_NONE, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING, PS_NONE}};
+    // Blocco del pezzo per prospettiva, indicizzato col codice del MOTORE (0..11 = P N B R Q K p n b r q k).
+    // Convenzione: W = nostro, B = suo; dall'altra prospettiva si scambiano.
+    static constexpr IndexType PieceSquareIndex[COLOR_NB][12] = {
+      {PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING,
+       PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING},
+      {PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING,
+       PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING}};
 
    public:
     // Triumviratus 28/09/2026: esperti per fase (TRIUMV_PSQ_PHASES > 1). Ogni fascia di materiale ha il suo blocco
@@ -79,14 +80,7 @@ class HalfKAv2_hm {
     static constexpr int phase_of_count(int pieceCount) {
         return Phases == 1 ? 0 : PhaseOfPieceCount[pieceCount];
     }
-    static int phase_of(const DirtyPiece& dp) {
-#if TRIUMV_PSQ_PHASES > 1
-        return dp.psqPhase;
-#else
-        (void) dp;
-        return 0;
-#endif
-    }
+    static int phase_of(const DirtyPiece& dp) { return Phases == 1 ? 0 : dp.phase; }
 
 #define B(v) (v * PS_NB)
     // clang-format off
@@ -121,36 +115,42 @@ class HalfKAv2_hm {
     using IndexList                                = ValueList<IndexType, MaxActiveDimensions>;
     using DiffType                                 = DirtyPiece;
 
-#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
-    // (Con le fasce gli indici superano 16 bit: il percorso vettoriale ICL e' spento e si usa make_index.)
-    // Compute all changed feature indices and write them to the given lists
-    static void write_indices(const std::array<Piece, SQUARE_NB>& oldPieces,
-                              const std::array<Piece, SQUARE_NB>& newPieces,
-                              Bitboard                            removedBB,
-                              Bitboard                            addedBB,
-                              Color                               perspective,
-                              Square                              ksq,
-                              IndexList&                          removed,
-                              IndexList&                          added);
-#endif
-
-    // Index of a feature for a given king position and another piece on some square
-
-    // phase = fascia di materiale (0 se TRIUMV_PSQ_PHASES == 1)
-    static IndexType make_index(Color perspective, Square s, Piece pc, Square ksq, int phase = 0);
+    // Indice della feature (pezzo pc su s, nostro re su ksq), con case e codici del MOTORE (07/10/2026, scacchiera
+    // unica v2). La rete numera a1 = 0: la sua casa e' la nostra ^ 56. Riflettere una casa cambia solo la traversa,
+    // e OrientTBL e KingBuckets dipendono dalla sola colonna (OrientTBL) o sono indicizzati con la riflessione del
+    // colore (KingBuckets[ksq ^ flip]): basta quindi che la riflessione del colore sia quella complementare, 56 per il
+    // bianco e 0 per il nero, e l'indice e' identico a quello calcolato nella numerazione della rete.
+    // phase = fascia di materiale (0 se TRIUMV_PSQ_PHASES == 1).
+    static IndexType make_index(Color perspective, int s, int pc, int ksq, int phase = 0) {
+        const IndexType flip = 56 * (1 - int(perspective));
+        // `psq_row` e' l'identita' (permutazione per localita' provata e tolta, vedi feat_perm.h).
+        return psq_row((IndexType(s) ^ OrientTBL[ksq] ^ flip) + PieceSquareIndex[perspective][pc]
+                       + KingBuckets[ksq ^ flip])
+             + IndexType(phase) * BaseDimensions;
+    }
 
     // Get a list of indices for recently changed features. La fascia e' quella dello stato di arrivo; dentro una
     // catena incrementale e' costante (un cambio di fascia forza il refresh, vedi requires_refresh).
     static void append_changed_indices(Color            perspective,
-                                       Square           ksq,
+                                       int              ksq,
                                        const DiffType&  diff,
                                        IndexList&       removed,
                                        IndexList&       added,
-                                       int              phase = 0);
+                                       int              phase = 0) {
+        removed.push_back(make_index(perspective, diff.from, diff.pc, ksq, phase));
+        if (diff.to != NN_SQ_NONE)
+            added.push_back(make_index(perspective, diff.to, diff.pc, ksq, phase));
+        if (diff.remove_sq != NN_SQ_NONE)
+            removed.push_back(make_index(perspective, diff.remove_sq, diff.remove_pc, ksq, phase));
+        if (diff.add_sq != NN_SQ_NONE)
+            added.push_back(make_index(perspective, diff.add_sq, diff.add_pc, ksq, phase));
+    }
 
-    // Returns whether the change stored in this DirtyPiece means
-    // that a full accumulator refresh is required.
-    static bool requires_refresh(const DiffType& diff, Color perspective);
+    // Mossa del nostro re o cambio di fascia (una cattura che attraversa una soglia cambia TUTTE le righe HalfKA
+    // attive, per entrambe le prospettive): l'accumulatore va ricostruito.
+    static bool requires_refresh(const DiffType& diff, Color perspective) {
+        return (Phases > 1 && diff.phaseChanged) || diff.pc == NN_KING + NN_BLACK * int(perspective);
+    }
 };
 
 }  // namespace Triumviratus::Eval::NNUE::Features

@@ -227,6 +227,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   f[-1].reduction = 0;
   f->stat_score = 0;
   f[2].cutoff_cnt = 0;
+  f[1].nmp_fh = 0;
   n.signal = corr_signal(td, f);
   n.signal_x = corr_signal_extra(td);
   n.excluded = f->excluded;
@@ -374,8 +375,10 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
       stat_push(pawn_row(td)[pc_now][n.prev_to], diff * EvalDiffPawnMul, LIM_PAWN);
   }
 
-  // Valutazione molto sotto alpha: basta la quiescenza.
-  if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth)
+  // Valutazione molto sotto alpha: basta la quiescenza. RazorAllLin (07/10/2026): margine lineare e solo nei nodi
+  // all (il razoring e' un taglio per fallimento basso, come la mossa nulla lo e' per fallimento alto nei nodi cut).
+  if (RazorAllLin ? (n.all && !n.hunt_mate && n.eval < n.alpha - RazorAllLin * n.depth)
+                  : (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth))
     return quiesce(td, f, n.alpha, n.beta, false);
 
   // Valutazione abbastanza sopra beta: il nodo regge senza cercare.
@@ -400,7 +403,9 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
                            ? 1 : 0;
   // NmpOppCapture (nostra, 05/10/2026, alla Berserk): con una cattura facile per l'avversario la mossa nulla non si
   // prova (gliela regalerebbe, e il taglio direbbe poco).
-  if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
+  // NmpPriorFH (07/10/2026): ogni mossa nulla gia' riuscita fra i fratelli abbassa la soglia (f->nmp_fh, azzerato
+  // dal padre).
+  if (n.cut && f->static_eval + NmpPriorFH * f->nmp_fh >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
       !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 &&
       !(NmpOppCapture && opp_easy_capture_once(td, n))) {
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
@@ -411,13 +416,17 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     const int nv = -explore(td, f + 1, -n.beta, -n.beta + 1, n.depth - r, false, false);
     step_out_null(td, nu);
     if (nv >= n.beta && !val_won(nv)) {
-      if (td.nmp_min_ply || n.depth < e_nmp_verify_depth(td))
+      if (td.nmp_min_ply || n.depth < e_nmp_verify_depth(td)) {
+        f->nmp_fh += f->nmp_fh < 255;
         return nv;
+      }
       td.nmp_min_ply = td.ply + 3 * (n.depth - r) / 4;
       const int v = explore(td, f, n.beta - 1, n.beta, n.depth - r, false, false);
       td.nmp_min_ply = 0;
-      if (v >= n.beta)
+      if (v >= n.beta) {
+        f->nmp_fh += f->nmp_fh < 255;
         return nv;
+      }
     }
   }
 

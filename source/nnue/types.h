@@ -90,6 +90,8 @@
         #define pdep(b, m) _pdep_u64(b, m)
     #endif
 
+    #include "../nn_dirty.h"  // le dirty di ogni mossa, scritte dalla make del motore (case e codici del motore)
+
 namespace Triumviratus {
 
     #ifdef USE_POPCNT
@@ -299,75 +301,25 @@ enum Rank : u8 {
     #define TRIUMV_PSQ_PHASES 4
 #endif
 
-struct DirtyPiece {
-    Piece  pc;        // this is never allowed to be NO_PIECE
-    Square from, to;  // to should be SQ_NONE for promotions
+// Cio' che una mossa cambia per la rete (07/10/2026, scacchiera unica v2): i record li scrive la make del motore, nella
+// sua numerazione (case a8 = 0, codici 0..11; ../nn_dirty.h). Le feature li leggono senza conversioni: le loro tabelle
+// degli indici sono costruite per quella numerazione e danno gli stessi indici di prima.
+using DirtyPiece   = ::NnDirtyPiece;
+using DirtyThreats = ::NnDirtyThreats;
+using DirtyPawns   = ::NnDirtyPawns;
 
-    // if {add,remove}_sq is SQ_NONE, {add,remove}_pc is allowed to be
-    // uninitialized
-    // castling uses add_sq and remove_sq to remove and add the rook
-    Square remove_sq, add_sq;
-    Piece  remove_pc, add_pc;
-#if TRIUMV_PSQ_PHASES > 1
-    // Fascia di materiale della posizione DOPO la mossa, e se e' cambiata (una cattura che attraversa una soglia):
-    // il cambio forza il refresh dell'accumulatore come una mossa di re. Li scrive apply_move (nnue_bridge.cpp).
-    std::uint8_t psqPhase        = 0;
-    bool         psqPhaseChanged = false;
-#endif
-};
-
-// Keep track of what threats change on the board (used by NNUE)
+// Lettura di una tupla di minaccia (layout in ../nn_dirty.h).
 struct DirtyThreat {
-    static constexpr int PcSqOffset         = 0;
-    static constexpr int ThreatenedSqOffset = 8;
-    static constexpr int ThreatenedPcOffset = 16;
-    static constexpr int PcOffset           = 20;
-
-    DirtyThreat() { /* don't initialize data */ }
-    DirtyThreat(u32 raw) :
+    explicit DirtyThreat(u32 raw) :
         data(raw) {}
-    DirtyThreat(Piece pc, Piece threatened_pc, Square pc_sq, Square threatened_sq, bool add) {
-        data = (u32(add) << 31) | (pc << PcOffset) | (threatened_pc << ThreatenedPcOffset)
-             | (threatened_sq << ThreatenedSqOffset) | (pc_sq << PcSqOffset);
-    }
-
-    Piece  pc() const { return static_cast<Piece>(data >> PcOffset & 0xf); }
-    Piece  threatened_pc() const { return static_cast<Piece>(data >> ThreatenedPcOffset & 0xf); }
-    Square threatened_sq() const { return static_cast<Square>(data >> ThreatenedSqOffset & 0xff); }
-    Square pc_sq() const { return static_cast<Square>(data >> PcSqOffset & 0xff); }
-    bool   add() const { return data >> 31; }
-    u32    raw() const { return data; }
+    int  pc() const { return int(data >> NN_THR_PC & 0xf); }
+    int  threatened_pc() const { return int(data >> NN_THR_TPC & 0xf); }
+    int  threatened_sq() const { return int(data >> NN_THR_TSQ & 0xff); }
+    int  pc_sq() const { return int(data >> NN_THR_PCSQ & 0xff); }
+    bool add() const { return data >> 31; }
 
    private:
     u32 data;
-};
-
-// A piece can be involved in at most 8 outgoing attacks and 16 incoming attacks.
-// Moving a piece also can reveal at most 8 discovered attacks.
-// This implies that a non-castling move can change at most (8 + 16) * 3 + 8 = 80 features.
-// By similar logic, a castling move can change at most (5 + 1 + 3 + 9) * 2 = 36 features.
-// Thus, 80 should work as an upper bound. Finally, 16 entries are added to accommodate
-// unmasked vector stores near the end of the list.
-
-using DirtyThreatList = ValueList<DirtyThreat, 96>;
-
-struct DirtyThreats {
-    DirtyThreatList list;
-};
-
-// Keep track of what PAWNS a move adds/removes (used by the PawnPair NNUE
-// block). A single move removes at most 2 pawns (pawn-takes-pawn, or en
-// passant: mover leaves from-square + victim dies) and adds at most 1
-// (promotions add none). pawnsBefore = pawn bitboards BEFORE the move, so the
-// pair-diff can be expanded exactly against a consistent snapshot.
-struct DirtyPawns {
-    Square   removedSq[2];
-    Color    removedC[2];
-    Square   addedSq;   // SQ_NONE if none
-    Color    addedC;
-    int      nRemoved;
-    Bitboard pawnsBefore[COLOR_NB];
-    bool     any;  // false = the move touched no pawn -> zero work downstream
 };
 
     #define ENABLE_INCR_OPERATORS_ON(T) \

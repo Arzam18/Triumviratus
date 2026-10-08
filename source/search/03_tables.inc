@@ -62,20 +62,32 @@ static SharedStats g_stats;
 constexpr int PAWN_ROWS_PER_SLOT = 8192;
 constexpr int CORR_ROWS_PER_SLOT = 65536;
 
+// V1 (08/10/2026, velocita', albero identico): le tabelle condivise su large pages, come TT e rete. Con un thread sono
+// ~21 MB (follow 5,5 MB, pawn_rows 13,6 MB, corr 1 MB, corr_x 256 KB) letti a caso a ogni nodo (5 righe di
+// continuazione per quieta, 4 correzioni): su pagine da 4 KB sono ~5.200 pagine contro ~1.500 voci dello STLB di
+// questo Xeon, su pagine da 2 MB 11. Profilo del 05/10: td_prefetch_child 2,9% e corr_signal 2,0% dei cicli, entrambi
+// costi di memoria. Senza il privilegio SeLockMemoryPrivilege aligned_large_pages_alloc ripiega su VirtualAlloc
+// normale (Windows) o su allocazione allineata + madvise (Linux). La memoria torna azzerata, poi la riempie
+// shared_stats_reset come prima.
+template <typename T>
+static T *lp_alloc(size_t bytes) {
+  return static_cast<T *>(Triumviratus::aligned_large_pages_alloc(bytes));
+}
+
 static void shared_stats_alloc(int threads) {
   int slots = 1;
   while (slots < threads)
     slots <<= 1;
   if (slots == g_stats.slots)
     return;
-  delete[] g_stats.follow;
-  delete[] g_stats.pawn_rows;
-  delete[] g_stats.corr;
-  delete[] g_stats.corr_x;
-  g_stats.follow    = new PieceToRow[2][2][NO_PC + 1][64];
-  g_stats.pawn_rows = new PieceToRow[(size_t)PAWN_ROWS_PER_SLOT * slots];
-  g_stats.corr      = new CorrSlot[(size_t)CORR_ROWS_PER_SLOT * slots][2];
-  g_stats.corr_x    = new int16_t[(size_t)CORR_ROWS_PER_SLOT * slots][2];   // 256 KB per slot
+  Triumviratus::aligned_large_pages_free(g_stats.follow);
+  Triumviratus::aligned_large_pages_free(g_stats.pawn_rows);
+  Triumviratus::aligned_large_pages_free(g_stats.corr);
+  Triumviratus::aligned_large_pages_free(g_stats.corr_x);
+  g_stats.follow    = lp_alloc<PieceToRow[2][NO_PC + 1][64]>(sizeof(PieceToRow[2][2][NO_PC + 1][64]));
+  g_stats.pawn_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * PAWN_ROWS_PER_SLOT * slots);
+  g_stats.corr      = lp_alloc<CorrSlot[2]>(sizeof(CorrSlot[2]) * CORR_ROWS_PER_SLOT * slots);
+  g_stats.corr_x    = lp_alloc<int16_t[2]>(sizeof(int16_t[2]) * CORR_ROWS_PER_SLOT * slots);   // 256 KB per slot
   g_stats.pawn_mask = (U64)PAWN_ROWS_PER_SLOT * slots - 1;
   g_stats.corr_mask = (U64)CORR_ROWS_PER_SLOT * slots - 1;
   g_stats.slots     = slots;
@@ -127,6 +139,7 @@ struct UndoInfo {
 };
 
 static void init_cuckoo();
+static void nn_dirty_init();
 
 void init_threads(int thread_count) {
   if (thread_count < 1)
@@ -138,11 +151,13 @@ void init_threads(int thread_count) {
     if (td.nnpos) {
       nn_pos_destroy(td.nnpos);
       td.nnpos = nullptr;
+      td.nnstack = nullptr;
     }
 
   static bool cuckoo_ready = false;
   if (!cuckoo_ready) {
     init_cuckoo();
+    nn_dirty_init();   // raggi per le minacce scoperte delle dirty della rete (06_nndirty.inc)
     cuckoo_ready = true;
   }
 
@@ -153,6 +168,7 @@ void init_threads(int thread_count) {
     ThreadData &td = thread_data[i];
     td.thread_id = i;
     td.nnpos = nn_pos_create();
+    td.nnstack = nn_pos_stack(td.nnpos);
     td.nodes = td.tb_hits = 0;
     td.best_move = td.best_reply = td.depth = 0;
     td.completed_depth = 0;

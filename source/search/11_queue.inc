@@ -78,6 +78,9 @@ struct MoveQueue {
   // opp_att = tutte le case che attacca, opp_slider = quelle viste dai suoi pezzi lunghi. Valide se opp_ready.
   bool          opp_ready;
   U64           opp_att, opp_slider;
+  // V2 (08/10/2026): confine fra quiete buone e cattive gia' noto dopo l'ordinamento (quiet_split >= 0), oppure -1
+  // (si scorre la lista confrontando ogni punteggio, come prima).
+  int           quiet_split;
 };
 
 // SEE di una mossa quieta decisa senza scambio (06/10/2026, velocita', albero identico). Per una quieta semplice
@@ -131,8 +134,9 @@ static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int th
 // maschera -> popcount, niente coda. La chiave si scrive gia' nel primo passaggio, nello slot corrente della lista
 // alta, e conta solo se la mossa ci entra: il secondo ciclo su hi[] e' sparito. Stesse chiavi, stesse posizioni.
 // xperf 6 giri, build PGO avx512: cicli per nodo -0,70%. Le build avx2 tengono il ciclo scalare.
+// Restituisce quante mosse sono finite nella parte ordinata (punteggio >= limit).
 template <bool Wide>
-static void rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
+static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   using Key = std::conditional_t<Wide, long long, int>;
   alignas(64) Key key[256 + 16];   // 16 slot in piu' per il riempimento INT_MIN del percorso vettoriale
@@ -172,6 +176,7 @@ static void rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int 
   }
   for (int k = 0; k < nl; k++)
     out[nh + k] = {mv[lo[k]], sc[lo[k]]};
+  return nh;
 }
 
 static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_move, int depth, int kind) {
@@ -185,6 +190,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.n_tact = q.n_all = q.cur = 0;
   q.n_lose = q.cur_lose = 0;
   q.opp_ready = false;
+  q.quiet_split = -1;
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -316,8 +322,30 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   }
   q.n_all = q.n_tact + n;
   score_quiets(q, ml->moves, sc, n);
-  rank_into<false>(q.list + q.n_tact, ml->moves, sc, n, -QuietSortDepthMul * q.depth);
+  const int limit = -QuietSortDepthMul * q.depth;
+  const int nh = rank_into<false>(q.list + q.n_tact, ml->moves, sc, n, limit);
   q.cur = q.n_tact;
+  // V2 (08/10/2026, velocita', stesso ordine): le quiete buone (punteggio > GoodQuietLimit) escono in QS_QUIET_HIGH,
+  // le altre in QS_QUIET_LOW, ognuna nell'ordine della lista; prima ogni fase scorreva tutta la lista e confrontava
+  // ogni punteggio (le buone venivano riviste e scartate una seconda volta in QS_QUIET_LOW). Se limit <=
+  // GoodQuietLimit + 1 (profondita' >= 5 con i valori attuali), la parte non ordinata ha punteggi < limit, quindi
+  // tutti <= GoodQuietLimit, e la parte ordinata e' decrescente: le buone sono esattamente un prefisso della lista.
+  // Il confine si trova una volta (ciclo sui soli nh ordinati) e le due fasi diventano due intervalli contigui, con lo
+  // stesso ordine di uscita di prima. Altrimenti (profondita' basse) si resta allo scorrimento con i confronti.
+  if (limit <= GoodQuietLimit + 1) {
+    int b = 0;
+    while (b < nh && q.list[q.n_tact + b].score > GoodQuietLimit)
+      b++;
+    q.quiet_split = q.n_tact + b;
+#ifdef TRIUMV_VERIFY_QSPLIT   // verifica: prima del confine solo buone, dopo solo cattive (stesso ordine di prima)
+    for (int i = q.n_tact; i < q.n_all; i++)
+      if ((q.list[i].score > GoodQuietLimit) != (i < q.quiet_split)) {
+        printf("info string QSPLIT SBAGLIATO: indice %d punteggio %d confine %d\n", i, q.list[i].score, q.quiet_split);
+        fflush(stdout);
+        abort();
+      }
+#endif
+  }
 }
 
 __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
@@ -378,27 +406,35 @@ static int queue_next(MoveQueue &q) {
       break;
 
     case QS_QUIET_HIGH:
-      while (!q.quiets_off && q.cur < q.n_all) {
-        const ScoredMove sm = q.list[q.cur++];
-        if (sm.score > GoodQuietLimit)
-          return sm.move;
-      }
+      if (q.quiet_split >= 0) {   // V2: le buone sono il prefisso [n_tact, quiet_split)
+        if (!q.quiets_off && q.cur < q.quiet_split)
+          return q.list[q.cur++].move;
+      } else
+        while (!q.quiets_off && q.cur < q.n_all) {
+          const ScoredMove sm = q.list[q.cur++];
+          if (sm.score > GoodQuietLimit)
+            return sm.move;
+        }
       q.step = QS_TACT_LOSE;
       break;
 
     case QS_TACT_LOSE:
       if (q.cur_lose < q.n_lose)
         return q.list[q.losers[q.cur_lose++]].move;
-      q.cur = q.n_tact;
+      q.cur = q.quiet_split >= 0 ? q.quiet_split : q.n_tact;
       q.step = QS_QUIET_LOW;
       break;
 
     case QS_QUIET_LOW:
-      while (!q.quiets_off && q.cur < q.n_all) {
-        const ScoredMove sm = q.list[q.cur++];
-        if (sm.score <= GoodQuietLimit)
-          return sm.move;
-      }
+      if (q.quiet_split >= 0) {   // V2: le cattive sono il resto [quiet_split, n_all), gia' nell'ordine giusto
+        if (!q.quiets_off && q.cur < q.n_all)
+          return q.list[q.cur++].move;
+      } else
+        while (!q.quiets_off && q.cur < q.n_all) {
+          const ScoredMove sm = q.list[q.cur++];
+          if (sm.score <= GoodQuietLimit)
+            return sm.move;
+        }
       q.step = QS_DONE;
       break;
 

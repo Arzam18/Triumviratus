@@ -34,7 +34,7 @@
 #include "nnue_misc.h"
 
 namespace Triumviratus {
-class Position;
+class NnBoard;
 }
 
 namespace Triumviratus::Eval::NNUE {
@@ -66,13 +66,13 @@ class Network {
 
     usize get_content_hash() const;
 
-    NetworkOutput evaluate(const Position&    pos,
+    NetworkOutput evaluate(const NnBoard&     pos,
                            AccumulatorStack&  accumulatorStack,
                            AccumulatorCaches& cache) const;
 
 
     void verify(std::string evalfilePath, const std::function<void(std::string_view)>&) const;
-    NnueEvalTrace trace_evaluate(const Position&    pos,
+    NnueEvalTrace trace_evaluate(const NnBoard&     pos,
                                  AccumulatorStack&  accumulatorStack,
                                  AccumulatorCaches& cache) const;
 
@@ -85,7 +85,7 @@ class Network {
         int psqt;
         int positional;
     };
-    MensLayerTrace mens_trace(const Position&    pos,
+    MensLayerTrace mens_trace(const NnBoard&     pos,
                               AccumulatorStack&  accumulatorStack,
                               AccumulatorCaches& cache) const;
 

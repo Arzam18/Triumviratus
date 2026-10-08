@@ -23,10 +23,9 @@
   //   prof_fc0    = il solo AffineTransformSparseInput 1024->16
   //   prof_layers = tutto il resto (attivazioni + fc_1 + fc_2)
   extern unsigned long long prof_ft, prof_fc0, prof_layers;
-  // prof_catchup = `nn_catch_up`: replay pigro delle mosse sulla Position SPECCHIO di
-  // SF (piazzamento pezzi + generazione di DirtyThreats/DirtyPawns). E' dentro
-  // prof_eval ma FUORI da prof_ft/fc0/layers: serve a spiegare il divario fra
-  // eval (56,2%) e forward (47,1%) misurato il 3/08, ~9% del wall mai attribuito.
+  // prof_catchup = `nn_dirty_catch_up` (07/10/2026, scacchiera unica v2): minacce e pedoni calcolati in ritardo, prima
+  // della valutazione, disfacendo e rifacendo le mosse in sospeso su copie locali. E' dentro prof_eval ma FUORI da prof_ft/fc0/layers. Fino al
+  // 06/10/2026 misurava il replay delle mosse sulla scacchiera specchio della rete.
   extern unsigned long long prof_catchup;
   // Istogramma degli accessi alle righe di `threatWeights` (threat + PawnPair +
   // PassedPawns folded: 59808 + 4560 + 96 = 64464 righe). Serve a rispondere alla

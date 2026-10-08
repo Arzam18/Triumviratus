@@ -5,40 +5,35 @@
 // VALUTAZIONE
 // ============================================================================
 
-static inline int nn_build_piece_list(const U64 *bbs, int pieces[33], int squares[33]) {
-  int count = 0;
-  for (int pc = P; pc <= k; pc++) {
-    U64 bb = bbs[pc];
-    while (bb) {
-      const int sq = get_ls1b_index(bb);
-      pieces[count] = nn_piece_code[pc];
-      squares[count] = nnue_squares[sq];
-      count++;
-      pop_bit(bb, sq);
-    }
-  }
-  return count;
-}
-
-// Comando "eval": valutazione statica della scacchiera globale (lato al tratto) e uscita grezza della rete.
+// Comando "eval": valutazione statica della scacchiera globale (lato al tratto) e uscita grezza della rete. La rete
+// legge i nostri bitboard cosi' come sono (07/10/2026, scacchiera unica v2).
 int debug_eval_position() {
-  int pieces[33], squares[33];
-  const int count = nn_build_piece_list(bitboards, pieces, squares);
-  return nn_eval(side == white, pieces, squares, count, fifty);
+  return nn_eval(side == white, bitboards, occupancies, fifty);
 }
 int debug_eval_position_raw() {
-  int pieces[33], squares[33];
-  const int count = nn_build_piece_list(bitboards, pieces, squares);
   int raw = 0;
-  nn_eval(side == white, pieces, squares, count, fifty, &raw);
+  nn_eval(side == white, bitboards, occupancies, fifty, &raw);
   return raw;
 }
 
-// Riallinea la posizione incrementale della rete alla scacchiera del thread (a ogni iterazione).
+// Riparte dalla radice con la catena degli accumulatori della rete (a ogni iterazione). La rete legge la scacchiera
+// del thread direttamente: non c'e' una sua copia da riallineare, solo la pila delle dirty da azzerare.
 static inline void nn_root_sync(ThreadData &td) {
-  int pieces[33], squares[33];
-  const int count = nn_build_piece_list(td.bitboards, pieces, squares);
-  nn_pos_set(td.nnpos, td.side == white, pieces, squares, count, td.fifty);
+  nn_pos_set(td.nnpos);
+#ifdef TRIUMV_VERIFY_NNSYNC
+  td.nnstack->st[0].key = nn_piece_key(td);
+#endif
+}
+
+// La rete valuta la scacchiera del thread. Prima: minacce e pedoni che mancano (nn_dirty_catch_up) e, con
+// -DTRIUMV_VERIFY_NNSYNC, il controllo che la pila descriva questa scacchiera (06_nndirty.inc).
+static inline int td_nn_eval(ThreadData &td) {
+  {
+    PROF_GUARD(prof_catchup);
+    nn_dirty_catch_up(td);
+  }
+  nn_verify_sync(td);
+  return nn_pos_eval(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white, td.fifty);
 }
 
 // La rete smorza la valutazione col contatore delle 50 mosse: v * (199 - fifty) / 199. In TT e nella cache si
@@ -72,7 +67,7 @@ static inline int net_evaluate(ThreadData &td) {
   ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
   if (ce.key == td.hash_key)
     return eval_refade(ce.eval, td.fifty);
-  const int v = nn_pos_eval(td.nnpos, td.bitboards, td.occupancies);
+  const int v = td_nn_eval(td);
   ce.key = td.hash_key;
   ce.eval = eval_unfade(v, td.fifty);
   return v;

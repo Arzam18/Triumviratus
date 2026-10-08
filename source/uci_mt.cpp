@@ -479,15 +479,8 @@ void uci_loop()
             printf("nnueverify %s\n", on ? "on" : "off");
             fflush(stdout);
         }
-        // N-1: lazy mirror apply toggle (default ON). OFF = pre-N1 eager apply, for
-        // bisection. Search threads must be idle; safe to send before a search/bench.
-        else if (strncmp(input, "lazymirror ", 11) == 0)
-        {
-            int on = strncmp(input + 11, "on", 2) == 0;
-            nn_set_lazy_mirror(on);
-            printf("lazymirror %s\n", on ? "on" : "off");
-            fflush(stdout);
-        }
+        // (07/10/2026: tolto il comando `lazymirror`. Le dirty della rete le scrive la make, non c'e' piu' un
+        // recupero pigro da accendere o spegnere.)
 
         // "bench [depth]" — suite fissa di 8 posizioni a profondita' fissa
         // (default 13): node-count CANONICO (la node-identity in un comando) +
@@ -616,7 +609,7 @@ void uci_loop()
                 printf("  altri layer     : %5.1f%% / %5.1f%%\n",
                        100.0 * (double)prof_layers / (double)pw, 100.0 * (double)prof_layers / (double)nn);
                 printf("  (fc_0 sotto il 5%% del wall => ft_optimize e' chiuso)\n");
-                // Il divario fra `eval` e il forward: replay specchio + resto del bridge.
+                // Il divario fra `eval` e il forward: minacce e pedoni in ritardo + resto del bridge.
                 // --- Concentrazione degli accessi alle righe di threatWeights ---
                 // Decide se la PERMUTAZIONE PER LOCALITA' ha senso. Una riga e' 1024 byte
                 // (int8 x OutputDimensions) => 4 righe per pagina da 4 KB.
@@ -700,7 +693,7 @@ void uci_loop()
                                PROF_FEAT_N * 1024.0 / (1024 * 1024), PROF_FEAT_N / 4);
                     }
                 }
-                printf("  catch-up specchio: %5.1f%% del wall  (replay mosse + diff threat)\n",
+                printf("  dirty in ritardo : %5.1f%% del wall  (minacce e pedoni prima della valutazione)\n",
                        100.0 * (double)prof_catchup / (double)pw);
                 printf("  bridge/cache/scal: %5.1f%% del wall  (eval - forward - catch-up)\n",
                        100.0 * (double)(prof_eval - nn - prof_catchup) / (double)pw);
@@ -865,10 +858,17 @@ void uci_loop()
             // Reallocating the TT under a running search would crash it.
             stop_search_threads();
             wait_for_search_done();
-            mb = atoi(input + 26);
-            if (mb < 1) mb = 1;
-            if (mb > max_hash) mb = max_hash;
-            init_hash_table(mb);
+            int newMb = atoi(input + 26);
+            if (newMb < 1) newMb = 1;
+            if (newMb > max_hash) newMb = max_hash;
+            // 08/10/2026: stessa dimensione = nessuna riallocazione. fastchess rimanda Hash dopo OGNI ucinewgame: la
+            // TT veniva liberata e riallocata a ogni partita, e su un nodo con la memoria frammentata le large pages
+            // potevano mancare (ripiego su pagine normali a caso, motore per motore). La pulizia della TT resta a
+            // ucinewgame.
+            if (newMb != mb || !hash_table) {
+                mb = newMb;
+                init_hash_table(mb);
+            }
         }
 
         // UCI command: "setoption name LargePages value 0|1" — ri-alloca subito
@@ -896,10 +896,20 @@ void uci_loop()
             char* e = val + strlen(val);              // trim stray CR/space/newline
             while (e > val && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\n')) *--e = '\0';
             std::string resolved = resolve_net_path(val);
-            if (resolved.empty())
+            // 08/10/2026: la stessa rete gia' caricata non si ricarica. fastchess rimanda EvalFile dopo OGNI
+            // ucinewgame: il lato con la rete esterna la ricaricava a ogni partita (~0,6 s, 245 MB di large pages
+            // allocati e liberati, area condivisa staccata e riattaccata), l'altro lato mai. Nell'SPRT ft2avg del
+            // 08/10 (6+0.06) quel lato sul socket 1 cercava 0,22 ply meno dell'altro (sul socket 0 0,02) e il
+            // socket 1 ha dato -20,8 Elo contro -0,1 del socket 0 con la stessa rete. Un file cambiato sotto lo
+            // stesso percorso richiede un percorso diverso o un riavvio.
+            static std::string s_loaded_net;
+            if (!resolved.empty() && resolved == s_loaded_net)
+                printf("info string EvalFile: %s already loaded\n", resolved.c_str());
+            else if (resolved.empty())
                 printf("info string EvalFile: '%s' not found (kept current net)\n", val);
             else if (nn_reload_big(resolved.c_str()))
             {
+                s_loaded_net = resolved;
                 // Net swapped: EVERY cached eval derived from the old net is stale
                 // (same family as the finny g_net_gen bug, 2026-07-14). The eval
                 // cache has no generation tag, and the TT carries old-net static
@@ -1077,7 +1087,7 @@ void uci_loop()
         }
 
         // DIAGNOSTIC: "perft N" - movegen + make/unmake speed on the current
-        // position (no eval, no NNUE mirror). Prints Nodes + Time(ms).
+        // position (no eval, no NNUE). Prints Nodes + Time(ms).
 #ifndef TRIUMV_FROZEN
         // DIAGNOSTIC: "tdperft N" - perft sulla scacchiera per thread con verifica di chiavi, mailbox,
         // occupazioni e pseudo-legalita' a ogni nodo (search/15_tdperft.inc). Solo build di sviluppo.
@@ -1085,6 +1095,13 @@ void uci_loop()
         {
             extern void td_perft_driver(int depth);
             td_perft_driver(atoi(input + 8));
+        }
+        // DIAGNOSTIC: "nnperft N" - perft che valuta con la rete e confronta catena incrementale e refresh completo
+        // (search/16_tdperft.inc). Solo build di sviluppo.
+        else if (strncmp(input, "nnperft ", 8) == 0)
+        {
+            extern void td_nnperft_driver(int depth);
+            td_nnperft_driver(atoi(input + 8));
         }
 #endif
         else if (strncmp(input, "perft", 5) == 0)

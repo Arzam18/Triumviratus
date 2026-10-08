@@ -18,115 +18,23 @@
 
 //Definition of input features HalfKAv2_hm of NNUE evaluation function
 
+// 07/10/2026 (scacchiera unica v2): make_index, append_changed_indices e requires_refresh sono nell'header, inline,
+// nella numerazione del motore. Il percorso vettoriale ICL (write_indices, solo per TRIUMV_PSQ_PHASES == 1) e' stato
+// tolto: leggeva la mailbox in forma rete della finny table, che ora tiene i dodici bitboard per pezzo.
+// Il file resta per non toccare le liste di build e per il controllo qui sotto.
+
 #include "half_ka_v2_hm.h"
-
-#include "feat_perm.h"
-
-#include "../../types.h"
-#include "../nnue_common.h"
-
-#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
-    #include "../../bitboard.h"
-#endif
 
 namespace Triumviratus::Eval::NNUE::Features {
 
-#if defined(USE_AVX512ICL) && TRIUMV_PSQ_PHASES == 1
-void HalfKAv2_hm::write_indices(const std::array<Piece, SQUARE_NB>& oldPieces,
-                                const std::array<Piece, SQUARE_NB>& newPieces,
-                                Bitboard                            removedBB,
-                                Bitboard                            addedBB,
-                                Color                               perspective,
-                                Square                              ksq,
-                                IndexList&                          removed,
-                                IndexList&                          added) {
-
-    auto* write_removed = removed.make_space(popcount(removedBB));
-    auto* write_added   = added.make_space(popcount(addedBB));
-
-    const __m512i vecOldPieces = _mm512_loadu_si512(oldPieces.data());
-    const __m512i vecNewPieces = _mm512_loadu_si512(newPieces.data());
-
-    alignas(64) static constexpr u16 psiTable[COLOR_NB][16] = {
-      {PS_NONE, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING, PS_NONE,
-       PS_NONE, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING, PS_NONE},
-      {PS_NONE, PS_B_PAWN, PS_B_KNIGHT, PS_B_BISHOP, PS_B_ROOK, PS_B_QUEEN, PS_KING, PS_NONE,
-       PS_NONE, PS_W_PAWN, PS_W_KNIGHT, PS_W_BISHOP, PS_W_ROOK, PS_W_QUEEN, PS_KING, PS_NONE}};
-
-    const u16     flip   = 56 * perspective;
-    const __m512i orient = _mm512_set1_epi16((u16) OrientTBL[ksq] ^ flip);
-    const __m512i psi =
-      _mm512_castsi256_si512(_mm256_loadu_si256((const __m256i*) psiTable[perspective]));
-    const __m512i psi_plus_bucket =
-      _mm512_add_epi16(psi, _mm512_set1_epi16((u16) KingBuckets[int(ksq) ^ flip]));
-
-    __m512i removed_squares = _mm512_maskz_compress_epi8(removedBB, AllSquares);
-    __m512i added_squares   = _mm512_maskz_compress_epi8(addedBB, AllSquares);
-    __m512i removed_pieces  = _mm512_maskz_compress_epi8(removedBB, vecOldPieces);
-    __m512i added_pieces    = _mm512_maskz_compress_epi8(addedBB, vecNewPieces);
-
-    removed_squares = _mm512_cvtepi8_epi16(_mm512_castsi512_si256(removed_squares));
-    added_squares   = _mm512_cvtepi8_epi16(_mm512_castsi512_si256(added_squares));
-    removed_pieces  = _mm512_cvtepi8_epi16(_mm512_castsi512_si256(removed_pieces));
-    added_pieces    = _mm512_cvtepi8_epi16(_mm512_castsi512_si256(added_pieces));
-
-    const __m512i removed_indices =
-      _mm512_or_si512(_mm512_xor_si512(removed_squares, orient),
-                      _mm512_permutexvar_epi16(removed_pieces, psi_plus_bucket));
-    const __m512i added_indices =
-      _mm512_or_si512(_mm512_xor_si512(added_squares, orient),
-                      _mm512_permutexvar_epi16(added_pieces, psi_plus_bucket));
-
-    _mm512_storeu_si512(write_removed,
-                        _mm512_cvtepu16_epi32(_mm512_castsi512_si256(removed_indices)));
-    _mm512_storeu_si512(write_removed + 16,
-                        _mm512_cvtepu16_epi32(_mm512_extracti64x4_epi64(removed_indices, 1)));
-    _mm512_storeu_si512(write_added, _mm512_cvtepu16_epi32(_mm512_castsi512_si256(added_indices)));
-    _mm512_storeu_si512(write_added + 16,
-                        _mm512_cvtepu16_epi32(_mm512_extracti64x4_epi64(added_indices, 1)));
+// make_index usa OrientTBL con la casa del re nella NOSTRA numerazione, mentre la tabella e' scritta per quella della
+// rete (traversa riflessa): e' lecito solo se OrientTBL dipende dalla sola colonna.
+constexpr bool orient_by_file_only() {
+    for (int s = 0; s < SQUARE_NB; ++s)
+        if (HalfKAv2_hm::OrientTBL[s] != HalfKAv2_hm::OrientTBL[s ^ 56])
+            return false;
+    return true;
 }
-#endif
-
-// Index of a feature for a given king position and another piece on some square
-
-IndexType HalfKAv2_hm::make_index(Color perspective, Square s, Piece pc, Square ksq, int phase) {
-    const IndexType flip = 56 * perspective;
-    // Unico punto in cui nascono gli indici HalfKA del percorso scalare: refresh,
-    // incrementale, cache di refresh e hybrid passano tutti da qui. `psq_row`
-    // rimappa alla riga permutata per localita' (vedi feat_perm.h); e' l'identita'
-    // sul target ICL, dove `write_indices` produce gli indici in modo vettoriale.
-    // Con le fasce (TRIUMV_PSQ_PHASES > 1) il blocco della fascia sta a phase * BaseDimensions.
-    return psq_row((IndexType(s) ^ OrientTBL[ksq] ^ flip) + PieceSquareIndex[perspective][pc]
-                   + KingBuckets[int(ksq) ^ flip])
-         + IndexType(phase) * BaseDimensions;
-}
-
-// Get a list of indices for recently changed features
-
-void HalfKAv2_hm::append_changed_indices(Color           perspective,
-                                         Square          ksq,
-                                         const DiffType& diff,
-                                         IndexList&      removed,
-                                         IndexList&      added,
-                                         int             phase) {
-    removed.push_back(make_index(perspective, diff.from, diff.pc, ksq, phase));
-    if (diff.to != SQ_NONE)
-        added.push_back(make_index(perspective, diff.to, diff.pc, ksq, phase));
-
-    if (diff.remove_sq != SQ_NONE)
-        removed.push_back(make_index(perspective, diff.remove_sq, diff.remove_pc, ksq, phase));
-
-    if (diff.add_sq != SQ_NONE)
-        added.push_back(make_index(perspective, diff.add_sq, diff.add_pc, ksq, phase));
-}
-
-bool HalfKAv2_hm::requires_refresh(const DiffType& diff, Color perspective) {
-#if TRIUMV_PSQ_PHASES > 1
-    // un cambio di fascia cambia TUTTE le righe HalfKA attive: come una mossa di re, per entrambe le prospettive
-    if (diff.psqPhaseChanged)
-        return true;
-#endif
-    return diff.pc == make_piece(perspective, KING);
-}
+static_assert(orient_by_file_only(), "HalfKAv2_hm::OrientTBL deve dipendere solo dalla colonna");
 
 }  // namespace Triumviratus::Eval::NNUE::Features

@@ -10,12 +10,13 @@
 #include <array>
 
 #include "../../bitboard.h"
-#include "../../position.h"
+#include "../../nn_board.h"
 
 namespace Triumviratus::Eval::NNUE::Features {
 
 // File band per square: same or adjacent files (Stormphrax kPpMasks). File
-// distance is invariant under the orientation flips, so masks are on RAW squares.
+// distance is invariant under the orientation flips, so masks are on RAW squares
+// (e la colonna e' la stessa nella nostra numerazione, a8 = 0: la tabella non cambia).
 static constexpr auto PPBand = [] {
     std::array<Bitboard, SQUARE_NB> t{};
     for (int s = 0; s < SQUARE_NB; s++)
@@ -32,8 +33,8 @@ static constexpr auto PPBand = [] {
 }();
 
 // Full refresh: all unordered in-band pairs among the (up to 16) pawns.
-void PawnPair::append_active_indices(Color perspective, const Position& pos, IndexList& active) {
-    const Square ksq = pos.square<KING>(perspective);
+void PawnPair::append_active_indices(Color perspective, const NnBoard& pos, IndexList& active) {
+    const int ksq = pos.king(perspective);
 
     // Era un doppio ciclo O(n^2) su fino a 16 pedoni (120 iterazioni) con un test di
     // distanza-colonna e un branch per coppia. Il percorso INCREMENTALE della stessa classe
@@ -44,20 +45,20 @@ void PawnPair::append_active_indices(Color perspective, const Position& pos, Ind
     // niente maschere di confronto e niente rischio di doppioni.
     // `make_index` e' simmetrico (ordina i due pawn_id in hi/lo), quindi cambiare l'ordine di
     // enumerazione non cambia nessun indice: il refresh resta bit-identico.
-    const Bitboard whitePawns = pos.pieces(WHITE, PAWN);
-    const Bitboard allPawns   = whitePawns | pos.pieces(BLACK, PAWN);
+    const Bitboard whitePawns = pos.pawns(WHITE);
+    const Bitboard allPawns   = whitePawns | pos.pawns(BLACK);
 
     Bitboard bb = allPawns;
     while (bb)
     {
-        const Square s = pop_lsb(bb);
-        const Color  c = (whitePawns & square_bb(s)) ? WHITE : BLACK;
+        const int s = pop_lsb(bb);
+        const int c = (whitePawns >> s) & 1 ? WHITE : BLACK;
 
         Bitboard partners = bb & PPBand[s];
         while (partners)
         {
-            const Square p  = pop_lsb(partners);
-            const Color  pc = (whitePawns & square_bb(p)) ? WHITE : BLACK;
+            const int p  = pop_lsb(partners);
+            const int pc = (whitePawns >> p) & 1 ? WHITE : BLACK;
             active.push_back(feat_row(FoldOffset + make_index(perspective, ksq, s, c, p, pc)));
         }
     }
@@ -70,40 +71,40 @@ void PawnPair::append_active_indices(Color perspective, const Position& pos, Ind
 // between a removed and an added pawn never coexisted, and both expansions get
 // this right by construction (added not in BEFORE, removed not in AFTER).
 void PawnPair::append_changed_indices(Color           perspective,
-                                      Square          ksq,
+                                      int             ksq,
                                       const DiffType& diff,
                                       IndexList&      removed,
                                       IndexList&      added) {
     if (!diff.any)
         return;
 
-    const Bitboard beforeAll = diff.pawnsBefore[WHITE] | diff.pawnsBefore[BLACK];
+    const Bitboard beforeAll = diff.before[WHITE] | diff.before[BLACK];
 
     for (int i = 0; i < diff.nRemoved; i++)
     {
-        Bitboard partners = beforeAll & PPBand[diff.removedSq[i]] & ~square_bb(diff.removedSq[i]);
+        Bitboard partners = beforeAll & PPBand[diff.removedSq[i]] & ~(1ULL << diff.removedSq[i]);
         for (int j = 0; j < i; j++)
-            partners &= ~square_bb(diff.removedSq[j]);
+            partners &= ~(1ULL << diff.removedSq[j]);
         while (partners)
         {
-            Square p  = pop_lsb(partners);
-            Color  pc = (diff.pawnsBefore[WHITE] & square_bb(p)) ? WHITE : BLACK;
+            const int p  = pop_lsb(partners);
+            const int pc = (diff.before[WHITE] >> p) & 1 ? WHITE : BLACK;
             removed.push_back(feat_row(
               FoldOffset + make_index(perspective, ksq, diff.removedSq[i], diff.removedC[i], p, pc)));
         }
     }
 
-    if (diff.addedSq != SQ_NONE)
+    if (diff.addedSq != NN_SQ_NONE)
     {
-        Bitboard afterW = diff.pawnsBefore[WHITE], afterB = diff.pawnsBefore[BLACK];
+        Bitboard afterW = diff.before[WHITE], afterB = diff.before[BLACK];
         for (int i = 0; i < diff.nRemoved; i++)
-            (diff.removedC[i] == WHITE ? afterW : afterB) &= ~square_bb(diff.removedSq[i]);
+            (diff.removedC[i] == WHITE ? afterW : afterB) &= ~(1ULL << diff.removedSq[i]);
 
         Bitboard partners = (afterW | afterB) & PPBand[diff.addedSq];
         while (partners)
         {
-            Square p  = pop_lsb(partners);
-            Color  pc = (afterW & square_bb(p)) ? WHITE : BLACK;
+            const int p  = pop_lsb(partners);
+            const int pc = (afterW >> p) & 1 ? WHITE : BLACK;
             added.push_back(
               feat_row(FoldOffset + make_index(perspective, ksq, diff.addedSq, diff.addedC, p, pc)));
         }

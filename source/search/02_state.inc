@@ -2,7 +2,7 @@
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
 
 std::vector<std::thread> search_threads;
-std::vector<ThreadData>  thread_data;
+ThreadDataVec            thread_data;   // su large pages (V1, threads.h)
 std::atomic<bool>        stop_threads(false);
 std::mutex               output_mutex;
 int                      num_threads = 1;

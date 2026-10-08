@@ -1025,6 +1025,164 @@ direction: −2.8 ± 6.6 over 3,258 at 8+0.08, off. Three adopted options (quies
 fixes) became fixed code; in release builds the remaining tuning copies read outside the search are compile-time
 constants (bench unchanged by these, 309067 before the damping).
 
+## 28. One board for the search and the network (7 October 2026)
+
+**The starting point.** The network code came from Stockfish together with its own board: every thread kept a
+second position, a Stockfish `Position`, next to the search's board. Each move made by the search was translated
+into that second board (squares mirrored vertically, piece codes remapped), and from that copy the network derived
+what a move changes for its inputs: the piece that moves, the pawn features and the threat features. Since July the
+copy was lazy: a move was applied to it only when an evaluation actually needed it, so the many nodes that end
+before evaluating (hash cutoffs, nodes in check, pruned moves) never touched it. The aim, chosen by the author, was
+to remove the second board by changing the network side, so that the network reads the search's board directly and
+the inference code becomes our own.
+
+**Measuring.** Every version below keeps the tree identical (bench 430151 on AVX2, AVX-512 and release builds), and
+correctness was checked the same way each time: perft with the full accumulator compared against a fresh refresh at
+every node (126 standard positions at depth 4, all 960 Chess960 start positions at depth 3, 120 of them at depth 4,
+over 100 million evaluations each time), incremental against refresh in two-thread searches, UCI play identical to
+the reference, and static evaluations identical on 2,855 positions. Speed was measured with hardware counters on a
+quiet machine (PGO release builds, six alternating rounds on 30 middlegame and 30 endgame positions, AVX-512); the
+noise of this measurement is about ±0.3% in cycles.
+
+**First version: the copy removed, the translation kept.** The network read the search's board through a thin view,
+and before an evaluation the pending moves were replayed: the search's mailbox was walked back to the last computed
+accumulator and then forward, move by move, computing what each move changes. Correct everywhere, and slower:
++4.2% instructions and +1.0% cycles per node in the middlegame, +4.6% and +1.5% in endgames. The translation had
+only moved: the two boards number their squares in mirrored order, so every bitboard read now
+paid a byte swap, and every pending move was played twice.
+
+**Second version: one numbering, the changes written by the make.** The tables that turn a piece on a square into a
+feature index were rebuilt in the search's own numbering (the mirror is applied once, when the tables are built, so
+every feature index stays the same and the network file is unchanged), and the search's make writes what a move
+changes onto a per-thread stack, as Stockfish's `do_move` does. The old `Position` code and three debugging tools
+that depended on it were removed: 41 files, +1,239 / −3,289 lines. A build switch checks at every evaluation that
+the stack describes the search's board, and a deliberately broken make was caught at the first bench. Two variants:
+threats computed in every make (a), or computed only before an evaluation from a 64-byte copy of the board saved by
+the make (b).
+
+| per node, against the old code | middlegame instr. | middlegame cycles | endgame instr. | endgame cycles |
+|---|---:|---:|---:|---:|
+| first version | +4.19% | +1.04% | +4.64% | +1.47% |
+| second version (a) | +2.68% | +0.89% | +3.40% | +1.18% |
+| second version (b) | +2.71% | +1.22% | +3.19% | +1.31% |
+| (c): only the moved piece in the make | +0.60% | +0.59% | +1.13% | +0.52% |
+| (c) with a branch-free refresh | +1.21% | **−0.41%** | +1.66% | **−0.51%** |
+
+**Why "like Stockfish" was slower here.** Stockfish's make computes the threat changes on its only board, where that
+work replaces nothing. Here the search's make already existed and did its own work, so variant (a) added the threat
+computation to every move, including the moves whose nodes never evaluate, which the lazy copy had never paid for.
+Variant (b) evaluated lazily but paid for saving the board in every make and for reading pieces from bit planes.
+
+**Variant (c).** The make records only the moved piece (from, to, capture, promotion, castling, material band).
+Before an evaluation, the board before the first pending move is rebuilt from the search's current board by undoing
+the pending moves on local copies (XOR on the bitboards, a 256-byte copy of the mailbox), and the moves are then
+replayed forward computing pawns and threats with the same fast mailbox read as (a). In most nodes the parent was
+already evaluated, so a single move is pending. This brought the extra instructions from +2.7% down to +0.6–1.1%,
+but the cycles stayed +0.5–0.6% above the old code.
+
+**The branch mispredictions.** In every second version, mispredicted branches per node rose by 5–6% (about two per
+node), present in both (a) and (c), so not tied to where threats are computed. The cause was the comparison between
+an entry of the accumulator refresh cache and the current position, rewritten in the second version as twelve
+iterations, one per piece type, each with two loops whose trip count depends on the position and is almost always
+zero: 24 hard-to-predict branches on every refresh, and refreshes are frequent (every king move across a bucket and
+every change of material band). Replaced by a branch-free XOR and OR of the twelve bitboards that gives the changed
+squares at once, followed by two loops (squares to remove, squares to add) with the piece read from three bit planes,
+the mispredictions fell from +6.2% to +1.9% and the cycles went below the old code: **−0.41%** in the middlegame and
+**−0.51%** in endgames, with more instructions (+1.2–1.7%) executed at a higher rate (IPC 1.33 → 1.36). The order of
+the indices changes, but an accumulator is a sum of integers, so the result is identical in every bit.
+
+**A branch-free step that lost.** The undo and redo of the pending moves still branched on "is there a capture, a
+promotion, a castling rook". These were made unconditional: a table maps the "no square" value 64 to an empty
+bitboard, so the XOR always runs, and the local mailbox got a 65th cell that absorbs writes to "no square". All
+checks passed, instructions and mispredictions went down (+1.04% and +1.45% against the old code), and the cycles
+went up: +0.80% in the middlegame and 0.00% in endgames, about one point worse than the version above. At that point
+there is almost always one pending move of the usual kind, so those branches were well predicted and cost nothing;
+the replacement added table loads on the critical path and stores that the vector code reads back at once in 64-byte
+blocks. A branch costs only when it is mispredicted: the refresh comparison had 24 unpredictable branches, these had
+none. Reverted.
+
+**Result.** Variant (c) with the branch-free refresh comparison is the version kept: the network reads the search's
+board with no second copy and no translation, 2,000 fewer lines, and **0.4–0.7% fewer cycles per node** than the old
+code with the identical tree (−0.40% and −0.69% measured again on the integrated source). It replaced the old code in
+the development source on 7 October, with the stack check kept as a build switch, and it is in the 7 October
+pre-release.
+
+## 29. Fine-tuning the network, a measurement artefact, and LDSE at a long time control (7–8 October 2026)
+
+**Fine-tuning.** Three attempts were made to add strength to Consilium without a new training run, on rented GPUs.
+(1) Each expert trained alone on the positions of its own material band, the other experts frozen, 8 epochs at a
+peak learning rate well below the end of the original schedule: +0.7 ± 6.1 Elo over 3,302 games at 15+0.15.
+(2) The whole network, 15 epochs on new positions of the same family (relabelled Leela data, Fischer random data
+included): the mean of the last two epochs gave −0.1 ± 3.2 over 13,807 games at 6+0.06. Its evaluations differ from
+Consilium's by 1% in scale, with a correlation of 0.9994 on 3,007 positions from real games: more epochs on data of
+the same family move a converged network very little. (3) A small extra input block on the two experts with many
+pieces, outposts (a knight or bishop on the fourth to sixth rank, supported by a pawn and out of reach of enemy
+pawns, 512 inputs), trained alone with the rest frozen. The training loss fell by 0.25% in two epochs and then stayed
+flat; in play the block cost more than it gave, −6.4 ± 3.9 over 9,392 games at 6+0.06. None of the three was kept.
+The engine side of the extra block (an optional input segment, switched on when the network file contains it) stays
+outside the published source.
+
+**A measurement artefact.** In the second test the two sockets of the test machine disagreed by 20 Elo with the
+same pair of networks (−0.1 ± 3.2 and −20.8 ± 3.6), and the gap was constant from the first games to the last. The
+cause was in the test, and partly in the engine. The match program sends every option again after each `ucinewgame`,
+and the engine reloaded the network file each time it received `EvalFile`, also when the file was the one already
+loaded: about 0.6 s and 245 MB of large pages allocated and freed before every game, on one side only, since the
+other side used the default network. On the socket with less memory the reloading side searched 0.22 plies less on
+average than its opponent (0.02 on the other socket). The same happened to `Hash`: the transposition table was freed
+and allocated again before every game. Both handlers now do nothing when the value is the one in use (the hash table
+is still cleared by `ucinewgame`). The engine also no longer gives up on the shared copy of the network after two
+minutes of waiting for another process that is creating it; it waits and checks once per second whether the copy is
+ready. With the fix every engine process in a 140-process match keeps exactly one load and the same memory footprint,
+and the two sides search to the same depth on both sockets. Earlier network tests at 10+0.1 show a small version of
+the same asymmetry (0.03 plies); tests of search options, which use the same network on both sides, are unaffected.
+
+**LDSE at a long time control.** The hash-move extension at low depth (section 21) was adopted at 10+0.1. Switching
+it off at 40+0.4 gave −1.15 ± 3.45 over 9,348 games: it stays on.
+
+## 30. Search state on large pages, and the final line after a stop (8 October 2026)
+
+**Where the memory lives.** Stockfish 19 allocates the whole state of a search thread on large pages (2 MB): the
+worker object with its accumulator stack and accumulator refresh cache, and the shared history tables. Triumviratus
+used large pages only for the transposition table and the network weights. The rest sat on 4 KB pages: the shared
+continuation, pawn and correction tables (about 21 MB with one thread), the per-thread data (evaluation cache,
+continuation corrections, quiet histories, about 3 MB per thread), and the network's accumulator stack and refresh
+cache. These tables are read at scattered addresses in every node. On 4 KB pages they span about 6,000 pages, against
+about 1,500 entries in the second-level TLB of the test machine's Xeon Gold 6138; on 2 MB pages they span about a
+dozen. The profile of 5 October already attributed 2.9% of the cycles to a single prefetch instruction and 2.0% to
+four loads of correction entries, which are costs of memory access.
+
+**Changes.** Four changes, all with the identical tree (bench 430151, the same node counts on 30 middlegame positions
+at depth 14 and 64 endgame positions at depth 16, perft on the standard and Chess960 suites without errors):
+
+- V1: the shared tables and the per-thread data on large pages, through the allocator already used for the
+  transposition table (a minimal standard allocator for the vector of thread data).
+- V3: the accumulator stack and the refresh cache on large pages.
+- V2: when the quiet moves are fully sorted above the good-quiet threshold (depth 5 and above with the current
+  parameters), the good quiets form a prefix of the list. The boundary is found once, and the two quiet stages become
+  two ranges instead of two scans with a comparison per move. The order of the moves is unchanged; a build switch
+  checks the boundary in every node.
+- V0: when the search stops in the middle of an iteration, the root moves searched in full are re-sorted, and the
+  best move can change, but the line was printed only at the end of a completed iteration. The match program then
+  reported that the best move did not match the start of the last printed line, about once every three games. The
+  move choice was already correct; the engine now prints the final line after a stop. In 40 games the warning appeared
+  0 times, against 24 for the previous code.
+
+Without the privilege to lock memory, every allocation falls back to normal pages, as before.
+
+**Measurement.** Hardware counters (xperf), 30 middlegame positions and a set of endgame positions, profile-guided
+release builds with the same compiler, six rounds, per node against the previous source:
+
+| build | middlegame instr. | middlegame cycles | endgame instr. | endgame cycles |
+|---|---:|---:|---:|---:|
+| V1 + V3 (memory only) | +0.34% | −0.91% | +0.36% | −1.43% |
+| V2 (quiet ranges) | −0.15% | −0.55% | −0.17% | −0.56% |
+| all four | −0.06% | **−1.56%** | −0.04% | **−1.56%** |
+
+The memory changes show the expected signature: the same instructions in fewer cycles (IPC 1.35 → 1.37 in the
+middlegame, 1.33 → 1.36 in endgames). The gain is smaller than the 1–4% estimated from the page counts. One caution for anyone repeating the measurement: with V0, `go nodes` prints the
+full node count in its last line, while earlier builds print the count of the last completed iteration, so per-node
+figures from the last `info` line must be corrected by the ratio of the reported counts (1.357 here).
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -1069,3 +1227,4 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Hash cutoff damping** at 20+0.2 (three tests together: +2.2 ± 3.2 over 11,774) | 27 | 20+0.2 UHO | 4,818 | **+2.0 ± 5.0** | **adopted** |
 | Corrections learned in exact PV nodes in either direction | 27 | 8+0.08 UHO | 3,258 | −2.8 ± 6.6 | off |
 | Lower cap on the longest thinks (time manager) | 27 | 40+0.4 UHO | 308 | −27.1 ± 17.0 | off |
+| LDSE switched off, long time control | 29 | 40+0.4 UHO | 9,348 | −1.15 ± 3.45 | LDSE kept |

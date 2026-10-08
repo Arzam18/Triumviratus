@@ -5,17 +5,15 @@
 // adapted into our isolated Triumviratus:: namespace; the last two input blocks are
 // ours, so the net format diverges from SFNNv13 (see nnue/nnue/nnue_architecture.h).
 //
-// M2 drive model (full refresh): each search thread owns an opaque handle holding
-// an SF Position + a per-thread AccumulatorStack + AccumulatorCaches. The handle
-// tracks only side-to-move and the fifty-move clock across make/undo; the board
-// itself is rebuilt from the engine's bitboards once per evaluate() in nn_pos_eval
-// (vflip + piece remap -> Position::set_pieces), then Network::evaluate runs a
-// full refresh and we apply Stockfish's cp scaling inline. The bullet own-lineage
-// net and the legacy SFNNv10 path were removed here in M2; M3 adds the incremental
-// AccumulatorStack chain (DirtyPiece/DirtyThreats) for NPS.
-//
-// Square conventions: the engine uses a8=0..h1=63 (BBC); SF uses a1=0..h8=63. A
-// per-rank byteswap (vflip) of an engine bitboard yields the SF-layout bitboard.
+// Modello (07/10/2026, scacchiera unica v2): ogni thread di ricerca ha un handle con la catena degli accumulatori
+// (AccumulatorStack) e la finny table (AccumulatorCaches). La rete non ha una scacchiera sua e non traduce nulla:
+// legge quella del motore attraverso NnBoard (nnue/nn_board.h), e le dirty di ogni mossa (NnDirtyPiece,
+// NnDirtyThreats, NnDirtyPawns, ../nn_dirty.h) le scrive la make del motore sulla pila dell'handle (nn_pos_stack).
+// Una sola numerazione delle case, quella del motore (a8 = 0): le tabelle degli indici delle feature sono costruite
+// per lei e danno gli stessi indici di prima (stessa rete, stessa valutazione).
+// Storia: fino al 06/10/2026 c'era una seconda scacchiera (Position), specchio di quella del motore; la v1 della
+// scacchiera unica (07/10) l'aveva tolta ricalcolando le dirty in un recupero pigro avanti/indietro, con un byteswap
+// per ogni bitboard letto. Entrambi sono spariti.
 
 #include "frozen.h"   // 🔴 DEVE stare qui: senza, il congelamento della
                       // miscela non si attiva nelle build di spedizione.
@@ -38,9 +36,10 @@
     #include <intrin.h>   // _byteswap_uint64, _BitScanForward64
 #endif
 
+#include "nnue/attacks.h"          // Attacks::init (prima arrivava con position.h)
 #include "nnue/bitboard.h"
-#include "nnue/memory.h"           // LargePagePtr / make_unique_large_page (pesi rete su large pages)
-#include "nnue/position.h"
+#include "nnue/memory.h"          // LargePagePtr / make_unique_large_page (pesi rete su large pages)
+#include "nnue/nn_board.h"         // la scacchiera del motore vista dalla rete (niente piu' Position)
 #include "nnue/types.h"
 #include "nnue/evaluate.h"         // EvalFileDefaultName (nome del net embeddato)
 #include "nnue/nnue/network.h"
@@ -125,29 +124,6 @@ const char* nn_net_memory_status(void) {
 // its own generation and rebuilds when stale.
 static std::atomic<int> g_net_gen{1};
 
-// Vertical flip of a bitboard (engine a8=0 <-> SF a1=0 == per-rank byteswap).
-static inline std::uint64_t vflip(std::uint64_t b) {
-#if defined(_MSC_VER)
-    return _byteswap_uint64(b);
-#else
-    return __builtin_bswap64(b);
-#endif
-}
-
-static inline int ctz64(std::uint64_t b) {
-#if defined(_MSC_VER)
-    unsigned long s;
-    _BitScanForward64(&s, b);
-    return int(s);
-#else
-    return __builtin_ctzll(b);
-#endif
-}
-
-// engine bb[] index -> SF piece code.
-static const int sfc[12] = {W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
-                            B_PAWN, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING};
-
 // Eval output scale (percent, default 100 = x1.0). The SFNNv13 cp formula lands on
 // a DIFFERENT scale than the SFNNv10 eval-wrapper the engine's search margins were
 // SPSA-tuned for (pawn ~56 vs ~332) -> the pruning thresholds are mis-sized. This
@@ -187,8 +163,7 @@ struct NnLast {
 // Stockfish's eval cp scaling (evaluate.cpp), inlined here with optimism=0 (the
 // engine's static eval is unbiased; optimism is a search-only blend in SF). psqt
 // and positional are the stm-relative raw NNUE outputs of Network::evaluate.
-// material is computed from piece counts (set_pieces zeroes StateInfo, so we do
-// NOT use pos.non_pawn_material()). Returns stm-relative internal-unit value.
+// material is computed from the piece counts of our board. Returns stm-relative internal-unit value.
 // ⭐ 5.1 EVAL: optimism (SF evaluate.cpp:55,59), default OFF (g_optimism resta 0 -> termine nullo
 // -> byte-identico). g_optimism[stm] e' aggiornato dalla root (search) in unita'-interne SF; il
 // nostro static-eval lo ometteva (=0). Riacceso, ricalibra l'eval come fa SF (contempt dinamico).
@@ -296,17 +271,17 @@ int g_ev_opt_const  = 7675;   // coefficiente optimism, ora COSTANTE (SF: 7675)
 #endif
 // =======================================================================
 
-static inline int nn_scale(const Position& pos, Value psqt, Value positional, int rule50,
+static inline int nn_scale(const NnBoard& pos, Value psqt, Value positional, int rule50,
                            NnLast* last = nullptr, const int* opt_local = nullptr) {
-    const int pieces   = pos.count<ALL_PIECES>();
+    const int pieces   = pos.count();
     const int pos_w    = pieces <= 15 ? g_ev_pos_w_end : g_ev_pos_w;   // EvalPosWEnd (vedi la dichiarazione)
     int nnue           = (g_ev_psqt_w * int(psqt) + pos_w * int(positional)) / 128;
     int nnueComplexity = std::abs(int(psqt) - int(positional));
     nnue -= nnue * nnueComplexity / g_ev_cplx_div;
 
-    int npm = int(KnightValue) * pos.count<KNIGHT>() + int(BishopValue) * pos.count<BISHOP>()
-            + int(RookValue) * pos.count<ROOK>() + int(QueenValue) * pos.count<QUEEN>();
-    int material = g_ev_pawn_mat * pos.count<PAWN>() + npm;
+    int npm = int(KnightValue) * pos.count_type(NN_KNIGHT) + int(BishopValue) * pos.count_type(NN_BISHOP)
+            + int(RookValue) * pos.count_type(NN_ROOK) + int(QueenValue) * pos.count_type(NN_QUEEN);
+    int material = g_ev_pawn_mat * pos.count_type(NN_PAWN) + npm;
 
     int v;
     if (g_eval_optimism) {
@@ -436,6 +411,7 @@ void nn_acc_stats(void) {}
 // ("incremental off") to fall back to the M2 full-refresh A/B base.
 static bool g_incremental = true;
 static bool g_verify      = false;
+static unsigned long long g_verify_count = 0, g_verify_bad = 0;   // valutazioni confrontate / diverse
 
 // NB (2026-07-15): "PsqtFastPath" (eval = solo psqt del net ai nodi |psqt|>soglia,
 // saltando pairwise+propagate) PROVATO e UCCISO CON MISURA su build PGO:
@@ -444,12 +420,8 @@ static bool g_verify      = false;
 // "eval economica ai nodi decisi" (smallnet SF -17 Elo, SPLE): la search e'
 // co-adattata all'eval piena, ogni surrogato grossolano gonfia l'albero piu'
 // di quanto il forward risparmiato ripaghi. NON riprovare varianti.
-// N-1 lazy mirror apply: default ON (see nn_catch_up below). OFF = pre-N1 eager
-// apply (nn_pos_do mirrors the move immediately), kept for bisection.
-static bool g_lazy_mirror = true;
 void        nn_set_incremental(int on) { g_incremental = on != 0; }
 void        nn_set_verify(int on) { g_verify = on != 0; }
-void        nn_set_lazy_mirror(int on) { g_lazy_mirror = on != 0; }
 void        nn_set_eval_scale(int pct) {
     g_eval_scale_pct = pct < 1 ? 1 : pct;
     for (int b = 0; b < 8; ++b) g_eval_scale_b[b] = g_eval_scale_pct;  // globale = tutti
@@ -579,39 +551,26 @@ int         nn_finalize(int unadjusted, int rule50, int bucket) {
 // ---------------------------------------------------------------------------
 namespace {
 
-constexpr int SF_STACK = 1024;  // > MAX_PLY(246) + qsearch/extensions headroom
-
+// Stato per thread della rete (07/10/2026, scacchiera unica v2): la catena degli accumulatori, con la pila delle
+// dirty che scrive la make del motore, e la finny table. Nessuna scacchiera: la posizione e' quella del motore.
+// V3 (08/10/2026, velocita', albero identico): pila degli accumulatori e finny table su large pages, come la TT e i
+// pesi. Prima erano su std::make_unique, cioe' su pagine da 4 KB: la finny table (una riga per casa del re
+// e per esperto) si legge a ogni refresh in punti sparsi, e il profilo del 05/10 dava 8,6% dei cicli a
+// update_accumulator_refresh_cache. Senza il privilegio l'allocazione ripiega su pagine normali.
 struct SfPos {
-    Position                           pos;
-    StateInfo                          si;
-    std::unique_ptr<AccumulatorStack>  accStack;
-    std::unique_ptr<AccumulatorCaches> caches;
+    LargePagePtr<AccumulatorStack>  accStack;
+    LargePagePtr<AccumulatorCaches> caches;
 
-    // Tracked across make/undo (nn_pos_eval gets the board but not stm/rule50).
-    Color  stm;
-    int    rule50;
-    int    ply;
     int    opt[2] = {0, 0};   // OptPerThread: optimism di QUESTO thread (per lato)
-    Color  stmStack[SF_STACK];
-    int    r50Stack[SF_STACK];
-    // Incremental bookkeeping: the move recorded at each ply (for board undo) and
-    // whether that ply pushes an accumulator state once applied (null moves do not
-    // — the board is unchanged, so the accumulator chain stays at the same depth).
-    SfMove mvStack[SF_STACK];
-    bool   pushedAcc[SF_STACK];
-
-    // N-1 lazy mirror apply: plies [0, appliedPly) have actually been replayed onto
-    // pos/accStack; plies [appliedPly, ply) are pending (recorded but not yet
-    // mirrored). nn_catch_up() advances appliedPly on demand, right before an eval.
-    int    appliedPly = 0;
 
     int netGen;   // generation of g_net the caches were built from
 
     NnLast last;  // termini dell'ultima nn_scale di QUESTO thread (ex thread_local)
 
-    SfPos() : stm(WHITE), rule50(0), ply(0) {
-        accStack = std::make_unique<AccumulatorStack>();
-        caches   = std::make_unique<AccumulatorCaches>(NET_REF);
+    SfPos() {
+        accStack = make_unique_large_page<AccumulatorStack>();
+        accStack->reset();
+        caches   = make_unique_large_page<AccumulatorCaches>(NET_REF);
         netGen   = g_net_gen;
     }
 };
@@ -620,193 +579,19 @@ struct SfPos {
 // built. Called at root set (never mid-search: EvalFile reload stops search first).
 inline void ensure_caches_fresh(SfPos* p) {
     if (p->netGen != g_net_gen) {
-        p->caches = std::make_unique<AccumulatorCaches>(NET_REF);
+        p->caches = make_unique_large_page<AccumulatorCaches>(NET_REF);
         p->netGen = g_net_gen;
     }
 }
 
-inline Color flip(Color c) { return c == WHITE ? BLACK : WHITE; }
-
-// Build an SF piece list from the engine bitboards bb[12] (vflip to SF coords).
-inline int build_pl_from_bb(const unsigned long long* bb, Piece* pcs, Square* sqs) {
-    int n = 0;
-    for (int i = 0; i < 12; ++i) {
-        std::uint64_t b = vflip(bb[i]);
-        while (b) {
-            int s = ctz64(b);
-            b &= b - 1;
-            pcs[n] = Piece(sfc[i]);
-            sqs[n] = Square(s);
-            ++n;
-        }
-    }
-    return n;
-}
-
-// Full-refresh eval from the engine bitboards into the given (scratch) state.
-inline int eval_full_from_bb(const unsigned long long* bb, Color stm, int rule50,
-                             Position& pos, StateInfo& si, AccumulatorStack& acc,
-                             AccumulatorCaches& cch) {
-    Piece  pcs[64];
-    Square sqs[64];
-    int    n = build_pl_from_bb(bb, pcs, sqs);
-    pos.set_pieces(pcs, sqs, n, stm, &si);
+// Valutazione da zero (refresh completo) della nostra scacchiera, su uno stato di appoggio.
+inline int eval_full(const NnBoard& board, int rule50, AccumulatorStack& acc, AccumulatorCaches& cch,
+                     int* raw_out = nullptr, const int* opt_local = nullptr) {
     acc.reset();
-    auto [psqt, positional] = NET_REF.evaluate(pos, acc, cch);
-    return nn_scale(pos, psqt, positional, rule50);
-}
-
-// TRANN1: delta dei PEDONI di una mossa (per il blocco PawnPair). Va chiamata
-// PRIMA di mutare pos: il pair-diff si espande contro lo snapshot BEFORE.
-// Arrocco non tocca mai pedoni -> any=false via i due check.
-inline void fill_dirty_pawns(const Position& pos, const SfMove* m, DirtyPawns& dpw) {
-    const Piece pc           = Piece(m->movedPiece);
-    const bool  moverIsPawn  = type_of(pc) == PAWN;
-    const bool  victimIsPawn = m->capturedPiece && type_of(Piece(m->capturedPiece)) == PAWN;
-
-    dpw.nRemoved = 0;
-    dpw.addedSq  = SQ_NONE;
-    dpw.any      = moverIsPawn || victimIsPawn;
-    if (!dpw.any)
-        return;
-
-    dpw.pawnsBefore[WHITE] = pos.pieces(WHITE, PAWN);
-    dpw.pawnsBefore[BLACK] = pos.pieces(BLACK, PAWN);
-
-    if (moverIsPawn)
-    {
-        dpw.removedSq[dpw.nRemoved] = Square(m->from);
-        dpw.removedC[dpw.nRemoved]  = color_of(pc);
-        dpw.nRemoved++;
-        if (!m->promoPiece)  // la promozione non ri-aggiunge un pedone
-        {
-            dpw.addedSq = Square(m->to);
-            dpw.addedC  = color_of(pc);
-        }
-    }
-    if (victimIsPawn)
-    {
-        dpw.removedSq[dpw.nRemoved] = Square(m->capturedSq);  // ep: casa del pedone, non to
-        dpw.removedC[dpw.nRemoved]  = color_of(Piece(m->capturedPiece));
-        dpw.nRemoved++;
-    }
-}
-
-// Apply SfMove m to pos (incremental), filling dp (DirtyPiece) + dts (DirtyThreats)
-// + dpw (DirtyPawns, TRANN1). Mirrors Position::do_move's board mutation +
-// DirtyPiece construction, driven by the already-decomposed SfMove (engine
-// king-destination castling encoding).
-inline void
-apply_move_impl(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThreats& dts, DirtyPawns& dpw) {
-    const Piece  pc   = Piece(m->movedPiece);
-    const Square from = Square(m->from);
-    const Square to   = Square(m->to);
-
-    fill_dirty_pawns(pos, m, dpw);  // PRIMA della mutazione (snapshot BEFORE)
-
-    dp.pc        = pc;
-    dp.from      = from;
-    dp.to        = m->promoPiece ? SQ_NONE : to;
-    dp.remove_sq = SQ_NONE;
-    dp.add_sq    = SQ_NONE;
-
-    if (m->rookPiece) {  // CASTLING: king from->to, rook rfrom->rto
-        const Piece  rook  = Piece(m->rookPiece);
-        const Square rfrom = Square(m->rookFrom);
-        const Square rto   = Square(m->rookTo);
-        dp.remove_pc = rook;
-        dp.remove_sq = rfrom;
-        dp.add_pc    = rook;
-        dp.add_sq    = rto;
-        // do_castling<true> order: remove both first (Chess960 overlap), then put both.
-        pos.remove_piece(from, &dts);
-        pos.remove_piece(rfrom, &dts);
-        pos.put_piece(pc, to, &dts);
-        pos.put_piece(rook, rto, &dts);
-        return;
-    }
-
-    const bool ep = m->capturedPiece && (m->capturedSq != m->to);
-    if (m->capturedPiece) {
-        dp.remove_pc = Piece(m->capturedPiece);
-        dp.remove_sq = Square(m->capturedSq);
-    }
-    if (m->promoPiece) {
-        dp.add_pc = Piece(m->promoPiece);
-        dp.add_sq = to;
-    }
-
-    if (ep) {
-        pos.remove_piece(Square(m->capturedSq), &dts);  // remove e.p. pawn first (do_move order)
-        pos.move_piece(from, to, &dts);                 // pawn from->to (pc == toPc)
-    } else if (m->capturedPiece) {
-        pos.remove_piece(from, &dts);
-        pos.swap_piece(to, m->promoPiece ? Piece(m->promoPiece) : pc, &dts);
-    } else if (m->promoPiece) {
-        pos.remove_piece(from, &dts);
-        pos.put_piece(Piece(m->promoPiece), to, &dts);
-    } else {
-        pos.move_piece(from, to, &dts);
-    }
-}
-
-inline void apply_move(Position& pos, const SfMove* m, DirtyPiece& dp, DirtyThreats& dts,
-                       DirtyPawns& dpw) {
-    apply_move_impl(pos, m, dp, dts, dpw);
-#if TRIUMV_PSQ_PHASES > 1
-    {   // HalfKA a esperti: fascia della posizione dopo la mossa, e se una cattura l'ha cambiata (-> refresh)
-        using PSQ       = Eval::NNUE::Features::HalfKAv2_hm;
-        const int after  = pos.count<ALL_PIECES>();
-        const int before = after + (m->capturedPiece ? 1 : 0);
-        dp.psqPhase        = std::uint8_t(PSQ::phase_of_count(after));
-        dp.psqPhaseChanged = PSQ::phase_of_count(before) != dp.psqPhase;
-    }
-#endif
-}
-
-// Reverse apply_move on pos (no dts — undo just pops the accumulator). Mirrors the
-// NET BOARD effect of Position::undo_move.
-inline void unapply_move(Position& pos, const SfMove* m) {
-    const Piece  pc   = Piece(m->movedPiece);
-    const Square from = Square(m->from);
-    const Square to   = Square(m->to);
-
-    if (m->rookPiece) {  // CASTLING: do_castling<false> (remove to/rto, put from/rfrom)
-        pos.remove_piece(to);
-        pos.remove_piece(Square(m->rookTo));
-        pos.put_piece(pc, from);
-        pos.put_piece(Piece(m->rookPiece), Square(m->rookFrom));
-        return;
-    }
-
-    if (m->promoPiece) {
-        pos.remove_piece(to);     // remove the promoted piece
-        pos.put_piece(pc, from);  // pawn back at from (pc is the pawn)
-    } else {
-        pos.move_piece(to, from);
-    }
-    if (m->capturedPiece)
-        pos.put_piece(Piece(m->capturedPiece), Square(m->capturedSq));  // capsq handles e.p.
-}
-
-// N-1: replay any plies nn_pos_do/nn_pos_do_null left pending (mirrored bookkeeping
-// only, no board/accumulator update) up to the current ply. Applied strictly in
-// order so each apply_move sees the exact board state it would have under eager
-// apply -> bit-identical DirtyThreats/accumulator chain, just computed lazily.
-// In eager mode (g_lazy_mirror off) appliedPly is already kept in lockstep by
-// nn_pos_do/do_null, so this loop is a no-op there.
-inline void nn_catch_up(SfPos* p) {
-    while (p->appliedPly < p->ply && p->appliedPly < SF_STACK) {
-        int i = p->appliedPly;
-        if (p->pushedAcc[i]) {
-
-            auto dirties = p->accStack->push();
-            apply_move(p->pos, &p->mvStack[i], std::get<0>(dirties), std::get<1>(dirties),
-                       std::get<2>(dirties));
-        }
-        p->pos.set_side_to_move(flip(p->pos.side_to_move()));
-        ++p->appliedPly;
-    }
+    auto [psqt, positional] = NET_REF.evaluate(board, acc, cch);
+    if (raw_out)
+        *raw_out = int(psqt) + int(positional);
+    return nn_scale(board, psqt, positional, rule50, nullptr, opt_local);
 }
 
 }  // namespace
@@ -823,128 +608,78 @@ void  nn_pos_set_optimism(void* handle, int w, int b) {
     p->opt[1] = b;
 }
 
-void nn_pos_set(void* handle, int side_white, const int* pieces,
-                const int* squares, int count, int rule50) {
-    SfPos* p  = static_cast<SfPos*>(handle);
+void nn_pos_set(void* handle) {
+    SfPos* p = static_cast<SfPos*>(handle);
     ensure_caches_fresh(p);   // EvalFile reload -> caches seeded from old net's biases
-    p->stm        = side_white ? WHITE : BLACK;
-    p->rule50     = rule50;
-    p->ply        = 0;
-    p->appliedPly = 0;
-    if (g_incremental) {
-        Piece  pcs[64];
-        Square sqs[64];
-        for (int i = 0; i < count; ++i) {
-            pcs[i] = Piece(pieces[i]);
-            sqs[i] = Square(squares[i]);
-        }
-        p->pos.set_pieces(pcs, sqs, count, p->stm, &p->si);  // root board
-        p->accStack->reset();                                // root accumulator computed lazily
-    }
+    p->accStack->reset();     // l'accumulatore della radice si calcola alla prima valutazione
 }
 
-void nn_pos_do(void* handle, const struct SfMove* m) {
-    SfPos* p = static_cast<SfPos*>(handle);
-    if (p->ply < SF_STACK) {
-        p->stmStack[p->ply]  = p->stm;
-        p->r50Stack[p->ply]  = p->rule50;
-        p->mvStack[p->ply]   = *m;
-        p->pushedAcc[p->ply] = true;   // real move: pushes to accStack once applied
+NnStack* nn_pos_stack(void* handle) { return &static_cast<SfPos*>(handle)->accStack->dirty_stack(); }
+
+namespace {
+// Stato di appoggio per thread per le valutazioni da zero (incremental off, nnueverify): non tocca la catena della
+// ricerca, che la make del motore continua ad allungare e accorciare.
+struct ScratchEval {
+    std::unique_ptr<AccumulatorStack>  acc;
+    std::unique_ptr<AccumulatorCaches> cch;
+    int                                gen = 0;
+};
+ScratchEval& scratch_eval() {
+    thread_local ScratchEval s;
+    if (!s.acc || s.gen != g_net_gen) {
+        if (!s.acc) s.acc = std::make_unique<AccumulatorStack>();
+        s.cch = std::make_unique<AccumulatorCaches>(NET_REF);
+        s.gen = g_net_gen;
     }
-    // N-1: lazy mode leaves the mirror/accStack untouched here (nn_catch_up applies
-    // it later, only if an eval is actually reached). Eager fallback (g_lazy_mirror
-    // off) applies immediately, same as pre-N1, keeping appliedPly in lockstep.
-    if (g_incremental && !g_lazy_mirror) {
-        auto dirties = p->accStack->push();  // {DirtyPiece&, DirtyThreats&, DirtyPawns&}
-        apply_move(p->pos, m, std::get<0>(dirties), std::get<1>(dirties), std::get<2>(dirties));
-        p->pos.set_side_to_move(flip(p->pos.side_to_move()));
-        p->appliedPly = p->ply + 1;
-    }
-    ++p->ply;
-    p->stm    = flip(p->stm);
-    p->rule50 = m->rule50;
+    return s;
 }
+}  // namespace
 
-void nn_pos_do_null(void* handle, int rule50) {
+int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                int side_white, int rule50) {
     SfPos* p = static_cast<SfPos*>(handle);
-    if (p->ply < SF_STACK) {
-        p->stmStack[p->ply]  = p->stm;
-        p->r50Stack[p->ply]  = p->rule50;
-        p->pushedAcc[p->ply] = false;  // board unchanged -> no accumulator push
-    }
-    if (g_incremental && !g_lazy_mirror) {
-        p->pos.set_side_to_move(flip(p->pos.side_to_move()));
-        p->appliedPly = p->ply + 1;
-    }
-    ++p->ply;
-    p->stm    = flip(p->stm);
-    p->rule50 = rule50;
-}
+    const NnBoard board(bb, occ, mailbox, side_white ? WHITE : BLACK);
 
-void nn_pos_undo(void* handle) {
-    SfPos* p = static_cast<SfPos*>(handle);
-    --p->ply;
-    // N-1: only unwind the mirror/accStack if this ply was actually applied (either
-    // by nn_catch_up because an eval needed it, or immediately in eager mode, where
-    // appliedPly is always > ply here). Never-applied plies cost nothing to undo.
-    if (g_incremental && p->appliedPly > p->ply) {
-        if (p->ply >= 0 && p->ply < SF_STACK && p->pushedAcc[p->ply]) {
-            p->accStack->pop();
-            unapply_move(p->pos, &p->mvStack[p->ply]);
-        }
-        p->pos.set_side_to_move(flip(p->pos.side_to_move()));  // undo the make/null side flip
-        p->appliedPly = p->ply;
+    if (!g_incremental) {
+        // Refresh completo a ogni valutazione (stessa finny table del thread), optimism globale come sempre.
+        return eval_full(board, rule50, *scratch_eval().acc, *p->caches);
     }
-    if (p->ply >= 0 && p->ply < SF_STACK) {
-        p->stm    = p->stmStack[p->ply];
-        p->rule50 = p->r50Stack[p->ply];
-    }
-}
 
-int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* /*occ*/) {
-    SfPos* p = static_cast<SfPos*>(handle);
-
-    if (!g_incremental)
-        return eval_full_from_bb(bb, p->stm, p->rule50, p->pos, p->si, *p->accStack, *p->caches);
-
-    {
-        // Il replay specchio (piazzamento pezzi + diff delle threat) e' dentro prof_eval
-        // ma fuori dal forward: e' il primo sospetto per il ~9% del wall non attribuito.
-        PROF_GUARD(prof_catchup);
-        nn_catch_up(p);  // N-1: replay any moves nn_pos_do left pending before evaluating
-    }
-    // Incremental: the maintained pos + accumulator chain are walked by Network::evaluate.
-    auto [psqt, positional] = NET_REF.evaluate(p->pos, *p->accStack, *p->caches);
-    int  inc                = nn_scale(p->pos, psqt, positional, p->rule50, &p->last,
+    // La catena degli accumulatori e' quella della ricerca, con le dirty gia' scritte dalla make; la posizione si
+    // legge dalla nostra scacchiera.
+    auto [psqt, positional] = NET_REF.evaluate(board, *p->accStack, *p->caches);
+    int  inc                = nn_scale(board, psqt, positional, rule50, &p->last,
                                        g_opt_per_thread ? p->opt : nullptr);
 
     if (g_verify) {
-        // Compare against a full refresh built from the engine bitboards, on a separate
-        // scratch state so the incremental chain is not disturbed.
-        thread_local std::unique_ptr<AccumulatorStack>  sAcc;
-        thread_local std::unique_ptr<AccumulatorCaches> sCch;
-        thread_local Position                           sPos;
-        thread_local StateInfo                          sSi;
-        thread_local int                                sGen = 0;
-        if (!sAcc || sGen != g_net_gen) {
-            if (!sAcc) sAcc = std::make_unique<AccumulatorStack>();
-            sCch = std::make_unique<AccumulatorCaches>(NET_REF);
-            sGen = g_net_gen;
-        }
-        int full = eval_full_from_bb(bb, p->stm, p->rule50, sPos, sSi, *sAcc, *sCch);
-        if (inc != full) {
+        // Confronto con un refresh completo della stessa scacchiera, su uno stato di appoggio: oltre al valore
+        // finale si confrontano i due accumulatori interi (entrambe le prospettive, PSQT compresa).
+        ScratchEval& s = scratch_eval();
+        // Stesso optimism del valore incrementale (OptPerThread), o il confronto dei valori finali non vale.
+        int           full    = eval_full(board, rule50, *s.acc, *s.cch, nullptr, g_opt_per_thread ? p->opt : nullptr);
+        const auto&   a       = p->accStack->latest();
+        const auto&   b       = s.acc->latest();
+        const bool    accSame = std::memcmp(&a.accumulation, &b.accumulation, sizeof(a.accumulation)) == 0
+                             && std::memcmp(&a.psqtAccumulation, &b.psqtAccumulation, sizeof(a.psqtAccumulation)) == 0;
+        if (inc != full || !accSame) {
             static int reported = 0;
+            g_verify_bad++;
             if (reported++ < 64)
-                std::printf("info string NNUE MISMATCH ply=%d inc=%d full=%d\n", p->ply, inc, full);
+                std::printf("info string NNUE MISMATCH stati=%d inc=%d full=%d acc=%s\n",
+                            p->accStack->dirty_stack().size, inc, full, accSame ? "uguale" : "DIVERSO");
             std::fflush(stdout);
         }
+        g_verify_count++;
     }
     return inc;
 }
 
-// Stateless full-refresh eval ("eval" command + NNUE_VERIFY oracle). pieces[] /
-// squares[] are already in SF encoding (the engine's nn_build_piece_list maps via
-// nn_piece_code[]/nnue_squares[]). Single-threaded (UI/debug only).
+// Quante valutazioni ha confrontato il controllo (nnueverify) e quante erano diverse, per i rapporti dei test.
+unsigned long long nn_verify_count(void) { return g_verify_count; }
+unsigned long long nn_verify_bad(void) { return g_verify_bad; }
+
+// Stateless full-refresh eval ("eval" command): la scacchiera globale del motore (bitboard per pezzo e occupazioni,
+// a8 = 0), senza conversioni; la mailbox si ricava qui dai bitboard. Single-threaded (UI/debug only).
 // `raw_out` (opzionale): uscita GREZZA della rete, psqt + positional, PRIMA di nn_scale.
 // Serve al cross-check contro il trainer: il valore di ritorno passa per nn_scale, che
 // applica blend psqt/positional, smorzamento per complessita', scaling per materiale e
@@ -952,28 +687,15 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
 // ritorno col trainer paragona due grandezze diverse: misurato R^2 0.73 anche su una coppia
 // motore+rete NOTA-BUONA (6.0 + v3), con gli errori massimi tutti su posizioni ad alto
 // contatore 50-mosse. (27/07/2026)
-int nn_eval(int side_white, const int* pieces, const int* squares, int count, int rule50,
+int nn_eval(int side_white, const unsigned long long* bb, const unsigned long long* occ, int rule50,
             int* raw_out) {
-    static std::unique_ptr<AccumulatorStack>  s_acc;
-    static std::unique_ptr<AccumulatorCaches> s_cch;
-    static Position                           s_pos;
-    static StateInfo                          s_si;
-    static int                                s_gen = 0;
-    if (!s_acc || s_gen != g_net_gen) {
-        if (!s_acc) s_acc = std::make_unique<AccumulatorStack>();
-        s_cch = std::make_unique<AccumulatorCaches>(NET_REF);
-        s_gen = g_net_gen;
-    }
-    Piece  pcs[64];
-    Square sqs[64];
-    for (int i = 0; i < count; ++i) {
-        pcs[i] = Piece(pieces[i]);
-        sqs[i] = Square(squares[i]);
-    }
-    s_pos.set_pieces(pcs, sqs, count, side_white ? WHITE : BLACK, &s_si);
-    s_acc->reset();
-    auto [psqt, positional] = NET_REF.evaluate(s_pos, *s_acc, *s_cch);
-    if (raw_out)
-        *raw_out = int(psqt) + int(positional);
-    return nn_scale(s_pos, psqt, positional, rule50);
+    int mb[64];
+    for (int s = 0; s < 64; ++s)
+        mb[s] = -1;
+    for (int pc = 0; pc < 12; ++pc)
+        for (Bitboard b = bb[pc]; b;)
+            mb[pop_lsb(b)] = pc;
+    const NnBoard board(bb, occ, mb, side_white ? WHITE : BLACK);
+    ScratchEval&  s = scratch_eval();
+    return eval_full(board, rule50, *s.acc, *s.cch, raw_out);
 }

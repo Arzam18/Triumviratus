@@ -24,7 +24,7 @@
 #include "../nnue_common.h"
 
 namespace Triumviratus {
-class Position;
+class NnBoard;
 }
 
 namespace Triumviratus::Eval::NNUE::Features {
@@ -76,15 +76,15 @@ class FullThreats {
     using IndexList                                = ValueList<IndexType, MaxActiveDimensions>;
     using DiffType                                 = DirtyThreats;
 
-    static IndexType
-    make_index(Color perspective, Piece attkr, Square from, Square to, Piece attkd, Square ksq);
+    // Case e codici dei pezzi del MOTORE (a8 = 0, 0..11): vedi full_threats.cpp per le tabelle.
+    static IndexType make_index(Color perspective, int attkr, int from, int to, int attkd, int ksq);
 
     // Get a list of indices for active features
-    static void append_active_indices(Color perspective, const Position& pos, IndexList& active);
+    static void append_active_indices(Color perspective, const NnBoard& pos, IndexList& active);
 
     // Get a list of indices for recently changed features
     static void append_changed_indices(Color                   perspective,
-                                       Square                  ksq,
+                                       int                     ksq,
                                        const DiffType&         diff,
                                        IndexList&              removed,
                                        IndexList&              added,
@@ -104,8 +104,8 @@ class FullThreats {
     // condivide solo la passata sulla dirty list, che e' l'unica parte che
     // guadagna, e le scritture grosse restano sequenziali: prima tutto il bianco,
     // poi tutto il nero.
-    static void append_changed_indices_both(Square                  ksqW,
-                                            Square                  ksqB,
+    static void append_changed_indices_both(int                     ksqW,
+                                            int                     ksqB,
                                             const DiffType&         diff,
                                             IndexList&              removedW,
                                             IndexList&              addedW,

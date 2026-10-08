@@ -105,4 +105,74 @@ void td_perft_driver(int depth) {
          (unsigned long long)tdp_pl_fn, (unsigned long long)tdp_nodes_checked);
   fflush(stdout);
 }
+
+// `nnperft N` (07/10/2026, scacchiera unica): perft sulla scacchiera per thread che VALUTA con la rete, col
+// controllo nnueverify acceso (catena incrementale contro refresh completo, accumulatori interi). Si valuta a ogni
+// foglia e in un nodo interno su tre (scelto dalla chiave), cosi' la catena incrementale ha lunghezze diverse; in
+// un nodo interno su cinque non sotto scacco si inserisce anche una mossa nulla. Copre tutte le mosse della suite:
+// arrocchi (anche Chess960), en passant, promozioni, catture di promozione. Si controllano anche le chiavi e la
+// mailbox (come tdperft) e, dalla v2, che la pila delle dirty abbia uno stato per ogni mossa fatta dalla radice.
+static U64 nnp_evals = 0;
+static int nnp_moves = 0;  // mosse (non nulle) fatte dalla radice
+static inline void nnp_eval(ThreadData &td) {
+  td_nn_eval(td);
+  nnp_evals++;
+  tdp_check_keys(td);
+  if (td.nnstack->size != 1 + nnp_moves) {
+    if (tdp_key_mism < 5) printf("info string NN STACK MISMATCH stati=%d mosse=%d\n", td.nnstack->size, nnp_moves);
+    tdp_key_mism++;
+  }
+}
+static U64 nnp_rec(ThreadData &td, int depth) {
+  if (depth == 0 || td.hash_key % 3 == 0) nnp_eval(td);
+  if (depth == 0) return 1;
+  U64 n = 0;
+  const int ksq = get_ls1b_index(td.side == white ? td.bitboards[K] : td.bitboards[k]);
+  if (depth >= 2 && td.hash_key % 5 == 0 && !td_is_square_attacked(td, ksq, td.side ^ 1)) {
+    // mossa nulla: cambia solo il lato (e l'en passant); la rete non registra nulla
+    const int ep = td.enpassant;
+    const U64 hk = td.hash_key;
+    if (ep != no_sq) td.hash_key ^= enpassant_keys[ep];
+    td.hash_key ^= side_key;
+    td.enpassant = no_sq;
+    td.side ^= 1;
+    nnp_rec(td, depth - 1);
+    td.side ^= 1;
+    td.enpassant = ep;
+    td.hash_key = hk;
+  }
+  moves ml[1];
+  td_generate_moves(td, ml);
+  for (int i = 0; i < ml->count; i++) {
+    const int mv = ml->moves[i];
+    UndoInfo u;
+    td.ply++;
+    td.repetition_table[++td.repetition_index] = td.hash_key;
+    if (!td_make_move(td, mv, u)) { td.ply--; td.repetition_index--; continue; }
+    nnp_moves++;
+    n += nnp_rec(td, depth - 1);
+    td_unmake_move(td, mv, u);
+    nnp_moves--;
+    td.ply--;
+    td.repetition_index--;
+  }
+  return n;
+}
+void td_nnperft_driver(int depth) {
+  ThreadData &td = thread_data[0];
+  copy_board_to_thread(td);
+  nn_root_sync(td);
+  nn_set_verify(1);
+  const unsigned long long c0 = nn_verify_count(), b0 = nn_verify_bad();
+  tdp_key_mism = 0;
+  nnp_evals = 0;
+  nnp_moves = 0;
+  const U64 leaves = nnp_rec(td, depth);
+  tdp_check_keys(td);
+  nn_set_verify(0);
+  printf("nnperft %d Nodes: %llu evals %llu verified %llu bad %llu keymism %llu\n", depth,
+         (unsigned long long)leaves, (unsigned long long)nnp_evals, nn_verify_count() - c0, nn_verify_bad() - b0,
+         (unsigned long long)tdp_key_mism);
+  fflush(stdout);
+}
 #endif  // TRIUMV_FROZEN
