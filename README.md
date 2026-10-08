@@ -71,6 +71,13 @@ quiescence hash entries, pins in the exchange evaluation, per-expert corrections
 +4.5 and +3.2 Elo ([dev log](DEVELOPMENT_8.0.md#the-path-so-far)). 8.0 is also the
 first version to support **Chess960**.
 
+**Head to head** (pre-release of 7–8 October, 1 thread, UHO 2024 book, each opening with both colours):
+
+| opponent | TC | games | Elo |
+|---|---|---:|---:|
+| Stockfish 18 | 20+0.2 | 600 | **+24.9 ± 13.7** |
+| Reckless 0.10.0-dev | 40+0.4 | 526 | **+68 ± 14** |
+
 **Outside tests** ([`tests/`](tests/)): on Maurizio Platino's ENET 2026 suite the 4 October build solves **89 of 110**,
 the best Triumviratus so far; on Mark Tang's IQ4 suite the prerelease solves **145 of 183**, the highest among the
 engines tested.
