@@ -96,7 +96,7 @@ A second run on the build of 8 October solved **143 / 183** (78.1%).
 | Date | Opponent | Games | Result | Score | TC |
 |---|---|---:|---:|---:|---|
 | 2026-10-05 | Stockfish (development version) | 30 | +3 =17 −10 | 38.3% | 2 min + 1 s |
-| 2026-10-08 | Stockfish (development version) | 30 | +5 =15 −10 | 41.7% | 5 min + 5 s |
+| 2026-10-08 | Stockfish (development version) | 30 | +5 =15 −10 | 41.7% | 103 s + 1 s |
 
 <sub>About −83 Elo for the first match (95% interval about −170 to −5) and −58 for the second, on the build of
 8 October (about −152 to +28). With 30 games each, both intervals are wide.</sub>
