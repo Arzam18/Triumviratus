@@ -23,7 +23,7 @@ param(
     [int]$Workers = [Environment]::ProcessorCount,
     [string]$ExtraFlags = "",
     [switch]$NoPgo,
-    [switch]$NoTune,
+    [switch]$Tune,
     [switch]$NoStrictAliasing,
     [string]$ExpectedBench = "430151"
 )
@@ -101,6 +101,9 @@ $base = @('/c', '/nologo', '/std:c++17', '/EHsc', '/MT', '/O2', '/Oy', '/GS-', '
 # Analisi degli alias per tipo: gcc la usa di default, clang-cl per Windows no. Misurata il 08/10/2026 sera (xperf,
 # 6 giri): -1,06% cicli/nodo in mediogioco, -0,76% nei finali; verificata con tutte le macro VERIFY_* e con gcc.
 if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
+# Cicli allineati a 64 byte: questo binario (un'unica unita' di compilazione per variante) perdeva il 2,2% di cicli
+# rispetto alle build separate in avx512 a istruzioni identiche; l'allineamento ne recupera 0,7 (xperf 08/10/2026).
+$base += '/clang:-falign-loops=64'
 if ($ExtraFlags) { $base += $ExtraFlags.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
 function VFlags($n) {
     switch ($n) {
@@ -114,9 +117,10 @@ function VFlags($n) {
               '-mavx512dq', '-mavx512vl', '-mbmi2', '-mavx512vnni', '-mavx512vbmi', '-mavx512vbmi2', '-mavx512bitalg') }
     }
 }
-# Messa a punto per i processori a cui la variante e' destinata (vuota = generica).
+# Messa a punto per i processori a cui la variante e' destinata. SPENTA di default (-Tune per accenderla): sullo Xeon
+# -mtune=skylake-avx512 dava +0,5% di cicli rispetto alla messa a punto generica (xperf 08/10/2026).
 function VTune($n) {
-    if ($NoTune) { return @() }
+    if (-not $Tune) { return @() }
     switch ($n) { 1 { @('/clang:-mtune=znver2') } 3 { @('/clang:-mtune=skylake-avx512') } 4 { @('/clang:-mtune=cascadelake') }
                   default { @() } }
 }
