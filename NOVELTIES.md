@@ -57,7 +57,7 @@ experts of the network.
 
 | entry | category | version | measured effect | status |
 |---|---|---|---|---|
-| Consilium: four experts by material on the king-relative input block | New in its form | 8.0 | 8.0 against 7.0 **+27.3 ± 8.3** (15+0.15, 2,000 games), of which about +15 from the network with its tuning | adopted, the 8.0 network |
+| Consilium: four experts by material on the king-relative input block | New | 8.0 | 8.0 against 7.0 **+27.3 ± 8.3** (15+0.15, 2,000 games), of which about +15 from the network with its tuning | adopted, the 8.0 network |
 | `PassedPawns` input block (96 inputs) | New | 6.0 | **+6.96 ± 6.56** (15+0.15, 2,596), network alone | in every network since 6.0 |
 | Correction history per expert (`CorrPhase`) | New in its form | 8.0 | **+3.2 ± 3.8** (12+0.12, 8,634) | adopted |
 | Knight outposts in move ordering (`OutpostOrder`) | New | 8.0 | +0.21 ± 3.93 (10+0.1, 8,244) at a hand-set value | in the running SPSA |
@@ -118,21 +118,20 @@ The idea is the author's, taken from mixture-of-experts language models (many pa
 positions). Version 8.0 against the 7.0 release: **+27.3 ± 8.3 Elo** at 15+0.15 on 2,000 games, of which about +15
 come from the network with its re-tuned parameters ([`NETWORKS.md`](NETWORKS.md)).
 
-**Compared with others.** Choosing weights by piece count is common, but after the accumulator: Stockfish's layer
-stacks and the output buckets of many engines select the output layers by piece count. Input buckets of the first
-layer are chosen by the king square, not by material; no engine with input buckets by material or phase was found.
-Stockfish 16.1 switched between two whole networks by material imbalance, which routes between networks rather than
-between experts inside one layer. Outside NNUE, M2CTS used phase experts with AlphaZero-style MCTS
-([arXiv 2401.16852](https://arxiv.org/abs/2401.16852)), and a study of game-phase-specific models in AlphaZero reports
-gains from separate networks per phase ([Helfenstein et al.](https://ml-research.github.io/papers/helfenstein2024game.pdf)).
-King input buckets are themselves described as a form of mixture of experts
-([chessprogramming, NNUE](https://chessprogramming.org/NNUE)); the experts of Consilium are chosen by material
-instead of by the king square. Mark Tang had tried an unpublished network of phase experts
+**Compared with others.** The idea was reached independently by the author, and no network of this kind was found
+in another engine. What exists elsewhere is of a different nature. Choosing weights by piece count is common, but
+after the accumulator: Stockfish's layer stacks and the output buckets of many engines select the small output layers
+by piece count. The input buckets of the first layer are chosen by the king square, never by material. Stockfish 16.1
+switched between two whole networks by material imbalance, which routes between separate networks rather than between
+experts inside one layer. The academic work on phase-specific models uses separate full networks with AlphaZero-style
+MCTS ([arXiv 2401.16852](https://arxiv.org/abs/2401.16852);
+[Helfenstein et al.](https://ml-research.github.io/papers/helfenstein2024game.pdf)), not experts inside an
+efficiently updatable first layer of an alpha-beta engine. Mark Tang had tried an unpublished network of phase experts
 in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](NETWORKS.md)).
 
-**Category.** New in its form: experts by material band on the king-relative block of the first layer, one active per
-position, trained as base plus delta, in a top engine and with a measured gain. Mixtures of experts and phase
-specialisation exist in other fields, so the general idea is not.
+**Category.** New: experts by material band on the king-relative block of the first layer, one active per position,
+trained as a shared base plus per-band deltas, in a top engine and with a measured gain. To our knowledge Consilium is
+the first network of this architecture.
 
 ## 2. The PassedPawns input block
 
