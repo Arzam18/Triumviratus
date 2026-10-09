@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 43 entries, **8 are new**, **19 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 44 entries, **8 are new**, **20 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -85,6 +85,7 @@ experts of the network.
 | Policy network as a position signal (`PolicySeed`, `EntropyTM`, `PolicyEasyMove`, `PolicyRootLmr`) | Revisited | 3.6-3.8, August 2026 | −35.17, −16.7, −14.35, +1.36 ± 2.71 | closed |
 | `TalStyle`, root switch to verified sacrifices | Revisited | 8.0 dev | −40 ± 18 (388) | removed |
 | Move-ordering rank by mask and popcount, 16 moves at a time | Revisited | 8.0 | −0.70% cycles per node (AVX-512) | adopted |
+| Causal reduction (`CausalRed`): more reduction for quiet moves away from the squares of a sibling's refutation | Revisited | 8.0 | not yet measured | implemented, off; game test queued |
 | Policy network inside the alpha-beta search | Elsewhere first | 3.1 | −85, −30.56 ± 21.9, −46.89, −22.83 | closed |
 | `DiverseSMP`, LMR bias per helper thread | Elsewhere first (Reckless) | 3.5, 6.0 | +4.91 ± 7.97 at 8 threads (1,700) | in 6.0 and 7.0 |
 | TMv2 multiplicative time manager | Elsewhere first (Alexandria, Caissa) | 6.0 | +23.8 ± 18.2 at 20+0.2 (380) | in 6.0 and 7.0 |
@@ -286,6 +287,15 @@ These entries take a known idea and change its form, its scale or its use. Those
   games are unaffected.
 - **Move-ordering rank by mask and popcount, 8.0.** The rank of each move is found by comparing it with 16 others at a
   time and counting with a popcount (−0.70% cycles per node on AVX-512). Stockfish uses a vectorised insertion sort.
+
+- **Causal reduction (`CausalRed`), 8.0, the author's idea of June 2026, rewritten on the current search.** When one of
+  our quiet moves fails low, the opponent's move that refutes it (the beta cutoff in the child) marks the squares where
+  the problem lies: where the refuting piece comes from, where it lands and what it attacks from there. Later quiet
+  siblings that neither start from nor land on those squares usually change nothing against that refutation, and are
+  reduced by an extra fraction of a ply; they are never pruned, and a reduced search that beats alpha is repeated at
+  full depth as usual. The closest precedent is Stockfish 1.x-2.x, which pruned moves not connected to the threat
+  found by the null move; here the threat is the actual refutation of a sibling and the moves are reduced, not
+  pruned. Implemented and off; the game test is queued.
 
 Those tried and closed, each a variant of a known idea: `CorrUncert` (the
 disagreement between correction tables as uncertainty; Stockfish uses the size of the total correction),
