@@ -38,6 +38,7 @@
 [Ordering knowledge](#34-move-ordering-with-chess-knowledge-8-october-2026) ·
 [Universal executable](#35-one-executable-for-every-cpu-89-october-2026) ·
 [Speed measured again](#36-every-speed-decision-of-68-october-measured-again-9-october-2026) ·
+[Experimental grafts](#37-experimental-grafts-on-consilium-910-october-2026) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -1483,6 +1484,24 @@ about 0.7% more cycles per node in games. The search is now compiled twice, a ga
 is a compile-time constant and an analysis copy, chosen once at the root. The bench is unchanged in games (430151)
 and in analysis (632173, and for each optional component), and the final build runs 0.48% fewer cycles per node than
 the separate build of the starting source, in the middlegame and in endgames.
+
+## 37. Experimental grafts on Consilium (9–10 October 2026)
+
+The residual analysis of 9 October ([FUTURE_DIRECTIONS.md](FUTURE_DIRECTIONS.md), P1) showed where the static
+evaluation of Consilium differs, in the same direction, from the engine's deep search: passed pawns in endgames
+(unstoppable and connected ones most of all), open files next to the own king, space, blocked pawns. Four small
+input blocks that depend only on pawns, kings and queens were written for those concepts (PassedRel, also called
+PassedPawns v2, KingFiles, Space, LockedPawns) and grafted onto the finished network with zero weights and the rest
+frozen, the method that gave Consilium its PassedPawns block; two reduced forms (KingFilesQ, Space24) followed from
+the cost analysis. In the engine they share one mechanism: entries computed once per move and only when a move can
+change them, the difference kept outside the move-stack state, pawn-only blocks inside the pawn-structure cache, and
+an exact refolding of PassedRel into PassedPawns that removes part of its rows. Everything is verified with `nnperft`
+(0 differences over 112.8 million evaluations with random weights, with a build that checks every entry list); that
+check found and fixed one error before any game. The cost of PassedRel in the middlegame fell from +3.7% cycles per
+node in the first version to +1.8% (endgame figure still to be taken), about 0.08 plies at 8+0.08. With the first learning rate the block learned little and lost Elo
+(−16 ± 10 at 10+0.1); with a ten times higher learning rate its weights grew threefold and the loss disappeared
+(+1.2 ± 4.8 at fixed nodes on endgame openings, not settled). Details, costs and the full record:
+[docs/moe_experimental_grafts.md](docs/moe_experimental_grafts.md).
 
 ## Appendix: every search idea tested since the restructured search
 
