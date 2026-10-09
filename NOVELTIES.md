@@ -294,15 +294,14 @@ to verified sacrifices was not found), and the uses of the policy network as a s
 
 Most of the speed of 8.0 comes from engineering on techniques that other engines also use, and we say so. Checked
 against the sources: the early prefetch of the child's hash entry from an estimated key, the prefetch of the
-correction entries, the AVX-512 compaction of the move list and the large pages for the search state are all in
-Stockfish 19; keeping the minor and major piece keys incrementally follows Stockfish; finding the next attacker of the
+correction entries, the AVX-512 compaction of the move list, the vectorised slider attacks and the large pages for the
+search state are all in Stockfish; keeping the minor and major piece keys incrementally follows Stockfish; finding the next attacker of the
 static exchange evaluation from a bitboard is what Reckless does. These are **done elsewhere first**, written in our
 code and measured one by one.
 
 What is ours in this area is listed in [section 7](#7-known-ideas-revisited-in-a-different-form): the refresh cache of
 the pawn blocks, the universal build from one unit per source file, the move-ordering rank by popcount, and the
-analysis mode compiled as a second copy. Some further patches (vectorised slider attacks, the compaction of the
-threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
+analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
 by line against every engine and are listed among the [open checks](#10-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
 [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §36.
@@ -346,7 +345,7 @@ King), and have no new entries.
    are not indexed. Every statement of priority here is meant to our knowledge; corrections are welcome.
 2. **Knight outposts and the bishop-pair capture in move ordering.** Nine engines and the web were checked; Obsidian,
    Koivisto, Ethereal and recent Berserk were not read line by line.
-3. **Speed patches.** Vectorised slider attacks, threat-feature compaction, the passed-pawn fill and the threat-row
-   prefetch, to be compared with every engine before any claim.
+3. **Speed patches.** Threat-feature compaction, the passed-pawn fill and the threat-row prefetch, to be compared with
+   every engine before any claim.
 4. **Surprise rule in closed engines.** It may exist in commercial or closed engines that cannot be read.
 5. **Zero-initialised graft.** Other developers probably use it without describing it.
