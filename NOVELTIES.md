@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 43 entries, **8 are new**, **20 are known ideas revisited in a different form**, and **15 were done elsewhere
+Of 43 entries, **8 are new**, **19 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -59,7 +59,7 @@ experts of the network.
 |---|---|---|---|---|
 | Consilium: four experts by material on the king-relative input block | New in its form | 8.0 | 8.0 against 7.0 **+27.3 ± 8.3** (15+0.15, 2,000 games), of which about +15 from the network with its tuning | adopted, the 8.0 network |
 | `PassedPawns` input block (96 inputs) | New | 6.0 | **+6.96 ± 6.56** (15+0.15, 2,596), network alone | in every network since 6.0 |
-| Correction history per expert (`CorrPhase`) | New | 8.0 | **+3.2 ± 3.8** (12+0.12, 8,634) | adopted |
+| Correction history per expert (`CorrPhase`) | New in its form | 8.0 | **+3.2 ± 3.8** (12+0.12, 8,634) | adopted |
 | Knight outposts in move ordering (`OutpostOrder`) | New | 8.0 | +0.21 ± 3.93 (10+0.1, 8,244) at a hand-set value | in the running SPSA |
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | in the running SPSA |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
@@ -76,7 +76,7 @@ experts of the network.
 | Zero-initialised graft of a new block on a finished network, base frozen | Revisited | 6.0 | `PassedPawns` +7 Elo in about 4 epochs | in use |
 | Analysis mode compiled as a second copy of the search | Revisited | 8.0 | more test positions solved; nothing changes in games | adopted |
 | Fine-tuning one expert at a time | Revisited | 8.0 | +0.7 ± 6.1 (15+0.15, 3,302) | not kept |
-| Material-key correction table | Revisited | 6.0 | +10.43 ± 5.57 at 10+0.1, −6.89 ± 9.01 at 20+0.2 | removed in 7.0 |
+| Material-key correction table | Elsewhere first (Caissa, Stockfish) | 6.0 | +10.43 ± 5.57 at 10+0.1, −6.89 ± 9.01 at 20+0.2 | removed in 7.0 |
 | `CorrUncert`, disagreement between correction tables as uncertainty | Revisited | 6.0 dev | −0.74 ± 7.29 (1,878) | closed |
 | `TroubleMaking`, the hardest move for the opponent in a lost position | Revisited | 6.0 dev | −2.67 ± 10.66 (910) | suspended |
 | `BrilliantSac`, extension of losing captures with high capture history | Revisited | 6.0 dev | +2.70 ± 7.25 (2,190); −17.83 ± 15.66 (390) | closed |
@@ -123,7 +123,11 @@ stacks and the output buckets of many engines select the output layers by piece 
 layer are chosen by the king square, not by material; no engine with input buckets by material or phase was found.
 Stockfish 16.1 switched between two whole networks by material imbalance, which routes between networks rather than
 between experts inside one layer. Outside NNUE, M2CTS used phase experts with AlphaZero-style MCTS
-([arXiv 2401.16852](https://arxiv.org/abs/2401.16852)). Mark Tang had tried an unpublished network of phase experts
+([arXiv 2401.16852](https://arxiv.org/abs/2401.16852)), and a study of game-phase-specific models in AlphaZero reports
+gains from separate networks per phase ([Helfenstein et al.](https://ml-research.github.io/papers/helfenstein2024game.pdf)).
+King input buckets are themselves described as a form of mixture of experts
+([chessprogramming, NNUE](https://chessprogramming.org/NNUE)); the experts of Consilium are chosen by material
+instead of by the king square. Mark Tang had tried an unpublished network of phase experts
 in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](NETWORKS.md)).
 
 **Category.** New in its form: experts by material band on the king-relative block of the first layer, one active per
@@ -159,10 +163,13 @@ corrections remove 58.8% of the evaluation error with `CorrPhase` against 57.3% 
 endgames with nine pieces or fewer.
 
 **Compared with others.** Correction history began in Caissa (October 2023) and is indexed today by pawn structure,
-minor pieces, non-pawn material and previous moves. Reckless splits its tables by the fifty-move counter. No engine
-was found that splits the corrections by material band or by network expert.
+minor pieces, non-pawn material and previous moves. Caissa and Stockfish also keep a table keyed by the material
+configuration ([Stockfish PR #5556](https://github.com/official-stockfish/Stockfish/pull/5556)), a correction for each
+material signature on its own. Reckless splits its tables by the fifty-move counter. No engine was found that splits
+the pawn and minor-piece corrections by material band, so that each structure is corrected separately for each
+expert of the network.
 
-**Category.** New, and tied to Consilium.
+**Category.** New in its form, and tied to Consilium; corrections conditioned on material alone are known.
 
 ## 4. Move ordering with chess knowledge
 
@@ -281,7 +288,7 @@ These entries take a known idea and change its form, its scale or its use. Those
 - **Move-ordering rank by mask and popcount, 8.0.** The rank of each move is found by comparing it with 16 others at a
   time and counting with a popcount (−0.70% cycles per node on AVX-512). Stockfish uses a vectorised insertion sort.
 
-Those tried and closed, each a variant of a known idea: the material-key correction table, `CorrUncert` (the
+Those tried and closed, each a variant of a known idea: `CorrUncert` (the
 disagreement between correction tables as uncertainty; Stockfish uses the size of the total correction),
 `TroubleMaking` (in a lost position, the move that cost the search almost as many nodes as the best, hence hard to
 refute; self-play cannot measure it, because a copy of the engine finds the refutation as easily as it does),
@@ -331,6 +338,7 @@ priority.
 - **`PawnPair`**, the idea of Jonathan Hallström for Pawnocchio, later adopted by Stockfish as `PP_3Wide`.
 - **`PasserGuard` and `PasserLmr`**, in Stockfish 8 as the exemption of advanced pawn pushes.
 - **Fifty-move bands** in the hash key and in the corrections, from Reckless.
+- **Material-key correction table** (6.0, removed in 7.0), from Caissa, also in Stockfish since 2024.
 - **Deterministic profile training**, as Stockfish trains its PGO with the fixed-depth bench.
 - **The printed scale** (+1.00 = 50% win), as Stockfish since 15.1.
 - **`rubicon-v1`**, the first network trained by the project (4.2), on the official recipes and trainer.
