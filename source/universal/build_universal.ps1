@@ -133,9 +133,14 @@ function Start-Variant($n, $objOut, $mode, $as, $profdata) {
     $a += @("$U\variant.cpp", "/Fo$objOut")
     # Start-Process unisce gli argomenti con spazi senza virgolette: quelli con spazi (percorsi) vanno quotati qui.
     $a = $a | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }
-    Start-Process -FilePath $CXX -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput "$objOut.out" `
-                  -RedirectStandardError "$objOut.err"
+    $p = Start-Process -FilePath $CXX -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput "$objOut.out" `
+                       -RedirectStandardError "$objOut.err"
+    Keep-Handle $p
 }
+# PowerShell 5.1: con -NoNewWindow il processo restituito non tiene un handle, e se finisce prima che qualcuno lo apra il
+# codice di uscita va perso (ExitCode vuoto, letto come errore da Wait-All). Successo sul Ryzen 8845HS il 09/10/2026:
+# le cinque compilazioni finivano prima che Wait-All arrivasse ad aspettarle. Leggere Handle subito lo tiene aperto.
+function Keep-Handle($p) { $null = $p.Handle; $p }
 function Wait-All($procs, $what) {
     foreach ($p in $procs) { $p.WaitForExit() }
     foreach ($p in $procs) { if ($p.ExitCode -ne 0) { Fail "$what fallita (codice $($p.ExitCode)): vedi i file .err in $OBJ" } }
@@ -164,7 +169,7 @@ Push-Location $U; & $RC /FO "$OBJ\triumv.res" triumv.rc; $rcOk = $LASTEXITCODE; 
 if ($rcOk -ne 0) { Fail "risorse (triumv.rc)" }
 
 # --- PGO ----------------------------------------------------------------------------------------------------------
-$prof = @{}
+$profs = @{}
 if (-not $NoPgo) {
     $train = @{}
     foreach ($n in 1..5) {
@@ -179,9 +184,9 @@ if (-not $NoPgo) {
     $ps = foreach ($n in $train.Keys) {
         Remove-Item -Recurse -Force "$PROF\v$n" -ErrorAction SilentlyContinue; New-Item -ItemType Directory "$PROF\v$n" | Out-Null
         $env:LLVM_PROFILE_FILE = "$PROF\v$n\p_%p.profraw"
-        Start-Process -FilePath $py -ArgumentList @("`"$U\pgo_train_det.py`"", "`"$OBJ\g$n.exe`"", '0', "`"$U\pgo_positions.epd`"",
+        Keep-Handle (Start-Process -FilePath $py -ArgumentList @("`"$U\pgo_train_det.py`"", "`"$OBJ\g$n.exe`"", '0', "`"$U\pgo_positions.epd`"",
                       '200', '--workers', "$([Math]::Max(1, [int]($Workers / $train.Count)))") -NoNewWindow -PassThru `
-                      -WorkingDirectory $OBJ -RedirectStandardOutput "$OBJ\train$n.log" -RedirectStandardError "$OBJ\train$n.err"
+                      -WorkingDirectory $OBJ -RedirectStandardOutput "$OBJ\train$n.log" -RedirectStandardError "$OBJ\train$n.err")
     }
     Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
     Wait-All $ps "training"
@@ -190,16 +195,16 @@ if (-not $NoPgo) {
         if (-not $raw.Count) { Fail "nessun profilo per la variante $n" }
         & $PD merge -o "$PROF\v$n.profdata" @($raw | ForEach-Object FullName)
         if ($LASTEXITCODE -ne 0) { Fail "merge del profilo $n" }
-        $prof[$n] = "$PROF\v$n.profdata"
+        $profs[$n] = "$PROF\v$n.profdata"
     }
-    Say "profili: $(($prof.Keys | Sort-Object | ForEach-Object { $names[$_] }) -join ', ')"
+    Say "profili: $(($profs.Keys | Sort-Object | ForEach-Object { $names[$_] }) -join ', ')"
 }
 
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
 $ps = foreach ($n in 1..5) {
-    if ($prof.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $prof[$n] }
+    if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
     else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
 }
 Wait-All $ps "build ottimizzata"
@@ -213,7 +218,7 @@ foreach ($n in 1..5) {
     if (-not $can.Contains("$n")) { $ver += "{0,-12} non eseguibile su questa CPU" -f $names[$n]; continue }
     $b = Bench $exe $names[$n]
     $tag = if ($b -eq $ExpectedBench) { "ok" } else { $ok = $false; "BENCH DIVERSO (atteso $ExpectedBench)" }
-    $pg = if ($prof.ContainsKey($n)) { "PGO" } else { "senza PGO" }
+    $pg = if ($profs.ContainsKey($n)) { "PGO" } else { "senza PGO" }
     $ver += "{0,-12} bench {1,-8} {2,-10} {3}" -f $names[$n], $b, $pg, $tag
 }
 $auto = "uci`nquit`n" | & $exe 2>&1 | Select-String "^id name" | Select-Object -First 1
