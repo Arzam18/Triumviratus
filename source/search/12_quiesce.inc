@@ -88,15 +88,25 @@ static inline void hash_soften(U64 key) {
   e->kw = w ^ nd;
 }
 
+// ProgressFade (08/10/2026, audit X3, spenta): smorzamento in piu' della valutazione oltre ProgressFrom semimosse del
+// contatore delle 50 mosse, applicato DOPO la lettura (in hash resta il valore senza smorzamento, come per quello della
+// rete), tetto a meta' valore. Chi e' avanti preferisce le mosse che azzerano il contatore (pedoni, catture).
+static inline int progress_fade(int v, int fifty) {
+  if (!ProgressFade || fifty <= ProgressFrom)
+    return v;
+  const int k = std::min((fifty - ProgressFrom) * ProgressFade, 512);
+  return v - (int)((long long)v * k / 1024);
+}
+
 // Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
     raw = h.eval_raw;
-    return eval_refade(h.eval_raw, td.fifty);
+    return progress_fade(eval_refade(h.eval_raw, td.fifty), td.fifty);
   }
   const int v = static_evaluate(td);
   raw = eval_unfade(v, td.fifty);
-  return v;
+  return progress_fade(v, td.fifty);
 }
 
 // Idea 3 (Contempt, 04/10/2026): la patta vale -c per il colore al tratto alla radice e +c per l'avversario.
@@ -423,7 +433,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   } else {
     const int signal = corr_signal(td, f);
     const int plain = node_eval(td, h, eval_raw);
-    f->static_eval = best = corrected_eval(plain, corr_eval_term(td, signal + corr_signal_extra(td)));
+    f->static_eval = best = corrected_eval(plain, signal + corr_signal_extra(td));
     if (h.hit && val_known(h.value) && !val_decided(h.value) && bound_covers(h.bound, h.value > best))
       best = h.value;
     if (best >= beta) {
@@ -449,22 +459,12 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   // emessa per prima: riproporla la cercava due volte nello stesso nodo (05/10/2026, audit dei porting).
   const int qs_push = QsPasserPush && !in_check ? qs_passer_push(td) : 0;
   bool push_left = qs_push != 0 && qs_push != q.hash_move;
-  // QsQuietHash (nostra, 05/10/2026, da un'idea di Stormphrax e Integral): nei nodi non-PV la mossa hash QUIETA con
-  // limite inferiore o esatto si cerca come una tattica. La hash dice che quella mossa ha tenuto un valore qui: in
-  // quiescenza le quiete non si vedono e l'orizzonte la perderebbe (lo stesso buco di QsPasserPush, ma per ogni
-  // quieta che la ricerca ha gia' giudicato buona). La coda la restituisce gia' per prima; passa dalla stessa
-  // futility e dalla stessa SEE delle catture. Nota: chiedere anche che il limite salvato superi alpha non serve a
-  // nulla qui (05/10/2026, verificato: 0 alberi diversi su 80): con la finestra nulla dei nodi non-PV un limite
-  // inferiore sopra alpha e' >= beta e ha gia' tagliato all'ingresso; quelli che restano sono tutti <= alpha.
-  const bool quiet_hash = QsQuietHash && !pv && !in_check && h.move && !is_tactical(h.move) &&
-                          (h.bound == BOUND_LOW || h.bound == BOUND_EXACT);
-
   while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
     if (!legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
     const bool push = qs_push && m == qs_push;
-    const bool tact = is_tactical(m) || push || (quiet_hash && m == h.move);
+    const bool tact = is_tactical(m) || push;
     count++;
 
     if (!val_lost(best)) {

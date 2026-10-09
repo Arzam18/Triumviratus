@@ -304,9 +304,11 @@ enum Rank : u8 {
 // Cio' che una mossa cambia per la rete (07/10/2026, scacchiera unica v2): i record li scrive la make del motore, nella
 // sua numerazione (case a8 = 0, codici 0..11; ../nn_dirty.h). Le feature li leggono senza conversioni: le loro tabelle
 // degli indici sono costruite per quella numerazione e danno gli stessi indici di prima.
-using DirtyPiece   = ::NnDirtyPiece;
-using DirtyThreats = ::NnDirtyThreats;
-using DirtyPawns   = ::NnDirtyPawns;
+// Senza "::": nel binario universale tutto il motore sta nel namespace della variante (universal/variant.cpp) e i
+// tipi non sono piu' globali. Nelle build normali il significato e' lo stesso.
+using DirtyPiece   = NnDirtyPiece;
+using DirtyThreats = NnDirtyThreats;
+using DirtyPawns   = NnDirtyPawns;
 
 // Lettura di una tupla di minaccia (layout in ../nn_dirty.h).
 struct DirtyThreat {

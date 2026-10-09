@@ -198,9 +198,17 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.step = QS_HASH;
 }
 
+// PromoOrder e BishopPairCapt (08/10/2026, spente = albero invariato): la promozione a donna e la cattura di un
+// alfiere della coppia avversaria salgono nell'ordine. Il punteggio entra anche nella soglia SEE delle tattiche
+// vincenti (-score / GoodCaptSeeDiv), come per ogni altro termine.
 static inline int score_tactic(const ThreadData &td, int m) {
   const int vk = victim_kind(td, m);
-  return td.capt_hist[move_piece(m)][move_to(m)][vk] + 7 * unit_value[vk];
+  int s = td.capt_hist[move_piece(m)][move_to(m)][vk] + 7 * unit_value[vk];
+  if (PromoOrder && promo_kind(m) == Q)
+    s += PromoOrder;
+  if (BishopPairCapt && vk == B && count_bits(td.bitboards[td.side == white ? b : B]) >= 2)
+    s += BishopPairCapt;
+  return s;
 }
 
 // Punteggi delle quiete: statistiche (pesate), bonus agli scacchi diretti che non perdono materiale, e la mossa
@@ -258,6 +266,71 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       shield = king_attacks[ksq] & td.bitboards[us == white ? P : p];
   }
 
+  // Avamposti (08/10/2026, utente): il cavallo che va su una casa della meta' avversaria (traverse 4-6 dal nostro
+  // lato), difesa da un nostro pedone e che nessun pedone avversario potra' mai attaccare (nessun pedone nemico davanti
+  // sulle colonne vicine), si prova prima. OutpostSafe: 1 = in piu' l'avversario non ha alfieri del colore della casa,
+  // 2 = in piu' non ha cavalli (la casa non si puo' contestare con un pezzo minore). Numerazione a8 = 0: il bianco
+  // avanza verso indici piu' bassi.
+  // Case davanti ai pedoni avversari, nella loro direzione di marcia (front), e case che quei pedoni potranno
+  // attaccare avanzando (span). Un nostro pedone fuori da entrambe e' passato.
+  U64 front = 0, span = 0;
+  if (OutpostOrder || OutpostOrderB || PassedPush) {
+    front = epawns;
+    if (them == white) { front |= front >> 8; front |= front >> 16; front |= front >> 32; }
+    else               { front |= front << 8; front |= front << 16; front |= front << 32; }
+    span = them == white ? ((front >> 7) & not_a_file) | ((front >> 9) & not_h_file)
+                         : ((front << 7) & not_h_file) | ((front << 9) & not_a_file);
+  }
+  U64 outpost = 0;
+  if (OutpostOrder || OutpostOrderB) {
+    const U64 ours_p = td.bitboards[P + us_off];
+    const U64 guarded = us == white ? ((ours_p >> 7) & not_a_file) | ((ours_p >> 9) & not_h_file)
+                                    : ((ours_p << 7) & not_h_file) | ((ours_p << 9) & not_a_file);
+    const U64 rows = us == white ? 0x000000FFFFFF0000ULL : 0x0000FFFFFF000000ULL;   // traverse 4-6 / 5-3
+    outpost = rows & guarded & ~span;
+    if (OutpostSafe >= 1) {
+      constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // a8 (indice 0) e' chiara
+      const U64 eb = td.bitboards[B + eoff];
+      if (eb & light)  outpost &= ~light;
+      if (eb & ~light) outpost &= light;
+    }
+    if (OutpostSafe >= 2 && td.bitboards[N + eoff])
+      outpost = 0;
+  }
+
+  // Spinta del passato (08/10/2026): case d'arrivo dalla traversa relativa PassedPushRank alla settima dove un nostro
+  // pedone e' passato. La SEE (>= 0) si chiede solo alle mosse di pedone che ci arrivano.
+  U64 passed_to = 0;
+  if (PassedPush) {
+    U64 rows = 0;
+    for (int rr = PassedPushRank; rr <= 7; rr++)
+      rows |= 0xFFULL << (8 * (us == white ? 8 - rr : rr - 1));
+    passed_to = rows & ~(front | span);
+  }
+
+  // Attacchi da casa sicura (08/10/2026; l'idea e' in Reckless, la regola e' nostra): per ogni tipo di pezzo, le case
+  // non attaccate dall'avversario da cui quel pezzo attaccherebbe un bersaglio. Bersagli: pezzi nemici (non pedoni,
+  // non il re) di classe piu' alta (pedone < cavallo = alfiere < torre < donna), o della stessa classe o piu' bassa
+  // ma non difesi. Le case si trovano al contrario, dagli attacchi del bersaglio (pedone: quelli di un pedone nemico).
+  U64 attack_to[6] = {0, 0, 0, 0, 0, 0};
+  if (AttackOrder || AttackOrderQ) {
+    const U64 safe = ~q.opp_att;
+    const U64 minors = td.bitboards[N + eoff] | td.bitboards[B + eoff];
+    const U64 er = td.bitboards[R + eoff], eq = td.bitboards[Q + eoff];
+    if (AttackOrder) {
+      for (U64 t = minors | er | eq; t; pop_lsb_bb(t)) attack_to[P] |= pawn_attacks[them][get_ls1b_index(t)];
+      for (U64 t = er | eq | (minors & safe); t; pop_lsb_bb(t)) attack_to[N] |= knight_attacks[get_ls1b_index(t)];
+      for (U64 t = er | eq | (minors & safe); t; pop_lsb_bb(t)) attack_to[B] |= get_bishop_attacks(get_ls1b_index(t), occ);
+      for (U64 t = eq | ((minors | er) & safe); t; pop_lsb_bb(t)) attack_to[R] |= get_rook_attacks(get_ls1b_index(t), occ);
+    }
+    if (AttackOrderQ)
+      for (U64 t = (minors | er) & safe; t; pop_lsb_bb(t)) attack_to[Q] |= get_queen_attacks(get_ls1b_index(t), occ);
+    // AttackSafeSee 0: casa d'arrivo non attaccata da nessun pezzo nemico. 1: non attaccata da pezzi di valore minore
+    // (lesser[]), e lo scambio sulla casa si controlla mossa per mossa con la SEE (sotto).
+    for (int k = P; k <= Q; k++) attack_to[k] &= AttackSafeSee ? ~lesser[k] : safe;
+  }
+  const int attack_bonus[6] = {AttackOrder, AttackOrder, AttackOrder, AttackOrder, AttackOrderQ, 0};
+
   const PieceToRow &c1 = *f[-1].cont_hist, &c2 = *f[-2].cont_hist, &c3 = *f[-3].cont_hist,
                    &c4 = *f[-4].cont_hist, &c6 = *f[-6].cont_hist;
   const PieceToRow &prow = pawn_row(td);
@@ -276,6 +349,14 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += 8 * td.low_ply_hist[ply][key] / (1 + ply);
     if (shield >> from & 1)
       s -= KingShield;
+    if (pt == N && (outpost >> to & 1))
+      s += OutpostOrder;
+    if (pt == B && (outpost >> to & 1))
+      s += OutpostOrderB;
+    if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
+      s += attack_bonus[pt];
+    if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
+      s += PassedPush;
     sc[i] = s;
   }
 }

@@ -51,6 +51,20 @@
 // decisione dell'utente prima delle 20.000 partite. Bench 430151 (con HashDamp=0 torna 309067). Albero a profondita'
 // fissa (tree_depth.py, tm13): mediogioco x0,94/0,92/0,91/1,02 alle prof. 12/14/16/18, finali x0,87/0,92/1,02/0,99:
 // nessuna crescita con la profondita'.
+// PULIZIA DEL 08/10/2026: ritirate le opzioni chiuse (spente, albero identico, bench invariato 430151). Il loro codice
+// e' nel sorgente pubblicato su GitHub fino al commit bf1a29e (cartella source/) e in
+// ../_backup/Triumviratus_8.0_pre_pulizia_2026-10-08, se un giorno si vogliono riprovare:
+//   RazorAllLin (razoring lineare nei nodi all; 600 a 10+0.1 -2,32 +- 2,52 / 20.032), NmpPriorFH (soglia della nulla
+//   piu' bassa dopo nulle riuscite fra i fratelli; 48 a 15+0.15 +0,46 +- 2,66 / 17.308), FhRecovery (profondita' che
+//   risale per gradi dopo un fail-high alla radice; -1,82 +- 4,54 / 5.932), RfpOppCapture (sconto "improving" della
+//   RFP ridotto se l'avversario ha una cattura facile; 512 a 15+0.15 -3,47 +- 8,37 / 1.704), NmpOppCapture (niente
+//   nulla in quel caso; -0,34 +- 4,04 / 8.164), RootRedCap (tetto alla riduzione delle mosse di radice; 1024 -5,80
+//   +- 5,93 / ~1.000), QsQuietHash (mossa hash quieta cercata in quiescenza; -1,05 +- 3,92), CorrFade (correzione
+//   smorzata col contatore delle 50 mosse; 1 a 10+0.1 sui finali -2,70 +- 4,27 / 2.572), TransitionExt (estensione
+//   della cattura che lascia solo pedoni; -18,2 +- 16,4 / 402), TTMoveRefresh (mossa nuova anche nell'entry piu'
+//   profonda conservata; -0,65 +- 2,77 / 17.574), TmExpectFloor (pavimento di profondita' dopo la risposta prevista;
+//   -5,5 +- 13,4 / 696 col tetto massimo, +0,6 +- 10,8 / 1.090 col tetto ottimale). Ritirate anche le prove di
+//   prefetch -DTRIUMV_PREFETCH_THR_PSQT e -DTRIUMV_REFRESH_PREFETCH di nnue_accumulator.cpp (misurate e perse).
 // Riscrittura del 04/10/2026: i margini della ricerca sono espressi in unita' proprie (pedone ~ 356); la valutazione
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
@@ -97,17 +111,6 @@
   P(GoodCaptSeeDiv, 18, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 442, 100, 1200)                                                                             \
-  /* Idee dai commit di Stockfish dopo SF19 (07/10/2026), come opzioni spente (0 = albero invariato); i valori di  \
-     prova sono nostri, nelle nostre unita' (pedone ~356), da tarare con SPRT/SPSA:                              \
-     RazorAllLin: razoring lineare (margine RazorAllLin * prof.) solo nei nodi all, mai a caccia di matto;        \
-     NmpPriorFH: la soglia della mossa nulla scende di tanto per ogni mossa nulla gia' riuscita fra i fratelli;   \
-     FhRecovery: dopo un fail-high alla radice la profondita' risale per gradi nelle iterazioni seguenti.         \
-     RazorAllLin=600 a 10+0.1: H0, -2,32 +- 2,52 su 20.032 partite (07/10; socket 0 +0,7, socket 1 -5,4).        \
-     NmpPriorFH=48 a 15+0.15: neutra, +0,46 +- 2,66 su 17.308 partite (07/10; socket 0 -1,2, socket 1 +2,1).     \
-     FhRecovery=1 a 15+0.15: chiusa, -1,82 +- 4,54 su 5.932 partite (07/10; socket 0 -3,4, socket 1 -0,1). */      \
-  P(RazorAllLin, 0, 0, 2000)                                                                              \
-  P(NmpPriorFH, 0, 0, 200)                                                                                \
-  P(FhRecovery, 0, 0, 1)                                                                                  \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -117,8 +120,6 @@
   P(RfpOppWorse, 335, 0, 1500)                                                                            \
   P(RfpCorrDiv, 198435, 50000, 800000)                                                                    \
   P(RfpBetaWeight, 712, 0, 1024)                                                                          \
-  P(RfpOppCapture, 0, 0, 1024)           /* nostra (05/10/2026): quota (/1024) dello sconto "improving" della */ \
-  P(NmpOppCapture, 0, 0, 1)              /* RFP persa se l'avversario ha una cattura facile; 1 = niente nulla */ \
   P(NmpDepthMul, 14, 0, 40)                                                                               \
   P(NmpImproving, 47, 0, 150)                                                                             \
   P(NmpBase, 314, 0, 800)                                                                                 \
@@ -156,6 +157,8 @@
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
   P(LdseMax, 1, 0, 8)                    /* BAKE 05/10/2026 (era 0, vedi in testa): tetto alle estensioni */ \
                                          /* Ldse lungo una linea (0 = nessun tetto)                      */ \
+  P(NegExtMax, 0, 0, 8)                  /* 08/10/2026: tetto per linea alle estensioni da riduzione negativa */ \
+                                         /* (fino a +2 ply), come LdseMax; 0 = nessun tetto (albero di prima) */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
   P(LmrDeltaMul, 577, 0, 1500)                                                                            \
@@ -170,8 +173,6 @@
   P(LmrOffset, 697, -1500, 2500)                                                                          \
   P(LmrMoveCount, 60, 0, 300)                                                                             \
   P(LmrCorrDiv, 26310, 5000, 100000)                                                                      \
-  P(RootRedCap, -1, -1, 8192)            /* 06/10/2026 (rapporto O_RE_AL_CENTRO): tetto alla riduzione delle */ \
-                                         /* mosse di radice dopo la prima, /1024 di ply; -1 = nessun tetto  */ \
   P(LmrCutNode, 4093, 1000, 7000)                                                                         \
   P(LmrCutNoTT, 933, 0, 3000)                                                                             \
   P(LmrTTCapture, 1079, 0, 3000)                                                                          \
@@ -187,8 +188,6 @@
   /* quiescenza */                                                                                        \
   P(QsFutMargin, 285, 100, 600)                                                                           \
   P(QsSeeMargin, 80, 0, 300)                                                                              \
-  P(QsQuietHash, 0, 0, 1)                /* nostra (05/10/2026): nei nodi non-PV della quiescenza la mossa */ \
-                                         /* hash quieta con limite inferiore o esatto si cerca come tattica */ \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
   P(CorrMinorW, 10827, 0, 40000)                                                                          \
@@ -211,9 +210,7 @@
                                          /* 4: niente da valori decisi; 8: nodi PV esatti in ogni direzione   */ \
                                          /* 06/10 a 12+0.12: =1 non cambia il bench (saltata); =2 -1,64 +-    */ \
                                          /* 7,80 / 2.114 (spenta); 4 e 8 non ancora provati                  */ \
-  P(CorrFade, 0, 0, 3)                   /* 1: correzione smorzata col contatore delle 50 mosse come l'eval; */ \
-                                         /* 2: bonus riportato in unita' non smorzate                       */ \
-  P(CorrExpertW, 0, 0, 40000)            /* tabella dei pedoni per esperto che si AGGIUNGE alla condivisa (0 = */ \
+  P(CorrExpertW, 0, 0, 40000)          /* tabella dei pedoni per esperto che si AGGIUNGE alla condivisa (0 = */ \
                                          /* spenta); entra solo nella valutazione, non nella selettivita'       */ \
   P(CorrExpertUpd, 128, 0, 400)          /* passo della tabella per esperto, /128 */                      \
   P(CorrExpertBands, 4, 2, 4)            /* 4 = un esperto per fascia; 2 = due fasce (<=15 / >=16 pezzi) */ \
@@ -228,9 +225,46 @@
   P(CorrBonusMaxLo, 256, 64, 600)        /* tetto del bonus negativo */                                   \
   P(CorrSingMul, 177, 0, 600)            /* bonus del multi-cut della singolare per profondita', /1024 */ \
   P(SingCorrDiv, 198368, 50000, 800000)  /* |signal| nei margini doppio/triplo della singolare */         \
+  /* 08/10/2026: il termine della continuazione dopo la mossa nulla, prima la costante 64049, e' una leva. Serve allo \
+     SPSA CORR1: aggiungendo CorrCont6W la correzione totale cresce (da noi entra anche in RFP, LMR e nei margini     \
+     della singolare), quindi i pesi vanno riequilibrati insieme e non uno alla volta come nella prova del 06/10.     \
+     Il riequilibrio con -6 e' anche nel lavoro di Stockfish dopo la 19; i valori li cerca il nostro SPSA. */          \
+  P(CorrNoMoveW, 64049, 0, 200000)       /* termine della continuazione dopo la mossa nulla */            \
   /* tecniche nostre sopra la ricerca nuova (04/10/2026), spente = albero invariato */                    \
   P(KingShield, 0, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
+  P(OutpostOrder, 0, 0, 40000)           /* 08/10/2026 (utente): bonus d'ordinamento al cavallo che va su un */ \
+                                         /* avamposto (difeso da un pedone, mai attaccabile da pedoni) */     \
+  P(OutpostSafe, 1, 0, 2)                /* 1: anche senza alfieri avversari del colore della casa; 2: e senza cavalli */ \
+  /* Ordinamento con conoscenza scacchistica (08/10/2026, utente, dopo gli avamposti), SPENTE di default. AttackOrder \
+     e AttackOrderQ: l'idea di premiare la quieta che attacca da una casa sicura viene da Reckless (SPRT pubblicati   \
+     +3,7 e +5,7 a 40+0.4); qui con una regola sola: bersaglio = pezzo nemico (non pedone, non re) piu' pesante o non \
+     difeso. A luglio, nella ricerca della 7.0, -9,7 +- 10,4 su 1.290 partite: si riprova sulla ricerca nuova.        \
+     PassedPush (spinta del passato), OutpostOrderB (avamposto dell'alfiere), BishopPairCapt (cattura di un alfiere  \
+     della coppia) sono nostre; PromoOrder (promozione a donna avanti fra le tattiche) e' anche in Reckless. */         \
+  P(AttackOrder, 0, 0, 40000)            /* pedone, cavallo, alfiere, torre che attaccano un bersaglio da casa sicura */ \
+  P(AttackOrderQ, 0, 0, 40000)           /* ...la donna (bersagli non difesi)                               */ \
+  /* AttackSafeSee (08/10/2026 sera, verifica docs/audit_8.0/Y2_VERIFICA_ORDINAMENTO.md): con 0 la casa d'arrivo deve \
+     essere libera da ogni attacco nemico, ma il bersaglio vede quasi sempre la casa da cui lo si attacca (pedone su   \
+     alfiere, pezzo su donna: 40% degli attacchi a pezzi piu' pesanti mai premiati). Con 1 la casa non deve essere     \
+     attaccata da pezzi di valore minore e lo scambio sulla casa non deve perdere materiale (SEE >= 0). Lo SPRT del    \
+     trio (08/10, +0,39 +- 5,42) era con 0. */                                                                        \
+  P(AttackSafeSee, 1, 0, 1)                                                                               \
+  P(PassedPush, 0, 0, 40000)             /* pedone passato che avanza su una casa che non perde materiale  */ \
+  P(PassedPushRank, 6, 4, 7)             /* ...dalla traversa (relativa) PassedPushRank in su              */ \
+  P(OutpostOrderB, 0, 0, 40000)          /* alfiere su un avamposto (stessa maschera dei cavalli)          */ \
+  P(PromoOrder, 0, 0, 40000)             /* promozione a donna, in piu' nel punteggio delle tattiche        */ \
+  P(BishopPairCapt, 0, 0, 4000)          /* cattura di un alfiere quando l'avversario ha la coppia          */ \
+  /* Audit X3 (08/10/2026, docs/audit_8.0/X3_DOVE_PERDIAMO.md), SPENTE di default: a 0 albero e tempi identici.       \
+     Contro SF19 perdiamo i punti in difesa con poco orologio, soprattutto fra 10 e 23 pezzi. ProgressFade:          \
+     smorzamento in piu' col contatore delle 50 mosse oltre ProgressFrom (12_quiesce.inc). TmDefendMul: piu' tempo   \
+     quando la radice e' in difesa. TmEarlySave: quota ottimale ridotta con >= 24 pezzi (14_deepen.inc). */          \
+  P(ProgressFade, 0, 0, 64)              /* /1024 per semimossa oltre ProgressFrom (0 = spenta)            */ \
+  P(ProgressFrom, 10, 0, 80)             /* semimosse del contatore da cui parte lo smorzamento in piu'    */ \
+  P(TmDefendMul, 0, 0, 1000)             /* /1000: tempo della mossa x (1 + Mul) in difesa (0 = spenta)     */ \
+  P(TmDefendFrom, 178, 0, 2000)          /* radice <= -From (178 ~ mezzo pedone)                           */ \
+  P(TmDefendTo, 1424, 200, 4000)         /* ...e > -To (oltre e' persa: tempo normale)                     */ \
+  P(TmEarlySave, 0, 0, 500)              /* /1000: quota ottimale x (1 - Save) con >= 24 pezzi (0 = spenta) */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
@@ -249,6 +283,13 @@
   P(DeepLmr, 0, -2048, 2048)             /* /1024 di ply */                                               \
   P(DeepNmp, 0, -2048, 2048)             /* /1024 di ply */                                               \
   P(DeepSing, 0, -60, 60)                                                                                 \
+  /* 08/10/2026 sera (docs/audit_8.0/Y1_RICERCA_PROFONDA.md), per lo SPSA DEEP1: DeepRfp ora fuori dal tetto del      \
+     moltiplicatore (dentro, il tetto scattava da profondita' 9 e la leva agiva quasi solo in un verso); DeepNmp      \
+     continua (arrotondamento coi bit della chiave, una frazione |v|/1024 dei nodi cambia di un ply); tre leve nuove   \
+     sui termini che crescono di valore col tempo di riflessione. Tutte a 0 = albero invariato. */                    \
+  P(DeepHist, 0, -800, 800)              /* /1024: peso della storia nella profondita' ridotta della futility */   \
+  P(DeepTtPv, 0, -2048, 2048)            /* /1024 di ply: riduzione in meno nei nodi ttPv                 */      \
+  P(DeepExt, 0, -120, 120)               /* margini delle estensioni doppia e tripla della singolare      */      \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
@@ -256,12 +297,9 @@
                                          /* pedoni/minori separata per esperto                           */ \
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
-  P(TransitionExt, 0, 0, 1)              /* idea 13: la cattura che porta un lato a soli pedoni si estende */ \
   /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
-     uno per uno, ognuno con una forma alternativa. Spenti = comportamento di prima (albero identico); ognuno va      \
-     provato con uno SPRT. */                                                                                       \
-  P(TTMoveRefresh, 0, 0, 1)              /* 1: la mossa nuova entra anche quando si conserva l'entry piu' profonda */ \
-  P(SeePinned, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
+     uno per uno, ognuno con una forma alternativa. */                                                               \
+  P(SeePinned, 1, 0, 1)                 /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \
      (codice fisso in 12_quiesce.inc e 09_history.inc). SeePinned e CorrPhase restano opzioni: prove piu' sottili,  \
@@ -295,11 +333,6 @@
   P(TmExpectScale, 1000, 200, 1000)      /* /1000: fattore sul tempo della mossa (1000 = spenta) */          \
   P(TmExpectDepth, 2, 0, 8)              /* da profondita' della mossa prima - questo valore */             \
   P(TmExpectMargin, 70, 0, 400)          /* calo massimo della valutazione, unita' dei margini (70 ~ 20 cp) */ \
-  /* Pavimento (05/10/2026): misurato che dopo la risposta prevista la regola della stabilita' (time_red) ferma gia' \
-     la ricerca prestissimo, anche SOTTO la profondita' della mossa prima (0,5 s a prof. 16 dopo una ricerca a 19;    \
-     da hash vuota 3,2 s a 17 con un'altra mossa). Con TmExpectFloor = k > 0 non ci si ferma prima di prof. di prima \
-     - k (salvo il tempo massimo): con la hash calda quelle iterazioni costano poco. 0 = spento. */                   \
-  P(TmExpectFloor, 0, 0, 8)                                                                                \
   /* Sorpresa (nostra, 05/10/2026, idea dell'utente; lo spunto e' un'osservazione di Mark Tang su Stoofvlees, che    \
      risponde subito fra due mosse anche a TC lungo): il rovescio della risposta prevista. Se l'avversario NON gioca  \
      la risposta della nostra linea principale, la posizione e' meno chiara di quanto pensavamo: il tempo della      \
@@ -379,13 +412,11 @@ int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' cort
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
 // Le copie partono dal default del parametro (06/10/2026: con SeePinned bakata a 1 la copia restava a 0 finche' non
 // arrivava un setoption, e la SEE restava spenta: bench 222624 invece di 507070).
-bool      g_tt_move_refresh = TTMoveRefresh != 0; // copia di TTMoveRefresh per tt.h (vedi store_tt)
 int       g_see_pinned    = SeePinned;            // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
 bool      g_see_fix       = true;
 #else
-// Release (06/10/2026): queste copie sono costanti in tt.h e see.cpp; devono coincidere coi default dei parametri.
-static_assert(TTMoveRefresh == 0, "tt.h congela g_tt_move_refresh = false nella release");
+// Release (06/10/2026): questa copia e' una costante in see.cpp; deve coincidere col default del parametro.
 static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
 #endif
 bool      g_large_pages   = true;
@@ -416,7 +447,7 @@ bool set_search_param(const char* name, int value) {
   if (!strcmp(name, "EvalOff")) { g_eval_off = parse_bool_value(value); return true; }
 #ifndef TRIUMV_RELEASE
   // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
-  const auto sync = [] { g_tt_move_refresh = TTMoveRefresh != 0; g_see_pinned = SeePinned; };
+  const auto sync = [] { g_see_pinned = SeePinned; };
 #define TP_SET(pname, def, lo, hi)                                                                         \
   if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
   TRIUMV_SEARCH_PARAMS(TP_SET)

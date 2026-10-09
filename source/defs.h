@@ -23,6 +23,13 @@
 // build_date() lo riscrive in "2026-08-06", che si ordina.
 inline const char* build_date() {
   static char iso[11];
+#ifdef TRIUMV_RELEASE_DAY
+  // Data di rilascio fissata in build (es. -DTRIUMV_RELEASE_DAY=20261009) al posto della data di compilazione.
+  if (!iso[0])
+    snprintf(iso, sizeof iso, "%04d-%02d-%02d", TRIUMV_RELEASE_DAY / 10000, TRIUMV_RELEASE_DAY / 100 % 100,
+             TRIUMV_RELEASE_DAY % 100);
+  return iso;
+#endif
   if (!iso[0]) {
     const char* d    = __DATE__;   // via un puntatore: `__DATE__ + 7` su un literal
     const char* mons = "JanFebMarAprMayJunJulAugSepOctNovDec";

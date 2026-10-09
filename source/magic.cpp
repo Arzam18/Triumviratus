@@ -98,6 +98,49 @@ void init_sliders_attacks(int bishop)
     }
 }
 
+#if defined(USE_AVX2) && !defined(TRIUMV_NO_DUALHQ)
+// P4 (08/10/2026, velocita', stessi attacchi): la ricerca calcola gli attacchi dei pezzi lunghi con la hyperbola
+// quintessence vettoriale della rete (DualMagic, nnue/attacks.h: alfiere e torre insieme, maschere di 64 byte per casa
+// e una tabella da 2 KB per le traverse) invece che con le tabelle PEXT (2,25 MB, una lettura a caso per attacco). Il
+// calcolo usa solo la geometria dei bit, quindi vale con la nostra numerazione (a8 = 0) come per la rete. xperf 12
+// giri, PGO: cicli -0,77% mediogioco, -1,61% finali (istruzioni +0,8%, IPC 1,35 -> 1,38). -DTRIUMV_VERIFY_DUALHQ
+// confronta ogni attacco con le tabelle PEXT (abort al primo disaccordo); -DTRIUMV_NO_DUALHQ torna alle tabelle.
+// windows.h (via defs.h) definisce le macro min/max: con clang-cl rompono std::min in nnue/bitboard.h.
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+#include "nnue/attacks.h"
+#pragma pop_macro("max")
+#pragma pop_macro("min")
+#include <cstdio>
+#include <cstdlib>
+static U64 pext_bishop_attacks(int square, U64 occupancy);
+static U64 pext_rook_attacks(int square, U64 occupancy);
+static inline std::pair<U64, U64> hq_both(int square, U64 occupancy) {
+    const auto [b, r] = Triumviratus::Attacks::dual_magic(Triumviratus::Square(square)).both_attacks_bb(occupancy);
+#ifdef TRIUMV_VERIFY_DUALHQ
+    if (b != pext_bishop_attacks(square, occupancy) || r != pext_rook_attacks(square, occupancy)) {
+        printf("info string DUALHQ SBAGLIATO: casa %d occ %llx\n", square, (unsigned long long)occupancy);
+        fflush(stdout);
+        abort();
+    }
+#endif
+    return {b, r};
+}
+U64 get_bishop_attacks(int square, U64 occupancy) { return hq_both(square, occupancy).first; }
+U64 get_rook_attacks(int square, U64 occupancy) { return hq_both(square, occupancy).second; }
+U64 get_queen_attacks(int square, U64 occupancy) {
+    const auto [b, r] = hq_both(square, occupancy);
+    return b | r;
+}
+// Le funzioni a tabelle restano, con un altro nome, per la verifica.
+#define get_bishop_attacks pext_bishop_attacks
+#define get_rook_attacks pext_rook_attacks
+#define get_queen_attacks pext_queen_attacks
+static U64 pext_queen_attacks(int square, U64 occupancy);
+#endif
+
 // get bishop attacks
 U64 get_bishop_attacks(int square, U64 occupancy)
 {

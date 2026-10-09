@@ -141,17 +141,15 @@ extern bool g_tt_twolevel;
 // evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
 #ifdef TRIUMV_RELEASE
 // Release (06/10/2026): nessuna opzione le cambia, quindi costanti che il compilatore piega in store_tt/probe.
-// I valori sono i default di threads.cpp (01_params.inc); TTMoveRefresh e' verificata con static_assert.
+// I valori sono i default di threads.cpp (01_params.inc).
 constexpr bool g_ttmove24 = true;
 constexpr int  g_tt_keep_margin = 3;
 constexpr bool g_tt_move_keep = true;
-constexpr bool g_tt_move_refresh = false;
 constexpr bool g_tt_age_refresh = false;
 #else
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
-extern bool g_tt_move_refresh; // TTMoveRefresh: la mossa nuova entra anche quando si conserva l'entry piu' profonda
 extern bool g_tt_age_refresh;
 #endif
 
@@ -404,13 +402,9 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         // solo se e' piu' profonda di oltre m ply (+2 sui nodi PV). 0 = regola storica, byte-identico.
         const int keep_margin = g_tt_keep_margin > 0 ? g_tt_keep_margin + (pv ? 2 : 0) : 0;
         if (unpack_age(old_data) == current_age && unpack_depth(old_data) > depth + keep_margin && flag != hash_flag_exact) {
-            // Conserva l'entry piu' profonda; aggiorna l'eval se mancava. TTMoveRefresh (05/10/2026, audit del
-            // nucleo): anche la mossa, come SF, che scrive la mossa nuova prima di decidere se sovrascrivere il resto.
-            // Senza mossa nuova `move` e' gia' la vecchia (g_tt_move_keep) e non cambia nulla.
+            // Conserva l'entry piu' profonda; aggiorna l'eval se mancava.
             const U64 w  = (old_w & ~0xFFFFULL) | (U64)ev16;
-            const U64 nd = g_tt_move_refresh ? (old_data & ~0xFFFFFFULL) | (U64)(move & 0xFFFFFF) : old_data;
-            if (nd != old_data) entry->data = nd;
-            if (w != old_w || nd != old_data) entry->kw = w ^ nd;
+            if (w != old_w) entry->kw = w ^ old_data;
             return;
         }
     } else {

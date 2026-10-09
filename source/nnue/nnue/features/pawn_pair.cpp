@@ -47,6 +47,11 @@ void PawnPair::append_active_indices(Color perspective, const NnBoard& pos, Inde
     // enumerazione non cambia nessun indice: il refresh resta bit-identico.
     const Bitboard whitePawns = pos.pawns(WHITE);
     const Bitboard allPawns   = whitePawns | pos.pawns(BLACK);
+#ifdef TRIUMV_X4_VLREG
+    IndexList::Tail out(active);   // X4 VLREG: contatore in un registro (misc.h)
+#else
+    IndexList&      out = active;
+#endif
 
     Bitboard bb = allPawns;
     while (bb)
@@ -59,7 +64,7 @@ void PawnPair::append_active_indices(Color perspective, const NnBoard& pos, Inde
         {
             const int p  = pop_lsb(partners);
             const int pc = (whitePawns >> p) & 1 ? WHITE : BLACK;
-            active.push_back(feat_row(FoldOffset + make_index(perspective, ksq, s, c, p, pc)));
+            out.push_back(feat_row(FoldOffset + make_index(perspective, ksq, s, c, p, pc)));
         }
     }
 }
@@ -77,6 +82,11 @@ void PawnPair::append_changed_indices(Color           perspective,
                                       IndexList&      added) {
     if (!diff.any)
         return;
+#ifdef TRIUMV_X4_VLREG
+    IndexList::Tail remOut(removed), addOut(added);   // X4 VLREG: contatori in registri (misc.h)
+#else
+    IndexList &     remOut = removed, &addOut = added;
+#endif
 
     const Bitboard beforeAll = diff.before[WHITE] | diff.before[BLACK];
 
@@ -89,7 +99,7 @@ void PawnPair::append_changed_indices(Color           perspective,
         {
             const int p  = pop_lsb(partners);
             const int pc = (diff.before[WHITE] >> p) & 1 ? WHITE : BLACK;
-            removed.push_back(feat_row(
+            remOut.push_back(feat_row(
               FoldOffset + make_index(perspective, ksq, diff.removedSq[i], diff.removedC[i], p, pc)));
         }
     }
@@ -105,7 +115,7 @@ void PawnPair::append_changed_indices(Color           perspective,
         {
             const int p  = pop_lsb(partners);
             const int pc = (afterW >> p) & 1 ? WHITE : BLACK;
-            added.push_back(
+            addOut.push_back(
               feat_row(FoldOffset + make_index(perspective, ksq, diff.addedSq, diff.addedC, p, pc)));
         }
     }

@@ -39,6 +39,9 @@
 // (es. poi non gli invia mai SyzygyPath -> tablebase mai usate). Gli umani in
 // terminale vedono comunque banner + info. Letto da main e da nnue_bridge.
 bool g_startup_quiet = false;
+#ifdef TRIUMV_VID
+extern "C" const char *g_triumv_isa;   // binario universale: nome della variante scelta (universal/entry.cpp)
+#endif
 
 // Resolve an NNUE net filename to a path that exists, INDEPENDENT of the current
 // working directory. Match runners / GUIs (e.g. cutechess) often launch the
@@ -195,6 +198,10 @@ int main()
     if (!g_startup_quiet) {
         printf("info string Net: %s (%s; Consilium = TRANN3, SFNNv16-derived, 4 phase experts + PassedPawns)\n",
                netName, netPath.empty() ? "embedded" : netPath.c_str());
+#ifdef TRIUMV_VID
+        // Binario universale: la variante scelta per questa CPU (solo in terminale; l'id name non cambia).
+        printf("info string Build: universal, variant %s\n", g_triumv_isa);
+#endif
         fflush(stdout);
     }
 

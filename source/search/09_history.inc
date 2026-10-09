@@ -38,9 +38,23 @@ static inline int td_nn_eval(ThreadData &td) {
 
 // La rete smorza la valutazione col contatore delle 50 mosse: v * (199 - fifty) / 199. In TT e nella cache si
 // tiene il valore SENZA smorzamento, cosi' vale per ogni trasposizione, e lo si rismorza alla lettura.
+// W1 (08/10/2026, velocita', stesso valore): il divisore 199 - fifty cambia a run time e la divisione era una idiv
+// (~26 cicli di latenza) a ogni valutazione fresca, due volte (cache delle valutazioni e hash). Ora moltiplica per il
+// reciproco M = ceil(2^40 / D) e tronca verso zero: esatto finche' |x| * (M*D - 2^40) < 2^40, cioe' |x| < 2^40 / 199;
+// qui |x| = |v| * 199 < 2^28 (verificato con numpy per ogni fifty e |v| <= 2^20: 0 differenze). xperf 6 giri, PGO:
+// cicli -0,42% mediogioco, +0,19% finali (nel rumore); tenuta perche' l'albero e' identico (docs/audit_8.0/W_*).
+static constexpr auto unfade_recip = [] {
+  std::array<unsigned long long, 101> r{};
+  for (int f = 0; f <= 100; f++)
+    r[f] = ((1ULL << 40) + (unsigned long long)(198 - f)) / (unsigned long long)(199 - f);
+  return r;
+}();
 static inline int eval_unfade(int v, int fifty) {
-  if (fifty > 100) fifty = 100;
-  return v * 199 / (199 - fifty);
+  fifty = std::min(fifty, 100);
+  const long long x = (long long)v * 199;
+  const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
+  const int q = (int)((mag * unfade_recip[fifty]) >> 40);
+  return x < 0 ? -q : q;
 }
 static inline int eval_refade(int v, int fifty) {
   if (fifty > 100) fifty = 100;
@@ -223,7 +237,7 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   const int npw = corr_slot(td.np_key[white] ^ fk, us).np_white;
   const int npb = corr_slot(td.np_key[black] ^ fk, us).np_black;
   const int prev = f[-1].move;
-  int cont = 64049;
+  int cont = CorrNoMoveW;   // termine fisso dopo la mossa nulla (08/10/2026: era la costante 64049, ora leva)
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];
     cont = CorrContW * ((*f[-2].cont_corr)[pc][to] + (*f[-4].cont_corr)[pc][to]);
@@ -260,19 +274,8 @@ static inline int corrected_eval(int v, int signal) {
   return std::clamp(v + signal / 131072, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
-// CorrFade (nostra, 06/10/2026, rapporto N_CORREZIONI 4.7): la rete smorza la valutazione col contatore delle 50 mosse,
-// la correzione si somma dopo e resta piena. Bit 1: anche la correzione si smorza alla lettura (solo nella
-// valutazione, la selettivita' usa |signal| intero). Bit 2: il bonus si riporta in unita' non smorzate.
-static inline int corr_eval_term(const ThreadData &td, int signal) {
-  if (!(CorrFade & 1))
-    return signal;
-  return (int)((long long)signal * (199 - std::min(td.fifty, 100)) / 199);
-}
-
 static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
   PROF_GUARD(prof_corr);
-  if (CorrFade & 2)
-    bonus = bonus * 199 / (199 - std::min(td.fifty, 100));   // fino a x2: stat_push limita comunque
   const int us = td.side;
   const U64 phk = corr_phase_key(td);
   const U64 fk = corr_fifty_key(td);

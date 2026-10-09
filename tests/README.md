@@ -33,6 +33,7 @@ before the release.
 | Date | Opponent | Triumviratus build | Games | +W =D −L | Score | Elo (Triumviratus) |
 |---|---|---|---:|---|---:|---:|
 | 2026-10-05 | Stormphrax 8.0.0 | 8.0 prerelease (2026-10-04) | 300 | +149 =81 −70 | **63.2%** | **+94 ± 16** |
+| 2026-10-07 | Reckless 0.10.0-dev | 8.0 prerelease (2026-10-04) | 300 | +132 =58 −110 | **53.7%** | **+25.5 ± 14.6** |
 
 <sub>Same machine, GUI, hash, time control and openings as the 7.0 matches above, but 1 thread per engine and
 ponder off. ± is the 95% interval on the 150 opening pairs (pentanomial). The 4 October prerelease is the first
@@ -74,7 +75,7 @@ eight more than three days earlier, and within two positions of Stockfish 19.
 
 ## Mark Tang — 8.0 prerelease
 
-Tests run by **Mark Tang** on the 8.0 prerelease build of 5 October 2026.
+Tests run by **Mark Tang** on the 8.0 prerelease builds of 5 and 8 October 2026.
 
 ### Tactics: the IQ4 suite
 
@@ -89,10 +90,14 @@ Tests run by **Mark Tang** on the 8.0 prerelease build of 5 October 2026.
 <sub>1 second per position · 1 thread · 64 MB hash · one engine process at a time. Triumviratus
 had the highest score among the engines tested.</sub>
 
+A second run on the build of 8 October solved **143 / 183** (78.1%).
+
 ### Match against Stockfish dev
 
 | Date | Opponent | Games | Result | Score | TC |
 |---|---|---:|---:|---:|---|
 | 2026-10-05 | Stockfish (development version) | 30 | +3 =17 −10 | 38.3% | 2 min + 1 s |
+| 2026-10-08 | Stockfish (development version) | 30 | +5 =15 −10 | 41.7% | 103 s + 1 s |
 
-<sub>About −83 Elo; with 30 games the 95% interval runs from about −170 to −5.</sub>
+<sub>About −83 Elo for the first match (95% interval about −170 to −5) and −58 for the second, on the build of
+8 October (about −152 to +28). With 30 games each, both intervals are wide.</sub>
