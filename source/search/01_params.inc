@@ -396,6 +396,80 @@ int         g_syzygy_probe_depth = 1;
 int         g_syzygy_probe_limit = 7;
 static bool g_syzygy_rule50      = true;
 static bool g_eval_off           = false;    // diagnostica NPS: valutazione di solo materiale
+
+// ---------------------------------------------------------------------------
+// MODALITA' ANALISI (09/10/2026). Si accende con l'opzione UCI standard UCI_AnalyseMode (le GUI la mettono a true
+// quando si analizza), oppure con `go infinite` se AnalyseOnInfinite e' accesa (default accesa). Spenta, ogni
+// valore effettivo coincide con quello di partita: albero, bench (430151) e tempo invariati per costruzione.
+// Accesa cambia SOLO la selettivita' della ricerca (niente tempo, niente SMP fuori da AnSmp): serve a risolvere piu'
+// posizioni delle raccolte di test, non a giocare.
+// I componenti (opzioni An*, settabili anche nella release ma elencate solo nelle build di sviluppo) si misurano uno
+// per uno: banco tools\solve_suite.py a nodi fissi (2.000.000, 1 thread, Hash 64), raccolte test_suites\iq4.epd e
+// test_suites\arasan2026.epd, risolte a 250k/500k/1M/2M nodi. Le misure e la scelta del preset sono qui sotto, accanto
+// a kAnDefault.
+//
+// Origine delle idee. "Profondita' al posto delle potature" in analisi e' ispirata (non portata) dal GoldDigger di
+// ShashChess (amchess): qui e' realizzata con le nostre leve Deep* (14_deepen.inc), codice nostro. AnGold e' invece il
+// meccanismo del GoldDigger stesso (idea di ShashChess/amchess), riscritto da noi sulla nostra ricerca: vedi
+// gd_root_setup in 14_deepen.inc. AnCrystal e' ispirata a Crystal (derivato di Stockfish nato per togliere le cecita'
+// da potature aggressive; qui: niente potature lungo la linea principale), idea di altri e codice nostro. Gli scacchi quieti nel primo ply della quiescenza (AnQsChecks), i
+// thread SMP a potatura ridotta (AnSmp) e la caccia al matto anticipata (AnHunt) sono nostri.
+// ---------------------------------------------------------------------------
+enum AnalysisBits {
+  AN_EXT = 1,        // margini delle estensioni doppie/triple piu' larghi (DeepExt 60, DeepSing -30)
+  AN_NMPV = 2,       // verifica della mossa nulla da profondita' 6 (NmpVerifyDepth 16 -> 6)
+  AN_QSCHK = 4,      // primo ply della quiescenza: anche le mosse quiete che danno scacco
+  AN_SMP = 8,        // thread helper dispari col preset Deep* piu' largo (menopot)
+  AN_CRYSTAL = 16,   // niente potature sulla linea principale precedente nei primi ply
+  AN_HUNT = 32,      // hunt_mate da profondita' di radice 8 invece di 16
+  AN_GOLD = 64,      // GoldDigger (ShashChess) sulla nostra ricerca
+  AN_ACTIVE = 1 << 30
+};
+// Preset delle leve Deep* (una sola tabella: cambiare qui). DeepKnee 4 e DeepSpan 1: pesi pieni da profondita' 5.
+struct DeepPreset { int rfp, fut, lmr, nmp; };
+static constexpr int kAnDeepCount = 5;
+static constexpr DeepPreset kAnDeep[kAnDeepCount] = {
+  {0, 0, 0, 0},              // 0: nessuno (le leve Deep* dei parametri)
+  {100, 150, 0, 0},          // 1: prune    (DeepRfp 100, DeepFut 150)
+  {0, 0, -1024, 0},          // 2: lmr      (DeepLmr -1024)
+  {100, 150, -1024, -1024},  // 3: menopot  (tutte e quattro)
+  {100, 150, -1024, 0},      // 4: prunelmr (prune + lmr, mossa nulla invariata)
+};
+static constexpr int kAnDeepKnee = 4, kAnDeepSpan = 1;
+static constexpr int kAnExt = 60, kAnSing = -30;   // AN_EXT
+static constexpr int kAnNmpVerify = 6;             // AN_NMPV
+static constexpr int kAnHuntFrom = 8;              // AN_HUNT
+// Default: prima TUTTO SPENTO (09/10/2026 mattina, il preset si componeva da setoption); dopo le misure qui sotto il
+// preset delle leve Deep* e' prune+lmr (kAnDefaultDeep 4) e i componenti An* restano spenti.
+// MISURE 09/10/2026 (banco: tools\solve_suite.py, nodi fissi 2.000.000, 1 thread, Hash 64; posizioni risolte a
+// 250k/500k/1M/2M nodi; build dev MinGW an_v2, che riproduce la base e prune delle corse su tm21 e release 20261009):
+//   iq4 (183):        base 132/141/149/152; prune 145/148/154/155; qschk 140/147/153/154; crystal 137/142/144/147;
+//                     hunt 134/142/148/151; gold 141/148/152/154; prunelmr 140/145/149/153; prune+qschk 140/144/154/156;
+//                     prune+crystal 141/149/153/156; prune+hunt 143/147/153/153; prune+gold 140/143/149/153;
+//                     prune+nmpv 140/148/154/156; prune+ext 143/149/154/159.
+//   arasan2026 (200): base 121/139/149/162; prune 136/148/157/168; qschk 128/139/148/159; crystal 127/142/153/162;
+//                     hunt 121/139/149/162; gold 131/140/155/166; prune+qschk 127/145/157/168;
+//                     prune+crystal 133/145/153/162; prune+hunt 136/148/157/168; prune+gold 136/147/161/167;
+//                     prune+nmpv 125/138/149/163; prune+ext 127/138/149/158.
+//   Misure delle sole leve Deep* (prune, lmr, menopot, ext, nmpv6) su altre raccolte: test_suites\risultati.
+// DEFAULT SCELTO (09/10/2026): AnDeep 4 = prune+lmr (DeepRfp 100, DeepFut 150, DeepLmr -1024), componenti spenti.
+// Misure: build release_8.0_analisi, nodi fissi, test_suites\risultati am_*_8M e al_difficili_*_64M (tabella con
+// tools\am_tabella.py):
+//   - 8M nodi, posizioni risolte in piu' della base (iq4 / arasan2026 / ecmgcp): lmr +4/+4/+4, prune+lmr +4/+3/+7;
+//     a 4M prune+lmr +20 in totale contro +14 di lmr;
+//   - le 71 posizioni che la base non risolve a 8M, a 64M: base 15, lmr 28, prune+lmr 36;
+//   - scartate: lmr+qschk -1/+2/+2 e lmr+gold -2/+3/-2.
+// UCI_AnalyseMode e go infinite (AnalyseOnInfinite) usano entrambi prune+lmr; in partita an_bits = 0 e niente cambia.
+// Verifica: bench 430151 invariato; con UCI_AnalyseMode=true il bench da' 632173 (quello di prunelmr).
+static constexpr int kAnDefaultDeep = 4;
+static constexpr int kAnDefaultBits = 0;
+static bool g_analyse_mode     = false;   // UCI_AnalyseMode
+// AnalyseOnInfinite accesa di default (09/10/2026, utente: "go infinite deve lavorare come la modalita' che scegliamo"):
+// molte GUI e i programmi delle raccolte di test analizzano con `go infinite` senza impostare UCI_AnalyseMode. In partita
+// `go infinite` non arriva mai (il ponder ha il suo flag, g_limits.ponder), quindi il gioco non cambia.
+static bool g_analyse_infinite = true;    // AnalyseOnInfinite
+static int  g_an_deep          = kAnDefaultDeep;
+static int  g_an_bits          = kAnDefaultBits;
 static bool g_data_log_enabled   = false;
 static std::string g_data_log_file = "triumviratus_dataset.txt";
 void set_data_log_enabled(bool enabled) { g_data_log_enabled = enabled; }
@@ -433,6 +507,19 @@ void print_search_options() {
 #endif
 }
 
+// Opzioni della modalita' analisi, elencate anche nella release: le combinazioni si compongono da setoption.
+void print_analysis_options() {
+  printf("option name UCI_AnalyseMode type check default false\n");
+  printf("option name AnalyseOnInfinite type check default true\n");
+  // Componenti (agiscono solo con UCI_AnalyseMode, o con AnalyseOnInfinite e go infinite).
+  printf("option name AnDeep type spin default %d min 0 max %d\n", kAnDefaultDeep, kAnDeepCount - 1);
+  static const struct { const char *n; int bit; } an_opts[] = {
+    {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
+    {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+  for (const auto &o : an_opts)
+    printf("option name %s type check default %s\n", o.n, (kAnDefaultBits & o.bit) ? "true" : "false");
+}
+
 bool set_search_param(const char* name, int value) {
   if (!strcmp(name, "MultiPV")) { g_multipv = value < 1 ? 1 : (value > 64 ? 64 : value); return true; }
   if (!strcmp(name, "UCI_ShowWDL")) { g_show_wdl = parse_bool_value(value); return true; }
@@ -445,6 +532,20 @@ bool set_search_param(const char* name, int value) {
     return true;
   }
   if (!strcmp(name, "EvalOff")) { g_eval_off = parse_bool_value(value); return true; }
+  // Modalita' analisi: anche nella release (i componenti An* non sono elencati, ma si possono impostare).
+  if (!strcmp(name, "UCI_AnalyseMode")) { g_analyse_mode = parse_bool_value(value); return true; }
+  if (!strcmp(name, "AnalyseOnInfinite")) { g_analyse_infinite = parse_bool_value(value); return true; }
+  if (!strcmp(name, "AnDeep")) { g_an_deep = std::clamp(value, 0, kAnDeepCount - 1); return true; }
+  {
+    static const struct { const char *n; int bit; } an_opts[] = {
+      {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
+      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+    for (const auto &o : an_opts)
+      if (!strcmp(name, o.n)) {
+        g_an_bits = parse_bool_value(value) ? (g_an_bits | o.bit) : (g_an_bits & ~o.bit);
+        return true;
+      }
+  }
 #ifndef TRIUMV_RELEASE
   // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
   const auto sync = [] { g_see_pinned = SeePinned; };

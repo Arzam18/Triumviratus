@@ -340,6 +340,9 @@ void uci_loop()
             // Opzioni ufficiali di analisi/utilizzo (sempre visibili, anche in release):
             printf("option name UCI_ShowWDL type check default false\n");  // W/D/L nelle info-line (via generic handler)
             printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), dalla 8.0
+            // Modalita' analisi (09/10/2026, search/01_params.inc): selettivita' per l'analisi, spenta in partita.
+            // Il setoption passa dal gestore generico (set_search_param), anche nella release.
+            print_analysis_options();
             printf("option name Clear Hash type button\n");                // svuota la TT su richiesta
             // Ponder: la GUI decide se pondera. Dal 04/10/2026 l'opzione accesa da' il 25% di tempo ottimale in piu'
             // (search/14_deepen.inc, clock_plan). Senza dichiararla molte GUI non mandano mai `go ponder`.

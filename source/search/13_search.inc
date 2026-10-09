@@ -4,6 +4,11 @@
 // Un nodo passa per quattro fasi, ognuna una funzione: ingresso (patte, matti, hash, tablebase), valutazione e
 // tagli prima delle mosse, ciclo delle mosse, apprendimento a fine nodo. Lo stato del nodo vive in NodeState.
 
+// AN (09/10/2026): la ricerca esiste in due copie, partita (AN = false) e modalita' analisi (AN = true), scelte una
+// volta alla radice (deepen). In partita ogni termine dell'analisi e' una costante: con i parametri Deep* congelati a 0
+// della release il compilatore li toglie, come prima della modalita' analisi (xperf: la versione con i termini letti a
+// ogni nodo costava ~1% di cicli in partita). Le due copie danno gli stessi valori di prima nei rispettivi modi.
+template <bool AN>
 static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth, bool cut, bool pv);
 
 constexpr int TRACKED = 32;   // mosse provate ricordate per i malus
@@ -11,6 +16,7 @@ constexpr int TRACKED = 32;   // mosse provate ricordate per i malus
 struct NodeState {
   bool pv, root, cut, all;
   bool in_check, improving, opp_worse, tact_hash, prior_capture, hunt_mate;
+  bool crystal;                   // AnCrystal: nodo della linea principale precedente vicino alla radice (crystal_node)
   int  alpha, beta, depth;
   int  best, best_move, cap_value;
   int  moves;                     // mosse legali cercate (il contatore del frame lo riusa la ricerca singolare)
@@ -78,7 +84,9 @@ static inline int e_lmr_no_tt_full(const ThreadData &td)    { return LmrNoTTFull
 static inline int e_nmp_improving(const ThreadData &td)     { return NmpImprovingLt ? td.lt_nmp_improving : NmpImproving; }
 static inline int e_quiet_fut_alpha(const ThreadData &td)   { return QuietFutAlphaLt ? td.lt_quiet_fut_alpha : QuietFutAlpha; }
 static inline int e_rfp_max_depth(const ThreadData &td)     { return RfpMaxDepthLt ? td.lt_rfp_max_depth : RfpMaxDepth; }
-static inline int e_nmp_verify_depth(const ThreadData &td)  { return NmpVerifyDepthLt ? td.lt_nmp_verify_depth : NmpVerifyDepth; }
+// Sempre il valore del thread (09/10/2026): lt_update lo calcola per iterazione e la modalita' analisi (AN_NMPV) lo
+// sovrascrive; letto solo dopo una mossa nulla riuscita, quindi senza costo. In partita vale NmpVerifyDepth.
+static inline int e_nmp_verify_depth(const ThreadData &td)  { return td.lt_nmp_verify_depth; }
 static inline const int *e_red_log(const ThreadData &td)    { return LmrLogMulLt ? td.lt_red_log : red_log; }
 
 // Profondita' ridotta di base: tabella logaritmica, finestra relativa e assenza di miglioramento.
@@ -96,7 +104,30 @@ static inline int base_reduction(const ThreadData &td, bool improving, int depth
 // ---------------------------------------------------------------------------
 
 // Idea 2 (Deep*): scostamento "profondo" pesato da td.deep_w (0..1024, cresce con la profondita' di radice).
+// Dal 09/10/2026 le sei leve che la modalita' analisi usa (Rfp, Fut, Lmr, Nmp, Sing, Ext) arrivano gia' pesate nei
+// campi td.dz_* (deepen, per iterazione): stesso valore di prima, ma la modalita' analisi le puo' accendere anche
+// nella release, dove i parametri sono costanti. deep_term resta per DeepHist e DeepTtPv.
 static inline int deep_term(const ThreadData &td, int offset) { return offset * td.deep_w / 1024; }
+
+// Crystal (AnCrystal, modalita' analisi): il nodo sta sulla linea principale dell'iterazione precedente, vicino
+// alla radice? In partita crystal_ply = -1 e il test e' sempre falso.
+static inline bool crystal_node(const ThreadData &td, const NodeFrame *f) {
+  return f->ply <= td.crystal_ply && f->follow_pv;
+}
+
+// GoldDigger (AnGold, idea di ShashChess/amchess, codice nostro): la mossa nulla si salta quando il "calore" tattico
+// arriva a 4. La parte della radice (re in pericolo o sacrificio possibile +10, posizione di vantaggio netto +2,
+// attacco +2, pedone avanzato +2, piu' di 30 mosse legali +1) e' in td.gd_heat; qui si aggiungono il materiale non
+// pedoni di chi muove (> 2000, +1) e la profondita' (> 8 e > 12, +1 ciascuna). In partita gd_heat = -1000.
+static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
+  if (td.gd_heat < -100)
+    return false;
+  const int off = td.side == white ? 0 : 6;
+  int npm = 0;
+  for (int t = N; t <= Q; t++)
+    npm += unit_value[t] * count_bits(td.bitboards[t + off]);
+  return td.gd_heat + (npm > 2000) + (n.depth > 8) + (n.depth > 12) >= 4;
+}
 
 // Idea 4 (PhaseEdge*): la cattura cambia esperto della rete (attraversa 24, 16 o 10 pezzi)?
 static inline bool capture_crosses(const ThreadData &td, int m) {
@@ -320,6 +351,7 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.depth--;
 }
 
+template <bool AN>
 static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
   // La differenza di valutazione col ply precedente insegna qualcosa sulla mossa che ci ha portati qui.
@@ -333,13 +365,16 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
 
   // Valutazione molto sotto alpha: basta la quiescenza.
-  if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth)
+  // gd_razor (AnGold) e' 0 fuori dalla modalita' analisi; n.crystal e' sempre falso.
+  if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth - (AN ? td.gd_razor : 0) && !(AN && n.crystal))
     return quiesce(td, f, n.alpha, n.beta, false);
 
   // Valutazione abbastanza sopra beta: il nodo regge senza cercare.
   if (!f->tt_pv && n.depth < (n.hunt_mate ? 6 : e_rfp_max_depth(td)) && n.eval >= n.beta && (!n.h.move || n.tact_hash) &&
-      !val_lost(n.beta) && !val_won(n.eval)) {
-    int mult = std::min(RfpMultBase + n.depth * RfpMultDepth, RfpMultCap) + deep_term(td, DeepRfp);
+      !val_lost(n.beta) && !val_won(n.eval) && !(AN && n.crystal)) {
+    int mult = std::min(RfpMultBase + n.depth * RfpMultDepth, RfpMultCap) + (AN ? td.dz_rfp : deep_term(td, DeepRfp));
+    if (AN && td.gd_rfp_pct != 100)   // AnGold: margine allargato (150% in attacco o con sacrifici, 120% in manovra)
+      mult = mult * td.gd_rfp_pct / 100;
     mult -= RfpNoTTHit * !f->tt_hit;
     const int imp = RfpImproving * n.improving;
     const int margin = mult * n.depth - (imp + RfpOppWorse * n.opp_worse) * mult / 1024 +
@@ -352,21 +387,21 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int non_pawn = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k]
                            ? 1 : 0;
   if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
-      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000) {
+      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n))) {
     // DeepNmp in 1024-esimi di ply, arrotondato con 10 bit della chiave (fissi per posizione): a 0 il termine e' 0,
     // altrimenti una frazione |v|/1024 dei nodi riduce di un ply in piu' (o in meno) e lo SPSA ne vede la pendenza.
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
-                  ((deep_term(td, DeepNmp) + (int)((td.hash_key >> 20) & 1023)) >> 10);
+                  (((AN ? td.dz_nmp : deep_term(td, DeepNmp)) + (int)((td.hash_key >> 20) & 1023)) >> 10);
     NullUndo nu;
     step_in_null(td, f, nu);
     f[1].in_check = false;
-    const int nv = -explore(td, f + 1, -n.beta, -n.beta + 1, n.depth - r, false, false);
+    const int nv = -explore<AN>(td, f + 1, -n.beta, -n.beta + 1, n.depth - r, false, false);
     step_out_null(td, nu);
     if (nv >= n.beta && !val_won(nv)) {
       if (td.nmp_min_ply || n.depth < e_nmp_verify_depth(td))
         return nv;
       td.nmp_min_ply = td.ply + 3 * (n.depth - r) / 4;
-      const int v = explore(td, f, n.beta - 1, n.beta, n.depth - r, false, false);
+      const int v = explore<AN>(td, f, n.beta - 1, n.beta, n.depth - r, false, false);
       td.nmp_min_ply = 0;
       if (v >= n.beta)
         return nv;
@@ -399,7 +434,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
       f[1].in_check = gives;
       int v = -quiesce(td, f + 1, -cut_beta, -cut_beta + 1, false);
       if (v >= cut_beta && cut_depth > 0)
-        v = -explore(td, f + 1, -cut_beta, -cut_beta + 1, cut_depth, !n.cut, false);
+        v = -explore<AN>(td, f + 1, -cut_beta, -cut_beta + 1, cut_depth, !n.cut, false);
       step_out(td, m, u);
       if (v >= cut_beta) {
         hash_write(td, v, f->tt_pv, BOUND_LOW, cut_depth + 1, m, n.eval_raw);
@@ -417,10 +452,11 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 
 // Potatura di una mossa prima di giocarla. true = salta la mossa.
 // `edge`: la mossa e' una cattura che cambia esperto della rete (PhaseEdge*), calcolato dal chiamante.
+template <bool AN>
 static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, int m, bool tact, bool gives,
                       int r, bool edge) {
   const int us = td.side;
-  if (n.root || val_lost(n.best))
+  if (n.root || val_lost(n.best) || (AN && n.crystal))   // n.crystal: solo AnCrystal
     return false;
   const U64 own_pieces = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k];
   if (!own_pieces)
@@ -475,7 +511,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     red_depth += hist < 0 ? -q : q;
   }
   const int fut = f->static_eval + QuietFutDepth * red_depth + e_quiet_fut_alpha(td) * (f->static_eval > n.alpha) + QuietFutBase +
-                  deep_term(td, DeepFut);
+                  (AN ? td.dz_fut : deep_term(td, DeepFut));
   if (!n.in_check && red_depth < 12 && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
       n.best = fut;
@@ -518,22 +554,23 @@ static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
 // SING_SKIPPED: la ricerca di esclusione non si e' fatta (mossa non hash o condizioni mancanti); move_loop la legge
 // come estensione 0, e solo in quel caso prova la LDSE (Ldse*).
 static constexpr int SING_SKIPPED = -99;
+template <bool AN>
 static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int new_depth, int *cutoff) {
   const HashView &h = n.h;
   if (n.root || m != h.move || n.excluded || n.depth < 6 + f->tt_pv || !val_known(h.value) || val_decided(h.value) ||
       !bound_covers(h.bound, true) || h.bound == BOUND_UP || h.depth < n.depth - 3 || shuffles(td, f, m) || n.hunt_mate)
     return SING_SKIPPED;
-  const int s_beta = h.value - (SingMarginBase + deep_term(td, DeepSing) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
+  const int s_beta = h.value - (SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
   const int s_depth = new_depth / 2;
   f->excluded = m;
-  const int v = explore(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
+  const int v = explore<AN>(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
   f->excluded = 0;
   if (v < s_beta) {
     const int corr_adj = std::abs(n.signal) / SingCorrDiv;
     const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * !n.tact_hash - corr_adj -
-                    1175 * td.tt_move_hist / 114178 - (f->ply > td.root_depth) * 38 - deep_term(td, DeepExt);
+                    1175 * td.tt_move_hist / 114178 - (f->ply > td.root_depth) * 38 - (AN ? td.dz_ext : deep_term(td, DeepExt));
     const int tpl = SingTripleBase + SingTriplePv * n.pv - SingTripleQuiet * !n.tact_hash + SingTripleTtPv * f->tt_pv -
-                    corr_adj - (f->ply > td.root_depth) * 43 - deep_term(td, DeepExt);
+                    corr_adj - (f->ply > td.root_depth) * 43 - (AN ? td.dz_ext : deep_term(td, DeepExt));
     n.depth++;
     return 1 + (v < s_beta - dbl) + (v < s_beta - tpl);
   }
@@ -581,6 +618,7 @@ static void root_record(ThreadData &td, NodeState &n, int m, int value, U64 spen
     rl->score = -infinity;
 }
 
+template <bool AN>
 static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
   MoveQueue q;
@@ -591,7 +629,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   int value = n.best, m;
   int red_window = -1, red_window_term = 0;   // vedi base_reduction
   // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
-  const int node_red = deep_term(td, DeepLmr);
+  const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
+  const int gd_style = AN ? td.gd_style : 0;   // AnGold: stile della radice (0 in partita)
 
   while ((m = queue_next(q)) != 0) {
     if (m == n.excluded || !legal_before(td, s, m))
@@ -613,17 +652,19 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
     }
     int r = base_reduction(td, n.improving, n.depth, n.moves, red_window_term);
+    if (gd_style)   // AnGold: riduzione di base al 97% in attacco, al 103% in manovra
+      r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
     if (f->tt_pv)
       r += LmrTtPvAdd;
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
     // Idea 4: cattura che cambia esperto della rete (si calcola prima della mossa).
     const bool edge = PhaseEdgeNoFut && tact && capture_crosses(td, m);
-    if (!passer && skip_move(td, f, n, q, m, tact, gives, r, edge))
+    if (!passer && skip_move<AN>(td, f, n, q, m, tact, gives, r, edge))
       continue;
 
     int cut_value = NO_VALUE;
-    int ext = singular_probe(td, f, n, m, new_depth, &cut_value);
+    int ext = singular_probe<AN>(td, f, n, m, new_depth, &cut_value);
     if (cut_value != NO_VALUE)
       return cut_value;
     const bool sing_skipped = ext == SING_SKIPPED;
@@ -696,6 +737,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     if (passer)
       r -= PassedPushRed;
+    // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
+    // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
+    if (gd_style && n.depth > 5 && f->ply > 1) {
+      if (gd_style == 1 && (tact || gives))
+        r -= 60;
+      else if (gd_style == 3 && !tact)
+        r -= 40;
+      else if (gd_style == 2 && !tact && !gives && n.depth > 8)
+        r += 80;
+    }
 
     if (n.depth >= 2 && n.moves > 1) {
       // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
@@ -706,26 +757,26 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       if (NegExtMax)
         f->negext = d - n.pv > new_depth;
       f->reduction = new_depth - d;
-      value = -explore(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
+      value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
       f->reduction = 0;
       if (NegExtMax)
         f->negext = 0;
       if (value > n.alpha) {
         new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
-          value = -explore(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
+          value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
         learn_followups(f, pc, to, 1334);
       }
     } else if (!n.pv || n.moves > 1) {
       if (!n.h.move)
         r += e_lmr_no_tt_full(td);
-      value = -explore(td, f + 1, -(n.alpha + 1), -n.alpha,
+      value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha,
                        new_depth - (r > 5234) - (r > 5487 && new_depth > 2), !n.cut, false);
     }
     if (n.pv && (n.moves == 1 || value > n.alpha)) {
       if (m == n.h.move && ((val_known(n.h.value) && val_decided(n.h.value) && n.h.depth > 0) || n.h.depth > 1))
         new_depth = std::max(new_depth, 1);
-      value = -explore(td, f + 1, -n.beta, -n.alpha, new_depth, false, true);
+      value = -explore<AN>(td, f + 1, -n.beta, -n.alpha, new_depth, false, true);
     }
     step_out(td, m, u);
 
@@ -833,9 +884,10 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // --------------------------------------------------------------------------
+template <bool AN>
 static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth, bool cut, bool pv) {
   if (depth <= 0)
-    return quiesce(td, f, alpha, beta, pv);
+    return (AN && (td.an_bits & AN_QSCHK)) ? quiesce<true>(td, f, alpha, beta, pv) : quiesce<false>(td, f, alpha, beta, pv);
   td.pv_length[td.ply] = td.ply;
   NodeState n;
   n.root = f == &td.frames[FRAME_OFFSET];
@@ -847,7 +899,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.depth = std::min(depth, max_ply - 1);
   n.in_check = f->in_check;
   n.prior_capture = f[-1].captured >= 0;
-  n.hunt_mate = td.root_depth >= 16 && std::abs(td.root[td.pv_idx].score) >= 2000;
+  n.hunt_mate = td.root_depth >= (AN ? td.hunt_from : 16) && std::abs(td.root[td.pv_idx].score) >= 2000;
   n.best = -infinity;
   n.best_move = 0;
   n.moves = 0;
@@ -864,11 +916,12 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;
+  n.crystal = AN && crystal_node(td, f);   // dopo node_open, che decide follow_pv
   node_evaluate(td, f, n);
   if ((v = hash_cutoff(td, f, n)) != NO_VALUE) return v;
   if ((v = tablebase_probe(td, f, n)) != NO_VALUE) return v;
   if (!n.in_check) {
-    if ((v = prune_before_moves(td, f, n)) != NO_VALUE) return v;
+    if ((v = prune_before_moves<AN>(td, f, n)) != NO_VALUE) return v;
   }
 
   // Limite inferiore dalla hash ben sopra beta: basta quello.
@@ -877,7 +930,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
       val_known(n.h.value) && !val_decided(n.h.value))
     return hash_beta;
 
-  if ((v = move_loop(td, f, n)) != NO_VALUE)
+  if ((v = move_loop<AN>(td, f, n)) != NO_VALUE)
     return v;
   return node_close(td, f, n);
 }

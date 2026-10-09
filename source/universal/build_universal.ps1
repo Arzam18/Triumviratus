@@ -1,7 +1,8 @@
 # =====================================================================================================================
 #  build_universal.ps1 -- binario universale di Triumviratus 8.0 con PGO, da questa cartella del sorgente.
 #
-#  Una unita' di compilazione per variante ISA (variant.cpp, namespace Triumv_v<n>), ingresso con cpuid (entry.cpp),
+#  Cinque varianti ISA, ognuna nel suo namespace Triumv_v<n>: di default un'unita' di compilazione per ogni .cpp del
+#  motore (involucri con vns.h, ThinLTO; -Unity = una sola unita' per variante, variant.cpp), ingresso con cpuid (entry.cpp),
 #  rete incorporata (triumv.rc), runtime C++ statico. Per ogni variante: build strumentata, training deterministico
 #  (pgo_train_det.py su pgo_positions.epd, `go nodes` fissi: stesso profilo a ogni build), merge, build ottimizzata.
 #  Ogni variante si allena con le SUE istruzioni se questa CPU le ha (su Zen 4 tutte e cinque); altrimenti vnni512 e
@@ -15,6 +16,7 @@
 #    .\build_universal.ps1 -Day 20261009           # data della riga id name
 #    .\build_universal.ps1 -NoPgo                  # senza PGO (prova veloce)
 #    .\build_universal.ps1 -ExtraFlags "/clang:-mbranches-within-32B-boundaries"
+#    .\build_universal.ps1 -Unity                  # una sola unita' per variante (piu' lenta di ~1%, vedi -Unity sotto)
 #  Risultato: <Out>\Triumviratus_8.0_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt (bench di ogni variante).
 # =====================================================================================================================
 param(
@@ -25,8 +27,17 @@ param(
     [switch]$NoPgo,
     [switch]$Tune,
     [switch]$NoStrictAliasing,
-    [string]$ExpectedBench = "430151"
+    [string]$ExpectedBench = "430151",
+    # File separati (DEFAULT dal 09/10/2026): ogni .cpp del motore e' un'unita' a se' (involucro con il namespace della
+    # variante, vns.h), compilata con -flto=thin e unita al collegamento, come la build separata di MSBuild. L'universale
+    # a unita' unica per variante costava +0,98/+1,14% di cicli/nodo rispetto alla separata a pari sorgente; a file
+    # separati -0,28/-0,17% (xperf sullo Xeon, socket fissato, 4 giri, rumore A/A <0,1%; z_un e z_mtu in
+    # docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). -Unity torna all'unita' unica (variant.cpp); -MultiTU resta accettato.
+    [switch]$MultiTU,
+    [switch]$Unity,
+    [int]$Jobs = [Environment]::ProcessorCount     # compilazioni insieme a file separati
 )
+$MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
 $U   = $PSScriptRoot                               # ...\universal
 $SRC = (Resolve-Path "$U\..").Path                 # sorgente del motore
@@ -141,6 +152,60 @@ function Start-Variant($n, $objOut, $mode, $as, $profdata) {
 # codice di uscita va perso (ExitCode vuoto, letto come errore da Wait-All). Successo sul Ryzen 8845HS il 09/10/2026:
 # le cinque compilazioni finivano prima che Wait-All arrivasse ad aspettarle. Leggere Handle subito lo tiene aperto.
 function Keep-Handle($p) { $null = $p.Handle; $p }
+
+# -MultiTU: un involucro per ogni .cpp che variant.cpp include (stesso ordine, che e' anche quello del .vcxproj, quindi
+# lo stesso ordine dei costruttori globali). Attenzione ai nomi: PowerShell non distingue maiuscole e minuscole, quindi
+# niente variabili $u, $src, $obj, $prof (sarebbero $U, $SRC, $OBJ, $PROF).
+if ($MultiTU) {
+    $unitList = @(Select-String -Path "$U\variant.cpp" -Pattern '^#include "\.\./(.+\.cpp)"' |
+                  ForEach-Object { $_.Matches[0].Groups[1].Value })
+    $WRAP = "$OBJ\mtu"
+    New-Item -ItemType Directory -Force $WRAP | Out-Null
+    Remove-Item "$WRAP\*.cpp" -ErrorAction SilentlyContinue
+    $k = 0
+    foreach ($unit in $unitList) {
+        $k++
+        $wname = '{0:D2}_{1}' -f $k, (($unit -replace '[\\/]', '_') -replace '\.cpp$', '')
+        $srcFile = ((Resolve-Path "$SRC\$unit").Path) -replace '\\', '/'
+        Set-Content -Encoding ascii "$WRAP\$wname.cpp" @(
+            '// generato da build_universal.ps1 -MultiTU',
+            "#include `"$(($U -replace '\\', '/'))/prelude.h`"",
+            "#include `"$(($U -replace '\\', '/'))/vns.h`"",
+            'namespace TRIUMV_VNS {',
+            "#include `"$srcFile`"",
+            '}  // namespace TRIUMV_VNS')
+    }
+}
+# Compila a file separati le varianti di $specs (@{n; mode; as; prof}), al massimo $Jobs compilazioni insieme.
+# Restituisce, per variante, gli oggetti in ordine. Con 'gen' aggiunge standalone.cpp (main della sola variante).
+function Compile-Units($specs) {
+    $todo = New-Object System.Collections.Generic.List[object]
+    $uobjs = @{}
+    $wfiles = @(Get-ChildItem "$WRAP\*.cpp" | Sort-Object Name | ForEach-Object FullName)
+    foreach ($sp in $specs) {
+        $uobjs[$sp.n] = @()
+        $files = $wfiles
+        if ($sp.mode -eq 'gen') { $files += "$U\standalone.cpp" }
+        foreach ($f in $files) {
+            $o = "$OBJ\mtu_{0}{1}_{2}.obj" -f $sp.mode, $sp.n, [IO.Path]::GetFileNameWithoutExtension($f)
+            $a = $base + (VFlags $sp.as) + (VTune $sp.n) + @("-DTRIUMV_VID=$($sp.n)", '-flto=thin')
+            if ($sp.mode -eq 'gen') { $a += @('-fprofile-generate', '-DCLANG_PGO_GEN') }
+            if ($sp.mode -eq 'use') { $a += @("-fprofile-use=$($sp.prof)", '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled') }
+            $a += @($f, "/Fo$o")
+            $a = $a | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }
+            $todo.Add(@(, $a) + @($o))
+            $uobjs[$sp.n] += $o
+        }
+    }
+    $run = @()
+    foreach ($t in $todo) {
+        while (@($run | Where-Object { -not $_.HasExited }).Count -ge $Jobs) { Start-Sleep -Milliseconds 200 }
+        $run += Keep-Handle (Start-Process -FilePath $CXX -ArgumentList $t[0] -NoNewWindow -PassThru `
+                             -RedirectStandardOutput "$($t[1]).out" -RedirectStandardError "$($t[1]).err")
+    }
+    Wait-All $run "compilazione a file separati"
+    return $uobjs
+}
 function Wait-All($procs, $what) {
     foreach ($p in $procs) { $p.WaitForExit() }
     foreach ($p in $procs) { if ($p.ExitCode -ne 0) { Fail "$what fallita (codice $($p.ExitCode)): vedi i file .err in $OBJ" } }
@@ -149,6 +214,9 @@ function Link($exe, $objs, [switch]$Gen) {
     $a = @('/nologo', "/OUT:$exe", '/SUBSYSTEM:CONSOLE', '/STACK:8388608', '/LARGEADDRESSAWARE') + $objs +
          @("$OBJ\tbprobe.obj", "$OBJ\triumv.res", 'advapi32.lib')
     if ($Gen) { $a += $rt.FullName } else { $a += @('/OPT:REF', '/OPT:ICF') }
+    if ($MultiTU) { $a += "/opt:lldltojobs=$Jobs" }   # gli oggetti sono bitcode ThinLTO: il codice nasce qui
+    # W3 (09/10/2026): niente conversione cmov -> salto nel codegen ThinLTO (-0,15% mediogioco, -0,29% finali, z_w3)
+    $a += '/mllvm:-x86-cmov-converter=false'
     & $LNK @a 2>&1 | Out-File -Append -Encoding utf8 $LOG
     if ($LASTEXITCODE -ne 0) { Fail "collegamento di $exe fallito" }
 }
@@ -177,9 +245,14 @@ if (-not $NoPgo) {
         elseif ($n -ge 4 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, namespace della variante
     }
     Say "build strumentate: $(($train.Keys | Sort-Object | ForEach-Object { "$($names[$_])<-$($names[$train[$_]])" }) -join ', ')"
-    $ps = foreach ($n in $train.Keys) { Start-Variant $n "$OBJ\g$n.obj" 'gen' $train[$n] '' }
-    Wait-All $ps "build strumentata"
-    foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" @("$OBJ\g$n.obj") -Gen }
+    if ($MultiTU) {
+        $gobjs = Compile-Units @($train.Keys | ForEach-Object { @{ n = $_; mode = 'gen'; as = $train[$_]; prof = '' } })
+        foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" $gobjs[$n] -Gen }
+    } else {
+        $ps = foreach ($n in $train.Keys) { Start-Variant $n "$OBJ\g$n.obj" 'gen' $train[$n] '' }
+        Wait-All $ps "build strumentata"
+        foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" @("$OBJ\g$n.obj") -Gen }
+    }
     Say "training ($Workers worker per variante, in parallelo)"
     $ps = foreach ($n in $train.Keys) {
         Remove-Item -Recurse -Force "$PROF\v$n" -ErrorAction SilentlyContinue; New-Item -ItemType Directory "$PROF\v$n" | Out-Null
@@ -197,19 +270,35 @@ if (-not $NoPgo) {
         if ($LASTEXITCODE -ne 0) { Fail "merge del profilo $n" }
         $profs[$n] = "$PROF\v$n.profdata"
     }
+    if ($MultiTU) {
+        # Con il ThinLTO il linker importa funzioni fra moduli, anche di varianti diverse (copie condivise della libreria
+        # standard), e rifiuta moduli con profili diversi ("ProfileSummary: conflicting values", 09/10/2026). Un solo
+        # profilo per tutte: le funzioni del motore hanno nomi diversi per variante (namespace), i conteggi restano loro.
+        $all = @($train.Keys | ForEach-Object { "$PROF\v$_.profdata" })
+        & $PD merge -o "$PROF\tutte.profdata" @all
+        if ($LASTEXITCODE -ne 0) { Fail "merge del profilo unico" }
+        foreach ($n in @($profs.Keys)) { $profs[$n] = "$PROF\tutte.profdata" }
+    }
     Say "profili: $(($profs.Keys | Sort-Object | ForEach-Object { $names[$_] }) -join ', ')"
 }
 
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
-$ps = foreach ($n in 1..5) {
-    if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
-    else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
-}
-Wait-All $ps "build ottimizzata"
 $exe = "$Out\Triumviratus_8.0_${Day}_universal.exe"
-Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj")
+if ($MultiTU) {
+    $pobjs = Compile-Units @(1..5 | ForEach-Object {
+        if ($profs.ContainsKey($_)) { @{ n = $_; mode = 'use'; as = $_; prof = $profs[$_] } }
+        else { @{ n = $_; mode = 'none'; as = $_; prof = '' } } })
+    Link $exe (@("$OBJ\entry.obj") + $pobjs[1] + $pobjs[2] + $pobjs[3] + $pobjs[4] + $pobjs[5])
+} else {
+    $ps = foreach ($n in 1..5) {
+        if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
+        else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
+    }
+    Wait-All $ps "build ottimizzata"
+    Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj")
+}
 
 # --- verifica -----------------------------------------------------------------------------------------------------
 $ver = @()
