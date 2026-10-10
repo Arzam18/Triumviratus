@@ -404,6 +404,10 @@ static int qs_passer_push(const ThreadData &td) {
   return 0;
 }
 
+// QCHK (AnQsChecks, modalita' analisi, 09/10/2026, idea nostra): primo ply della quiescenza chiamato dalla ricerca
+// principale. Dopo le tattiche si provano anche le mosse quiete che danno scacco con SEE >= 0; il figlio (sotto
+// scacco) e' una quiescenza normale. QCHK = false e' la quiescenza di sempre, identica.
+template <bool QCHK = false>
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   td.pv_length[td.ply] = td.ply;
   if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
@@ -493,7 +497,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
       continue;
     }
     f[1].in_check = gives;
-    const int value = -quiesce(td, f + 1, -beta, -alpha, pv);
+    const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
     step_out(td, m, u);
 
     if (value > best) {
@@ -506,6 +510,38 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
           alpha = value;
         else
           break;
+      }
+    }
+  }
+
+  if constexpr (QCHK) {
+    if (!in_check && best < beta) {
+      moves ml[1];
+      td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
+      for (int i = 0; i < ml->count && best < beta; i++) {
+        const int qm = ml->moves[i];
+        if (is_tactical(qm) || qm == q.hash_move || !legal_before(td, safety, qm) || !checks_before(td, safety, qm) ||
+            !see_holds(td, qm, 0))
+          continue;
+        UndoInfo u;
+        if (!step_in(td, f, qm, u))
+          continue;
+        count++;
+        f[1].in_check = true;
+        const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
+        step_out(td, qm, u);
+        if (stop_threads.load(std::memory_order_relaxed))
+          return 0;
+        if (value > best) {
+          best = value;
+          if (value > alpha) {
+            best_move = qm;
+            if (pv)
+              pv_extend(td, qm);
+            if (value < beta)
+              alpha = value;
+          }
+        }
       }
     }
   }

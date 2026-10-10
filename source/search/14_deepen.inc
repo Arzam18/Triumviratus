@@ -186,6 +186,98 @@ static void set_thread_optimism(ThreadData &td, int avg) {
   nn_pos_set_optimism(td.nnpos, td.opt[0], td.opt[1]);
 }
 
+// ---------------------------------------------------------------------------
+// MODALITA' ANALISI (09/10/2026; opzioni e origine delle idee in search/01_params.inc).
+// ---------------------------------------------------------------------------
+
+// GoldDigger (AnGold). Meccanismo di ShashChess (amchess), build -DGOLD_DIGGER, letto nel sorgente pubblico: la radice
+// viene classificata (stile di Shashin dalla probabilita' di vittoria della valutazione: difesa/"Petrosian" <= 24%,
+// equilibrio/"Capablanca" ~50%, attacco/"Tal" 80-89%, vantaggio netto >= 95%) e marcata con tre fatti statici (una
+// cattura possibile con un pezzo che vale piu' del catturato, un pedone oltre la meta' scacchiera, un re attaccato con
+// peso > 5). Da li': razoring piu' prudente, margine della futility del nodo (la nostra RFP) x1,5 o x1,2, mossa nulla
+// saltata quando il calore tattico arriva a 4 (gd_skip_null, 13_search.inc), riduzioni al 97% o 103% e piccoli ritocchi
+// per stile, finestra d'aspirazione piu' stretta in equilibrio e piu' larga in attacco. Codice nostro sulla nostra
+// ricerca; non portati: fortezze, soglia del numero di mosse per stile, e tutto cio' che ShashChess fa anche senza
+// GoldDigger. Statico una volta per ricerca, stile ricalcolato a ogni iterazione col punteggio dell'iterazione prima.
+struct GdRoot { bool sacrificial, near_promo, king_danger, many_moves; };
+
+static GdRoot gd_root_facts(ThreadData &td) {
+  GdRoot g{};
+  for (int i = 0; i < td.root_count; i++) {   // mosse di radice: gia' legali
+    const int m = td.root[i].pv[0];
+    if (!get_move_capture(m) || kPieceKind[move_piece(m)] == K)
+      continue;
+    int mover = unit_value[kPieceKind[move_piece(m)]];
+    if (get_move_promoted(m))
+      mover += unit_value[kPieceKind[get_move_promoted(m) & 15]] - unit_value[P];
+    const int vk = get_move_enpassant(m) ? P : kPieceKind[td.piece_on[move_to(m)] & 15];
+    if (mover > unit_value[vk]) { g.sacrificial = true; break; }
+  }
+  // Pedoni bianchi in 5a-7a (righe 1-3 con a8 = 0, case 8-31), neri in 2a-4a (righe 4-6, case 32-55).
+  g.near_promo = (td.bitboards[P] & 0x00000000FFFFFF00ULL) || (td.bitboards[p] & 0x00FFFFFF00000000ULL);
+  for (int c = white; c <= black && !g.king_danger; c++) {
+    U64 a = td_attackers_to(td, get_ls1b_index(td.bitboards[c == white ? K : k]), c ^ 1);
+    int sum = 0;
+    while (a) {
+      const int sq = get_ls1b_index(a);
+      const int kind = kPieceKind[td.piece_on[sq] & 15];
+      sum += (kind == Q || kind == R) ? 3 : 1;
+      pop_lsb_bb(a);
+    }
+    g.king_danger = sum > 5;
+  }
+  g.many_moves = td.root_count > 30;
+  return g;
+}
+
+static void gd_iteration(ThreadData &td, const GdRoot &g, int score) {
+  int w, d, l;
+  wdl_from_cp(units_to_cp(score), w, d, l);
+  const int wp = (w + d / 2 + 5) / 10;   // probabilita' di vittoria in percento
+  const bool petrosian = wp <= 24, aggressive = wp >= 80 && wp <= 89, high_tal = wp >= 95;
+  const bool strategical = wp >= 45 && wp <= 55 && !g.king_danger && !g.near_promo;
+  td.gd_style = aggressive ? 1 : strategical ? 2 : petrosian ? 3 : high_tal ? 4 : 0;
+  td.gd_heat = 10 * g.king_danger + 10 * g.sacrificial + 2 * high_tal + 2 * aggressive + 2 * g.near_promo +
+               g.many_moves;
+  td.gd_rfp_pct = (aggressive || g.sacrificial) ? 150 : strategical ? 120 : 100;
+  td.gd_razor = (aggressive || g.sacrificial) ? 150 : strategical ? 50 : 0;
+}
+
+// Valori effettivi della modalita' analisi per l'iterazione corrente (dopo lt_update). In partita (an_bits = 0)
+// riproducono esattamente il calcolo di prima: deep_w dai parametri DeepKnee/DeepSpan, leve = Deep* x deep_w / 1024.
+static void an_iteration(ThreadData &td) {
+  const bool on = td.an_bits != 0;
+  int deep = on ? g_an_deep : 0;
+  if (on && (td.an_bits & AN_SMP) && (td.thread_id & 1))   // AnSmp: i thread helper dispari col preset piu' largo
+    deep = 3;
+  const bool ext = on && (td.an_bits & AN_EXT);
+  if (deep || ext) {
+    const DeepPreset &p = kAnDeep[deep];
+    td.deep_w = std::clamp((td.root_depth - kAnDeepKnee) * 1024 / kAnDeepSpan, 0, 1024);
+    const int w = td.deep_w;
+    td.dz_rfp = p.rfp * w / 1024;
+    td.dz_fut = p.fut * w / 1024;
+    td.dz_lmr = p.lmr * w / 1024;
+    td.dz_nmp = p.nmp * w / 1024;
+    td.dz_sing = (ext ? kAnSing : 0) * w / 1024;
+    td.dz_ext = (ext ? kAnExt : 0) * w / 1024;
+  } else {
+    // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
+    td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
+    const int w = td.deep_w;
+    td.dz_rfp = DeepRfp * w / 1024;
+    td.dz_fut = DeepFut * w / 1024;
+    td.dz_lmr = DeepLmr * w / 1024;
+    td.dz_nmp = DeepNmp * w / 1024;
+    td.dz_sing = DeepSing * w / 1024;
+    td.dz_ext = DeepExt * w / 1024;
+  }
+  if (on && (td.an_bits & AN_NMPV))
+    td.lt_nmp_verify_depth = kAnNmpVerify;
+  td.hunt_from = (on && (td.an_bits & AN_HUNT)) ? kAnHuntFrom : 16;
+  td.crystal_ply = (on && (td.an_bits & AN_CRYSTAL)) ? std::max(2, td.root_depth / 2) : -1;
+}
+
 static void deepen(ThreadData &td) {
   const bool main = td.thread_id == 0;
   NodeFrame *root = &td.frames[FRAME_OFFSET];
@@ -195,6 +287,33 @@ static void deepen(ThreadData &td) {
   td.deep_w = 0;
   td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
+  // Modalita' analisi: decisa una volta per ricerca (un setoption durante la ricerca vale dalla prossima).
+  const bool analyse = g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
+  td.an_bits = analyse ? (g_an_bits | AN_ACTIVE) : 0;
+  // Una riga per ricerca, solo dal thread principale e solo in analisi (in partita an_bits = 0: niente stampa), con
+  // il preset in uso: chi analizza vede che la modalita' e' accesa e con quali componenti.
+  if (main && (td.an_bits & AN_ACTIVE)) {
+    static const struct { const char *name; int bit; } kAnNames[] = {
+      {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
+      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+    printf("info string Analysis mode activated AnDeep=%d", g_an_deep);
+    for (const auto &o : kAnNames)
+      if (td.an_bits & o.bit)
+        printf(" %s", o.name);
+    printf("\n");
+    fflush(stdout);
+  }
+  an_iteration(td);
+  td.gd_heat = -1000;
+  td.gd_rfp_pct = 100;
+  td.gd_razor = 0;
+  td.gd_style = 0;
+  const bool gold = td.an_bits & AN_GOLD;
+  GdRoot gd_facts{};
+  if (gold) {
+    gd_facts = gd_root_facts(td);
+    gd_iteration(td, gd_facts, static_evaluate(td));
+  }
 
   if (main) {
     for (int &v : g_clock.iter_values)
@@ -217,9 +336,10 @@ static void deepen(ThreadData &td) {
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
-    // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
-    td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
     lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
+    an_iteration(td);   // leve Deep* pesate (deep_w) e, in analisi, i componenti accesi
+    if (gold && td.root_depth > 1 && td.root[0].score > -infinity)
+      gd_iteration(td, gd_facts, td.root[0].score);
     if (main)
       g_clock.best_changes /= 2;
     for (int i = 0; i < td.root_count; i++) {
@@ -240,6 +360,10 @@ static void deepen(ThreadData &td) {
       td.sel_depth = 0;
 
       int delta = AspBase + td.thread_id % 8 + (int)(std::llabs(cur.mean_sq) / AspMeanSqDiv);
+      if (td.gd_style == 2)   // AnGold: finestra piu' stretta in equilibrio, piu' larga in attacco
+        delta = std::max(6, delta * 9 / 10);
+      else if (td.gd_style == 1 || td.gd_style == 4)
+        delta = delta * 9 / 8;
       const int avg = cur.avg_score;
       int alpha = std::max(avg - delta, -infinity);
       int beta = std::min(avg + delta, (int)infinity);
@@ -250,7 +374,8 @@ static void deepen(ThreadData &td) {
       for (;;) {
         const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4);
         td.root_delta = beta - alpha;
-        best = explore(td, root, alpha, beta, depth, false, true);
+        best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // modalita' analisi
+                          : explore<false>(td, root, alpha, beta, depth, false, true);  // partita: termini costanti
         settle_lines(td, td.pv_idx, td.pv_last);
         if (stop_threads.load(std::memory_order_relaxed))
           break;

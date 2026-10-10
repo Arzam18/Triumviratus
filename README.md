@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -80,13 +80,14 @@ first version to support **Chess960**.
 
 **Outside tests** (summary in [`tests/`](tests/), games and crosstables in
 **[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)**): in Maurizio Platino's matches the
-4 October prerelease scores **+94 ± 16** Elo against Stormphrax 8.0.0 and **+25.5 ± 14.6** against Reckless
-0.10.0-dev (300 games each, 1 min + 1 s, 1 thread), and on his ENET 2026 suite it solves **89 of 110**, the best
+8 October prerelease is level with **Stockfish 19**, **−6.9 ± 9.6** Elo (+137 =20 −143 in 300 games, 1 min + 1 s,
+3 threads); the 4 October prerelease scores **+94 ± 16** Elo against Stormphrax 8.0.0 and **+25.5 ± 14.6** against
+Reckless 0.10.0-dev (300 games each, 1 thread), and on his ENET 2026 suite it solves **89 of 110**, the best
 Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
 **145 of 183**, the highest among the engines tested (143 with the build of 8 October); in his matches against the
 development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 103 s + 1 s (30 games each).
 
-Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)**. `source/` holds the 8.0
+Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`NOVELTIES.md`](NOVELTIES.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**. `source/` holds the 8.0
 development code; the 7.0 release is the tag `v7.0`.
 
 ---

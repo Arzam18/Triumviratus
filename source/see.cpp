@@ -8,6 +8,8 @@
 #include "movegen.h"
 #include "magic.h"
 #include "attacks.h"
+#include <cstdio>    // TRIUMV_VERIFY_SEEW2
+#include <cstdlib>
 
 // Get least valuable attacker
 static inline int get_lva(U64 bb[12], U64 occ[3], int square, int side, int* from_sq) {
@@ -210,7 +212,15 @@ int td_see(ThreadData& td, int move) {
 // Semantica: ritorna (td_see(td, move) >= threshold). Validazione: toggle UCI
 // SeeGEVerify = cross-check per-chiamata dei due path (0 mismatch attesi) +
 // node-count bit-identico al bench con SeeGE on/off.
-int td_see_ge(ThreadData& td, int move, int threshold) {
+// W2 (08/10/2026, velocita', stesso risultato): il pezzo che ricattura (il meno caro del lato al tratto) si trova con
+// un indice calcolato invece che con la catena pedone / cavallo / alfiere / torre / donna. La catena era un salto per
+// tipo, e il tipo cambia da uno scambio all'altro: nel PGO di v2a ogni giro passava da cinque salti condizionati.
+// Ora: maschera dei tipi presenti (bit k = il lato ha un attaccante di tipo k, bit 5 = solo il re), indice = bit piu'
+// basso. Gli x-ray si ricalcolano sempre su entrambe le linee, mascherati per tipo: togliere un cavallo o un pedone non
+// apre linee ortogonali verso `to`, togliere una torre non apre diagonali, quindi i pezzi aggiunti sono gli stessi
+// della catena (verifica: -DTRIUMV_VERIFY_SEEW2 confronta le due versioni a ogni chiamata).
+template <bool Chain>
+static int see_ge_impl(ThreadData& td, int move, int threshold) {
     int from  = get_move_source(move);
     int to    = get_move_target(move);
     int piece = get_move_piece(move);
@@ -261,8 +271,29 @@ int td_see_ge(ThreadData& td, int move, int threshold) {
         }
         res ^= 1;
 
-        U64 bb;
         const int base = (stm == white) ? P : p;
+        if constexpr (!Chain) {
+            // diagonali dopo pedone, alfiere, donna (tipi 0, 2, 4); ortogonali dopo torre e donna (3, 4)
+            static constexpr U64 diag_mask[5] = {~0ULL, 0, ~0ULL, 0, ~0ULL};
+            static constexpr U64 orth_mask[5] = {0, 0, 0, ~0ULL, ~0ULL};
+            const unsigned kinds = unsigned((stm_att & td.bitboards[base + 0]) != 0)
+                                 | unsigned((stm_att & td.bitboards[base + 1]) != 0) << 1
+                                 | unsigned((stm_att & td.bitboards[base + 2]) != 0) << 2
+                                 | unsigned((stm_att & td.bitboards[base + 3]) != 0) << 3
+                                 | unsigned((stm_att & td.bitboards[base + 4]) != 0) << 4
+                                 | 32u;
+            const int t = __builtin_ctz(kinds);
+            if (t == 5)                                         // re: cattura legale solo se INDIFESO
+                return ((attackers & occupied) & td.occupancies[stm ^ 1]) ? (res ^ 1) : res;
+            if ((swap = see_piece_values[t] - swap) < res) break;
+            const U64 bb = stm_att & td.bitboards[base + t];
+            occupied ^= (bb & (0 - bb));
+            attackers |= (get_bishop_attacks(to, occupied) & diag_sliders & diag_mask[t])
+                       | (get_rook_attacks(to, occupied)   & orth_sliders & orth_mask[t]);
+            continue;
+        }
+
+        U64 bb;
         if ((bb = stm_att & td.bitboards[base + 0])) {          // pedone
             if ((swap = see_piece_values[P] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
@@ -293,4 +324,24 @@ int td_see_ge(ThreadData& td, int move, int threshold) {
         }
     }
     return res;
+}
+
+int td_see_ge(ThreadData& td, int move, int threshold) {
+#ifdef TRIUMV_VERIFY_SEEW2
+    const int a = see_ge_impl<true>(td, move, threshold), w = see_ge_impl<false>(td, move, threshold);
+    if (a != w) {
+        printf("info string SEEW2 SBAGLIATA: mossa %d soglia %d catena %d indice %d\n", move, threshold, a, w);
+        fflush(stdout);
+        abort();
+    }
+    return a;
+#elif !defined(TRIUMV_NO_W2_SEE)
+    // 09/10/2026: W2 ACCESA di default. Rimisura con il metodo corretto (socket fissato, soli thread di ricerca, PGO
+    // deterministica, 4 giri, rumore A/A 0,02-0,09%): -0,38% cicli/nodo in mediogioco, -0,14% nei finali (z_w2,
+    // docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). Il +0,31/+0,26% dell'08/10 era del metodo vecchio.
+    // -DTRIUMV_NO_W2_SEE torna alla catena.
+    return see_ge_impl<false>(td, move, threshold);
+#else
+    return see_ge_impl<true>(td, move, threshold);
+#endif
 }

@@ -358,6 +358,9 @@
            Path RELATIVI: clang_rt_lib accanto al repo-root (lo crea build_pgo_clang.ps1, copia+rinomina la lib);
            $(ClangProfileLibDir) = dir lib-clang di VS, passata dallo script (-p:ClangProfileLibDir=...). Niente path assoluti. -->
       <AdditionalLibraryDirectories>$(MSBuildProjectDirectory)\..\clang_rt_lib;$(ClangProfileLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <!-- W3 (09/10/2026): niente conversione cmov -> salto nel codegen ThinLTO di lld. Rimisura col metodo corretto:
+           -0,15% cicli/nodo mediogioco, -0,29% finali (z_w3, docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). -->
+      <AdditionalOptions>/mllvm:-x86-cmov-converter=false %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

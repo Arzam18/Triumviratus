@@ -142,6 +142,16 @@ struct ThreadData {
     int  opt[2];                      // optimism di questo thread (lato bianco, nero)
     int  root_side;                   // colore al tratto alla radice (Contempt)
     int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
+    // Modalita' analisi (09/10/2026, search/01_params.inc): valori EFFETTIVI per l'iterazione corrente, gia'
+    // pesati. In partita valgono quanto i parametri (Deep* a 0 = termini a 0), quindi l'albero non cambia.
+    int  an_bits;                     // componenti dell'analisi attivi in questa ricerca (0 = partita)
+    int  dz_rfp, dz_fut, dz_lmr, dz_nmp, dz_sing, dz_ext;   // = Deep* x deep_w / 1024
+    int  hunt_from;                   // profondita' di radice da cui vale hunt_mate (16 in partita)
+    int  crystal_ply;                 // AnCrystal: niente potature sulla linea precedente fino a questo ply (-1)
+    int  gd_heat;                     // AnGold: "calore" tattico della radice (-1000 in partita = mai)
+    int  gd_rfp_pct;                  // AnGold: margine RFP in percento (100 = invariato)
+    int  gd_razor;                    // AnGold: soglia del razoring piu' bassa di tanto (0)
+    int  gd_style;                    // AnGold: 0 neutro, 1 attacco, 2 manovra, 3 difesa
     // Rampa "tempo lungo" (Lt*, 01_params.inc): peso e valori effettivi delle leve per l'iterazione corrente.
     int  lt_w;
     int  lt_lmr_not_improving, lt_lmr_offset, lt_lmr_all_node, lt_lmr_no_tt_full;
@@ -228,6 +238,7 @@ extern int debug_eval_position_raw();
 
 // Opzioni UCI della ricerca: stampa e impostazione (01_params.inc).
 extern void print_search_options();
+extern void print_analysis_options();   // modalita' analisi (search/01_params.inc), anche nella release
 extern bool set_search_param(const char* name, int value);
 
 #endif
