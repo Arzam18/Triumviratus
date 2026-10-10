@@ -772,6 +772,39 @@ void uci_loop()
             parse_fen(start_position);
         }
 
+        // "exportprel <file>" (09/10/2026): la rete caricata salvata nel formato con PassedPawns v2 (innesto a zero).
+        else if (strncmp(input, "exportprel ", 11) == 0)
+        {
+            char path[1024] = {0};
+            sscanf(input + 11, "%1023s", path);
+            printf("info string exportprel %s\n", nn_export_graft(1, path) ? "ok" : "fallito");
+            fflush(stdout);
+        }
+
+        // "exportpst <file>" (10/10/2026): la rete caricata con PassedState di partenza (ogni stato = la riga v1, v1 a
+        // zero): stessa valutazione, il bench deve restare quello della rete.
+        else if (strncmp(input, "exportpst ", 10) == 0)
+        {
+            char path[1024] = {0};
+            sscanf(input + 10, "%1023s", path);
+            printf("info string exportpst %s\n", nn_export_pst(path) ? "ok" : "fallito");
+            fflush(stdout);
+        }
+
+        // "exportgraft <mask> <file>" (09/10/2026): la rete caricata con i blocchi da innesto di mask (1 PassedRel,
+        // innesto a zero se la rete non lo ha; 64 PassedState a zero, con la v1 della rete ancora accesa). Gli altri
+        // blocchi (2, 4, 8, 16, 32) sono stati tolti il 10/10/2026.
+        else if (strncmp(input, "exportgraft ", 12) == 0)
+        {
+            unsigned mask = 0;
+            char     path[1024] = {0};
+            if (sscanf(input + 12, "%u %1023s", &mask, path) == 2 && (mask == 1 || mask == 64))
+                printf("info string exportgraft %u %s\n", mask, nn_export_graft(mask, path) ? "ok" : "fallito");
+            else
+                printf("info string uso: exportgraft 1|64 <file>\n");
+            fflush(stdout);
+        }
+
         // DIAGNOSTIC: "eval" -> static NNUE eval of the current position (cp,
         // side-to-move relative), no search => byte-identical for cross-checks.
         else if (strncmp(input, "eval", 4) == 0)

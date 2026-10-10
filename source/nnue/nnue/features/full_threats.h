@@ -72,7 +72,9 @@ class FullThreats {
     // (refresh: fino a 128 threat + 120 coppie + 16 passati = 264;
     // incrementale: ~96 + ~46 + pochi passati) -> 288.
     // (8.0: 320 finche' c'era il blocco Mobility, tolto il 29/09/2026.)
-    static constexpr IndexType MaxActiveDimensions = 288;
+    // 09/10/2026: + i blocchi da innesto (pawn_grafts.h), fino a 54 voci nel refresh e 54 per lista nell'incrementale
+    // -> 352.
+    static constexpr IndexType MaxActiveDimensions = 352;
     using IndexList                                = ValueList<IndexType, MaxActiveDimensions>;
     using DiffType                                 = DirtyThreats;
 

@@ -35,6 +35,16 @@ param(
     # docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). -Unity torna all'unita' unica (variant.cpp); -MultiTU resta accettato.
     [switch]$MultiTU,
     [switch]$Unity,
+    # Rete per il TRAINING del profilo (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md §5). Vuota = la rete
+    # incorporata. Con una rete a blocchi da innesto il codice dei blocchi entra nel profilo; -PgoNetShare 50 allena
+    # meta' dei worker con questa e meta' con la incorporata (binario che deve andare bene con entrambe). Il bench di
+    # verifica resta quello della rete incorporata.
+    [string]$PgoNet = "",
+    [int]$PgoNetShare = 100,
+    # Una sola variante (10/10/2026, misure xperf dei blocchi da innesto): -Only 3 = solo avx512, PGO con le sue
+    # istruzioni, collegata con standalone.cpp (niente ingresso cpuid). Esce <Out>\Triumviratus_8.0_<Day>_v<n>.exe.
+    # Solo a file separati (default). Per misurare, non per distribuire.
+    [int]$Only = 0,
     [int]$Jobs = [Environment]::ProcessorCount     # compilazioni insieme a file separati
 )
 $MultiTU = -not $Unity
@@ -185,7 +195,7 @@ function Compile-Units($specs) {
     foreach ($sp in $specs) {
         $uobjs[$sp.n] = @()
         $files = $wfiles
-        if ($sp.mode -eq 'gen') { $files += "$U\standalone.cpp" }
+        if ($sp.mode -eq 'gen' -or $Only) { $files += "$U\standalone.cpp" }
         foreach ($f in $files) {
             $o = "$OBJ\mtu_{0}{1}_{2}.obj" -f $sp.mode, $sp.n, [IO.Path]::GetFileNameWithoutExtension($f)
             $a = $base + (VFlags $sp.as) + (VTune $sp.n) + @("-DTRIUMV_VID=$($sp.n)", '-flto=thin')
@@ -244,6 +254,10 @@ if (-not $NoPgo) {
         if ($can.Contains("$n")) { $train[$n] = $n }
         elseif ($n -ge 4 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, namespace della variante
     }
+    if ($Only) {
+        if (-not $train.ContainsKey($Only)) { Fail "-Only ${Only}: variante non allenabile su questa CPU" }
+        $train = @{ $Only = $train[$Only] }
+    }
     Say "build strumentate: $(($train.Keys | Sort-Object | ForEach-Object { "$($names[$_])<-$($names[$train[$_]])" }) -join ', ')"
     if ($MultiTU) {
         $gobjs = Compile-Units @($train.Keys | ForEach-Object { @{ n = $_; mode = 'gen'; as = $train[$_]; prof = '' } })
@@ -254,6 +268,12 @@ if (-not $NoPgo) {
         foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" @("$OBJ\g$n.obj") -Gen }
     }
     Say "training ($Workers worker per variante, in parallelo)"
+    if ($PgoNet) {
+        if (-not (Test-Path $PgoNet)) { Fail "rete di training non trovata: $PgoNet" }
+        $env:PGO_EVALFILE = (Resolve-Path $PgoNet).Path
+        $env:PGO_EVALFILE_SHARE = "$PgoNetShare"
+        Say "rete di training: $($env:PGO_EVALFILE) ($PgoNetShare% dei worker)"
+    }
     $ps = foreach ($n in $train.Keys) {
         Remove-Item -Recurse -Force "$PROF\v$n" -ErrorAction SilentlyContinue; New-Item -ItemType Directory "$PROF\v$n" | Out-Null
         $env:LLVM_PROFILE_FILE = "$PROF\v$n\p_%p.profraw"
@@ -263,6 +283,7 @@ if (-not $NoPgo) {
     }
     Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
     Wait-All $ps "training"
+    Remove-Item Env:PGO_EVALFILE, Env:PGO_EVALFILE_SHARE -ErrorAction SilentlyContinue
     foreach ($n in $train.Keys) {
         $raw = @(Get-ChildItem "$PROF\v$n\*.profraw")
         if (-not $raw.Count) { Fail "nessun profilo per la variante $n" }
@@ -286,6 +307,26 @@ if (-not $NoPgo) {
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
 $exe = "$Out\Triumviratus_8.0_${Day}_universal.exe"
+if ($Only) {
+    if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
+    $exe = "$Out\Triumviratus_8.0_${Day}_v$Only.exe"
+    $sp1 = if ($profs.ContainsKey($Only)) { @{ n = $Only; mode = 'use'; as = $Only; prof = $profs[$Only] } }
+           else { @{ n = $Only; mode = 'none'; as = $Only; prof = '' } }
+    $pobjs = Compile-Units @($sp1)
+    Link $exe $pobjs[$Only]
+    # Il bench passa da Python (10/10/2026): con la pipe di PowerShell 5.1 il binario a variante unica riceveva solo la
+    # prima riga e il controllo leggeva "?" anche con il bench giusto.
+    $b = "?"
+    $bo = & $py -c "import subprocess,sys; r=subprocess.run([sys.argv[1]],input=b'bench\nquit\n',capture_output=True); print(r.stdout.decode(errors='ignore'))" $exe |
+          Select-String "Nodes searched" | Select-Object -First 1
+    if ($bo -and "$bo" -match '(\d+)\s*$') { $b = $Matches[1] }
+    $ver = @("{0,-12} bench {1,-8} {2}" -f $names[$Only], $b, $(if ($b -eq $ExpectedBench) { "ok" } else { "BENCH DIVERSO (atteso $ExpectedBench)" }))
+    Set-Content -Encoding utf8 "$Out\verifica.txt" $ver
+    $ver | ForEach-Object { Say $_ }
+    if ($b -ne $ExpectedBench) { Fail "bench diverso" }
+    Say "PRONTO: $exe"
+    return
+}
 if ($MultiTU) {
     $pobjs = Compile-Units @(1..5 | ForEach-Object {
         if ($profs.ContainsKey($_)) { @{ n = $_; mode = 'use'; as = $_; prof = $profs[$_] } }

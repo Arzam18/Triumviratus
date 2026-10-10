@@ -85,7 +85,7 @@ experts of the network.
 | Policy network as a position signal (`PolicySeed`, `EntropyTM`, `PolicyEasyMove`, `PolicyRootLmr`) | Revisited | 3.6-3.8, August 2026 | −35.17, −16.7, −14.35, +1.36 ± 2.71 | closed |
 | `TalStyle`, root switch to verified sacrifices | Revisited | 8.0 dev | −40 ± 18 (388) | removed |
 | Move-ordering rank by mask and popcount, 16 moves at a time | Revisited | 8.0 | −0.70% cycles per node (AVX-512) | adopted |
-| Causal reduction (`CausalRed`): more reduction for quiet moves away from the squares of a sibling's refutation | Revisited | 8.0 | not yet measured | implemented, off; game test queued |
+| Causal reduction (`CausalRed`): more reduction for quiet moves away from the squares of a sibling's refutation | Revisited | 8.0 | +4.27 ± 4.13 (6,594) | adopted (512) |
 | Policy network inside the alpha-beta search | Elsewhere first | 3.1 | −85, −30.56 ± 21.9, −46.89, −22.83 | closed |
 | `DiverseSMP`, LMR bias per helper thread | Elsewhere first (Reckless) | 3.5, 6.0 | +4.91 ± 7.97 at 8 threads (1,700) | in 6.0 and 7.0 |
 | TMv2 multiplicative time manager | Elsewhere first (Alexandria, Caissa) | 6.0 | +23.8 ± 18.2 at 20+0.2 (380) | in 6.0 and 7.0 |
@@ -295,7 +295,10 @@ These entries take a known idea and change its form, its scale or its use. Those
   reduced by an extra fraction of a ply; they are never pruned, and a reduced search that beats alpha is repeated at
   full depth as usual. The closest precedent is Stockfish 1.x-2.x, which pruned moves not connected to the threat
   found by the null move; here the threat is the actual refutation of a sibling and the moves are reduced, not
-  pruned. Implemented and off; the game test is queued.
+  pruned. Adopted at 512 (half a ply) on 10/10/2026: SPRT at 25+0.25 on UHO, two pooled runs, +4.27 ± 4.13 Elo over
+  6,594 games (LLR 1.17), with the candidate 0.25 ply deeper on average on both sockets. The test was stopped before
+  the usual 20,000 games because zero was already excluded; the value stays a parameter of the closing SPSA runs,
+  which can only refine it.
 
 Those tried and closed, each a variant of a known idea: `CorrUncert` (the
 disagreement between correction tables as uncertainty; Stockfish uses the size of the total correction),
