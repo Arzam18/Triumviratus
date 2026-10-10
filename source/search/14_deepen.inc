@@ -486,8 +486,15 @@ static void deepen(ThreadData &td) {
       // Sorpresa (TmSurpriseScale): l'avversario non ha giocato la risposta prevista, piu' tempo a questa mossa, ma
       // solo con l'orologio ancora sopra TmSurpriseClock % di quello di inizio partita.
       if (g_clock.surprise && TmSurpriseScale > 1000 &&
-          100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock)
-        total_time *= TmSurpriseScale / 1000.0;
+          100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock) {
+        // TmSurpriseGrade (0 = spenta, tempi identici): peso del tempo in piu' secondo quanto la risposta ha cambiato
+        // il punteggio.
+        if (TmSurpriseGrade) {
+          const double w = std::clamp(1.0 + (double)(g_clock.expect_score - best) / TmSurpriseGrade, 0.0, 2.0);
+          total_time *= 1.0 + (TmSurpriseScale / 1000.0 - 1.0) * w;
+        } else
+          total_time *= TmSurpriseScale / 1000.0;
+      }
       // TmDefendMul (08/10/2026, audit X3, spenta): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
       // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)

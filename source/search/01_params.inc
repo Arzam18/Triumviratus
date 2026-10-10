@@ -1,6 +1,26 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE CAUSALRED (10/10/2026, utente): CausalRed 0 -> 512 (idea dell'utente di giugno, "potatura causale"). SPRT a
+// 25+0.25 UHO, due tranche in pool (tag causal512 + causal512b): +4,27 +- 4,13 Elo su 6.594 partite, LLR +1,17,
+// profondita' media cand +0,25 ply su entrambi i socket. Fermato dall'utente prima delle 20.000 partite: la misura
+// basta perche' lo zero e' escluso, e il valore lo ritarano gli SPSA di chiusura (CausalRed fra le leve). Bench 222811
+// (prima 269775).
+// BAKE PR4 (09/10/2026, utente): 46 leve di potatura, estensioni e ordinamento dallo SPSA PR4 (20+0.2, fermato
+// al giro 6000), media delle iterazioni 5703-6002. SPRT del vettore contro i default: incrocio di tutti i test
+// (20+0.2 HT, 15+0.15 e 10+0.1 solo core, 30+0.3 HT con UHO +110/+129) positivo, socket 0 piu' del socket 1.
+// Accende l'ordinamento con conoscenza scacchistica (KingShield, Outpost*, AttackOrder*, PassedPush, PromoOrder,
+// BishopPairCapt, prima a 0). Valori vecchio->nuovo:
+//  BonusMul 139->140, BonusMax 1565->1615, BonusTTMove 371->343, MalusMul 911->853, MalusMax 2186->2156,
+//  QuietBonusScale 798->860, QuietMalusScale 1031->1043, CaptBonusScale 1515->1368, CaptMalusScale 1370->1270,
+//  ContUpdScale 784->874, GoodQuietLimit -14491->-15563, QuietSortDepthMul 3487->3223, CheckOrderBonus 15142->13323,
+//  GoodCaptSeeDiv 18->19, RazorMul 442->452, RfpBetaWeight 712->690, NmpDepthMul 14->15, NmpBase 314->302,
+//  NmpEvalDiv 235->223, ProbCutMargin 231->209, ProbCutTTMargin 400->415, CaptFutBase 177->190,
+//  CaptFutDepth 279->281, CaptSeeDepth 186->179, QuietHistPrune 3910->4045, QuietFutDepth 122->96,
+//  QuietFutBase 166->160, QuietSeeMul 25->24, QsFutMargin 285->312, QsSeeMargin 80->74, SingDoublePv 217->225,
+//  SingTripleBase 67->60, LmrTtPvSub 3227->2915, LmrTTMove 2082->2037, DeeperMargin 50->51, LdseMargin 80->76,
+//  AspBase 5->6, AspGrow 48->51, KingShield 0->5371, OutpostOrder 0->4179, OutpostOrderB 0->1078,
+//  AttackOrder 0->5807, AttackOrderQ 0->6371, PassedPush 0->3975, PromoOrder 0->2412, BishopPairCapt 0->601
 // BAKE RW1 (04/10/2026): 49 valori sono la media delle iterazioni 4481-5481 dello SPSA "RW1" (51 leve, 20+0.2,
 // Tuning_SPSA/spsa_prune/vettore_rw1_it5481.json), giocato dal nostro motore con Consilium; PassedPushRed (nostra)
 // entra accesa a 1125. SPRT di gate contro i valori di partenza a 10+0.1: +9,67 +- 9,38 (LLR 0,61, fermato e
@@ -76,41 +96,56 @@
 #define TRIUMV_SEARCH_PARAMS(P)                                                                            \
   /* valutazione */                                                                                       \
   P(EvalUnits, 1347, 900, 1800)          /* /1024: unita' nostre -> unita' dei margini (pedone ~ 356) */  \
+  /* Termini dal residuo (09/10/2026, idea P1, utente: "candidati per correggere la search"). Studio: 3.888        \
+     posizioni varie, punteggio a profondita' 1 contro ricerca a 300k nodi; il residuo e' regredito su concetti      \
+     scacchistici a parita' di punteggio, materiale e pezzi (tools/residual_features.py, studio_neuroni/res). Stima \
+     CONGIUNTA, centipedoni stampati (scala 400), nostro meno loro: finali (<= 15 pezzi) passato +8 per traversa    \
+     (t 5,6), passato che il re nemico non raggiunge +18 (t 2,2), spazio +8 per casa (t 4,0); mediogioco (> 15)     \
+     colonne aperte vicino al proprio re -14 (t -4,5), spazio +6 (t 5,9), passati collegati +18 (t 3,3). I termini   \
+     si sommano alla valutazione statica (fuori dalla cache), in cp stampati convertiti nelle unita' dei margini.   \
+     Tutti a 0 = spenti, valutazione identica. Valori di prova: la meta' delle stime (regressione su poche migliaia \
+     di posizioni). Il residuo contiene anche effetti della ricerca stessa (per esempio le spinte dei passati ridotte \
+     meno, PassedPushRed): la prova in partita dice se correggere la valutazione rende. */                          \
+  P(ResPasserRank, 0, 0, 40)             /* cp per traversa di ogni passato, solo finali (prova 4)        */  \
+  P(ResPasserFree, 0, 0, 60)             /* cp per passato fuori dal quadrato del re nemico, finali (prova 9) */ \
+  P(ResPasserConn, 0, 0, 60)             /* cp per passato con un passato sulla colonna vicina (prova 9)  */  \
+  P(ResKingOpen, 0, 0, 40)               /* cp in meno per colonna senza nostri pedoni vicino al re, medio (prova 7) */ \
+  P(ResSpace, 0, 0, 20)                  /* cp per casa di spazio (colonne c-f, traverse 2-4) (prova 3)   */  \
   P(OptStrength, 182, 0, 600)            /* optimism = forza * s / (|s| + div), in unita' della rete */   \
   P(OptDiv, 288, 1, 600)                                                                                  \
   /* finestre di aspirazione */                                                                           \
-  P(AspBase, 5, 1, 40)                                                                                    \
+  P(AspBase, 6, 1, 40)                                                                                    \
   P(AspMeanSqDiv, 10193, 1000, 40000)                                                                     \
-  P(AspGrow, 48, 10, 128)                /* /128 */                                                       \
+  P(AspGrow, 51, 10, 128)                /* /128 */                                                       \
   /* history: bonus e malus */                                                                            \
-  P(BonusMul, 139, 50, 300)                                                                               \
+  P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
-  P(BonusMax, 1565, 500, 3000)                                                                            \
-  P(BonusTTMove, 371, 0, 1000)                                                                            \
+  P(BonusMax, 1615, 500, 3000)                                                                            \
+  P(BonusTTMove, 343, 0, 1000)                                                                            \
   P(BonusPrevStatDiv, 28, 4, 200)                                                                         \
-  P(MalusMul, 911, 300, 2000)                                                                             \
+  P(MalusMul, 853, 300, 2000)                                                                             \
   P(MalusSub, 235, 0, 800)                                                                                \
-  P(MalusMax, 2186, 800, 5000)                                                                            \
-  P(QuietBonusScale, 798, 400, 1600)     /* /1024 */                                                      \
-  P(QuietMalusScale, 1031, 400, 2000)                                                                     \
+  P(MalusMax, 2156, 800, 5000)                                                                            \
+  P(QuietBonusScale, 860, 400, 1600)     /* /1024 */                                                      \
+  P(QuietMalusScale, 1043, 400, 2000)                                                                     \
   P(QuietMalusDecay, 921, 600, 1024)                                                                      \
-  P(CaptBonusScale, 1515, 500, 2500)                                                                      \
-  P(CaptMalusScale, 1370, 500, 2500)                                                                      \
+  P(CaptBonusScale, 1368, 500, 2500)                                                                      \
+  P(CaptMalusScale, 1270, 500, 2500)                                                                      \
   P(PrevContMalus, 713, 0, 1500)                                                                          \
   P(LowPlyScale, 712, 0, 1500)                                                                            \
-  P(ContUpdScale, 784, 300, 1500)                                                                         \
+  P(ContUpdScale, 874, 300, 1500)                                                                         \
   P(PawnBonusScale, 1104, 300, 2000)                                                                      \
   P(PawnMalusScale, 459, 100, 1500)                                                                       \
   P(EvalDiffMul, 11, 0, 40)               /* history della mossa precedente dalla differenza di eval */   \
   P(EvalDiffPawnMul, 13, 0, 40)                                                                           \
   /* ordinamento */                                                                                       \
-  P(GoodQuietLimit, -14491, -30000, 0)                                                                    \
-  P(QuietSortDepthMul, 3487, 1000, 8000)                                                                  \
-  P(CheckOrderBonus, 15142, 0, 40000)                                                                     \
+  P(GoodQuietLimit, -15563, -30000, 0)                                                                    \
+  P(QuietSortDepthMul, 3223, 1000, 8000)                                                                  \
+  P(CheckOrderBonus, 13323, 0, 40000)                                                                     \
   P(ThreatOrderMul, 20, 0, 60)                                                                            \
-  P(GoodCaptSeeDiv, 18, 4, 64)                                                                            \
+  P(GoodCaptSeeDiv, 19, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
-  P(RazorMul, 442, 100, 1200)                                                                             \
+  P(RazorMul, 452, 100, 1200)                                                                             \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -119,39 +154,39 @@
   P(RfpImproving, 2852, 0, 5000)                                                                          \
   P(RfpOppWorse, 335, 0, 1500)                                                                            \
   P(RfpCorrDiv, 198435, 50000, 800000)                                                                    \
-  P(RfpBetaWeight, 712, 0, 1024)                                                                          \
-  P(NmpDepthMul, 14, 0, 40)                                                                               \
+  P(RfpBetaWeight, 690, 0, 1024)                                                                          \
+  P(NmpDepthMul, 15, 0, 40)                                                                               \
   P(NmpImproving, 47, 0, 150)                                                                             \
-  P(NmpBase, 314, 0, 800)                                                                                 \
+  P(NmpBase, 302, 0, 800)                                                                                 \
   P(NmpRedBase, 7, 3, 12)                                                                                 \
-  P(NmpEvalDiv, 235, 64, 1024)                                                                            \
+  P(NmpEvalDiv, 223, 64, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
-  P(ProbCutMargin, 231, 80, 500)                                                                          \
+  P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
-  P(ProbCutTTMargin, 400, 150, 900)                                                                       \
+  P(ProbCutTTMargin, 415, 150, 900)                                                                       \
   /* potatura nel ciclo mosse */                                                                          \
-  P(CaptFutBase, 177, 50, 600)                                                                            \
-  P(CaptFutDepth, 279, 80, 500)                                                                           \
+  P(CaptFutBase, 190, 50, 600)                                                                            \
+  P(CaptFutDepth, 281, 80, 500)                                                                           \
   P(CaptFutHist, 134, 0, 400)            /* /1024 */                                                      \
-  P(CaptSeeDepth, 186, 50, 400)                                                                           \
+  P(CaptSeeDepth, 179, 50, 400)                                                                           \
   P(CaptSeeHist, 34, 0, 120)             /* /1024 */                                                      \
-  P(QuietHistPrune, 3910, 1000, 10000)                                                                    \
+  P(QuietHistPrune, 4045, 1000, 10000)                                                                    \
   P(QuietMainHistMul, 69, 0, 200)        /* /32 */                                                        \
-  P(QuietFutDepth, 122, 40, 300)                                                                          \
+  P(QuietFutDepth, 96, 40, 300)                                                                          \
   P(QuietFutAlpha, 90, 0, 300)                                                                            \
-  P(QuietFutBase, 166, 0, 400)                                                                            \
-  P(QuietSeeMul, 25, 5, 80)                                                                               \
+  P(QuietFutBase, 160, 0, 400)                                                                            \
+  P(QuietSeeMul, 24, 5, 80)                                                                               \
   /* estensioni */                                                                                        \
   P(SingMarginBase, 73, 20, 150)                                                                          \
   P(SingMarginTtPv, 66, 0, 200)                                                                           \
   P(SingDoubleBase, -2, -100, 100)                                                                        \
-  P(SingDoublePv, 217, 0, 500)                                                                            \
+  P(SingDoublePv, 225, 0, 500)                                                                            \
   P(SingDoubleQuiet, 152, 0, 400)                                                                         \
-  P(SingTripleBase, 67, 0, 300)                                                                           \
+  P(SingTripleBase, 60, 0, 300)                                                                           \
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
-  P(LdseMargin, 80, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
+  P(LdseMargin, 76, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
@@ -165,7 +200,7 @@
   P(LmrNotImproving, 197, 0, 600)        /* /512 */                                                       \
   P(LmrBase, 998, 0, 2500)                                                                                \
   P(LmrTtPvAdd, 929, 0, 2500)                                                                             \
-  P(LmrTtPvSub, 3227, 0, 6000)                                                                            \
+  P(LmrTtPvSub, 2915, 0, 6000)                                                                            \
   P(LmrTtPvPv, 1004, 0, 3000)                                                                             \
   P(LmrTtPvAlpha, 885, 0, 3000)                                                                           \
   P(LmrTtPvDepth, 816, 0, 3000)                                                                           \
@@ -179,15 +214,18 @@
   P(LmrCutoffBase, 264, 0, 1500)                                                                          \
   P(LmrCutoffMany, 1095, 0, 3000)                                                                         \
   P(LmrCutoffAll, 1138, 0, 3000)                                                                          \
-  P(LmrTTMove, 2082, 0, 5000)                                                                             \
+  P(LmrTTMove, 2037, 0, 5000)                                                                             \
+  P(CausalRed, 512, 0, 4096)             /* BAKE 10/10/2026 (era 0, vedi in testa): 1/1024 ply in piu' alle  \
+                                            quiete fuori dalle case della confutazione di una sorella (13_search.inc,\
+                                            causal_mask; 0 = spenta) */                                             \
   P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
   P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
-  P(DeeperMargin, 50, 0, 200)                                                                             \
+  P(DeeperMargin, 51, 0, 200)                                                                             \
   P(ShallowerMargin, 8, 0, 60)                                                                            \
   /* quiescenza */                                                                                        \
-  P(QsFutMargin, 285, 100, 600)                                                                           \
-  P(QsSeeMargin, 80, 0, 300)                                                                              \
+  P(QsFutMargin, 312, 100, 600)                                                                           \
+  P(QsSeeMargin, 74, 0, 300)                                                                              \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
   P(CorrMinorW, 10827, 0, 40000)                                                                          \
@@ -231,9 +269,9 @@
      Il riequilibrio con -6 e' anche nel lavoro di Stockfish dopo la 19; i valori li cerca il nostro SPSA. */          \
   P(CorrNoMoveW, 64049, 0, 200000)       /* termine della continuazione dopo la mossa nulla */            \
   /* tecniche nostre sopra la ricerca nuova (04/10/2026), spente = albero invariato */                    \
-  P(KingShield, 0, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
+  P(KingShield, 5371, 0, 40000)             /* malus d'ordinamento al pedone che lascia lo scudo del re */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...solo se l'avversario ha almeno questo materiale non pedoni */ \
-  P(OutpostOrder, 0, 0, 40000)           /* 08/10/2026 (utente): bonus d'ordinamento al cavallo che va su un */ \
+  P(OutpostOrder, 4179, 0, 40000)           /* 08/10/2026 (utente): bonus d'ordinamento al cavallo che va su un */ \
                                          /* avamposto (difeso da un pedone, mai attaccabile da pedoni) */     \
   P(OutpostSafe, 1, 0, 2)                /* 1: anche senza alfieri avversari del colore della casa; 2: e senza cavalli */ \
   /* Ordinamento con conoscenza scacchistica (08/10/2026, utente, dopo gli avamposti), SPENTE di default. AttackOrder \
@@ -242,19 +280,19 @@
      difeso. A luglio, nella ricerca della 7.0, -9,7 +- 10,4 su 1.290 partite: si riprova sulla ricerca nuova.        \
      PassedPush (spinta del passato), OutpostOrderB (avamposto dell'alfiere), BishopPairCapt (cattura di un alfiere  \
      della coppia) sono nostre; PromoOrder (promozione a donna avanti fra le tattiche) e' anche in Reckless. */         \
-  P(AttackOrder, 0, 0, 40000)            /* pedone, cavallo, alfiere, torre che attaccano un bersaglio da casa sicura */ \
-  P(AttackOrderQ, 0, 0, 40000)           /* ...la donna (bersagli non difesi)                               */ \
+  P(AttackOrder, 5807, 0, 40000)            /* pedone, cavallo, alfiere, torre che attaccano un bersaglio da casa sicura */ \
+  P(AttackOrderQ, 6371, 0, 40000)           /* ...la donna (bersagli non difesi)                               */ \
   /* AttackSafeSee (08/10/2026 sera, verifica docs/audit_8.0/Y2_VERIFICA_ORDINAMENTO.md): con 0 la casa d'arrivo deve \
      essere libera da ogni attacco nemico, ma il bersaglio vede quasi sempre la casa da cui lo si attacca (pedone su   \
      alfiere, pezzo su donna: 40% degli attacchi a pezzi piu' pesanti mai premiati). Con 1 la casa non deve essere     \
      attaccata da pezzi di valore minore e lo scambio sulla casa non deve perdere materiale (SEE >= 0). Lo SPRT del    \
      trio (08/10, +0,39 +- 5,42) era con 0. */                                                                        \
   P(AttackSafeSee, 1, 0, 1)                                                                               \
-  P(PassedPush, 0, 0, 40000)             /* pedone passato che avanza su una casa che non perde materiale  */ \
+  P(PassedPush, 3975, 0, 40000)             /* pedone passato che avanza su una casa che non perde materiale  */ \
   P(PassedPushRank, 6, 4, 7)             /* ...dalla traversa (relativa) PassedPushRank in su              */ \
-  P(OutpostOrderB, 0, 0, 40000)          /* alfiere su un avamposto (stessa maschera dei cavalli)          */ \
-  P(PromoOrder, 0, 0, 40000)             /* promozione a donna, in piu' nel punteggio delle tattiche        */ \
-  P(BishopPairCapt, 0, 0, 4000)          /* cattura di un alfiere quando l'avversario ha la coppia          */ \
+  P(OutpostOrderB, 1078, 0, 40000)          /* alfiere su un avamposto (stessa maschera dei cavalli)          */ \
+  P(PromoOrder, 2412, 0, 40000)             /* promozione a donna, in piu' nel punteggio delle tattiche        */ \
+  P(BishopPairCapt, 601, 0, 4000)          /* cattura di un alfiere quando l'avversario ha la coppia          */ \
   /* Audit X3 (08/10/2026, docs/audit_8.0/X3_DOVE_PERDIAMO.md), SPENTE di default: a 0 albero e tempi identici.       \
      Contro SF19 perdiamo i punti in difesa con poco orologio, soprattutto fra 10 e 23 pezzi. ProgressFade:          \
      smorzamento in piu' col contatore delle 50 mosse oltre ProgressFrom (12_quiesce.inc). TmDefendMul: piu' tempo   \
@@ -348,6 +386,16 @@
      finali, dove l'orologio e' piu' corto). Con soglia 40 e x1,6 (un ply in piu' sulle sorprese) a 20+0.2: -10,1 +- \
      7,5 su 1.998 partite, chiusa: il tempo preso al mediogioco costa piu' di quanto rende. 0 = sempre. */           \
   P(TmSurpriseClock, 0, 0, 100)          /* % dell'orologio di inizio partita sotto cui la sorpresa tace */  \
+  /* Sorpresa graduata (09/10/2026, proposta 5 del registro delle novita', utente: "sviluppala e mettila off"). La   \
+     regola della sorpresa e' si'/no; qui il tempo in piu' dipende da quanto la risposta inattesa ha cambiato la      \
+     partita: d = punteggio atteso alla fine della ricerca precedente (stessa prospettiva, due mezze mosse dopo) meno \
+     il punteggio della radice a questa iterazione. Peso w = clamp(1 + d / TmSurpriseGrade, 0, 2): d = 0 -> w = 1    \
+     (come oggi); l'avversario ha trovato qualcosa (d = +Grade) -> w = 2, doppio tempo in piu'; ha sbagliato (d =   \
+     -Grade) -> w = 0, nessun tempo in piu'. Tempo x (1 + (TmSurpriseScale/1000 - 1) x w). Si ricalcola a ogni      \
+     iterazione, come TmExpect*. Il rango della risposta fra le mosse dell'avversario non e' noto (la ricerca ordina \
+     solo le nostre mosse di radice): il punteggio ne e' la misura disponibile. 0 = spenta (regola si'/no). Da       \
+     misurare a 40+0.4, dove la sorpresa ha reso; valore di prova 300 unita' interne (~85 cp). */                    \
+  P(TmSurpriseGrade, 0, 0, 2000)         /* unita' interne: d per il peso doppio (0 = spenta)              */  \
   /* Ramo con incremento (blitz di CCRL), 05/10/2026: le costanti di clock_plan come parametri per uno SPSA del  \
      tempo contro un motore esterno (in self-play il lato che spende di piu' vince). Default = valori di prima: la \
      divisione IEEE e' arrotondata correttamente (12112 / 1e6 == 0.012112). */                                  \

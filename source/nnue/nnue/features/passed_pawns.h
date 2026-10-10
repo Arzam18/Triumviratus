@@ -20,11 +20,13 @@
 #ifndef NNUE_FEATURES_PASSED_PAWNS_INCLUDED
 #define NNUE_FEATURES_PASSED_PAWNS_INCLUDED
 
+#include "../../bitboard.h"  // pop_lsb (R4: emissione in linea)
 #include "../../misc.h"
 #include "../../types.h"
 #include "../nnue_common.h"
 #include "full_threats.h"  // OrientTBL (stessa orientazione per tutti i blocchi)
 #include "pawn_pair.h"     // catena FoldOffset: i pesi passed vivono DOPO il segmento pawn-pair
+#include "feat_perm.h"     // feat_row (R4: emissione in linea)
 
 namespace Triumviratus {
 class NnBoard;
@@ -75,6 +77,31 @@ class PassedPawns {
                                        const DiffType& diff,
                                        IndexList&      removed,
                                        IndexList&      added);
+
+    // R4 (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO3.md §4.1): la stessa diff con i passati prima (pb) e dopo
+    // (pa) la mossa gia' calcolati dal recupero, per colore (NnStack::v1PassW/B degli stati i - 1 e i,
+    // search/06_nndirty.inc): niente passers() qui. Prima, a ogni evento di pedone, otto passers() fuori linea per
+    // aggiornamento (due colori, prima e dopo, due prospettive). -DTRIUMV_VERIFY_V1PASS confronta pb e pa con quelli
+    // ricalcolati dalla snapshot dei pedoni (abort al primo disaccordo).
+    static inline void append_changed_indices_pass(Color           perspective,
+                                                   int             ksq,
+                                                   const Bitboard* pb,
+                                                   const Bitboard* pa,
+                                                   IndexList&      removed,
+                                                   IndexList&      added) {
+        for (Color c : {WHITE, BLACK})
+        {
+            Bitboard rem = pb[c] & ~pa[c];
+            Bitboard add = pa[c] & ~pb[c];
+            while (rem)
+                removed.push_back(feat_row(FoldOffset + make_index(perspective, ksq, c, pop_lsb(rem))));
+            while (add)
+                added.push_back(feat_row(FoldOffset + make_index(perspective, ksq, c, pop_lsb(add))));
+        }
+    }
+#ifdef TRIUMV_VERIFY_V1PASS
+    static void verify_pass(const DiffType& diff, const Bitboard* pb, const Bitboard* pa);
+#endif
 };
 
 }  // namespace Triumviratus::Eval::NNUE::Features

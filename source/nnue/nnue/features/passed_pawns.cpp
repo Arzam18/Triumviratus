@@ -5,6 +5,11 @@
 
 #include "passed_pawns.h"
 
+#ifdef TRIUMV_VERIFY_V1PASS
+    #include <cstdio>
+    #include <cstdlib>
+#endif
+
 #include "feat_perm.h"
 
 #include <array>
@@ -88,5 +93,24 @@ void PassedPawns::append_changed_indices(Color           perspective,
             added.push_back(feat_row(FoldOffset + make_index(perspective, ksq, c, pop_lsb(add))));
     }
 }
+
+#ifdef TRIUMV_VERIFY_V1PASS
+// R4: i passati del recupero (NnStack::v1PassW/B) devono essere quelli della snapshot dei pedoni, prima e dopo.
+void PassedPawns::verify_pass(const DiffType& diff, const Bitboard* pb, const Bitboard* pa) {
+    Bitboard before[COLOR_NB] = {diff.before[WHITE], diff.before[BLACK]};
+    Bitboard after[COLOR_NB]  = {before[WHITE], before[BLACK]};
+    for (int i = 0; i < diff.nRemoved; i++)
+        after[diff.removedC[i]] &= ~(1ULL << diff.removedSq[i]);
+    if (diff.addedSq != NN_SQ_NONE)
+        after[diff.addedC] |= 1ULL << diff.addedSq;
+    for (Color c : {WHITE, BLACK})
+        if (pb[c] != passers(c, before[c], before[~c]) || pa[c] != passers(c, after[c], after[~c]))
+        {
+            std::fprintf(stderr, "[V1PASS] passati del recupero diversi dalla snapshot (colore %d)\n", int(c));
+            std::fflush(stderr);
+            std::abort();
+        }
+}
+#endif
 
 }  // namespace Triumviratus::Eval::NNUE::Features

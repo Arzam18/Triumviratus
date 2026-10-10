@@ -94,7 +94,7 @@ def load_positions(book, n):
 
 
 def run_worker(worker_id, exe, positions, times, total_searches, t0,
-               hash_mb=256, threads=1, newgame_every=0):
+               hash_mb=256, threads=1, newgame_every=0, evalfile=None):
     """
     Lancia un singolo processo del motore e lo fa girare su `positions`.
     Ogni processo strumentato riceve un ID univoco da pgort -> scrive
@@ -126,6 +126,13 @@ def run_worker(worker_id, exe, positions, times, total_searches, t0,
     _bnet = os.environ.get("PGO_BULLET_NET")
     if _bnet:
         send(f"setoption name BulletNet value {_bnet}")
+    # PGO_EVALFILE (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md §5): rete da caricare per il training al posto
+    # di quella incorporata. Con una rete a blocchi da innesto (es. PassedRel) il codice dei blocchi entra nel profilo:
+    # con la rete incorporata senza blocchi resta a contatore zero e il compilatore lo tratta da freddo (niente messa in
+    # linea, sezione fredda, salti disposti per il caso "spento"). PGO_EVALFILE_SHARE = percentuale dei worker che la
+    # caricano (default 100); con 50 il profilo copre sia la rete incorporata sia quella con i blocchi.
+    if evalfile:
+        send(f"setoption name EvalFile value {evalfile}")
     send("isready"); wait("readyok")
 
     done = 0
@@ -233,13 +240,21 @@ def main():
     print(f"  ricerche totali    : {total}  | Hash {hash_mb}MB / {threads} thread per worker"
           + (f" | ucinewgame ogni {newgame_every} pos" if newgame_every else ""))
 
+    # PGO_EVALFILE / PGO_EVALFILE_SHARE (vedi run_worker): i primi SHARE% dei worker caricano la rete indicata.
+    efile = os.environ.get("PGO_EVALFILE")
+    share = int(os.environ.get("PGO_EVALFILE_SHARE", "100"))
+    n_efile = (workers * share + 99) // 100 if efile else 0
+    if efile:
+        print(f"  rete di training     : {efile} su {n_efile}/{workers} worker (gli altri: rete incorporata)")
+
     t0 = time.time()
     completed_total = 0
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(run_worker, wid, exe, chunk, times, total, t0,
-                        hash_mb, threads, newgame_every): wid
+                        hash_mb, threads, newgame_every,
+                        efile if wid < n_efile else None): wid
             for wid, chunk in enumerate(chunks)
         }
         for fut in as_completed(futures):

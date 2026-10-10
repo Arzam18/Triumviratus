@@ -28,6 +28,77 @@
 // Raggio da s1 attraverso s2 fino al bordo (s2 compresa, s1 esclusa); 0 se le case non sono allineate o coincidono.
 static U64 nn_ray_pass[64][64];
 
+// Tabelle dei blocchi da innesto (_wip graftfix, 10/10/2026; docs/audit_8.0/PASSEDREL_COSTO.md, P1/P1b). Case del
+// motore (a8 = 0; il bianco promuove verso la riga 0). Definizioni: PASSED_REL_SPEC in
+// nnue/nnue/features/passed_rel.cpp.
+//   nn_pr_catch[c][s]  case del re NEMICO da cui il passato di c in s e' preso: Chebyshev(re, promozione) <= mosse
+//                      (mosse = 5 dalla seconda traversa); bit 0 dello stato = casa del re nemico FUORI da questa.
+//   nn_pr_ahead[c][s]  case davanti a s fino alla promozione compresa, s esclusa; bit 2 = nessun pezzo qui.
+//   nn_pr_adj[f]       colonne adiacenti a f; bit 1 = un altro passato di c qui.
+//   nn_pr_inv[c][k]    (_wip graft_passedrel2, Q2) le case s dei passati di c con k in nn_pr_catch[c][s]: una mossa del
+//                      re nemico da `da` ad `a` cambia il bit 0 SOLO dei passati in nn_pr_inv[c][da] ^ nn_pr_inv[c][a].
+//   nn_sq_bit[s]       1 << s, e 0 per s = NN_SQ_NONE (64): le case toccate da una mossa senza salti.
+static U64 nn_pr_catch[2][64];
+static U64 nn_pr_ahead[2][64];
+static U64 nn_pr_adj[8];
+static U64 nn_pr_inv[2][64];
+static U64 nn_sq_bit[65];
+// PassedState (PassedPawns v3, 10/10/2026): case da guardare di un passato di c in s. nn_ps_stop = la casa davanti
+// (bianco s - 8, nero s + 8; 0 sulle traverse estreme), nn_ps_prot = le due case in diagonale dietro (bianco s + 7,
+// s + 9; nero s - 7, s - 9), dove un pedone proprio lo protegge.
+static U64 nn_ps_stop[2][64];
+static U64 nn_ps_prot[2][64];
+
+static void nn_graft_tables_init() {
+  const U64 fileA = 0x0101010101010101ULL;
+  for (int c = 0; c < 2; c++)
+    for (int s = 0; s < 64; s++) {
+      const int row = s >> 3, f = s & 7, promoRow = c == white ? 0 : 7;
+      int moves = c == white ? row : 7 - row;
+      if ((c == white && row == 6) || (c == black && row == 1))
+        moves = 5;
+      U64 cb = 0;
+      for (int k = 0; k < 64; k++) {
+        const int dr = (k >> 3) > promoRow ? (k >> 3) - promoRow : promoRow - (k >> 3);
+        const int df = (k & 7) > f ? (k & 7) - f : f - (k & 7);
+        if ((dr > df ? dr : df) <= moves)
+          cb |= 1ULL << k;
+      }
+      nn_pr_catch[c][s] = cb;
+      const U64 file = fileA << f;
+      nn_pr_ahead[c][s] = c == white ? file & ((1ULL << (row * 8)) - 1)
+                                     : (row == 7 ? 0 : file & ~((1ULL << ((row + 1) * 8)) - 1));
+    }
+  for (int f = 0; f < 8; f++)
+    nn_pr_adj[f] = (f > 0 ? fileA << (f - 1) : 0) | (f < 7 ? fileA << (f + 1) : 0);
+  for (int c = 0; c < 2; c++)
+    for (int sq = 0; sq < 64; sq++) {
+      nn_pr_inv[c][sq] = 0;
+      for (int s = 0; s < 64; s++)
+        if ((nn_pr_catch[c][s] >> sq) & 1)
+          nn_pr_inv[c][sq] |= 1ULL << s;
+    }
+  for (int s = 0; s < 64; s++)
+    nn_sq_bit[s] = 1ULL << s;
+  nn_sq_bit[64] = 0;
+  for (int s = 0; s < 64; s++) {  // PassedState
+    const int row = s >> 3, f = s & 7;
+    nn_ps_stop[white][s] = row > 0 ? 1ULL << (s - 8) : 0;
+    nn_ps_stop[black][s] = row < 7 ? 1ULL << (s + 8) : 0;
+    U64 pw = 0, pb = 0;
+    if (row < 7) {
+      if (f > 0) pw |= 1ULL << (s + 7);
+      if (f < 7) pw |= 1ULL << (s + 9);
+    }
+    if (row > 0) {
+      if (f > 0) pb |= 1ULL << (s - 9);
+      if (f < 7) pb |= 1ULL << (s - 7);
+    }
+    nn_ps_prot[white][s] = pw;
+    nn_ps_prot[black][s] = pb;
+  }
+}
+
 static void nn_dirty_init() {
   for (int s1 = 0; s1 < 64; s1++)
     for (int s2 = 0; s2 < 64; s2++) {
@@ -39,6 +110,7 @@ static void nn_dirty_init() {
         r = get_bishop_attacks(s1, 0) & (get_bishop_attacks(s2, b1) | b2);
       nn_ray_pass[s1][s2] = r;
     }
+  nn_graft_tables_init();
 }
 
 // Fascia di materiale della rete (HalfKA a esperti) per numero di pezzi: <= 9, 10-15, 16-23, >= 24 (half_ka_v2_hm.h).
@@ -302,6 +374,9 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
   NnStack &S = *td.nnstack;
   NnState &st = S.st[S.size++];
   st.computed[white] = st.computed[black] = 0;
+  // Blocchi da innesto (_wip graftfix, P2): posizione nella pila e diff vuota, nella stessa linea di `computed`.
+  st.idx = (std::uint8_t)(S.size - 1);
+  st.graftRem = st.graftAdd = 0;
 
   NnDirtyPiece &dp = st.dp;
   dp.pc = (std::uint8_t)piece;
@@ -360,6 +435,396 @@ static inline void nn_mb_redo(int *mb, const NnDirtyPiece &dp) {
 // Minacce e pedoni degli stati che ne mancano ([ready, size)), prima di ogni valutazione: la scacchiera prima della
 // prima mossa in sospeso si ricava da quella del thread disfacendo le mosse in sospeso, poi le mosse si rifanno in
 // avanti. Di solito il padre e' gia' stato valutato e la mossa in sospeso e' una sola.
+// Voci del blocco da innesto PassedRel (09/10/2026; gli altri blocchi tolti il 10/10/2026) della scacchiera locale del
+// recupero: stessa funzione della rete (PawnGrafts::entries_of, un'altra unita'), sui bitboard di pedoni e re e
+// sull'occupazione. E' il RIFERIMENTO: dal _wip graftfix (10/10/2026) il recupero la usa solo alla radice e nel
+// controllo -DTRIUMV_VERIFY_GRAFT; piu' sotto c'e' la versione in linea (nn_prel_step). Qui arriva solo
+// mask & NN_GRAFT_LIST_MASK, cioe' PassedRel o PassedState (al piu' 16 voci, out con NN_GRAFT_MAX posti).
+static inline int nn_graft_tb(const NnTB &tb, unsigned mask, unsigned short *out) {
+  unsigned long long bb12[12] = {};
+  for (int t = 0; t < 6; t++) {  // PassedState (10/10/2026) legge tutti i pezzi; PassedRel pedoni e re
+    bb12[t] = tb.type[t] & tb.color[white];
+    bb12[t + NN_BLACK] = tb.type[t] & tb.color[black];
+  }
+  return nn_graft_entries(mask, bb12, tb.occ, out);
+}
+
+// Le case davanti ai passati (fino alla promozione) dalle voci di PassedRel (blocco 0: colore << 9 | casa << 3 |
+// stato, case del motore a8 = 0; il bianco promuove verso la riga 0): un pezzo che vi entra o ne esce puo' cambiare
+// la "strada libera". Comprende anche le case dei passati stessi.
+static inline U64 nn_graft_passer_span(const unsigned short *e, int n) {
+  U64 span = 0;
+  for (int i = 0; i < n && (e[i] >> 12) == 0; i++) {
+    const int c = (e[i] >> 9) & 1, s = (e[i] >> 3) & 63, row = s >> 3;
+    const U64 file = 0x0101010101010101ULL << (s & 7);
+    span |= c == 0 ? file & ((2ULL << s) - 1) : file & ~((1ULL << (row * 8)) - 1);
+  }
+  return span;
+}
+
+// Le voci che escono e che entrano, dalle due liste crescenti (merge lineare), in coda a rem[r..] e add[d..].
+static inline void nn_graft_merge(const unsigned short *a, int na, const unsigned short *b, int nb, unsigned short *rem,
+                                  int &r, unsigned short *add, int &d) {
+  int i = 0, j = 0;
+  while (i < na || j < nb) {
+    if (j >= nb || (i < na && a[i] < b[j]))
+      rem[r++] = a[i++];
+    else if (i >= na || b[j] < a[i])
+      add[d++] = b[j++];
+    else
+      i++, j++;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// _wip graftfix (10/10/2026; docs/audit_8.0/PASSEDREL_COSTO.md, P1, P1b e la parte KingFiles). Il recupero aggiorna
+// le voci blocco per blocco, ricalcolando solo cio' che la mossa puo' cambiare, con funzioni in linea in questa unita'
+// (la versione di riferimento, PawnGrafts::entries_of, resta per la radice, per Space/LockedPawns e per i controlli).
+// ---------------------------------------------------------------------------------------------------------------
+
+// (nn_bswap64 tolta il 10/10/2026, _wip graft_kingfiles: la usava solo nn_kf_owner, sostituita dalla firma.)
+
+// Passati del colore c: stessa funzione di PassedPawns::passers (nnue/nnue/features/passed_pawns.cpp, che la rete non
+// puo' esportare qui: motore e rete non condividono intestazioni). Un pedone e' passato se non cade nell'"ombra" (case
+// strettamente dietro, viste da c) dei pedoni avversari allargati alle colonne vicine, ne' in quella dei propri sulla
+// stessa colonna. Nella nostra numerazione il bianco avanza verso gli indici piu' bassi: la sua ombra sale di indice.
+static inline U64 nn_passers(int c, U64 own, U64 opp) {
+  const U64 fileA = 0x0101010101010101ULL, fileH = fileA << 7;
+  const auto back = [c](U64 b, int n) { return c == white ? b << n : b >> n; };
+  U64 oppShadow = back(opp | ((opp & ~fileH) << 1) | ((opp & ~fileA) >> 1), 8);
+  oppShadow |= back(oppShadow, 8);
+  oppShadow |= back(oppShadow, 16);
+  oppShadow |= back(oppShadow, 32);
+  U64 ownShadow = back(own, 8);
+  ownShadow |= back(ownShadow, 8);
+  ownShadow |= back(ownShadow, 16);
+  ownShadow |= back(ownShadow, 32);
+  return own & ~oppShadow & ~ownShadow;
+}
+
+// PassedRel da capo (P1b), voci del blocco 0 (colore << 9 | casa << 3 | stato) in ordine crescente, con la span
+// (case davanti ai passati, passati compresi) come sottoprodotto. Stesse voci di PassedRel::entries_of riordinate da
+// PawnGrafts::entries_of; lo controlla -DTRIUMV_VERIFY_GRAFT.
+// _wip graft_passedrel2: i passati (pw, pb) si passano gia' calcolati (nn_prel_step li ha in mano).
+static inline int nn_prel_entries_p(const NnTB &tb, U64 pw, U64 pb, unsigned short *out, U64 &span) {
+  const U64 P[2] = {pw, pb};
+  int n = 0;
+  span = 0;
+  for (int c = 0; c < 2; c++) {
+    if (!P[c])
+      continue;
+    const int ek = get_ls1b_index(tb.type[NN_KING] & tb.color[c ^ 1]);
+    for (U64 b = P[c]; b; b &= b - 1) {
+      const int s = get_ls1b_index(b);
+      const U64 ahead = nn_pr_ahead[c][s];
+      span |= ahead | (1ULL << s);
+      const unsigned st = unsigned(!((nn_pr_catch[c][s] >> ek) & 1)) | unsigned((nn_pr_adj[s & 7] & P[c]) != 0) << 1 |
+                          unsigned(!(ahead & tb.occ)) << 2;
+      out[n++] = (unsigned short)(c << 9 | s << 3 | st);
+    }
+  }
+  return n;
+}
+// (nn_prel_entries e nn_prel_restate, usate solo dal recupero generico nn_graft_step: tolte il 10/10/2026 con KingFiles.)
+
+// KingFiles e KingFilesQ (firma dei re, nn_kf_*) e il recupero generico nn_graft_step: tolti il 10/10/2026 con i
+// blocchi (non davano Elo; STATO_PROGETTO, TEST APERTI). Codice in _backup/graft_engine_removed_2026-10-10/
+// engine_removed_kingfiles/06_nndirty.inc. Nelle liste della pila resta solo PassedRel: un solo percorso, nn_prel_step.
+
+// ---------------------------------------------------------------------------------------------------------------
+// _wip graft_passedrel2 (10/10/2026; docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md, Q1-Q3). La sola PassedRel
+// (nn_graft_mask == PASSED_REL, il caso delle reti in prova) ha un percorso suo. La misura del giro precedente (xperf,
+// rete a pesi zero, +2,57% di cicli in mediogioco) pagava in nn_graft_step, per OGNI stato: lettura di graftCnt, i
+// conti di moved, e a ogni evento di pedone (30-35% degli stati) due passers(), il merge, la scrittura della lista e
+// dei conteggi nella pila anche quando nulla cambiava. Qui la decisione "niente da fare" si prende su due bitboard
+// tenuti in registro per tutto il recupero (span e passati della lista valida):
+//   - mossa senza pedoni e nessun passato: nulla (mediogioco: ~57% delle posizioni del bench SF senza passati);
+//   - evento di pedone senza passati prima ne' dopo: due passers() e nulla;
+//   - stessi passati e nessuna casa davanti toccata: nulla;
+//   - mossa del re nemico che non attraversa il bordo di un quadrato (nn_pr_inv) e non tocca la span: nulla;
+//   - altrimenti, fuori linea: bit 0 e 2 (nn_prel_restate_out) o da capo con merge (nn_prel_rebuild).
+// Nessuna scrittura nella pila se la lista non cambia (si lavora su vettori locali). graftCnt non si tiene: con la
+// sola PassedRel tutte le voci sono del blocco 0 (graftN).
+// ---------------------------------------------------------------------------------------------------------------
+
+// Lista dello stato i e diff dalle voci nuove (nb, m), tolte e aggiunte; aggiorna span e passati della lista.
+static inline void nn_prel_commit(NnStack &S, int i, NnState &st, const unsigned short *nb, int m,
+                                  const unsigned short *rem, int r, const unsigned short *add, int d, U64 span,
+                                  U64 pass) {
+  unsigned short *B = S.graftList[i];
+  for (int k = 0; k < m; k++)
+    B[k] = nb[k];
+  std::uint16_t *e = S.graft[i].e;
+  for (int k = 0; k < r; k++)
+    e[k] = rem[k];
+  for (int k = 0; k < d; k++)
+    e[r + k] = add[k];
+  st.graftRem = (std::uint8_t)r;
+  st.graftAdd = (std::uint8_t)d;
+  S.graftN[i] = (std::uint8_t)m;
+  S.graftSpan[i] = span;
+  S.graftPass[i] = pass;
+  NSTAT(GRAFT_CHG);
+}
+
+// L'insieme dei passati (o il pezzo su una loro casa) e' cambiato: voci da capo (P1b) e merge con la lista di src.
+__attribute__((noinline)) static bool nn_prel_rebuild(NnStack &S, int src, int i, NnState &st, const NnTB &tb,
+                                                      U64 pw, U64 pb, U64 &span, U64 &pass) {
+  NSTAT(GRAFT_REBUILD);
+  unsigned short nb[16], rem[16], add[16];
+  U64 nspan;
+  const int m = nn_prel_entries_p(tb, pw, pb, nb, nspan);
+  int r = 0, d = 0;
+  nn_graft_merge(S.graftList[src], S.graftN[src], nb, m, rem, r, add, d);
+  if (r + d == 0)  // stesse voci: stessi passati, la lista di src vale anche per i
+    return false;
+  span = nspan;
+  pass = pw | pb;
+  nn_prel_commit(S, i, st, nb, m, rem, r, add, d, span, pass);
+  return true;
+}
+
+// Stessi passati e stesso bit 1: si riscrivono i bit 0 (re nemico) e 2 (strada libera) di ogni voce. Le voci restano
+// nello stesso ordine, quindi tolte e aggiunte escono crescenti, come dal merge. Nulla si scrive se nessuna cambia
+// (una casa davanti toccata non cambia per forza la "strada libera").
+__attribute__((noinline)) static bool nn_prel_restate_out(NnStack &S, int src, int i, NnState &st, const NnTB &tb,
+                                                          U64 span, U64 pass) {
+  NSTAT(GRAFT_RESTATE);
+  const unsigned short *a = S.graftList[src];
+  const int n = S.graftN[src];
+  const int ekOf[2] = {get_ls1b_index(tb.type[NN_KING] & tb.color[black]),   // re nemico dei passati bianchi
+                       get_ls1b_index(tb.type[NN_KING] & tb.color[white])};  // e dei neri
+  unsigned short nb[16], rem[16], add[16];
+  int r = 0;
+  for (int j = 0; j < n; j++) {
+    const unsigned e = a[j], c = (e >> 9) & 1, s = (e >> 3) & 63;
+    const unsigned stt = (e & 2u) | unsigned(!((nn_pr_catch[c][s] >> ekOf[c]) & 1)) |
+                         unsigned(!(nn_pr_ahead[c][s] & tb.occ)) << 2;
+    const unsigned short ne = (unsigned short)((e & ~7u) | stt);
+    nb[j] = ne;
+    if (ne != e) {
+      rem[r] = (unsigned short)e;
+      add[r] = ne;
+      r++;
+    }
+  }
+  if (!r)
+    return false;
+  nn_prel_commit(S, i, st, nb, n, rem, r, add, r, span, pass);
+  return true;
+}
+
+// Case toccate dalla mossa (partenza, arrivo, catturato, pezzo che arriva), senza salti.
+static inline U64 nn_dp_squares(const NnDirtyPiece &dp) {
+  return nn_sq_bit[dp.from] | nn_sq_bit[dp.to] | nn_sq_bit[dp.remove_sq] | nn_sq_bit[dp.add_sq];
+}
+
+// Un passo del recupero per la sola PassedRel. span e pass (lista di src) restano in registro nel chiamante e si
+// aggiornano se la lista cambia. Restituisce true se la lista cambia (nuova lista, diff e conteggi scritti).
+// pw, pb = passati bianchi e neri dopo la mossa (R4: li calcola il recupero per PassedPawns v1, validi con pawns.any).
+static inline bool nn_prel_step(NnStack &S, int src, int i, NnState &st, const NnTB &tb, U64 &span, U64 &pass,
+                                U64 pw, U64 pb) {
+  NSTAT(GRAFT_ST);
+  const NnDirtyPiece &dp = st.dp;
+  if (st.pawns.any) {
+    if (!(pw | pb | pass))
+      return false;  // nessun passato prima ne' dopo: il caso comune in mediogioco
+    NSTAT(GRAFT_PASS);
+    const U64 moved = nn_dp_squares(dp);
+    // Insieme diverso, o una casa di passato toccata (un pedone che ne cattura un altro sulla stessa casa lascia
+    // l'insieme uguale ma cambia il colore della voce): da capo. Altrimenti i passati e i loro colori sono gli
+    // stessi, il re non si e' mosso, e cambia al piu' il bit 2 dei passati con una casa davanti toccata.
+    if ((pw | pb) != pass || (moved & pass))
+      return nn_prel_rebuild(S, src, i, st, tb, pw, pb, span, pass);
+    // 10/10/2026: un re che cattura un pedone e' un evento di pedone ma sposta il re nemico dei passati dell'altro
+    // colore: il bit 0 va riscritto anche se la span non e' toccata (trovato con -DTRIUMV_VERIFY_GRAFT, Kxp 33->26).
+    if (!(span & moved) && dp.pc % 6 != NN_KING)
+      return false;
+    return nn_prel_restate_out(S, src, i, st, tb, span, pass);
+  }
+  if (!pass)
+    return false;  // niente passati e la mossa non tocca pedoni
+  NSTAT(GRAFT_PASS);
+  const U64 moved = nn_dp_squares(dp);
+  U64 chg0 = 0;
+  if (dp.pc == NN_KING || dp.pc == NN_KING + NN_BLACK) {
+    // Il re che si muove e' il re NEMICO dei passati dell'altro colore: il loro bit 0 cambia solo se il re attraversa
+    // il bordo del quadrato (arrocco compreso: dp.to e' la casa d'arrivo del re, la torre e' in moved).
+    const int c = dp.pc == NN_KING ? black : white;
+    chg0 = pass & tb.color[c] & (nn_pr_inv[c][dp.from] ^ nn_pr_inv[c][dp.to]);
+  }
+  if (!chg0 && !(span & moved))
+    return false;
+  return nn_prel_restate_out(S, src, i, st, tb, span, pass);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// PassedState (PassedPawns v3, 10/10/2026; docs/audit_8.0/PASSER_BLOCK_STUDIO.md §C.4, definizioni in
+// nnue/nnue/features/passed_state.h). Stessa struttura di nn_prel_step: liste della pila, diff e merge uguali; cambiano
+// le voci (colore << 13 | casa << 7 | stato) e le guardie. graftSpan = watch = case davanti e dietro (diagonali) dei
+// passati e i passati stessi; graftPass = passati. Cosa cambia lo stato di un passato:
+//   - l'insieme dei passati, e quindi conn (eventi di pedone)                    -> da capo con merge;
+//   - prot, stop (un pezzo entra o esce da una casa di watch)                     -> da capo con merge;
+//   - mu, classe dei pezzi dell'avversario (cattura di un pezzo, promozione)      -> classi in registro (cls);
+//   - mu 0 / 4, re nemico che attraversa il bordo del quadrato, solo se il suo lato ha solo re e pedoni: anche nel
+//     ramo degli eventi di pedone (il re che cattura un pedone; correzione dello schizzo dell'agente).
+// Una mossa del re lontana dalle case davanti dei passati non fa nulla salvo nei finali di soli pedoni: e' qui il
+// risparmio rispetto a PassedRel.
+// ---------------------------------------------------------------------------------------------------------------
+
+// Classi dei pezzi dei due lati (bianco | nero << 2): 0 nessuno, 1 solo minori, 2 torri senza donne, 3 donne.
+static inline unsigned nn_pst_classes(const NnTB &tb) {
+  unsigned m = 0;
+  for (int c = 0; c < 2; c++) {
+    const U64 col = tb.color[c];
+    const unsigned k = (tb.type[NN_QUEEN] & col)                         ? 3u
+                       : (tb.type[NN_ROOK] & col)                        ? 2u
+                       : ((tb.type[NN_KNIGHT] | tb.type[NN_BISHOP]) & col) ? 1u
+                                                                         : 0u;
+    m |= k << (2 * c);
+  }
+  return m;
+}
+
+// Stato del passato s di colore c (stessa formula di PassedState::entries_of). mb = mailbox dopo la mossa, own =
+// passati di c.
+static inline unsigned nn_pst_state(const NnTB &tb, const int *mb, int c, int s, U64 own, unsigned cls) {
+  const U64 stopB = nn_ps_stop[c][s];
+  unsigned stop = 0;
+  if (stopB & tb.occ) {
+    const int pc = mb[get_ls1b_index(stopB)];
+    const int t = pc % 6, pcColor = pc >= NN_BLACK;
+    stop = pcColor == c ? 1u : (t == NN_KNIGHT || t == NN_BISHOP) ? 2u : t == NN_KING ? 4u : 3u;
+  }
+  const unsigned prot = (nn_ps_prot[c][s] & tb.type[NN_PAWN] & tb.color[c]) != 0;
+  const unsigned conn = (nn_pr_adj[s & 7] & own) != 0;
+  unsigned mu = (cls >> (2 * (c ^ 1))) & 3u;
+  if (!mu) {
+    const int ek = get_ls1b_index(tb.type[NN_KING] & tb.color[c ^ 1]);
+    if (!((nn_pr_catch[c][s] >> ek) & 1))
+      mu = 4;
+  }
+  return stop + 5 * (prot + 2 * (conn + 2 * mu));
+}
+
+// Case da guardare dalle voci (anche per la radice e per il controllo).
+static inline U64 nn_pst_watch(const unsigned short *e, int n) {
+  U64 w = 0;
+  for (int k = 0; k < n; k++) {
+    const int c = e[k] >> 13, s = (e[k] >> 7) & 63;
+    w |= nn_ps_stop[c][s] | nn_ps_prot[c][s] | (1ULL << s);
+  }
+  return w;
+}
+
+// Voci da capo (bianchi poi neri, case crescenti: ordinate come vuole il merge) e case da guardare.
+static inline int nn_pst_entries(const NnTB &tb, const int *mb, U64 pw, U64 pb, unsigned cls, unsigned short *out,
+                                 U64 &watch) {
+  const U64 P[2] = {pw, pb};
+  int n = 0;
+  watch = 0;
+  for (int c = 0; c < 2; c++)
+    for (U64 b = P[c]; b; b &= b - 1) {
+      const int s = get_ls1b_index(b);
+      watch |= nn_ps_stop[c][s] | nn_ps_prot[c][s] | (1ULL << s);
+      out[n++] = (unsigned short)(c << 13 | s << 7 | nn_pst_state(tb, mb, c, s, P[c], cls));
+    }
+  return n;
+}
+
+// Da capo con merge contro la lista di src; false se le voci sono le stesse (la lista di src vale anche per i).
+__attribute__((noinline)) static bool nn_pst_rebuild(NnStack &S, int src, int i, NnState &st, const NnTB &tb,
+                                                     const int *mb, U64 pw, U64 pb, unsigned cls, U64 &watch,
+                                                     U64 &pass) {
+  NSTAT(GRAFT_REBUILD);
+  unsigned short nb[16], rem[16], add[16];
+  U64 nwatch;
+  const int m = nn_pst_entries(tb, mb, pw, pb, cls, nb, nwatch);
+  int r = 0, d = 0;
+  nn_graft_merge(S.graftList[src], S.graftN[src], nb, m, rem, r, add, d);
+  if (r + d == 0)
+    return false;
+  watch = nwatch;
+  pass = pw | pb;
+  nn_prel_commit(S, i, st, nb, m, rem, r, add, d, watch, pass);
+  return true;
+}
+
+// Un passo del recupero per PassedState. watch e pass (lista di src) e cls (classi dello stato prima) restano in
+// registro nel chiamante. pw, pb = passati dopo la mossa (R4). Restituisce true se la lista cambia.
+static inline bool nn_pst_step(NnStack &S, int src, int i, NnState &st, const NnTB &tb, const int *mb, U64 &watch,
+                               U64 &pass, unsigned &cls, U64 pw, U64 pb) {
+  NSTAT(GRAFT_ST);
+  const NnDirtyPiece &dp = st.dp;
+  // Le classi cambiano solo con la cattura di un pezzo (non pedone) o con una promozione.
+  const unsigned ocls = cls;
+  if ((dp.remove_sq != NN_SQ_NONE && dp.add_sq == NN_SQ_NONE && dp.remove_pc % 6 != NN_PAWN) || dp.to == NN_SQ_NONE)
+    cls = nn_pst_classes(tb);
+  if (!(pw | pb | pass))
+    return false;  // nessun passato prima ne' dopo
+  NSTAT(GRAFT_PASS);
+  bool redo = (pw | pb) != pass || (nn_dp_squares(dp) & watch) || cls != ocls;
+  if (!redo && dp.pc % 6 == NN_KING) {
+    // Il re che muove e' il re nemico dei passati dell'altro colore: conta il quadrato solo se il suo lato ha solo re e
+    // pedoni (mu 0 / 4). Anche con un evento di pedone (il re che cattura un pedone).
+    const int kc = dp.pc >= NN_BLACK, c = kc ^ 1;
+    if (!((cls >> (2 * kc)) & 3u))
+      redo = (pass & tb.color[c] & (nn_pr_inv[c][dp.from] ^ nn_pr_inv[c][dp.to])) != 0;
+  }
+  if (!redo)
+    return false;
+  return nn_pst_rebuild(S, src, i, st, tb, mb, pw, pb, cls, watch, pass);
+}
+
+#ifdef TRIUMV_VERIFY_GRAFT
+// Controllo dei blocchi da innesto (_wip graftfix, come TRIUMV_VERIFY_NNSYNC): dopo ogni stato del recupero, la lista
+// valida per lo stato (S.graftList[src]) deve essere quella della funzione di riferimento della rete
+// (PawnGrafts::entries_of sulla scacchiera del recupero), con span e passati coerenti, e la diff scritta
+// (st.graftRem/graftAdd, S.graft[i]) deve essere il merge fra la lista dello stato prima e quella di riferimento.
+// Abort al primo disaccordo. Da usare con -DTRIUMV_GRAFT_RANDOM=<mask> e nnperft. gm = blocco delle liste
+// (PassedRel); LockedPawns lo controlla la rete con la stessa macro (PawnGrafts::verify_pawn_*,
+// nnue/nnue/features/pawn_grafts.cpp), a ogni refresh con miss della cache "pe" e a ogni diff incrementale.
+static void nn_graft_verify(const NnStack &S, int prevSrc, int src, int i, const NnState &st, const NnTB &tb,
+                            unsigned gm, U64 span, U64 pass) {
+  unsigned short ref[NN_GRAFT_MAX];
+  const int n = nn_graft_tb(tb, gm, ref);
+  const char *what = nullptr;
+  if (n != S.graftN[src])
+    what = "numero di voci";
+  for (int k = 0; !what && k < n; k++)
+    if (ref[k] != S.graftList[src][k])
+      what = "voce";
+  const U64 refSpan = gm == NN_GRAFT_PST ? nn_pst_watch(ref, n) : nn_graft_passer_span(ref, n);
+  if (!what && (span != refSpan || S.graftSpan[src] != span))
+    what = "span";
+  if (!what) {
+    const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
+    const U64 refPass = nn_passers(white, wp, bp) | nn_passers(black, bp, wp);
+    if (pass != refPass || S.graftPass[src] != pass)
+      what = "insieme dei passati";
+  }
+  if (!what && st.idx != i)
+    what = "idx";
+  unsigned short rem[NN_GRAFT_MAX], add[NN_GRAFT_MAX];
+  int r = 0, d = 0;
+  nn_graft_merge(S.graftList[prevSrc], S.graftN[prevSrc], ref, n, rem, r, add, d);
+  if (!what && (r != st.graftRem || d != st.graftAdd))
+    what = "dimensione della diff";
+  for (int k = 0; !what && k < r; k++)
+    if (rem[k] != S.graft[i].e[k])
+      what = "voce tolta";
+  for (int k = 0; !what && k < d; k++)
+    if (add[k] != S.graft[i].e[r + k])
+      what = "voce aggiunta";
+  if (what) {
+    fprintf(stderr, "[GRAFT] %s diversa dal riferimento: stato %d src %d prima %d maschera %u mossa %d->%d pezzo %d\n",
+            what, i, src, prevSrc, gm, int(st.dp.from), int(st.dp.to), int(st.dp.pc));
+    fflush(stderr);
+    abort();
+  }
+}
+#endif
+
 static inline void nn_dirty_catch_up(ThreadData &td) {
   NnStack &S = *td.nnstack;
   const int first = S.ready, last = S.size;
@@ -377,11 +842,61 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
     nn_dp_toggle(tb, S.st[i].dp);
     nn_mb_undo(mb, S.st[i].dp);
   }
+  // Blocchi da innesto (solo se la rete ne ha): le voci dopo una mossa sono quelle prima della successiva. Si
+  // aggiorna solo cio' che la mossa puo' cambiare: nn_prel_step (PassedRel) o nn_pst_step (PassedState, 10/10/2026),
+  // che si escludono (KingFiles, Space, LockedPawns tolti il 10/10/2026).
+  const unsigned gm = nn_graft_mask & NN_GRAFT_LIST_MASK;
+  // R4 (10/10/2026): passati per PassedPawns v1 con ogni rete, uno stato alla volta (NnStack::v1PassW/B). Quelli dello
+  // stato first - 1 sono gia' nella pila, salvo alla radice (~0): tb e' ora la sua scacchiera.
+  U64 v1w = S.v1PassW[first - 1], v1b = S.v1PassB[first - 1];
+  if (v1w == ~0ULL) {
+    const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
+    v1w = S.v1PassW[first - 1] = nn_passers(white, wp, bp);
+    v1b = S.v1PassB[first - 1] = nn_passers(black, bp, wp);
+  }
+  // La lista di partenza (stato first - 1) e' gia' nella pila: si calcola da capo solo alla radice.
+  int src = 0;
+  U64 span = 0, pass = 0;
+  unsigned cls = 0;
+  if (gm) {
+    src = S.graftSrc[first - 1];
+    if (src == 255) {  // tb e' ora la scacchiera dello stato first - 1
+      src = first - 1;
+      S.graftN[src] = (std::uint8_t)nn_graft_tb(tb, gm, S.graftList[src]);
+      S.graftSpan[src] = gm == NN_GRAFT_PST ? nn_pst_watch(S.graftList[src], S.graftN[src])
+                                            : nn_graft_passer_span(S.graftList[src], S.graftN[src]);
+      S.graftPass[src] = v1w | v1b;  // passati dello stato first - 1 (R4)
+      S.graftSrc[src] = (std::uint8_t)src;
+    }
+    span = S.graftSpan[src];
+    pass = S.graftPass[src];
+    if (gm == NN_GRAFT_PST)
+      cls = nn_pst_classes(tb);  // PassedState: classi dello stato first - 1, poi aggiornate da nn_pst_step
+  }
   for (int i = first; i < last; i++) {
     NnState &st = S.st[i];
     nn_fill_pawns(st.pawns, st.dp, tb.type[NN_PAWN] & tb.color[white], tb.type[NN_PAWN] & tb.color[black]);
     nn_threat_steps(tb, NnLookMailbox{mb}, st.dp, &st.threats);  // tb esce allo stato dopo la mossa
     nn_mb_redo(mb, st.dp);
+    if (st.pawns.any) {  // R4: i passati cambiano solo con un evento di pedone
+      const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
+      v1w = nn_passers(white, wp, bp);
+      v1b = nn_passers(black, bp, wp);
+    }
+    S.v1PassW[i] = v1w;
+    S.v1PassB[i] = v1b;
+    if (gm) {
+#ifdef TRIUMV_VERIFY_GRAFT
+      const int prevSrc = src;
+#endif
+      if (gm == NN_GRAFT_PST ? nn_pst_step(S, src, i, st, tb, mb, span, pass, cls, v1w, v1b)
+                             : nn_prel_step(S, src, i, st, tb, span, pass, v1w, v1b))
+        src = i;
+      S.graftSrc[i] = (std::uint8_t)src;
+#ifdef TRIUMV_VERIFY_GRAFT
+      nn_graft_verify(S, prevSrc, src, i, st, tb, gm, span, pass);
+#endif
+    }
   }
   S.ready = last;
 }

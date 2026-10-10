@@ -84,7 +84,8 @@ the confirmed values.
   (section 35, one unit per variant); the next release uses the faster universal build and the SPSA PR4 vector.
 - **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%**; at 30+0.3 on random openings
   −4.4 ± 7.1 over 395 (section 27). In blitz the remaining gap lies in defence with a short clock (section 32).
-- **Running:** the SPSA PR4 (46 levers, 20+0.2, section 34), to be checked by an SPRT and baked before the release.
+- **Baked on 9–10 October (section 38):** the SPSA PR4 vector and the causal reduction; bench **222811**. Running: an
+  A/B of today's universal build against the public executable of 8 October at 15+0.15.
 - **Open:** the correction SPSA CORR1; the time levers of section 33 at 40+0.4; a short SPSA of the deep levers at
   40+0.4; the shape of the next network.
 - **Test rules,** as they evolved: one idea at a time on the same binary; at least 20,000 games or a clear verdict
@@ -1503,6 +1504,56 @@ node in the first version to +1.8% (endgame figure still to be taken), about 0.0
 (+1.2 ± 4.8 at fixed nodes on endgame openings, not settled). Details, costs and the full record:
 [docs/moe_experimental_grafts.md](docs/moe_experimental_grafts.md).
 
+**Outcome (10 October).** Only PassedRel showed a positive signal: +1.8 ± 4.1 over 2,484 games at 20+0.2 on endgame
+openings, with the same search depth as Consilium on both sockets; with the fixed-node result, about +1 to +2.5 Elo in
+endgames. Measured on deterministic PGO builds it costs +1.5% cycles per node in the middlegame and +2.9% in endgames,
+mostly rows of weights. KingFiles, Space, LockedPawns, KingFilesQ and Space24 did not gain (between −7 and −19 Elo
+over 500 to 1,100 games, at equal depth) and were removed from the engine; the trainer keeps their definitions. Next:
+a study of a better-trained or richer passed-pawn block within 1 to 1.5% of cycles per node, then completion of the
+PassedRel game test.
+
+## 38. PR4 and the causal reduction baked, and a passed-pawn block that replaces PassedPawns (9–10 October 2026)
+
+**The SPSA PR4.** It was stopped at iteration 6,000 on 9 October, when the values had settled. Its mean vector was
+checked in four SPRTs against the defaults (20+0.2 and 15+0.15 with hyperthreading, 15+0.15 and 10+0.1 on physical
+cores only, two opening orders): about 8,100 games together, **+3.4 ± 3.9 Elo**. The two sockets of the test machine
+disagreed in all four (+9.2 ± 5.3 on the first, −2.9 ± 5.7 on the second, about three standard errors), with the
+same depth and time on both; an A/A test was started to separate the machine from the engine. The mean of the last
+300 iterations (5,703–6,002) was baked: the ordering terms of section 34 are now on (`KingShield` 5371,
+`OutpostOrder` 4179, `AttackOrder` 5807, `AttackOrderQ` 6371, `PassedPush` 3975, `PromoOrder` 2412,
+`BishopPairCapt` 601), and 39 pruning, extension and ordering levers moved by a few percent. Bench **269775**.
+
+**The causal reduction (`CausalRed`).** The author's idea of June ([NOVELTIES.md](NOVELTIES.md)): after a quiet
+move fails low, the squares of the opponent's refutation (where the refuting piece starts, lands and what it attacks
+from there) mark the problem, and later quiet siblings that touch none of them are reduced by an extra fraction of a
+ply. Checks, the hash move and passed-pawn pushes are excluded; nothing is pruned. At 512 (half a ply), SPRT at
+25+0.25 on UHO, two pooled runs: **+4.27 ± 4.13 over 6,594 games** (LLR 1.17), with the candidate 0.25 ply deeper on
+average on both sockets. The test was stopped before the usual 20,000 games because zero was already excluded; the
+value stays a parameter of the closing SPSA runs. Bench **222811**.
+
+**Speed since the public executable of 8 October.** That executable was the universal build with one unit per
+variant, which cost about 1% of cycles per node against a separate build (section 35). Today's source is built with
+one unit per file, the SEE patch and the linker flag of section 36: about 1.5% fewer cycles per node in total. Two
+changes for the PassedRel block (an incremental table of row differences, and the passed pawns computed once per
+move for the original PassedPawns rows) gave nothing measurable on deterministic profile-guided builds. The engine
+code of the graft blocks, even unused, cost 1.4% of cycles per node in endgames; a compile switch,
+`TRIUMV_NO_GRAFTS`, now removes it completely (a network with graft blocks is then refused at load), and the release
+is built with it unless a block is adopted.
+
+**PassedState (PassedPawns v3).** The study after section 37 concluded that PassedRel mostly repeats what the
+original PassedPawns block already knows, and that its cost comes from rows added on top of PassedPawns and from a
+state bit that follows the enemy king. PassedState replaces the PassedPawns rows instead: one row per passed pawn, in
+one of 100 states (what stands on the square in front of it, whether it is protected by a pawn, whether it is
+connected to another passed pawn, the opponent's material class, and in pawn endgames whether the enemy king is
+outside its square), so a pawn that advances costs what it cost before. At the start every state equals the
+PassedPawns row and the network evaluates exactly as Consilium (bench unchanged, checked with a network exported by
+the new `exportpst` command). In the engine it is verified with `nnperft` against a full refresh. Measured on
+deterministic profile-guided builds it costs +1.9% of cycles per node in the middlegame and +2.8% in endgames, above
+the target of 1–1.5%; the likely reason is that its rows sit outside the pawn-structure cache and outside the
+locality-ordered part of the weight table, which can be improved if the block gains enough Elo. It is being trained
+on the frozen Consilium (60 epochs, positions with at least one passed pawn): the training loss went above the
+starting value early, with the large learning rate, and fell below it at epoch 40 as the rate decreased.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -1558,3 +1609,5 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | Knight outposts in move ordering (author's idea) | 34 | 10+0.1 UHO | 8,244 | +0.21 ± 3.93 | to the SPSA PR4 |
 | Outposts + attacks from safe squares (attacks: idea from Reckless) | 34 | 10+0.1 UHO | 4,428 | +0.39 ± 5.42 | to the SPSA PR4 |
 | SPSA PR4 vector, first check (iterations 2,517–2,816) | 34 | 20+0.2 UHO | 1,842 | +5.3 ± 8.0 | SPSA continues |
+| SPSA PR4 vector, final (four SPRTs together) | 38 | 10–20 s UHO | about 8,100 | +3.4 ± 3.9 | **baked** |
+| **Causal reduction** (author's idea), 512 | 38 | 25+0.25 UHO | 6,594 | **+4.27 ± 4.13** | **baked** |

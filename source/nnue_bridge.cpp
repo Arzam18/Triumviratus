@@ -29,6 +29,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -394,6 +395,29 @@ const char* nn_default_net_name(void) { return EvalFileDefaultName; }
 
 int nn_load_net(const char* net_path) { return load_net_impl(net_path); }
 int nn_reload_big(const char* net_path) { return load_net_impl(net_path); }
+
+// Salva la rete caricata nel formato con i blocchi da innesto di mask (09/10/2026, "exportgraft <mask> <file>" e
+// "exportprel <file>" = mask 1 in uci_mt.cpp): i blocchi che la rete non ha hanno le righe a zero, quindi il file e' la
+// stessa rete con quei blocchi innestati a zero (stessa valutazione, da verificare col bench). Dopo il salvataggio il
+// motore torna allo stato di prima.
+int nn_export_graft(unsigned mask, const char* path) {
+#ifdef TRIUMV_NO_GRAFTS
+    (void) mask, (void) path;
+    return 0;  // build senza blocchi da innesto
+#else
+    const unsigned was = nn_graft_mask;
+    nn_graft_mask      = mask;
+    const bool ok      = NET_REF.save(std::optional<std::string>(std::string(path)));
+    nn_graft_mask      = was;
+    return ok ? 1 : 0;
+#endif
+}
+
+int nn_export_pst(const char* path) { return NET_REF.save_pst(std::string(path)) ? 1 : 0; }
+
+int nn_graft_entries(unsigned mask, const unsigned long long* bb12, unsigned long long occ, unsigned short* out) {
+    return Eval::NNUE::Features::PawnGrafts::entries_of(mask, bb12, occ, reinterpret_cast<std::uint16_t*>(out));
+}
 
 void nn_init_tables(void) {
     Bitboards::init();

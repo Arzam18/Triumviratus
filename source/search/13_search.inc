@@ -28,7 +28,31 @@ struct NodeState {
   HashView h;
   int  quiets[TRACKED], n_quiets;
   int  tacts[TRACKED], n_tacts;
+  U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
 };
+
+// CausalRed (09/10/2026, idea di giugno "potatura causale", riscritta sulla ricerca attuale). Quando una nostra mossa
+// quieta fallisce bassa, la mossa dell'avversario che la confuta (il taglio beta nel figlio) dice dove sta il problema:
+// la casa da cui parte, quella dove arriva e le case che il pezzo attacca da li'. Le quiete sorelle provate dopo che
+// non toccano nessuna di queste case (ne' partenza ne' arrivo) di solito non cambiano nulla contro quella confutazione,
+// e si riducono di piu'. Mai potate: la ricerca ridotta che supera alpha si ripete a profondita' piena come sempre.
+// Gli scacchi, la mossa hash e le spinte dei passati restano fuori. Precedente noto: la "minaccia" della mossa nulla
+// usata da Stockfish 1.x-2.x per potare le mosse non collegate (connected_threat); qui la minaccia e' la confutazione
+// delle sorelle e la mossa si riduce, non si pota.
+static inline U64 causal_mask(const ThreadData &td, int refute) {
+  const int from = get_move_source(refute), to = get_move_target(refute), pc = get_move_piece(refute);
+  const U64 occ = td.occupancies[both];
+  U64 att;
+  switch (pc % 6) {
+    case 0: att = pawn_attacks[pc >= 6 ? black : white][to]; break;
+    case 1: att = knight_attacks[to]; break;
+    case 2: att = get_bishop_attacks(to, occ); break;
+    case 3: att = get_rook_attacks(to, occ); break;
+    case 4: att = get_queen_attacks(to, occ); break;
+    default: att = king_attacks[to]; break;
+  }
+  return att | (1ULL << from) | (1ULL << to);
+}
 
 static constexpr int NO_VALUE = 1 << 30;   // "nessun valore": la fase non ha chiuso il nodo
 
@@ -696,6 +720,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       continue;
     }
     f[1].in_check = gives;
+    if (CausalRed)
+      f[1].refute = 0;
     new_depth += ext;
 
     if (f->tt_pv)
@@ -737,6 +763,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     if (passer)
       r -= PassedPushRed;
+    // CausalRed (0 = spenta): la quieta non tocca le case della confutazione di una sorella fallita bassa.
+    if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
+        !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal))
+      r += CausalRed;
     // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
     // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
     if (gd_style && n.depth > 5 && f->ply > 1) {
@@ -782,6 +812,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 
     if (stop_threads.load(std::memory_order_relaxed))
       return 0;
+    if (CausalRed && !tact && value <= n.alpha && f[1].refute)
+      n.causal = causal_mask(td, f[1].refute);
     if (n.root)
       root_record(td, n, m, value, td.nodes - nodes_before, n.moves);
 
@@ -795,6 +827,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           pv_extend(td, m);
         if (value >= n.beta) {
           f->cutoff_cnt += (ext < 2) || n.pv;
+          if (CausalRed)
+            f->refute = m;   // per il padre: la mossa che confuta la sua
           break;
         }
         if (n.depth > 3 && n.depth < 12 && !val_decided(value))
@@ -905,6 +939,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.moves = 0;
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
+  n.causal = 0;
   // LdseMax: estensioni Ldse sulla linea fino a qui. f->ldse torna a 0 finche' move_loop non estende una mossa, cosi'
   // i figli della mossa nulla e del probcut non ne ereditano una.
   f->ldse = 0;

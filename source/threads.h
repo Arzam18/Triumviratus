@@ -53,6 +53,7 @@ struct NodeFrame {
     unsigned char ldse_path;      // estensioni Ldse lungo la linea fino a questo nodo
     unsigned char negext;         // la mossa in ricerca da questo frame e' estesa da una riduzione negativa (NegExtMax)
     unsigned char negext_path;    // estensioni da riduzione negativa lungo la linea fino a questo nodo
+    int  refute;                  // CausalRed: mossa che ha dato il taglio beta in questo nodo (0 = nessuna)
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
