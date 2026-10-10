@@ -1,6 +1,9 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE REPCYCLEOTHER (10/10/2026 sera, utente): il filtro "other" di SF19 nel test dei cicli (td_upcoming_repetition,
+// 10_order.inc), opzione ritirata. SPRT 8+0.08 UHO con hyperthreading, tm26: +5,62 +- 4,47 Elo su 6.500 partite (LLR
+// +1,48, zero escluso; socket 0 +9,72, socket 1 +1,49), fermato dall'utente. Bench 297400 (prima 222811).
 // BAKE CAUSALRED (10/10/2026, utente): CausalRed 0 -> 512 (idea dell'utente di giugno, "potatura causale"). SPRT a
 // 25+0.25 UHO, due tranche in pool (tag causal512 + causal512b): +4,27 +- 4,13 Elo su 6.594 partite, LLR +1,17,
 // profondita' media cand +0,25 ply su entrambi i socket. Fermato dall'utente prima delle 20.000 partite: la misura
@@ -345,7 +348,6 @@
   P(LmrExp3, 0, -1536, 1536)                                                                              \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
-  P(RepCycleOther, 0, 0, 1)              /* 10/10/2026: filtro "other" di SF19 nel ciclo cuckoo (10_order) */  \
   P(RepCycleFifty, 0, 0, 100)            /* 10/10/2026, nostra: ciclo = patta solo da questo contatore 50 mosse */ \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
   /* 10/10/2026, leve della spinta in quiescenza per uno SPSA (agiscono solo con QsPasserPush=1; i default rifanno la  \

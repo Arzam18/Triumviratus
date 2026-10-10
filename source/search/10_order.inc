@@ -282,16 +282,17 @@ static bool td_upcoming_repetition(ThreadData &td) {
   if (td.fifty < RepCycleFifty)
     return false;
   const U64 orig = td.hash_key;
-  // RepCycleOther (10/10/2026, segnalato dall'agente velocita'): il filtro "other" di SF19. Somma le differenze di
-  // chiave delle mosse dell'AVVERSARIO lungo la finestra; il ciclo vale solo se si annullano (i suoi pezzi sono
-  // tornati dov'erano), cioe' se a chiuderlo basta una mossa del lato al tratto. Senza, la tabella cuckoo trova anche
-  // cicli fatti da una mossa dell'avversario (~0,08-0,24% dei nodi). Spenta = forma di SF16, albero invariato.
-  // Chiave di k semimosse fa: repetition_table[repetition_index - (k - 1)].
+  // BAKE REPCYCLEOTHER (10/10/2026, segnalato dall'agente velocita'): il filtro "other" di SF19. Somma le differenze
+  // di chiave delle mosse dell'AVVERSARIO lungo la finestra; il ciclo vale solo se si annullano (i suoi pezzi sono
+  // tornati dov'erano), cioe' se a chiuderlo basta una mossa del lato al tratto. Senza (forma di SF16) la tabella
+  // cuckoo trovava anche cicli fatti da una mossa dell'avversario (~0,08-0,24% dei nodi). SPRT 8+0.08 UHO: +5,62 +-
+  // 4,47 su 6.500 partite, zero escluso; opzione ritirata. Chiave di k semimosse fa:
+  // repetition_table[repetition_index - (k - 1)].
   U64 other = orig ^ td.repetition_table[td.repetition_index] ^ side_key;
   for (int i = 3; i <= end; i += 2) {
     const U64 prev = td.repetition_table[td.repetition_index - (i - 1)];
     other ^= td.repetition_table[td.repetition_index - (i - 2)] ^ prev ^ side_key;
-    if (RepCycleOther && other)
+    if (other)
       continue;
     const U64 move_key = orig ^ prev;
     int j;

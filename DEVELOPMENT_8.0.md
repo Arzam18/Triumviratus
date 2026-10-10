@@ -42,6 +42,7 @@
 [PR4, causal reduction, PassedState](#38-pr4-and-the-causal-reduction-baked-and-a-passed-pawn-block-that-replaces-passedpawns-910-october-2026) ·
 [Release candidate of 10 October](#39-the-release-candidate-of-10-october-2026) ·
 [Speed gap, identical tree](#40-the-speed-gap-to-stockfish-19-with-an-identical-tree-10-october-2026) ·
+[Cycle test](#41-the-cycle-test-of-stockfish-19-and-a-fifty-move-threshold-of-ours-10-october-2026) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -51,7 +52,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **222811**.
+> each step starting from what the previous one found. Current `bench`: **297400**.
 
 ## The path so far
 
@@ -73,7 +74,8 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Clean-up and chess knowledge** | 31–34 | closed options retired, the points lost against Stockfish 19 located (defence with a short clock), new levers off, ordering terms moved to an SPSA | ordering terms flat at fixed values (+0.4 ± 5.4); SPSA PR4 running, first check +5.3 ± 8.0 | 430151 |
 | **One executable, speed measured again** | 35–36 | a universal executable for every CPU, every speed decision of 6–8 October measured again, an analysis mode at no cost in games | the universal build 0.5% faster than the separate one; two dropped patches recovered | 430151 |
 | **Grafts, PR4 and the causal reduction** | 37–38 | network blocks grafted on the frozen Consilium (none adopted), the SPSA PR4 vector and the causal reduction baked | PR4 +3.4 ± 3.9 (about 8,100 games), causal reduction +4.27 ± 4.13 (6,594) | 222811 |
-| **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | **222811** |
+| **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | 222811 |
+| **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | **297400** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -86,7 +88,8 @@ the confirmed values.
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
   in sections 21–27 and 31, two speed patches recovered in section 36, an analysis mode that leaves games unchanged,
   and since 9–10 October the SPSA PR4 vector (the ordering terms of section 34 on) and the causal reduction
-  (section 38). The graft code was removed on 10 October. Bench **222811**.
+  (section 38). The graft code was removed on 10 October; the same evening, speed patches with an identical tree
+  (section 40) and the cycle test of Stockfish 19 (section 41, +5.6 ± 4.5). Bench **297400**.
 - **Release candidate (section 39):** the universal executable of 10 October scored **+11.9 ± 7.2 Elo over 2,866
   games** against the previous pre-release (`Triumviratus_8.0_20261009_universal.exe`) at 15+0.15, and was published
   on 10 October as the pre-release on the tag `v8.0`.
@@ -1678,9 +1681,27 @@ series' version wins, and the whole series (−1.33%) is worth more than its par
 on this machine; they may on processors with a different balance, and the bucket code is used only by the AVX-512
 variants. The combination is kept: AA1–AA4 with the vectorised bucket, about −1.0 to −1.3% cycles per node.
 
-**Found on the way, not identical-tree.** The repetition check (`td_upcoming_repetition`) still has the form of
-Stockfish 16: without the filter Stockfish 19 added, it also reports cycles completed by an opponent's move, on
-0.08–0.24% of nodes. Fixing it changes the tree, so it is left to an SPRT.
+**Found on the way, not identical-tree.** The repetition check (`td_upcoming_repetition`) still had the form of
+Stockfish 16: without the filter Stockfish added later, it also reported cycles completed by an opponent's move, on
+0.08–0.24% of nodes. Fixing it changes the tree, so it went to an SPRT (section 41).
+
+## 41. The cycle test of Stockfish 19, and a fifty-move threshold of ours (10 October 2026)
+
+**The filter of Stockfish 19.** Before a search, the engine asks whether the side to move has a reversible move that
+returns to a position already on the board, using the cuckoo tables of Stockfish; if it has, and alpha is below the
+draw score, alpha is raised to the draw score. Our port, taken from Stockfish 16, accepted any such cycle. Stockfish
+19 first adds up the key changes of the opponent's moves in the window and accepts the cycle only if they cancel:
+the opponent's pieces must be back where they were, so that one move of the side to move closes the cycle. Without
+this filter the engine sometimes saw a draw it could not claim. Added as an option and tested at 8+0.08 on UHO with
+hyperthreading: **+5.62 ± 4.47 Elo over 6,500 games** (LLR 1.48; +9.7 on the first socket, +1.5 on the second), with
+zero excluded. Baked, the option retired; bench **297400**. It was found by the speed agent of section 40 while
+reading the same code, a reminder that functions ported from Stockfish at different times may lag behind its later
+fixes; an audit of every ported function against Stockfish 19 was started the same evening.
+
+**A threshold of ours (`RepCycleFifty`).** On top of it, an option of ours: a cycle counts as a draw only from a given
+value of the fifty-move counter. Our evaluation already fades towards zero as the counter grows (section 25); early in
+the counter the position is still alive, and the engine may do better not to settle for the draw. Tested from the
+same evening at 20 half-moves, 8+0.08, against the baked filter on both sides.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1740,3 +1761,6 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | SPSA PR4 vector, final (four SPRTs together) | 38 | 10–20 s UHO | about 8,100 | +3.4 ± 3.9 | **baked** |
 | **Causal reduction** (author's idea), 512 | 38 | 25+0.25 UHO | 6,594 | **+4.27 ± 4.13** | **baked** |
 | **Today's build against the public pre-release** (PR4, causal reduction, faster build) | 39 | 15+0.15 UHO | 2,866 | **+11.9 ± 7.2** | release candidate |
+| Passed-pawn push in quiescence, first quiescence ply / light endgames | 41 | 15+0.15 UHO / 12+0.12 endgames | 2,070 / 7,516 | −1.8 ± 7.2 / +0.2 ± 2.5 | closed |
+| Continuation correction six plies back, retried | 41 | 15+0.15 UHO | 2,960 | +2.2 ± 6.4 | to a package |
+| **Cycle test filter of Stockfish 19** (`RepCycleOther`) | 41 | 8+0.08 UHO | 6,500 | **+5.62 ± 4.47** | **baked** |
