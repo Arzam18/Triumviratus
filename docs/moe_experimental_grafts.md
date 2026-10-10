@@ -2,7 +2,10 @@
 
 A sub-chapter of the [8.0 development log](../DEVELOPMENT_8.0.md#37-experimental-grafts-on-consilium-910-october-2026).
 It records two nights of work on small input blocks added to the finished network: where they came from, how they
-were trained, how they were put into the engine and made cheap, and what they did in games. The training material
+were trained, how they were put into the engine and made cheap, and what they did in games. **Outcome (10 October):**
+only PassedRel showed a positive signal and stays in the engine; KingFiles, Space, LockedPawns and the reduced forms
+KingFilesQ and Space24 did not gain and were removed from the engine (§6). The engine sections below describe the
+mechanism as it was built for all six blocks. The training material
 (scripts, trainer patch, reference implementations, label tools) is in the training repository under
 `04_consilium/graft_passedrel`, `04_consilium/graft_blocks` and `04_consilium/residual_labels`.
 
@@ -156,6 +159,25 @@ measurement was interrupted to start the game test and is still to be taken.
 The final figure must be taken on the release build with a profile trained on a network that has the block: the
 present profile is trained on Consilium, so the code of the blocks is cold.
 
+**Deterministic PGO builds (10 October).** Eight single-variant AVX-512 builds (`build_universal.ps1 -Only 3`), each
+profiled by the deterministic trainer with its own network, three rounds, cycles per node against Consilium:
+
+| configuration | middlegame | endgames |
+|---|---|---|
+| PassedRel, PRB1 form, with the third round of patches (v1 rows taken from the PassedRel difference, inline refresh) | +1.51% | +2.88% |
+| the same without those two patches | +1.92% | +3.56% |
+| the same with delta rows (one row for a one-bit state change) | +1.50% | +2.70% |
+| PassedRel without adding its rows (diagnostic, zero network) | +0.76% | +1.20% |
+| PassedRel, zero network, with its rows | +1.84% | +3.02% |
+| Space24 | +3.19% | +3.37% |
+| KingFilesQ | +2.18% | +1.77% |
+| LockedPawns | +0.56% | +0.77% |
+
+The baseline varies by about 0.9% between rounds, so differences below 0.3 points are not resolved. In PassedRel the
+rows are the larger part in endgames (about 1.7 of the 2.9 points) and the fixed work of the incremental update the
+rest; a smaller cost therefore requires fewer rows, not faster bookkeeping. The MinGW figures above are kept for the
+comparison between code versions only.
+
 ## 5. In play
 
 | test | conditions | games | Elo |
@@ -164,7 +186,13 @@ present profile is trained on Consilium, so the code of the blocks is cold.
 | PassedRel, learning rate 1e-3, 60 epochs | fixed depth 16 | 356 | −12.7 ± 17.2 (stopped) |
 | PassedRel, learning rate 1e-2, 30 epochs | 40,000 nodes per move, UHO openings | 2,806 | −1.2 ± 7.0 (stopped) |
 | PassedRel, learning rate 1e-2, 30 epochs | 60,000 nodes per move, endgame openings | 2,366 | +1.2 ± 4.8 (stopped for the speed work) |
-| PassedRel, learning rate 1e-2, PRB1 form, merged engine | 8+0.08, endgame openings | running | |
+| PassedRel, learning rate 1e-2, PRB1 form, merged engine | 8+0.08, endgame openings | 1,052 | −2.0 ± 6.8 (stopped: too sensitive to speed) |
+| PassedRel, learning rate 1e-2, PRB1 form, merged engine | 20+0.2, endgame openings | 2,484 | **+1.8 ± 4.1** (stopped for the cost work; to be completed) |
+| Space24, network at epoch 9 (mid-training) | 12+0.12, UHO openings | 204 | −81.5 ± 22.7 (stopped) |
+| Space24, final network | 12+0.12, UHO openings | 514 | −12.2 ± 15.6 (stopped) |
+| Space24, final network | 40,000 nodes per move, UHO openings | 1,088 | −7.7 ± 11.5 (stopped) |
+| KingFilesQ, final network | 12+0.12, UHO openings, PGO build | 1,128 | −7.1 ± 10.7 (excluded) |
+| LockedPawns, final network | 12+0.12, UHO openings, PGO build | 628 | −19.4 ± 14.5 (removed) |
 
 Fixed nodes remove the speed of the block from the comparison and measure the evaluation alone. The endgame openings
 (12 to 18 pieces, 68% with at least one passed pawn, no draw adjudication) are where the block can matter; there the
@@ -178,15 +206,34 @@ do not support large weights for it; it will be tested only in its reduced form,
 largest weights of all blocks (mean 0.024 at epoch 10, 7% at zero in int8). Space, LockedPawns, Space24 and KingFilesQ
 are queued on the training machine.
 
-## 6. Next
+## 6. Outcome
 
-* The cost of PassedRel at the level of the merged build, then a real test at 10+0.1 on the endgame openings with a
-  release build whose profile is trained on the graft network.
-* KingFilesQ, Space, Space24 and LockedPawns: trained at 1e-2, tested at fixed nodes on the endgame openings, then in
-  time.
+* **PassedRel stays.** At 20+0.2 on endgame openings it searched to the same depth as Consilium on both sockets
+  (23.06 against 23.05 and 23.03 against 23.03 plies) and scored +1.8 ± 4.1 over 2,484 games; combined with the
+  fixed-node result the estimate is about +1 to +2.5 Elo in endgames, positive with a probability of about 90%. The
+  game test is to be completed once the cost is lower.
+* **The other blocks were removed** from the engine on 10 October; the trainer keeps their definitions. The blocks that
+  are active in most positions shared one pattern in training: the weights rose until epoch 5 to 10 and then shrank
+  while the learning rate decayed, and the final networks did not improve on the base. Our reading is that what they
+  describe (pawns near the king, space, blocked pawns) is already available to the base network through the
+  king-relative piece-square inputs and the pawn-pair block, while the relations of a passed pawn (unstoppable,
+  connected, free path to promotion) are not. The residual signal that motivated KingFiles probably reflects concrete
+  attacks that the deep search finds, which depend on where the pieces stand and cannot be captured by a linear input
+  on the pawn structure added to a frozen network.
+* **Mid-training networks are not representative.** Space24 at epoch 9, with a training loss nearly twice that of the
+  base, lost 80 Elo and searched one ply less at equal time; the final network of the same block lost about 8 with
+  nearly the same depth.
+
+## 7. Next
+
+* A study of how to train a better passed-pawn block, or a different and possibly larger one, within an engine cost of
+  1 to 1.5% of cycles per node: the cost depends on the number of active rows per passer and on how often they change,
+  not on the size of the table, so richer states with a single active row are affordable if they change rarely. Other
+  directions: data weighted towards positions with passers, the layers after the accumulator unfrozen, a block that
+  feeds only the PSQT output, and PassedPawns v1 folded into the PassedRel rows in a 16-bit table, which would remove
+  the v1 work when PassedRel is present.
 * **Labels that contain the residual**, if the blocks stay small: positions with passers sampled from the same data,
   each labelled with the original score plus the difference between the engine's deep search and its depth-one
   score, converted to the scale of the data (the frozen base stays consistent with its labels, λ stays 0.75). The tools
   are written (`04_consilium/residual_labels`).
-* The engine mechanism and its verification tools stay, whatever the outcome: any future pawn-structure block uses
-  them.
+* The engine mechanism and its verification tools stay: any future pawn-structure block can use them.

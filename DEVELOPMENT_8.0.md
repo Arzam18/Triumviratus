@@ -1503,6 +1503,14 @@ node in the first version to +1.8% (endgame figure still to be taken), about 0.0
 (+1.2 ± 4.8 at fixed nodes on endgame openings, not settled). Details, costs and the full record:
 [docs/moe_experimental_grafts.md](docs/moe_experimental_grafts.md).
 
+**Outcome (10 October).** Only PassedRel showed a positive signal: +1.8 ± 4.1 over 2,484 games at 20+0.2 on endgame
+openings, with the same search depth as Consilium on both sockets; with the fixed-node result, about +1 to +2.5 Elo in
+endgames. Measured on deterministic PGO builds it costs +1.5% cycles per node in the middlegame and +2.9% in endgames,
+mostly rows of weights. KingFiles, Space, LockedPawns, KingFilesQ and Space24 did not gain (between −7 and −19 Elo
+over 500 to 1,100 games, at equal depth) and were removed from the engine; the trainer keeps their definitions. Next:
+a study of a better-trained or richer passed-pawn block within 1 to 1.5% of cycles per node, then completion of the
+PassedRel game test.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
