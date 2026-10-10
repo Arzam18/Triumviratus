@@ -1710,7 +1710,10 @@ found the port otherwise faithful to Stockfish 19, with one difference worth a t
 key of a position every 8 half-moves of the fifty-move counter from 14 on, so that the same position with very
 different counters does not share a stored value. Our option for this (`HashFiftyStep`, section 25) had been tried
 only from 40 half-moves and on endgame openings (+0.33 ± 3.67); the form of Stockfish 19 (`HashFiftyFrom` 13,
-`HashFiftyStep` 8) went to an SPRT at 8+0.08 the same evening.
+`HashFiftyStep` 8) went to an SPRT at 8+0.08 the same evening: −3.7 ± 7.8 over 1,968 games, stopped. Our evaluation
+already fades with the counter, and the faded value is recomputed when an evaluation is read from the cache, so part
+of what the bands fix in Stockfish is already covered here, while their cost (fewer positions found again in the
+table) remains. Off.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1774,3 +1777,4 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | Continuation correction six plies back, retried | 41 | 15+0.15 UHO | 2,960 | +2.2 ± 6.4 | to a package |
 | **Cycle test filter of Stockfish 19** (`RepCycleOther`) | 41 | 8+0.08 UHO | 6,500 | **+5.62 ± 4.47** | **baked** |
 | Cycle counted as a draw only from a fifty-move threshold (ours), 20 / 6 half-moves | 41 | 8+0.08 / 5+0.05 UHO | about 1,500 / 1,300 | −4.1 ± 9.4 / −9.5 ± 11.0 | closed |
+| Fifty-move bands in the hash key, form of Stockfish 19 (from 13, every 8) | 41 | 8+0.08 UHO | 1,968 | −3.7 ± 7.8 | off |
