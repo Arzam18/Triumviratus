@@ -301,7 +301,9 @@ static bool td_upcoming_repetition(ThreadData &td) {
       const int s1 = cuckoo_move[j] & 63, s2 = (cuckoo_move[j] >> 6) & 63;
       if (between_tbl[s1][s2] & td.occupancies[both])
         continue; // percorso bloccato
-      if (td.ply > i)
+      // RepRootTwofold (10/10/2026, agente AE): con l'opzione il ciclo che torna alla posizione di radice (i == ply)
+      // vale come quelli dentro l'albero, la stessa regola di repeated_draw.
+      if (td.ply > i - RepRootTwofold)
         return true; // ciclo tutto dentro il search path
       // Ciclo che pesca dietro la radice: vale solo se la mossa e' del lato al
       // tratto E la vecchia posizione era gia' una ripetizione (regola SF).
@@ -326,7 +328,10 @@ static bool repeated_draw(const ThreadData &td) {
   for (int i = 4; i <= end; i += 2) {
     if (td.repetition_table[td.repetition_index - (i - 1)] != td.hash_key)
       continue;
-    if (i < td.ply)
+    // RepRootTwofold (10/10/2026, agente AE; Stormphrax position.cpp:603-618, Viridithas board/mod.rs:1249-1266,
+    // PlentyChess search.cpp:385-405, Integral board.cc:430-447): la volta precedente e' la radice stessa (i == ply).
+    // SF19, Reckless, Berserk e Coda chiedono che sia dopo la radice (i < ply), altrimenti serve una terza volta.
+    if (i < td.ply + RepRootTwofold)
       return true;
     for (int j = i + 4; j <= end; j += 2)
       if (td.repetition_table[td.repetition_index - (j - 1)] == td.hash_key)

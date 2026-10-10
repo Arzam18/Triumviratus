@@ -43,6 +43,7 @@
 [Release candidate of 10 October](#39-the-release-candidate-of-10-october-2026) ·
 [Speed gap, identical tree](#40-the-speed-gap-to-stockfish-19-with-an-identical-tree-10-october-2026) ·
 [Cycle test](#41-the-cycle-test-of-stockfish-19-and-a-fifty-move-threshold-of-ours-10-october-2026) ·
+[Edge cases from other engines](#42-edge-cases-handled-by-other-engines-10-october-2026) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -1714,6 +1715,26 @@ only from 40 half-moves and on endgame openings (+0.33 ± 3.67); the form of Sto
 already fades with the counter, and the faded value is recomputed when an evaluation is read from the cache, so part
 of what the bands fix in Stockfish is already covered here, while their cost (fewer positions found again in the
 table) remains. Off.
+
+## 42. Edge cases handled by other engines (10 October 2026)
+
+After the cycle filter, a second research agent read the other engines in our reference set for the same kind of
+detail: cases that strong engines handle and we do not, rather than new heuristics with tunable values
+(`docs/audit_8.0/AE_CASI_LIMITE_ALTRI_MOTORI.md`). Six went into the engine as options, all off (bench 297400
+unchanged), each to a 7,000-game SPRT at 8+0.08 to pick the candidates. None is ours: the engines each comes from are
+given.
+
+| option | what it does | from |
+|---|---|---|
+| `ExclClean` | in the nodes of the singular verification search (with a move excluded), bit 1 stops the history update from the evaluation difference, which was given twice in 80% of those nodes; bit 2 switches off razoring, reverse futility and ProbCut there | Stormphrax, Viridithas, Reckless, PlentyChess, Berserk |
+| `RepRootTwofold` | a return to the root position inside the tree counts as a draw | Stormphrax, Viridithas, PlentyChess, Integral (Reckless, Berserk, Coda and Stockfish do the opposite) |
+| `SingKeepCount` | after the singular search the node's move count is restored; it stayed modified in 54–62% of cases and the hash move's child read it in three history updates | Reckless |
+| `NmpHashUpper` | no null move when the hash holds a value below beta (upper or exact bound) | Stormphrax, Viridithas explicitly; several others through the hash-corrected evaluation |
+| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | Reckless (the rule used), Stormphrax, Berserk, Viridithas, Caissa, Coda |
+| `AspDecisive` | a fail-high of the aspiration window with a decisive score no longer reduces the depth, and opens beta | PlentyChess; Reckless and Viridithas in a similar form |
+
+The agent expected a clear signal, if any, only from the first three; the other three are worth less than one Elo
+each and would go into a package.
 
 ## Appendix: every search idea tested since the restructured search
 

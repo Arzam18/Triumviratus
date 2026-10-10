@@ -354,6 +354,31 @@ static inline bool drawn_here(ThreadData &td, bool in_check) {
   return drawn_here_slow(td, in_check);
 }
 
+// InsufMaterial (10/10/2026, agente AE): nessuno dei due lati puo' forzare il matto. La regola e' quella di Reckless
+// (board.rs:242-267): niente pedoni, torri, donne e (1) al piu' tre pezzi (KvK, KNvK, KBvK), oppure (2) quattro pezzi
+// con un minore per parte e nessun re in un angolo (con un re nell'angolo esistono matti, anche se non forzati), oppure
+// (3) due alfieri dalla stessa parte sullo stesso colore di case. KNNvK, KBNvK (vince) e KBBvK di colori diversi no.
+// Stormphrax (position.cpp:621-668), Berserk (board.c:537), Viridithas (evaluation.rs:122), Caissa (Search.cpp:1163,
+// solo dopo una cattura, come qui) e Coda (search.rs:5065) hanno regole simili. La rete da' a queste posizioni
+// 3-15 cp (KNvK +11, KBvK +12): la regola non corregge una valutazione sbagliata ma chiude il nodo con una patta esatta.
+static inline bool insufficient_material(const ThreadData &td) {
+  if (td.bitboards[P] | td.bitboards[p] | td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q])
+    return false;
+  const int pieces = count_bits(td.occupancies[both]);
+  if (pieces < 4)
+    return true;
+  if (pieces > 4)
+    return false;
+  constexpr U64 corners = (1ULL << 0) | (1ULL << 7) | (1ULL << 56) | (1ULL << 63);
+  if ((td.bitboards[N] | td.bitboards[B]) && (td.bitboards[n] | td.bitboards[b]))
+    return !((td.bitboards[K] | td.bitboards[k]) & corners);
+  if (td.bitboards[N] | td.bitboards[n])
+    return false;
+  constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // un colore della scacchiera (a8 = 0): basta che sia una scacchiera
+  const U64 bishops = td.bitboards[B] | td.bitboards[b];
+  return !(bishops & light) || !(bishops & ~light);
+}
+
 static bool has_legal_move(ThreadData &td) {
   moves ml[1];
   td_generate_moves(td, ml, false);
@@ -428,6 +453,9 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
   if (td.ply >= max_ply)
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
+    return contempt(td);
+  // InsufMaterial (0 = spenta): il materiale cambia solo con una cattura, quindi si controlla solo dopo una cattura.
+  if (InsufMaterial && f[-1].captured >= 0 && insufficient_material(td))
     return contempt(td);
 
   HashView h;

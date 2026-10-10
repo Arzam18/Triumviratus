@@ -120,6 +120,9 @@
   P(AspBase, 6, 1, 40)                                                                                    \
   P(AspMeanSqDiv, 10193, 1000, 40000)                                                                     \
   P(AspGrow, 51, 10, 128)                /* /128 */                                                       \
+  P(AspDecisive, 0, 0, 1)                /* 10/10/2026, agente AE: un fail-high di aspirazione con valore deciso      \
+                                            (matto o tablebase) non riduce la profondita' di radice e apre beta      \
+                                            (PlentyChess; Reckless e Viridithas non riducono). 0 = come SF19 */      \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
@@ -149,6 +152,10 @@
   P(GoodCaptSeeDiv, 19, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 452, 100, 1200)                                                                             \
+  P(ExclClean, 0, 0, 3)                  /* 10/10/2026, agente AE: nodi della verifica singolare (mossa esclusa), bit:\
+                                            1 niente storia dalla differenza di eval, gia' data dal nodo vero (Reckless,\
+                                            Stormphrax, PlentyChess); 2 niente razoring, RFP e ProbCut (Stormphrax,   \
+                                            Viridithas; la RFP anche Reckless e Berserk). 0 = come SF19 */            \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -164,6 +171,10 @@
   P(NmpRedBase, 7, 3, 12)                                                                                 \
   P(NmpEvalDiv, 223, 64, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
+  P(NmpHashUpper, 0, 0, 1)               /* 10/10/2026, agente AE (docs/audit_8.0/AE_CASI_LIMITE_ALTRI_MOTORI.md):  \
+                                            niente mossa nulla se la hash dice valore < beta (limite UP o esatto);   \
+                                            Stormphrax e Viridithas esplicito, Reckless, PlentyChess, Berserk,       \
+                                            Integral, Caissa via l'eval corretta dalla hash. 0 = spenta */            \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
@@ -189,6 +200,9 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
+  P(SingKeepCount, 0, 0, 1)              /* 10/10/2026, agente AE: dopo la ricerca singolare il contatore mosse del  \
+                                            frame torna quello del nodo (Reckless lo scrive alla make, search.rs:1471;\
+                                            SF19 e noi lo lasciamo sporcato dalla ricerca esclusa). 0 = come SF19 */  \
   P(LdseMargin, 76, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
@@ -349,6 +363,9 @@
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
   P(RepCycleFifty, 0, 0, 100)            /* 10/10/2026, nostra: ciclo = patta solo da questo contatore 50 mosse */ \
+  P(RepRootTwofold, 0, 0, 1)             /* 10/10/2026, agente AE: tornare nell'albero alla posizione di radice e'   \
+                                            patta, come una ripetizione dentro l'albero (Stormphrax, Viridithas,     \
+                                            PlentyChess, Integral; SF, Reckless, Berserk, Coda no). 0 = come SF19 */  \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
   /* 10/10/2026, leve della spinta in quiescenza per uno SPSA (agiscono solo con QsPasserPush=1; i default rifanno la  \
      spinta di prima: con QsPasserPush=1 bench 211937). */                                                           \
@@ -361,6 +378,9 @@
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
      uno per uno, ognuno con una forma alternativa. */                                                               \
+  P(InsufMaterial, 0, 0, 1)              /* 10/10/2026, agente AE: patta per materiale insufficiente dopo una      \
+                                            cattura (regola di Reckless board.rs:242; anche Stormphrax, Berserk,     \
+                                            Viridithas, Caissa, Coda). 0 = come SF19, nessun test di materiale */     \
   P(SeePinned, 1, 0, 1)                 /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \
