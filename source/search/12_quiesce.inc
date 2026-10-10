@@ -454,8 +454,9 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
     return contempt(td);
-  // InsufMaterial (0 = spenta): il materiale cambia solo con una cattura, quindi si controlla solo dopo una cattura.
-  if (InsufMaterial && f[-1].captured >= 0 && insufficient_material(td))
+  // BAKE INSUFMATERIAL (11/10/2026, vedi 01_params.inc): il materiale cambia solo con una cattura, quindi si
+  // controlla solo dopo una cattura.
+  if (f[-1].captured >= 0 && insufficient_material(td))
     return contempt(td);
 
   HashView h;

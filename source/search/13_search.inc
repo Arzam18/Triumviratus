@@ -239,8 +239,8 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (!n.root) {
     if (stop_threads.load(std::memory_order_relaxed) || td.ply >= max_ply || drawn_here(td, n.in_check))
       return (td.ply >= max_ply && !n.in_check) ? static_evaluate(td) : draw_score(td);
-    // InsufMaterial (10/10/2026, agente AE, 0 = spenta): materiale insufficiente dopo una cattura (12_quiesce.inc).
-    if (InsufMaterial && f[-1].captured >= 0 && insufficient_material(td))
+    // BAKE INSUFMATERIAL (11/10/2026, agente AE): materiale insufficiente dopo una cattura (12_quiesce.inc).
+    if (f[-1].captured >= 0 && insufficient_material(td))
       return draw_score(td);
     n.alpha = std::max(mated_at(td.ply), n.alpha);
     n.beta = std::min(mating_in(td.ply + 1), n.beta);

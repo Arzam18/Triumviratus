@@ -1,6 +1,13 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (regola di Reckless
+// board.rs:242; anche Stormphrax, Berserk, Viridithas, Caissa, Coda; agente AE, DEVELOPMENT §42), opzione ritirata.
+// SPRT 8+0.08 sul libro dei finali endgame_12_18 senza aggiudicazione di patta, tm28, due tranche in pool (aeinsuf_eg_8
+// + aeinsuf_eg_8b): +1,13 +- 1,56 Elo su 17.162 partite (LLR +0,97; socket 0 +0,77, socket 1 +1,50). Prima tranche
+// +1,47 +- 2,39 su 7.000, poi l'utente: "altre 10000 e poi bake". A profondita' fissa l'albero non cresce (nodi -0,1%
+// su 200 finali del libro a prof. 15, +2,2% su 164 finali a prof. 16 con mediana 0, -0,9% sul bench di SF19 a prof. 14).
+// Bench 460041 (prima 297400).
 // BAKE REPCYCLEOTHER (10/10/2026 sera, utente): il filtro "other" di SF19 nel test dei cicli (td_upcoming_repetition,
 // 10_order.inc), opzione ritirata. SPRT 8+0.08 UHO con hyperthreading, tm26: +5,62 +- 4,47 Elo su 6.500 partite (LLR
 // +1,48, zero escluso; socket 0 +9,72, socket 1 +1,49), fermato dall'utente. Bench 297400 (prima 222811).
@@ -378,9 +385,7 @@
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
      uno per uno, ognuno con una forma alternativa. */                                                               \
-  P(InsufMaterial, 0, 0, 1)              /* 10/10/2026, agente AE: patta per materiale insufficiente dopo una      \
-                                            cattura (regola di Reckless board.rs:242; anche Stormphrax, Berserk,     \
-                                            Viridithas, Caissa, Coda). 0 = come SF19, nessun test di materiale */     \
+  /* InsufMaterial: bakata l'11/10/2026 e ritirata come opzione (vedi in testa). */                               \
   P(SeePinned, 1, 0, 1)                 /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \

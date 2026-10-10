@@ -53,7 +53,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **297400**.
+> each step starting from what the previous one found. Current `bench`: **460041**.
 
 ## The path so far
 
@@ -76,7 +76,8 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **One executable, speed measured again** | 35–36 | a universal executable for every CPU, every speed decision of 6–8 October measured again, an analysis mode at no cost in games | the universal build 0.5% faster than the separate one; two dropped patches recovered | 430151 |
 | **Grafts, PR4 and the causal reduction** | 37–38 | network blocks grafted on the frozen Consilium (none adopted), the SPSA PR4 vector and the causal reduction baked | PR4 +3.4 ± 3.9 (about 8,100 games), causal reduction +4.27 ± 4.13 (6,594) | 222811 |
 | **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | 222811 |
-| **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | **297400** |
+| **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | 297400 |
+| **Edge cases from other engines** | 42 | six cases other engines handle and we did not, one SPRT each | insufficient material +1.1 ± 1.6 (17,162 endgame games), baked; the others flat | **460041** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -90,7 +91,8 @@ the confirmed values.
   in sections 21–27 and 31, two speed patches recovered in section 36, an analysis mode that leaves games unchanged,
   and since 9–10 October the SPSA PR4 vector (the ordering terms of section 34 on) and the causal reduction
   (section 38). The graft code was removed on 10 October; the same evening, speed patches with an identical tree
-  (section 40) and the cycle test of Stockfish 19 (section 41, +5.6 ± 4.5). Bench **297400**.
+  (section 40) and the cycle test of Stockfish 19 (section 41, +5.6 ± 4.5); on 11 October the draw for insufficient
+  material after a capture (section 42, +1.1 ± 1.6). Bench **460041**.
 - **Release candidate (section 39):** the universal executable of 10 October scored **+11.9 ± 7.2 Elo over 2,866
   games** against the previous pre-release (`Triumviratus_8.0_20261009_universal.exe`) at 15+0.15, and was published
   on 10 October as the pre-release on the tag `v8.0`.
@@ -1736,6 +1738,37 @@ given.
 The agent expected a clear signal, if any, only from the first three; the other three are worth less than one Elo
 each and would go into a package.
 
+### Results (10–11 October 2026)
+
+Each option against the defaults on the same binary (bench 297400), 8+0.08, 34 + 34 games at a time with
+hyper-threading. UHO is the usual book with draw adjudication; the endgame book (`endgame_12_18.epd`, positions from
+move 30 on) runs without draw adjudication, because the rule "from move 40, 8 moves within 10 cp" would close those
+games before material runs out.
+
+| option | book | games | Elo | pentanomial | outcome |
+|---|---|---:|---:|---|---|
+| `ExclClean=3` | UHO | 7,078 | −1.4 ± 4.3 | 42, 841, 1789, 837, 30 | flat; continued to 40,000 games |
+| `RepRootTwofold` | UHO | 2,134 | +0.7 ± 7.9 | 10, 261, 521, 265, 10 | stopped: to be repeated on a balanced book without draw adjudication |
+| `SingKeepCount` | UHO | 7,020 | −0.6 ± 4.3 | 31, 869, 1727, 848, 35 | off |
+| `NmpHashUpper` | UHO | 7,060 | +0.2 ± 4.2 | 33, 800, 1858, 808, 31 | off |
+| `InsufMaterial` | endgames | 7,126 | +1.5 ± 2.4 | 1, 290, 2951, 319, 2 | continued |
+| `AspDecisive` | UHO | 7,064 | +0.7 ± 4.2 | 38, 799, 1848, 805, 42 | off |
+
+Most of these cases are rare, and their effect lies below what 7,000 games can see. Two of them change what happens
+when a game is drawn, and UHO with draw adjudication suits them poorly: in the games of this queue 47% ended with a
+win by adjudication, 25% with an adjudicated draw and 18% with a threefold repetition. `InsufMaterial` therefore ran on
+the endgame book, and `RepRootTwofold` was stopped and will run again on 8moves_v3 without draw adjudication.
+
+**`InsufMaterial` baked.** After the first 7,000 games, another 10,000 on the same book: **+1.13 ± 1.56 Elo over
+17,162 games** (LLR +0.97, both sockets positive: +0.77 and +1.50). The interval does not exclude zero; the option was
+baked because the rule is exact (these positions are draws whatever the search does), it never loses Elo in the
+measurement, and it does not inflate the tree. At fixed depth, with the option on and off, total nodes change by
+−0.1% on 200 positions of the endgame book (depth 15; 4 trees changed, no best move changed), +2.2% on 164 endgames
+from our own games (depth 16; median 0, 13 trees grew by more than half and 12 shrank by a third or more) and −0.9% on
+the 51 positions of Stockfish 19's bench (depth 14). The tree changes only in endgames with a few minor pieces, where
+one branch becomes an exact draw and the search goes elsewhere. The option is retired; bench **460041** (before
+297400). The remaining tests of the queue still run on the binary with the option off.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -1799,3 +1832,9 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Cycle test filter of Stockfish 19** (`RepCycleOther`) | 41 | 8+0.08 UHO | 6,500 | **+5.62 ± 4.47** | **baked** |
 | Cycle counted as a draw only from a fifty-move threshold (ours), 20 / 6 half-moves | 41 | 8+0.08 / 5+0.05 UHO | about 1,500 / 1,300 | −4.1 ± 9.4 / −9.5 ± 11.0 | closed |
 | Fifty-move bands in the hash key, form of Stockfish 19 (from 13, every 8) | 41 | 8+0.08 UHO | 1,968 | −3.7 ± 7.8 | off |
+| Clean singular-verification nodes (`ExclClean=3`, from several engines) | 42 | 8+0.08 UHO | 7,078 | −1.4 ± 4.3 | continued to 40,000 |
+| A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO | 2,134 | +0.7 ± 7.9 | to repeat without adjudication |
+| Move count restored after the singular search (`SingKeepCount`, from Reckless) | 42 | 8+0.08 UHO | 7,020 | −0.6 ± 4.3 | off |
+| No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
+| **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
+| Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
