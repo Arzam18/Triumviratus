@@ -98,6 +98,10 @@ the confirmed values.
 - **Release candidate (section 39):** the universal executable of 10 October scored **+11.9 ± 7.2 Elo over 2,866
   games** against the previous pre-release (`Triumviratus_8.0_20261009_universal.exe`) at 15+0.15, and was published
   on 10 October as the pre-release on the tag `v8.0`.
+- **Pre-release of 11 October:** the universal executable of that morning (bench 325747: the cycle filter, the
+  insufficient-material draw, the cap on extensions and the speed patches of sections 40–42) replaced it on the tag
+  `v8.0`; each change was measured by SPRT, and a direct comparison with the 10 October pre-release at 20 and 30 s
+  follows.
 - **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%**; at 30+0.3 on random openings
   −4.4 ± 7.1 over 395 (section 27). In blitz the remaining gap lies in defence with a short clock (section 32).
 - **Closed:** the graft blocks on Consilium (sections 37–38): none enters 8.0.
