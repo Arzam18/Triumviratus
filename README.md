@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [7.0 (current release)](#triumviratus-70--current-release) · [6.0 (previous release)](#triumviratus-60--previous-release) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [Earlier releases](#earlier-releases) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -56,68 +56,72 @@ other.</sub>
 
 ## Triumviratus 8.0 — in development
 
+### Consilium
+
+**Consilium**, the 8.0 network, is to our knowledge the first mixture-of-experts network released in a top engine
+and the first shown to gain strength. The network's largest block, the king-relative input layer, is split into
+**four experts, one per phase of the game** (chosen by the number of pieces), and only one is active at a time, so
+the network has four times the weights in that layer at almost the cost of one. The idea is the author's own, from
+the mixture-of-experts models of language AI. Consilium with its parameters re-tuned is **+27.3 ± 8.3** Elo over
+7.0; a study of its first layer neuron by neuron found no dead or duplicate neurons and experts that specialise.
+[How it was built and trained](NETWORKS.md#consilium--the-triumviratus-80-network) ·
+[why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
+
+### What is new in Triumviratus
+
+[`NOVELTIES.md`](NOVELTIES.md) compares every technique of the engine with the published work of other engines: of
+52 entries, 10 are new, 26 are known ideas in a different form, 16 were done elsewhere first. The new ones in use:
+
+- **Consilium**, experts by material on the first layer (above);
+- **`PassedPawns`**, an input block of our own for passed pawns, in every network since 6.0
+  ([§2](NOVELTIES.md#2-the-passedpawns-input-block));
+- **corrections per expert** (`CorrPhase`): the correction history follows the experts of the network
+  ([§3](NOVELTIES.md#3-correction-history-per-expert-corrphase));
+- **move ordering with chess knowledge**: knight outposts and the capture of a bishop of the pair
+  ([§4](NOVELTIES.md#4-move-ordering-with-chess-knowledge)).
+
+Among the known ideas in a new form, the author's own: the **surprise rule** of time management (more time when the
+opponent does not play the expected reply) and the **causal reduction** of quiet moves. Ideas measured and dropped
+are recorded too, with their numbers.
+
+### Measurements
+
 | step | result |
 |---|---:|
 | speed: faster code, identical search tree, new transposition table | +14.7 ± 5.4 against 7.0 |
-| **Consilium**, the new network, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
+| **Consilium**, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
-| pre-release of 10 October: move ordering with chess knowledge tuned by SPSA, the causal reduction (the author's idea) | **+11.9 ± 7.2** against the 9 October pre-release |
-| pre-release of 11 October: the cycle test of Stockfish 19, the draw for insufficient material, a cap on extensions from negative reductions, faster code with an identical tree | each change by SPRT: +5.6 ± 4.5, +1.1 ± 1.6, +3.9 ± 3.3 |
-| **pre-release of 12 October**: more time in a defence that is not lost and less with 24 or more pieces, a guard against cutting the time on a sudden score jump; closed ideas removed from the code | time rules +7.3 ± 7.1 at 40+0.4; guard flat (a safety rule) |
+| pre-releases of 10–12 October: move ordering with chess knowledge, the causal reduction, rules from Stockfish 19, time management in defence | +11.9 ± 7.2 against the 9 October pre-release, then each change by SPRT |
 
-**Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
-to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
-(an idea of the author's own, from language models: [`NETWORKS.md`](NETWORKS.md#the-idea-a-mixture-of-experts-on-the-king-relative-block)).
-Since then: about 9% more speed with an identical tree, and our own ideas tested one at a time. The first six
-adopted (a hash-move extension at low depth, a guard on it, more time after an unexpected reply, depth 0 for
-quiescence hash entries, pins in the exchange evaluation, per-expert corrections) measured +4.5, +6.3, +6.2, +3.4,
-+4.5 and +3.2 Elo ([dev log](DEVELOPMENT_8.0.md#the-path-so-far)). 8.0 is also the
-first version to support **Chess960**.
+8.0 is also the first version to support **Chess960**.
 
-**Head to head** (pre-release of 7–8 October, 1 thread, UHO 2024 book, each opening with both colours):
+**Against other engines** (1 thread unless stated; details and games in [`tests/`](tests/) and
+[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)):
 
-| opponent | TC | games | Elo |
-|---|---|---:|---:|
-| Stockfish 18 | 20+0.2 | 600 | **+24.9 ± 13.7** |
-| Reckless 0.10.0-dev | 40+0.4 | 526 | **+68 ± 14** |
+| tester | test | build | result |
+|---|---|---|---|
+| Maurizio Platino | **Stockfish 19**, 300 games, 1 min + 1 s, 3 threads | 8 October | **−6.9 ± 9.6** |
+| Maurizio Platino | Stormphrax 8.0.0 / Reckless 0.10.0-dev, 300 games each | 4 October | **+94 ± 16** / **+25.5 ± 14.6** |
+| Maurizio Platino | ENET 2026 suite | 4 October | **89 / 110**, best Triumviratus so far |
+| Mark Tang | IQ4 tactical suite, 1 s per position | 5 October | **145 / 183**, highest among the engines tested |
+| Andres (EveAnn) | gauntlet against 15 engines, 1,500 games, 2 min + 0.4 s | 11 October | **62.8%, +91.2 ± 9.4**; **Stockfish 19** +8 =84 −8 |
+| the project | Stockfish 18, 600 games, 20+0.2 / Reckless 0.10.0-dev, 526 games, 40+0.4 | 7–8 October | **+24.9 ± 13.7** / **+68 ± 14** |
 
-**Outside tests** (summary in [`tests/`](tests/), games and crosstables in
-**[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)**): in Maurizio Platino's matches the
-8 October prerelease is level with **Stockfish 19**, **−6.9 ± 9.6** Elo (+137 =20 −143 in 300 games, 1 min + 1 s,
-3 threads); the 4 October prerelease scores **+94 ± 16** Elo against Stormphrax 8.0.0 and **+25.5 ± 14.6** against
-Reckless 0.10.0-dev (300 games each, 1 thread), and on his ENET 2026 suite it solves **89 of 110**, the best
-Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
-**145 of 183**, the highest among the engines tested (143 with the build of 8 October); in his matches against the
-development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 103 s + 1 s (30 games each).
-In Andres (EveAnn)'s gauntlet of 1,500 games at 2 min + 0.4 s against fifteen engines the 11 October pre-release scored
-**62.8%, +91.2 ± 9.4** Elo, level with **Stockfish 19** (+8 =84 −8) and ahead of Stockfish 18, Reckless 0.9.0 and
-Torch v4d.
-
-Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`NOVELTIES.md`](NOVELTIES.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**. `source/` holds the 8.0
-development code; the current 8.0 pre-release (12 October, one executable for every x86-64 CPU) is the tag
-[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); the 7.0 release is the tag `v7.0`.
+The current pre-release (12 October, one executable for every x86-64 CPU) is the tag
+[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); `source/` holds the development code. Every
+measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** ·
+**[`NOVELTIES.md`](NOVELTIES.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**.
 
 ---
 
-## Triumviratus 7.0 — current release
+## Earlier releases
 
-A network project: **`legio-septima`**, the first network the project trained from scratch with all its blocks
-together (`TRANN2`: the SFNNv16 feature set plus our own **`PassedPawns`** block), on a large corpus re-labelled with
-Leela's BT4. **+21.3 ± 6.7 Elo over 6.0** at 25+0.25 (3,000 games). On Stefan Pohl's
-[EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm), which scores playing style, 7.0 is the **fourth most
-aggressive of 16 engines**.
-
-Measurements, training and matches against other engines:
-**[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`tests/`](tests/)**.
-
----
-
-## Triumviratus 6.0 — previous release
-
-**+52.98 ± 12.25 Elo over 5.1** (40+0.4, 760 games, LOS 100%, SPRT `[0,5]` passed), and the version
-still carrying the project's ratings on both CCRL lists. Three changes carry most of it: the `TRANN1`
-network architecture, the `nn-rubicon-alea-v3` network trained for it, and TMv2 time management.
-Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
+- **7.0** (tag `v7.0`, current CCRL entry): the network **`legio-septima`**, the first trained from scratch with all
+  its blocks together, including our own **`PassedPawns`**; **+21.3 ± 6.7** over 6.0 at 25+0.25 (3,000 games), fourth
+  most aggressive of 16 engines on the [EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm).
+  [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
+- **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; **+53.0 ± 12.3**
+  over 5.1 at 40+0.4 (760 games). [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
 
 ---
 
