@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 47 entries, **9 are new**, **22 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 48 entries, **9 are new**, **23 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -68,6 +68,7 @@ experts of the network.
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
+| Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
 | Passed-pawn pushes in endgames reduced less, never pruned (`PassedPushRed`) | Revisited | 8.0 | +4.4 ± 6.8 on an endgame book | adopted |
 | Passed-pawn push bonus in move ordering (`PassedPush`) | Revisited | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Passed-pawn push to the seventh searched in quiescence in endgames (`QsPasserPush`), with its own levers | Revisited | 8.0 dev | −0.77 ± 7.48 (2,264); +1.1 ± 3.8 (3,370); endgames +0.23 ± 2.45 (7,516) | closed, off |
@@ -298,6 +299,13 @@ These entries take a known idea and change its form, its scale or its use. Those
 - **Guard on LDSE (`LdseMax`).** At most one low-depth hash-move extension per line, from a measurement of the tree
   (rook endgames ×5 to ×16): +6.25 ± 7.89 at 15+0.15. Neither Reckless nor Stormphrax caps it per line; limiting
   extensions along a line is known in general.
+- **Cap on extensions from a negative reduction (`NegExtMax`), 8.0.** When the reduction of a move is negative, the
+  reduced search goes up to two plies deeper than the nominal depth, and along one line these extensions add up as the
+  LDSE extensions did before their guard. The same remedy: at most one such extension per line, counted in the node
+  frame. At fixed depth the cap of 1 takes 6.6% of the nodes and 0.55 plies of selective depth; in games **+3.88 ±
+  3.26 at 12+0.12** (11,384), adopted on 11 October 2026. Stockfish addressed the same growth after version 19 with a
+  different rule, a limit on the ply of the extended search relative to the root depth ("Fix deep recursion"); ours
+  counts the extensions along the line.
 - **Passed-pawn pushes in endgames (`PassedPushRed`).** With little material, a push to the sixth or seventh rank is
   reduced less and never pruned, because the network sees passers through `PassedPawns`: +4.4 ± 6.8 on an endgame
   book. Stockfish 8 exempted advanced pawn pushes from shallow pruning.

@@ -819,16 +819,15 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (n.depth >= 2 && n.moves > 1) {
       // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
       // queste estensioni si sommano come quelle di Ldse prima della sua guardia (LdseMax). Stesso rimedio: un tetto al
-      // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path). 0 = nessun tetto, come prima.
-      const int neg_cap = (!NegExtMax || f->negext_path < NegExtMax) ? 2 : 0;
+      // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path).
+      // BAKE NEGEXTMAX (11/10/2026, vedi 01_params.inc): tetto fisso a una estensione per linea, opzione ritirata.
+      const int neg_cap = f->negext_path < 1 ? 2 : 0;
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + neg_cap)) + n.pv;
-      if (NegExtMax)
-        f->negext = d - n.pv > new_depth;
+      f->negext = d - n.pv > new_depth;
       f->reduction = new_depth - d;
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
       f->reduction = 0;
-      if (NegExtMax)
-        f->negext = 0;
+      f->negext = 0;
       if (value > n.alpha) {
         new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
@@ -982,10 +981,9 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   // i figli della mossa nulla e del probcut non ne ereditano una.
   f->ldse = 0;
   f->ldse_path = f[-1].ldse_path + f[-1].ldse;
-  if (NegExtMax) {   // NegExtMax: stesso conteggio per le estensioni da riduzione negativa (move_loop)
-    f->negext = 0;
-    f->negext_path = f[-1].negext_path + f[-1].negext;
-  }
+  // Stesso conteggio per le estensioni da riduzione negativa (move_loop; BAKE NEGEXTMAX 11/10/2026).
+  f->negext = 0;
+  f->negext_path = f[-1].negext_path + f[-1].negext;
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;

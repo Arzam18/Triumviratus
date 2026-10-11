@@ -53,7 +53,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **460041**.
+> each step starting from what the previous one found. Current `bench`: **325747**.
 
 ## The path so far
 
@@ -77,7 +77,8 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Grafts, PR4 and the causal reduction** | 37–38 | network blocks grafted on the frozen Consilium (none adopted), the SPSA PR4 vector and the causal reduction baked | PR4 +3.4 ± 3.9 (about 8,100 games), causal reduction +4.27 ± 4.13 (6,594) | 222811 |
 | **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | 222811 |
 | **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | 297400 |
-| **Edge cases from other engines** | 42 | six cases other engines handle and we did not, one SPRT each | insufficient material +1.1 ± 1.6 (17,162 endgame games), baked; the others flat | **460041** |
+| **Edge cases from other engines** | 42 | six cases other engines handle and we did not, one SPRT each | insufficient material +1.1 ± 1.6 (17,162 endgame games), baked; the others flat | 460041 |
+| **A cap on extensions** | 33, 42 | at most one extension from a negative reduction per line | +3.9 ± 3.3 at 12+0.12 (11,384 games) | **325747** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -92,7 +93,8 @@ the confirmed values.
   and since 9–10 October the SPSA PR4 vector (the ordering terms of section 34 on) and the causal reduction
   (section 38). The graft code was removed on 10 October; the same evening, speed patches with an identical tree
   (section 40) and the cycle test of Stockfish 19 (section 41, +5.6 ± 4.5); on 11 October the draw for insufficient
-  material after a capture (section 42, +1.1 ± 1.6). Bench **460041**.
+  material after a capture (section 42, +1.1 ± 1.6) and the cap of one extension from a negative reduction per line
+  (sections 33 and 42, +3.9 ± 3.3). Bench **325747**.
 - **Release candidate (section 39):** the universal executable of 10 October scored **+11.9 ± 7.2 Elo over 2,866
   games** against the previous pre-release (`Triumviratus_8.0_20261009_universal.exe`) at 15+0.15, and was published
   on 10 October as the pre-release on the tag `v8.0`.
@@ -1765,7 +1767,10 @@ no measured gain we keep Stockfish's behaviour.
 
 **Two levers of section 33, the same night.** On the build with the insufficient-material draw (bench 460041):
 `NegExtMax=1`, the cap of one extension from a negative reduction per line, at 12+0.12 on UHO: **+3.6 ± 4.1 over
-7,052 games** (LLR +0.98, both sockets positive: +3.2 and +4.0), a lean to be continued. The value 1 was chosen
+7,052 games** (LLR +0.98, both sockets positive: +3.2 and +4.0), then continued on 11 October to **+3.88 ± 3.26 over
+11,384 games** (LLR +1.72; sockets +3.05 and +4.71) and **baked**: the option is retired, bench **325747**. It is a
+depth lever measured at 12 s; the long time controls will be checked in the comparison of the 11 October build with
+the public one. The value 1 was chosen
 because it is the only cap that changes the tree clearly at fixed depth (−6.6% nodes, −0.55 plies of selective depth;
 from 2 up the cap is seldom reached). `ProgressFade` waits for its run on the endgame book after the SPSA EXP1 of the
 per-expert margins, started the same night (6,000 iterations at 20+0.2).
@@ -1849,4 +1854,4 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
 | **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
-| Cap of one extension from a negative reduction per line (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 7,052 | +3.6 ± 4.1 | lean, to continue |
+| **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |

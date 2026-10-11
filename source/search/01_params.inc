@@ -1,6 +1,13 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE NEGEXTMAX (11/10/2026 mattina, utente): tetto di UNA estensione da riduzione negativa per linea (13_search.inc,
+// move_loop; NodeFrame::negext/negext_path), opzione ritirata. SPRT UHO 12+0.12 (leva di profondita'), tm29, due tranche
+// in pool (negext1b_12 + negext1c_12): +3,88 +- 3,26 Elo su 11.384 partite (LLR +1,72, zero escluso; socket 0 +3,05,
+// socket 1 +4,71), fermato dall'utente per compilare la release dell'11/10 ("bakiamolo e registriamo"). Prima tranche
+// +3,59 +- 4,10 su 7.052. Valore 1 scelto perche' e' l'unico tetto che cambia l'albero in modo netto a profondita' fissa
+// (08/10: -6,6% nodi, -0,55 ply di seldepth; da 2 in su il tetto si raggiunge di rado). Bench 325747 (prima 460041).
+// Da verificare a TC lungo nell'A/B della release 20261011 contro la pubblica 20261010 (30 s / 20 s).
 // BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (regola di Reckless
 // board.rs:242; anche Stormphrax, Berserk, Viridithas, Caissa, Coda; agente AE, DEVELOPMENT §42), opzione ritirata.
 // SPRT 8+0.08 sul libro dei finali endgame_12_18 senza aggiudicazione di patta, tm28, due tranche in pool (aeinsuf_eg_8
@@ -216,7 +223,7 @@
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
   P(LdseMax, 1, 0, 8)                    /* BAKE 05/10/2026 (era 0, vedi in testa): tetto alle estensioni */ \
                                          /* Ldse lungo una linea (0 = nessun tetto)                      */ \
-  P(NegExtMax, 0, 0, 8)                  /* 08/10/2026: tetto per linea alle estensioni da riduzione negativa */ \
+  /* NegExtMax: bakata a 1 l'11/10/2026 e ritirata come opzione (vedi in testa). */                               \
                                          /* (fino a +2 ply), come LdseMax; 0 = nessun tetto (albero di prima) */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
