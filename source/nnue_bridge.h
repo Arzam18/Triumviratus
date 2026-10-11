@@ -2,14 +2,14 @@
 #ifndef SF_BRIDGE_H
 #define SF_BRIDGE_H
 
-// Thin bridge to the TRANN1 NNUE (in nnue/) — Triumviratus Rubicon Alea NNUE 1:
-// FOUR input blocks (FullThreats + HalfKAv2_hm + PawnPair + PassedPawns), L1=1024,
-// L2/L3, 8 LayerStacks. The evaluation machinery is derived from Stockfish-master's
-// SFNNv13 (GPLv3, attribution in COPYING/README); the last two blocks are ours, so
-// the net format is NOT SFNNv13 and an SFNNv13 net cannot be loaded (the reader
-// accepts only the TRANN1 4-block hash and the 3-block v2 hash, which zero-fills
-// the PassedPawns segment). Keeps all Stockfish headers/types/macros out of the
-// rest of the engine so there is no clash with Triumviratus's own globals.
+// Thin bridge to the TRANN3 NNUE (in nnue/) — Consilium, Triumviratus' own architecture:
+// FOUR input blocks (FullThreats + HalfKAv2_hm with four phase experts + PawnPair +
+// PassedPawns), L1=1024, L2/L3, 8 LayerStacks. The inference code started from
+// Stockfish's NNUE (SFNNv16 line, GPLv3, attribution in COPYING/README) and has since
+// been largely rewritten in the accumulators, features and link with the search; the
+// net format is our own and no Stockfish net can be loaded. Keeps all Stockfish-derived
+// headers/types/macros out of the rest of the engine so there is no clash with
+// Triumviratus's own globals.
 
 #include "nn_dirty.h"   // le dirty di ogni mossa (tipi semplici, condivisi con la rete)
 

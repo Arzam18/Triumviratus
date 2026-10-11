@@ -168,8 +168,8 @@ int main()
     // Initialize hash table with default 64 MB (silent)
     init_hash_table(64);
 
-    // Evaluation = the TRANN1 NNUE (FullThreats + HalfKAv2_hm + PawnPair + PassedPawns,
-    // L1=1024; see nnue/ + nnue_bridge), SFNNv13-derived with two own input blocks.
+    // Evaluation = the TRANN3 NNUE, Consilium (FullThreats + HalfKAv2_hm with four phase
+    // experts + PawnPair + PassedPawns, L1=1024; see nnue/ + nnue_bridge).
     // We init the shared substrate (bitboard + slider-magic attack tables) and load the
     // network. Resolve relative to the exe so the engine works from ANY working directory;
     // a missing net fails loudly. Override at runtime via the UCI "EvalFile" option.
@@ -178,7 +178,7 @@ int main()
     // a Stockfish reference net here, which silently made a dev-build bench/SPRT run on
     // different weights than a release build unless EvalFile was set explicitly -> never
     // again; both build kinds load our own net by default now).
-    // TRANN1 (4 blocchi: threats+halfka+pawnpair+passedpawns). UNA sola fonte di verita'
+    // TRANN3 (4 blocchi: threats+halfka+pawnpair+passedpawns). UNA sola fonte di verita'
     // per il nome (EvalFileDefaultName in nnue/evaluate.h), esposta via bridge: una stringa
     // duplicata qui e' gia' costata un quasi-incidente (release che spediva lo zerograft).
     const char* netName = nn_default_net_name();

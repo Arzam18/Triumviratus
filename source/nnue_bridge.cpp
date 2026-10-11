@@ -1,9 +1,11 @@
-// Triumviratus NNUE bridge — routes the engine's eval through the TRANN1 network
-// code (nnue/): ThreatFeatureSet=FullThreats + PSQFeatureSet=HalfKAv2_hm +
-// PawnFeatureSet=PawnPair + PassedFeatureSet=PassedPawns, L1=1024, 8 LayerStacks.
-// The machinery is Stockfish-master's SFNNv13 (GPLv3, attribution in COPYING/README)
-// adapted into our isolated Triumviratus:: namespace; the last two input blocks are
-// ours, so the net format diverges from SFNNv13 (see nnue/nnue/nnue_architecture.h).
+// Triumviratus NNUE bridge — routes the engine's eval through the TRANN3 network
+// (Consilium) code in nnue/: ThreatFeatureSet=FullThreats + PSQFeatureSet=HalfKAv2_hm
+// with four phase experts + PawnFeatureSet=PawnPair + PassedFeatureSet=PassedPawns,
+// L1=1024, 8 LayerStacks. TRANN3 is our own architecture; the inference code started
+// from Stockfish's NNUE (SFNNv16 line, GPLv3, attribution in COPYING/README) inside our
+// Triumviratus:: namespace. The accumulators, the feature blocks and this link with the
+// search have since been largely rewritten; the forward pass (layers, SIMD) and the
+// net loading remain Stockfish's (docs/audit_8.0/AF_ATTRIBUZIONE_INFERENZA.md).
 //
 // Modello (07/10/2026, scacchiera unica v2): ogni thread di ricerca ha un handle con la catena degli accumulatori
 // (AccumulatorStack) e la finny table (AccumulatorCaches). La rete non ha una scacchiera sua e non traduce nulla:
