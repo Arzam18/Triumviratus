@@ -1747,8 +1747,9 @@ games before material runs out.
 
 | option | book | games | Elo | pentanomial | outcome |
 |---|---|---:|---:|---|---|
-| `ExclClean=3` | UHO | 7,078 | −1.4 ± 4.3 | 42, 841, 1789, 837, 30 | flat; continued to 40,000 games |
-| `RepRootTwofold` | UHO | 2,134 | +0.7 ± 7.9 | 10, 261, 521, 265, 10 | stopped: to be repeated on a balanced book without draw adjudication |
+| `ExclClean=3` | UHO | 10,772 (two runs) | −0.4 ± 3.5 | 61, 1270, 2723, 1285, 47 | off |
+| `RepRootTwofold` | UHO | 2,134 | +0.7 ± 7.9 | 10, 261, 521, 265, 10 | stopped, repeated on 8moves |
+| `RepRootTwofold` | 8moves_v3, no adjudication | 5,276 | +0.6 ± 3.5 | 16, 309, 1974, 328, 11 | off |
 | `SingKeepCount` | UHO | 7,020 | −0.6 ± 4.3 | 31, 869, 1727, 848, 35 | off |
 | `NmpHashUpper` | UHO | 7,060 | +0.2 ± 4.2 | 33, 800, 1858, 808, 31 | off |
 | `InsufMaterial` | endgames | 7,126 | +1.5 ± 2.4 | 1, 290, 2951, 319, 2 | continued |
@@ -1757,7 +1758,17 @@ games before material runs out.
 Most of these cases are rare, and their effect lies below what 7,000 games can see. Two of them change what happens
 when a game is drawn, and UHO with draw adjudication suits them poorly: in the games of this queue 47% ended with a
 win by adjudication, 25% with an adjudicated draw and 18% with a threefold repetition. `InsufMaterial` therefore ran on
-the endgame book, and `RepRootTwofold` was stopped and will run again on 8moves_v3 without draw adjudication.
+the endgame book, and `RepRootTwofold` was stopped and run again on the balanced 8moves_v3 book without draw
+adjudication, where it stayed flat as well. It is a choice of style rather than a correction (by the rules a single
+return to the root is a twofold repetition; Stockfish, Reckless, Berserk and Coda do not score it as a draw), so with
+no measured gain we keep Stockfish's behaviour.
+
+**Two levers of section 33, the same night.** On the build with the insufficient-material draw (bench 460041):
+`NegExtMax=1`, the cap of one extension from a negative reduction per line, at 12+0.12 on UHO: **+3.6 ± 4.1 over
+7,052 games** (LLR +0.98, both sockets positive: +3.2 and +4.0), a lean to be continued. The value 1 was chosen
+because it is the only cap that changes the tree clearly at fixed depth (−6.6% nodes, −0.55 plies of selective depth;
+from 2 up the cap is seldom reached). `ProgressFade` waits for its run on the endgame book after the SPSA EXP1 of the
+per-expert margins, started the same night (6,000 iterations at 20+0.2).
 
 **`InsufMaterial` baked.** After the first 7,000 games, another 10,000 on the same book: **+1.13 ± 1.56 Elo over
 17,162 games** (LLR +0.97, both sockets positive: +0.77 and +1.50). The interval does not exclude zero; the option was
@@ -1832,9 +1843,10 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Cycle test filter of Stockfish 19** (`RepCycleOther`) | 41 | 8+0.08 UHO | 6,500 | **+5.62 ± 4.47** | **baked** |
 | Cycle counted as a draw only from a fifty-move threshold (ours), 20 / 6 half-moves | 41 | 8+0.08 / 5+0.05 UHO | about 1,500 / 1,300 | −4.1 ± 9.4 / −9.5 ± 11.0 | closed |
 | Fifty-move bands in the hash key, form of Stockfish 19 (from 13, every 8) | 41 | 8+0.08 UHO | 1,968 | −3.7 ± 7.8 | off |
-| Clean singular-verification nodes (`ExclClean=3`, from several engines) | 42 | 8+0.08 UHO | 7,078 | −1.4 ± 4.3 | continued to 40,000 |
-| A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO | 2,134 | +0.7 ± 7.9 | to repeat without adjudication |
+| Clean singular-verification nodes (`ExclClean=3`, from several engines) | 42 | 8+0.08 UHO | 10,772 | −0.4 ± 3.5 | off |
+| A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO / 8moves without adjudication | 2,134 / 5,276 | +0.7 ± 7.9 / +0.6 ± 3.5 | off |
 | Move count restored after the singular search (`SingKeepCount`, from Reckless) | 42 | 8+0.08 UHO | 7,020 | −0.6 ± 4.3 | off |
 | No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
 | **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
+| Cap of one extension from a negative reduction per line (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 7,052 | +3.6 ± 4.1 | lean, to continue |
