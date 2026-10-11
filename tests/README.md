@@ -105,8 +105,8 @@ A second run on the build of 8 October solved **143 / 183** (78.1%).
 
 ## Andres (EveAnn) — 8.0 pre-release gauntlet
 
-A gauntlet run by **Andres (EveAnn)** on the 8.0 pre-release against fifteen engines, 100 games each, results
-posted on 11 October 2026.
+A gauntlet run by **Andres (EveAnn)** on the 8.0 pre-release of 11 October 2026 against fifteen engines, 100 games
+each.
 
 | Opponent | Games | +W =D −L (Triumviratus) | Score | Elo (Triumviratus) |
 |---|---:|---|---:|---:|
