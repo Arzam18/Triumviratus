@@ -74,7 +74,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     const double mine = g_limits.time[us], theirs = g_limits.time[us ^ 1];
     opt_share *= 1 + TmBehindMul / 1000.0 * std::min((mine - theirs) / (1.0 + mine + theirs), 0.0);
   }
-  // TmEarlySave (08/10/2026, audit X3, spenta): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
+  // TmEarlySave (08/10/2026, audit X3; BAKATA a 200 l'11/10/2026): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
   // motori; la quota si riduce e il tempo resta per le fasi 10-23 pezzi, dove in difesa sbagliamo 3-4 volte di piu'.
   // La scacchiera globale e' quella della radice (start_search la copia nel thread prima di chiamare clock_plan).
   if (TmEarlySave && count_bits(occupancies[both]) >= 24)
@@ -502,7 +502,7 @@ static void deepen(ThreadData &td) {
         } else
           total_time *= TmSurpriseScale / 1000.0;
       }
-      // TmDefendMul (08/10/2026, audit X3, spenta): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
+      // TmDefendMul (08/10/2026, audit X3; BAKATA a 500 l'11/10/2026): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
       // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;

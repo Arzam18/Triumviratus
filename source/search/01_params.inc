@@ -1,6 +1,12 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE TEMPO IN DIFESA (11/10/2026 sera, utente: "secondo me ora e' accettabile"): TmDefendMul 0 -> 500 (tempo della
+// mossa x1,5 con la radice fra -TmDefendTo e -TmDefendFrom, cioe' in difesa ma non persa) e TmEarlySave 0 -> 200 (quota
+// ottimale -20% con >= 24 pezzi), le due leve dell'audit X3 (difesa con poco orologio = 34% della perdita contro SF19),
+// insieme. SPRT UHO 40+0.4, tm30 (bench 325747), TmFenPly=1 su entrambi i lati: +7,27 +- 7,08 Elo su 2.150 partite
+// (LLR +0,73, zero escluso; socket 0 +5,17, socket 1 +9,38). Bench invariato (gestione del tempo). Da separare in
+// seguito (quale delle due rende) e da rivedere a TC piu' lungo: il socket piu' lento rendeva di piu'.
 // BAKE NEGEXTMAX (11/10/2026 mattina, utente): tetto di UNA estensione da riduzione negativa per linea (13_search.inc,
 // move_loop; NodeFrame::negext/negext_path), opzione ritirata. SPRT UHO 12+0.12 (leva di profondita'), tm29, due tranche
 // in pool (negext1b_12 + negext1c_12): +3,88 +- 3,26 Elo su 11.384 partite (LLR +1,72, zero escluso; socket 0 +3,05,
@@ -328,12 +334,15 @@
      Contro SF19 perdiamo i punti in difesa con poco orologio, soprattutto fra 10 e 23 pezzi. ProgressFade:          \
      smorzamento in piu' col contatore delle 50 mosse oltre ProgressFrom (12_quiesce.inc). TmDefendMul: piu' tempo   \
      quando la radice e' in difesa. TmEarlySave: quota ottimale ridotta con >= 24 pezzi (14_deepen.inc). */          \
+  /* ProgressFade=4 CHIUSA NEUTRA 11/10/2026 (resta spenta): libro dei finali endgame_12_18 senza aggiudicazione, tm30 \
+     (bench 325747; con =4 327217): 10+0.1 +0,85 +- 2,45 su 8.156, poi 2+0.4 -1,22 +- 3,87 su 2.840; insieme +0,32  \
+     +- 2,07 su 11.000 (socket +0,32 / +0,32). Bakata per 20 minuti e tolta (utente: "overall zero"). */             \
   P(ProgressFade, 0, 0, 64)              /* /1024 per semimossa oltre ProgressFrom (0 = spenta)            */ \
   P(ProgressFrom, 10, 0, 80)             /* semimosse del contatore da cui parte lo smorzamento in piu'    */ \
-  P(TmDefendMul, 0, 0, 1000)             /* /1000: tempo della mossa x (1 + Mul) in difesa (0 = spenta)     */ \
+  P(TmDefendMul, 500, 0, 1000)           /* BAKE 11/10/2026 (era 0, vedi in testa): /1000, tempo x (1+Mul) in difesa */ \
   P(TmDefendFrom, 178, 0, 2000)          /* radice <= -From (178 ~ mezzo pedone)                           */ \
   P(TmDefendTo, 1424, 200, 4000)         /* ...e > -To (oltre e' persa: tempo normale)                     */ \
-  P(TmEarlySave, 0, 0, 500)              /* /1000: quota ottimale x (1 - Save) con >= 24 pezzi (0 = spenta) */ \
+  P(TmEarlySave, 200, 0, 500)            /* BAKE 11/10/2026 (era 0): /1000, quota ottimale x (1-Save) con >= 24 pezzi */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \

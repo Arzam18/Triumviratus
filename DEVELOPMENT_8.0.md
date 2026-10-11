@@ -1777,7 +1777,7 @@ depth lever measured at 12 s; the long time controls will be checked in the comp
 the public one. The value 1 was chosen
 because it is the only cap that changes the tree clearly at fixed depth (−6.6% nodes, −0.55 plies of selective depth;
 from 2 up the cap is seldom reached). `ProgressFade` waits for its run on the endgame book after the SPSA EXP1 of the
-per-expert margins, started the same night (6,000 iterations at 20+0.2).
+per-expert margins, started the same night (6,000 iterations at 20+0.2); both are in section 43.
 
 **`InsufMaterial` baked.** After the first 7,000 games, another 10,000 on the same book: **+1.13 ± 1.56 Elo over
 17,162 games** (LLR +0.97, both sockets positive: +0.77 and +1.50). The interval does not exclude zero; the option was
@@ -1788,6 +1788,51 @@ from our own games (depth 16; median 0, 13 trees grew by more than half and 12 s
 the 51 positions of Stockfish 19's bench (depth 14). The tree changes only in endgames with a few minor pieces, where
 one branch becomes an exact draw and the search goes elsewhere. The option is retired; bench **460041** (before
 297400). The remaining tests of the queue still run on the binary with the option off.
+
+## 43. Time in defence, the fifty-move fade, and a check of the SPSA EXP1 (11 October 2026)
+
+All three runs used the same build with the options visible (bench 325747), 34 + 34 games at a time.
+
+**A first look at the SPSA EXP1.** The SPSA of the per-expert margins of section 33 (reverse futility, quiet-move
+futility and LMR for each of the four experts, 20+0.2) was paused at iteration 2,815 of 6,000. The mean of its last
+100 iterations (2,682 to 2,781) against the defaults, UHO at 10+0.1: **+2.47 ± 8.55 over 1,826 games**, then stopped.
+The vector moves LMR in opposite directions at the two ends of the game (about −50/1024 of a ply for the endgame
+expert, +50 for the opening expert); with no visible gain at mid-run, the SPSA was resumed to its end.
+
+**`ProgressFade` closed.** The fade of the evaluation with the fifty-move counter (section 33, 4/1024 per half-move
+beyond the tenth) ran on the endgame book without draw adjudication: **+0.85 ± 2.45 over 8,156 games at 10+0.1**, then
+**−1.22 ± 3.87 over 2,840 at 2+0.4**, which gives more time per move in these endgames. Together **+0.32 ± 2.07 over
+11,000 games**, with the same value on both sockets. It was baked for a few minutes as a correction that could not
+cost Elo, then removed when the second run turned negative; the option stays off. The loss analysis of section 32 had
+already found that waiting moves cost nothing.
+
+**Time in defence, baked.** The two time levers of section 33, together: `TmDefendMul` = 500 (the time for the move
+×1.5 while the root score is between about −0.45 and −3.6 pawns, defending but not lost) and `TmEarlySave` = 200 (the
+optimal share of the clock −20% while 24 or more pieces are on the board). UHO at **40+0.4**, because time levers
+depend on the time control (the surprise rule of section 32 was neutral at 16+0.16 and positive at 40+0.4), with
+`TmFenPly=1` on both sides so that the EPD book does not distort the move count. **+7.27 ± 7.08 over 2,150 games**
+(LLR +0.73; socket 0 +5.17, socket 1 +9.38). At 40+0.4 these games are slow, about 1,000 an hour, and an SPRT to its
+bound would have needed roughly 7,000 games at this value. The run was stopped and the two defaults were baked once
+zero was excluded: in the worst case the change is worth about nothing, and the comparison of the next build with the
+public pre-release at 30 s and 20 s will measure all the levers baked since then together. Bench unchanged (time
+management does not enter the bench). The two levers will be separated later, to learn which one carries the gain.
+
+A second loss analysis on the new games (`docs/audit_8.0/X5_DOVE_PERDIAMO_20261011.md`: the CCRL-style tournament of
+section 39 and the UHO matches of the tester, judged by Stockfish 19) gives a mechanism for the early saving: with 24
+or more pieces we play at least as well as Stockfish, and the real errors of the sample disappear with two to four
+times the nodes of the game. The cell "defending with less than 3 seconds" is still there, about half the size that
+section 32 measured, and in this sample no error remains at 16 million nodes: the remaining loss comes from the depth
+of short searches, not from the evaluation. The same analysis finds our use of the clock equal to Stockfish's in every
+phase, and no error in defence while the clock is still full, so it offers no mechanism for `TmDefendMul`; the
+separate runs will tell whether the gain comes from the saving alone.
+
+**An option added, off: blending two experts at a boundary.** A study of the expert boundaries (agent Z1,
+`docs/audit_8.0/Z1_CONFINI_ESPERTI_CALIBRAZIONE.md`) found that two neighbouring experts agree on average at every
+boundary (within ±1.3 cp) and differ by 22 to 42 cp position by position; a weighted mean of the two predicts the
+deep search, the game result and Stockfish 19 about 1% better. `EvalExpertBlendLo/Mid/Hi` compute that mean exactly
+near the boundaries; off by default, bench unchanged. At fixed depth it leaves the size of the tree unchanged (×1.01
+at depth 13, ×0.98 at depth 16 on 160 positions) and changes the best move in about 16% of them. A fixed-node test
+comes first, then the cost.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1859,3 +1904,6 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
 | **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |
+| SPSA EXP1 vector at mid-run (mean of iterations 2,682–2,781) | 43 | 10+0.1 UHO | 1,826 | +2.47 ± 8.55 | SPSA continues |
+| Extra fade with the fifty-move counter (`ProgressFade=4`) | 33, 43 | 10+0.1 and 2+0.4 endgames, no adjudication | 11,000 | +0.32 ± 2.07 | off |
+| **More time in defence and less with 24+ pieces** (`TmDefendMul=500`, `TmEarlySave=200`) | 33, 43 | 40+0.4 UHO | 2,150 | **+7.27 ± 7.08** | **baked** |

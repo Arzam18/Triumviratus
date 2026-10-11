@@ -15,6 +15,15 @@ int debug_eval_position_raw() {
   nn_eval(side == white, bitboards, occupancies, fifty, &raw);
   return raw;
 }
+#ifdef TRIUMV_EXPERT_PROBE
+void nn_probe_experts(int side_white, const unsigned long long* bb, const unsigned long long* occ, int rule50,
+                      int* out, int* raw);
+// Sonda degli esperti (11/10/2026): valutazione da zero della scacchiera globale con l'esperto naturale e coi
+// quattro esperti forzati (comando expertprobe di uci_mt.cpp).
+void debug_probe_experts(int* out, int* raw) {
+  nn_probe_experts(side == white, bitboards, occupancies, fifty, out, raw);
+}
+#endif
 
 // Riparte dalla radice con la catena degli accumulatori della rete (a ogni iterazione). La rete legge la scacchiera
 // del thread direttamente: non c'e' una sua copia da riallineare, solo la pila delle dirty da azzerare.

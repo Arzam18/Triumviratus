@@ -35,6 +35,9 @@
 #include "feat_perm.h"
 
 namespace Triumviratus::Eval::NNUE::Features {
+#ifdef TRIUMV_EXPERT_PROBE
+extern int g_expert_force;   // -1 = esperto naturale; 0..3 = forzato (sonda, half_ka_v2_hm.cpp)
+#endif
 
 // Feature HalfKAv2_hm: Combination of the position of own king and the
 // position of pieces. Position mirrored such that king is always on e..h files.
@@ -85,9 +88,18 @@ class HalfKAv2_hm {
                                                            1, 1, 1, 1, 1, 1,                    // 10..15
                                                            2, 2, 2, 2, 2, 2, 2, 2,              // 16..23
                                                            3, 3, 3, 3, 3, 3, 3, 3, 3};          // 24..32
+#ifdef TRIUMV_EXPERT_PROBE
+    // Sonda degli esperti (11/10/2026, studio_esperti, solo con -DTRIUMV_EXPERT_PROBE): g_expert_force >= 0 forza
+    // l'esperto delle valutazioni DA ZERO (refresh, comando expertprobe). Non e' coerente con gli aggiornamenti
+    // incrementali (dp.phase la scrive la make): va usata solo sulle valutazioni da zero.
+    static int phase_of_count(int pieceCount) {
+        return Phases == 1 ? 0 : g_expert_force >= 0 ? g_expert_force : PhaseOfPieceCount[pieceCount];
+    }
+#else
     static constexpr int phase_of_count(int pieceCount) {
         return Phases == 1 ? 0 : PhaseOfPieceCount[pieceCount];
     }
+#endif
     static int phase_of(const DirtyPiece& dp) { return Phases == 1 ? 0 : dp.phase; }
 
 #define B(v) (v * PS_NB)

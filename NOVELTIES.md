@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 48 entries, **9 are new**, **23 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 49 entries, **9 are new**, **24 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -69,6 +69,7 @@ experts of the network.
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
 | Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
+| More time in a defence that is not lost, less with 24 or more pieces (`TmDefendMul`, `TmEarlySave`) | Revisited | 8.0 | **+7.27 ± 7.08** at 40+0.4 (2,150), the two together | adopted |
 | Passed-pawn pushes in endgames reduced less, never pruned (`PassedPushRed`) | Revisited | 8.0 | +4.4 ± 6.8 on an endgame book | adopted |
 | Passed-pawn push bonus in move ordering (`PassedPush`) | Revisited | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Passed-pawn push to the seventh searched in quiescence in endgames (`QsPasserPush`), with its own levers | Revisited | 8.0 dev | −0.77 ± 7.48 (2,264); +1.1 ± 3.8 (3,370); endgames +0.23 ± 2.45 (7,516) | closed, off |
@@ -306,6 +307,14 @@ These entries take a known idea and change its form, its scale or its use. Those
   3.26 at 12+0.12** (11,384), adopted on 11 October 2026. Stockfish addressed the same growth after version 19 with a
   different rule, a limit on the ply of the extended search relative to the root depth ("Fix deep recursion"); ours
   counts the extensions along the line.
+- **Time in defence and early saving (`TmDefendMul`, `TmEarlySave`), 8.0.** Two time rules taken from our own loss
+  analysis against Stockfish 19, which placed most of the loss in defence with a short clock: the time for the move
+  ×1.5 while the root score lies between about −0.45 and −3.6 pawns (defending, not lost), and the optimal share of
+  the clock −20% while 24 or more pieces are on the board, where the two engines play at the same level. Together
+  **+7.27 ± 7.08 at 40+0.4** (2,150), adopted on 11 October 2026; which of the two carries the gain is still to be
+  measured. Spending time according to the score is known (Stockfish's rule for a falling score reacts to a drop
+  between moves, and many engines spend less time early in the game); the absolute defensive window and the phase
+  threshold come from our measurements.
 - **Passed-pawn pushes in endgames (`PassedPushRed`).** With little material, a push to the sixth or seventh rank is
   reduced less and never pruned, because the network sees passers through `PassedPawns`: +4.4 ± 6.8 on an endgame
   book. Stockfish 8 exempted advanced pawn pushes from shallow pruning.
