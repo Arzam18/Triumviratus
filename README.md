@@ -89,6 +89,9 @@ Reckless 0.10.0-dev (300 games each, 1 thread), and on his ENET 2026 suite it so
 Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
 **145 of 183**, the highest among the engines tested (143 with the build of 8 October); in his matches against the
 development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 103 s + 1 s (30 games each).
+In Andres (EveAnn)'s gauntlet of 1,500 games at 2 min + 0.4 s against fifteen engines the pre-release scored
+**62.8%, +91.2 ± 9.4** Elo, level with **Stockfish 19** (+8 =84 −8) and ahead of Stockfish 18, Reckless 0.9.0 and
+Torch v4d.
 
 Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`NOVELTIES.md`](NOVELTIES.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**. `source/` holds the 8.0
 development code; the current 8.0 pre-release (12 October, one executable for every x86-64 CPU) is the tag
@@ -141,6 +144,9 @@ Triumviratus would be materially weaker without his work.
 in [`tests/`](tests/)). His remark that Stoofvlees answers very quickly between two moves, even at long time
 controls, started the train of thought that led the author to the "surprise" rule of 8.0's time management: more
 time on a move when the opponent did not play the reply the engine expected.
+
+**Andres (EveAnn)** ran a 1,500-game gauntlet of the 8.0 pre-release against fifteen engines, Stockfish 19
+included (results in [`tests/`](tests/)).
 
 ### Derived code
 
