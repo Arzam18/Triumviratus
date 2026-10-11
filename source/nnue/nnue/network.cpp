@@ -216,23 +216,6 @@ NetworkOutput Network::evaluate(const NnBoard&     pos,
 }
 
 
-NetworkOutput Network::evaluate_neighbor(const NnBoard&     pos,
-                                         AccumulatorStack&  accumulatorStack,
-                                         AccumulatorCaches& cache,
-                                         int                curPhase,
-                                         int                nbPhase) const {
-    constexpr u64 alignment = CacheLineSize;
-    alignas(alignment) TransformedFeatureType transformedFeatures[FeatureTransformer::BufferSize];
-    alignas(alignment) Accumulator nb;
-    NNZInfo<L1> nnzInfo;
-    build_neighbor_accumulator(pos, featureTransformer, cache, accumulatorStack.latest(), curPhase, nbPhase, nb);
-    const int  bucket = nnue_output_bucket(pos.count());
-    const auto psqt   = featureTransformer.transform_state(nb, pos.side_to_move(), transformedFeatures, bucket, nnzInfo);
-    const auto positional = network[bucket].propagate(transformedFeatures, nnzInfo);
-    return {static_cast<Value>(psqt / OutputScale), static_cast<Value>(positional / OutputScale)};
-}
-
-
 Network::MensLayerTrace Network::mens_trace(const NnBoard&     pos,
                                             AccumulatorStack&  accumulatorStack,
                                             AccumulatorCaches& cache) const {

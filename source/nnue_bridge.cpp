@@ -241,15 +241,6 @@ int g_ev_opt_base  = 5831;   // base materiale del termine optimism         [BAK
 //    piu' semplice potrebbe stare meglio o peggio, e non c'e' modo di saperlo a tavolino.
 // 0 = forma storica => BYTE-IDENTICO. 1 = forma SF.
 int g_ev_opt_simple = 0;
-
-// ExpertBlend (11/10/2026, studio_esperti, rapporto docs/audit_8.0/Z1_CONFINI_ESPERTI_CALIBRAZIONE.md): nelle posizioni
-// a un pezzo dal confine fra due esperti di Consilium (9|10, 15|16, 23|24 pezzi) la valutazione e' la media pesata
-// dell'esperto della fascia e di quello vicino: v = ((1024 - w) * v_fascia + w * v_vicino) / 1024. Misura senza
-// ricerca (2,8 M posizioni dei PGN degli SPRT): il salto fra i due esperti sulla stessa posizione ha media ~0 e
-// deviazione 22-42 cp (rumore, non distorsione); la media con peso 1/4-1/2 predice meglio il risultato e la ricerca
-// profonda. Costo: una seconda trasformazione + propagazione, e due entry della finny table, solo in quelle posizioni.
-// Pesi in 1024-esimi per confine: [0] 9|10, [1] 15|16, [2] 23|24. Tutti 0 = SPENTA (bench invariato).
-int g_expert_blend[3] = {0, 0, 0};
 int g_ev_mat_base2  = 91000;  // base materiale della forma nuova (SF: 91000)
 int g_ev_opt_const  = 7675;   // coefficiente optimism, ora COSTANTE (SF: 7675)
 
@@ -489,10 +480,6 @@ const EvalConst g_eval_consts[] = {
     {"EvalBucketOverride", &Triumviratus::Eval::NNUE::g_eval_bucket_override, -1, 7},
     {"EvalMatBase2",      &g_ev_mat_base2, 20000, 200000},
     {"EvalOptConst",      &g_ev_opt_const,  1000,  30000},
-    // EvalExpertBlend* (il nome deve iniziare con "Eval": uci_mt instrada qui solo quelli). Peso dell'esperto vicino ai confini 9|10, 15|16, 23|24 (1024-esimi, 0 = spenta).
-    {"EvalExpertBlendLo", &g_expert_blend[0], 0, 1024},
-    {"EvalExpertBlendMid",&g_expert_blend[1], 0, 1024},
-    {"EvalExpertBlendHi", &g_expert_blend[2], 0, 1024},
 };
 }
 #ifdef TRIUMV_FROZEN
@@ -666,9 +653,6 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
 
     // La catena degli accumulatori e' quella della ricerca, con le dirty gia' scritte dalla make; la posizione si
     // legge dalla nostra scacchiera.
-#ifdef TRIUMV_EXPERT_PROBE
-    { extern unsigned long long g_probe_hist[33]; g_probe_hist[board.count()]++; }
-#endif
     auto [psqt, positional] = NET_REF.evaluate(board, *p->accStack, *p->caches);
 #ifdef TRIUMV_X4_NOLAST
     // X4 (08/10/2026, NOLAST): i termini dell'ultima valutazione (NnLast: unadjusted, opt_base, opt_coeff) servivano
@@ -679,36 +663,6 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
     int  inc                = nn_scale(board, psqt, positional, rule50, &p->last,
                                        g_opt_per_thread ? p->opt : nullptr);
 #endif
-    // ExpertBlend (vedi la dichiarazione di g_expert_blend): solo a 9, 10, 15, 16, 23, 24 pezzi e con peso > 0.
-    if (g_expert_blend[0] | g_expert_blend[1] | g_expert_blend[2]) {
-        // per numero di pezzi: confine (0, 1, 2) o -1; fascia corrente e vicina
-        static constexpr signed char kEdge[33] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, -1, -1, -1, -1, 1, 1,
-                                                  -1, -1, -1, -1, -1, -1, 2, 2, -1, -1, -1, -1, -1, -1, -1, -1};
-        const int n = board.count();
-        const int e = kEdge[n];
-        if (e >= 0 && g_expert_blend[e]) {
-            const int cur = n <= 9 ? 0 : n <= 15 ? 1 : n <= 23 ? 2 : 3;
-            const int nb  = (n == 9 || n == 15 || n == 23) ? cur + 1 : cur - 1;
-            auto [psqt2, positional2] = NET_REF.evaluate_neighbor(board, *p->accStack, *p->caches, cur, nb);
-            const int v2 = nn_scale(board, psqt2, positional2, rule50, nullptr, g_opt_per_thread ? p->opt : nullptr);
-#ifdef TRIUMV_EXPERT_PROBE
-            {   // controllo: la valutazione col vicino deve essere quella da zero con l'esperto forzato
-                static unsigned long long nchk = 0, nbad = 0;
-                Triumviratus::Eval::NNUE::Features::g_expert_force = nb;
-                ScratchEval& s  = scratch_eval();
-                const int    vf = eval_full(board, rule50, *s.acc, *s.cch, nullptr, g_opt_per_thread ? p->opt : nullptr);
-                Triumviratus::Eval::NNUE::Features::g_expert_force = -1;
-                ++nchk;
-                if (vf != v2 && nbad++ < 20)
-                    std::printf("info string BLEND MISMATCH pezzi %d vicino %d: %d contro %d\n", n, nb, v2, vf);
-                if ((nchk & 0xFFFFF) == 0)
-                    std::printf("info string blend verificati %llu, diversi %llu\n", nchk, nbad);
-            }
-#endif
-            const int w  = g_expert_blend[e];
-            inc = int((std::int64_t(inc) * (1024 - w) + std::int64_t(v2) * w) / 1024);
-        }
-    }
 
     if (g_verify) {
         // Confronto con un refresh completo della stessa scacchiera, su uno stato di appoggio: oltre al valore
@@ -758,19 +712,3 @@ int nn_eval(int side_white, const unsigned long long* bb, const unsigned long lo
     ScratchEval&  s = scratch_eval();
     return eval_full(board, rule50, *s.acc, *s.cch, raw_out);
 }
-
-#ifdef TRIUMV_EXPERT_PROBE
-// Sonda degli esperti (11/10/2026, studio_esperti): la stessa posizione valutata da zero con l'esperto naturale
-// (out[0]) e con ciascuno dei quattro esperti forzato (out[1..4]); raw = psqt + positional grezzi. Optimism globale
-// (0 fuori dalla ricerca). Solo per il comando expertprobe, a ricerca ferma.
-void nn_probe_experts(int side_white, const unsigned long long* bb, const unsigned long long* occ, int rule50,
-                      int* out, int* raw) {
-    for (int k = -1; k < 4; ++k) {
-        Triumviratus::Eval::NNUE::Features::g_expert_force = k;
-        out[k + 1] = nn_eval(side_white, bb, occ, rule50, &raw[k + 1]);
-    }
-    Triumviratus::Eval::NNUE::Features::g_expert_force = -1;
-}
-// Istogramma delle valutazioni della ricerca per numero di pezzi (Threads 1).
-unsigned long long g_probe_hist[33];
-#endif

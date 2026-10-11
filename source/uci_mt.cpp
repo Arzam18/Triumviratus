@@ -775,47 +775,6 @@ void uci_loop()
         // (Comandi dei blocchi da innesto exportprel, exportpst, exportgraft e pstidx: tolti il 10/10/2026 con i
         // blocchi; codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10.)
 
-#ifdef TRIUMV_EXPERT_PROBE
-        // Sonda degli esperti (11/10/2026, studio_esperti, solo con -DTRIUMV_EXPERT_PROBE).
-        // "expertprobe <in> <out>": una FEN per riga; in uscita una riga per FEN con pezzi, lato al tratto, poi la
-        // valutazione da zero (nn_scale, unita' interne, lato al tratto) con l'esperto naturale e con gli esperti 0..3
-        // forzati, poi i cinque valori grezzi (psqt + positional).
-        // "expertstats" stampa e azzera l'istogramma delle valutazioni della ricerca per numero di pezzi.
-        else if (strncmp(input, "expertprobe", 11) == 0)
-        {
-            extern void debug_probe_experts(int* out, int* raw);
-            char fin[512] = {0}, fout[512] = {0};
-            sscanf(input + 11, "%511s %511s", fin, fout);
-            stop_search_threads();
-            wait_for_search_done();
-            std::ifstream in(fin);
-            FILE* o = fopen(fout, "w");
-            std::string line;
-            long n = 0;
-            while (o && std::getline(in, line)) {
-                if (line.size() < 10) continue;
-                if (!line.empty() && line.back() == '\r') line.pop_back();
-                parse_fen((char*)line.c_str());
-                int out[5], raw[5];
-                debug_probe_experts(out, raw);
-                fprintf(o, "%d %d %d %d %d %d %d %d %d %d %d %d\n", count_bits(occupancies[both]), side == white ? 1 : 0,
-                        out[0], out[1], out[2], out[3], out[4], raw[0], raw[1], raw[2], raw[3], raw[4]);
-                n++;
-            }
-            if (o) fclose(o);
-            parse_fen(start_position);
-            printf("expertprobe %ld posizioni\n", n);
-            fflush(stdout);
-        }
-        else if (strncmp(input, "expertstats", 11) == 0)
-        {
-            extern unsigned long long g_probe_hist[33];
-            printf("expertstats");
-            for (int i = 0; i < 33; i++) { printf(" %llu", g_probe_hist[i]); g_probe_hist[i] = 0; }
-            printf("\n");
-            fflush(stdout);
-        }
-#endif
         // DIAGNOSTIC: "eval" -> static NNUE eval of the current position (cp,
         // side-to-move relative), no search => byte-identical for cross-checks.
         else if (strncmp(input, "eval", 4) == 0)

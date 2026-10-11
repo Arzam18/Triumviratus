@@ -62,7 +62,8 @@ other.</sub>
 | **Consilium**, the new network, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 | pre-release of 10 October: move ordering with chess knowledge tuned by SPSA, the causal reduction (the author's idea) | **+11.9 ± 7.2** against the 9 October pre-release |
-| **pre-release of 11 October**: the cycle test of Stockfish 19, the draw for insufficient material, a cap on extensions from negative reductions, faster code with an identical tree | each change by SPRT: +5.6 ± 4.5, +1.1 ± 1.6, +3.9 ± 3.3 |
+| pre-release of 11 October: the cycle test of Stockfish 19, the draw for insufficient material, a cap on extensions from negative reductions, faster code with an identical tree | each change by SPRT: +5.6 ± 4.5, +1.1 ± 1.6, +3.9 ± 3.3 |
+| **pre-release of 12 October**: more time in a defence that is not lost and less with 24 or more pieces, a guard against cutting the time on a sudden score jump; closed ideas removed from the code | time rules +7.3 ± 7.1 at 40+0.4; guard flat (a safety rule) |
 
 **Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
 to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
@@ -90,7 +91,7 @@ Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
 development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 103 s + 1 s (30 games each).
 
 Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`NOVELTIES.md`](NOVELTIES.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**. `source/` holds the 8.0
-development code; the current 8.0 pre-release (11 October, one executable for every x86-64 CPU) is the tag
+development code; the current 8.0 pre-release (12 October, one executable for every x86-64 CPU) is the tag
 [`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); the 7.0 release is the tag `v7.0`.
 
 ---

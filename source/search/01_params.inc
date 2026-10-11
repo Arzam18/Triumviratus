@@ -119,30 +119,37 @@
 #define TRIUMV_SEARCH_PARAMS(P)                                                                            \
   /* valutazione */                                                                                       \
   P(EvalUnits, 1347, 900, 1800)          /* /1024: unita' nostre -> unita' dei margini (pedone ~ 356) */  \
-  /* Termini dal residuo (09/10/2026, idea P1, utente: "candidati per correggere la search"). Studio: 3.888        \
-     posizioni varie, punteggio a profondita' 1 contro ricerca a 300k nodi; il residuo e' regredito su concetti      \
-     scacchistici a parita' di punteggio, materiale e pezzi (tools/residual_features.py, studio_neuroni/res). Stima \
-     CONGIUNTA, centipedoni stampati (scala 400), nostro meno loro: finali (<= 15 pezzi) passato +8 per traversa    \
-     (t 5,6), passato che il re nemico non raggiunge +18 (t 2,2), spazio +8 per casa (t 4,0); mediogioco (> 15)     \
-     colonne aperte vicino al proprio re -14 (t -4,5), spazio +6 (t 5,9), passati collegati +18 (t 3,3). I termini   \
-     si sommano alla valutazione statica (fuori dalla cache), in cp stampati convertiti nelle unita' dei margini.   \
-     Tutti a 0 = spenti, valutazione identica. Valori di prova: la meta' delle stime (regressione su poche migliaia \
-     di posizioni). Il residuo contiene anche effetti della ricerca stessa (per esempio le spinte dei passati ridotte \
-     meno, PassedPushRed): la prova in partita dice se correggere la valutazione rende. */                          \
-  P(ResPasserRank, 0, 0, 40)             /* cp per traversa di ogni passato, solo finali (prova 4)        */  \
-  P(ResPasserFree, 0, 0, 60)             /* cp per passato fuori dal quadrato del re nemico, finali (prova 9) */ \
-  P(ResPasserConn, 0, 0, 60)             /* cp per passato con un passato sulla colonna vicina (prova 9)  */  \
-  P(ResKingOpen, 0, 0, 40)               /* cp in meno per colonna senza nostri pedoni vicino al re, medio (prova 7) */ \
-  P(ResSpace, 0, 0, 20)                  /* cp per casa di spazio (colonne c-f, traverse 2-4) (prova 3)   */  \
+  /* Termini dal residuo Res* (09/10/2026, idea P1: costanti in cp sommate alla valutazione statica per i concetti   \
+     che la rete sottostima, tools/residual_features.py) TOLTI l'11/10/2026 sera: gruppo A (ResPasserRank=4 +       \
+     ResPasserFree=9, finali 8+0.1) -6,48 +- 6,17 su 1.502; gruppo B (ResKingOpen=7 + ResSpace=3 + ResPasserConn=9, \
+     UHO 8+0.08) -16,03 +- 15,95 su 564. Una costante fissa conta due volte quello che sanno gia' la rete           \
+     (PassedPawns) e la ricerca (PassedPushRed) e sposta tutti i margini di potatura. Al loro posto, l'11/10 sera   \
+     (utente: "correggerli nella TT o sfruttare l'informazione in altro modo"), opzioni SPENTE: correzioni apprese \
+     in partita (09_history.inc), KingOpenRfp e PasserFreeRed (lato ricerca, 13_search.inc). CorrKingPawnW (chiave = \
+     tutti i pedoni + zona 2x2 dei re) CHIUSA e TOLTA: -4,68 +- 7,19 su 2.378 a 8+0.08 (5000 e 20000 peggio di      \
+     10000); al suo posto due chiavi grossolane senza la pawn_key (utente: "solo con una chiave piu' grossolana").    \
+     CorrShelterW (chiave = colonne dei re + pedoni dei due colori sulle 3 colonne attorno a ciascun re, solo         \
+     mediogioco; 4,6 posizioni per chiave in partita contro 3,3 dei pedoni) CHIUSA e TOLTA: CorrShelterW=8000 contro \
+     default -5,63 +- 5,53 su 3.898 a 8+0.08 UHO, build tm34 (socket entrambi negativi). Codice nel backup          \
+     _pre_rimozione_shelter_2026-10-11. CorrPassKingW (chiave = pedoni passati + quelli fuori dal quadrato del re    \
+     nemico + fase) CHIUSA e TOLTA: CorrPassKingW=8000 contro default -5,24 +- 8,49 su 744 nei finali 8+0.1 senza  \
+     aggiudicazione, tm34 (utente: "la misura vuole toglierlo"). Backup _pre_rimozione_passking_2026-10-11.        \
+     KingOpenRfp (mediogioco > 15 pezzi: margine RFP + N per ogni colonna senza nostri pedoni attorno al nostro re,   \
+     cioe' meno potatura col re scoperto) CHIUSA NEUTRA e TOLTA: KingOpenRfp=40 contro default -0,37 +- 3,68 su      \
+     ~9.300 a 8+0.08 UHO (tre tranche: +6,45 / 3.072, circa -3, circa -3); SPSA RES1 (6+0.06, 1.991 iterazioni)       \
+     gradiente nullo, 40 -> 41,6; insieme a PasserFreeRed=997 -3,76 +- 6,27 su 2.222 a 10+0.1. Utente: "lasciamo     \
+     stare" il 15 s. Backup _pre_rimozione_kingopen_2026-10-11.                                                     \
+     PasserFreeRed (finali <= 15 pezzi: riduzione LMR in meno per la spinta quieta di un passato fuori dal quadrato  \
+     del re nemico) CHIUSA NEUTRA e TOLTA: PasserFreeRed=1024 contro default -2,07 +- 3,42 su ~4.300 nei finali       \
+     8+0.1 senza aggiudicazione (prima tranche +2,55 / 829); nello SPSA RES1 1024 -> 997, gradiente nullo.           \
+     Backup _pre_rimozione_blend_2026-10-11. LINEA DEI RESIDUI CHIUSA: termini costanti, quattro correzioni apprese  \
+     (KingPawn, Shelter, PassKing; Expert era gia' neutra) e due leve di ricerca, tutte neutre o negative.          */ \
   P(OptStrength, 182, 0, 600)            /* optimism = forza * s / (|s| + div), in unita' della rete */   \
   P(OptDiv, 288, 1, 600)                                                                                  \
   /* finestre di aspirazione */                                                                           \
   P(AspBase, 6, 1, 40)                                                                                    \
   P(AspMeanSqDiv, 10193, 1000, 40000)                                                                     \
   P(AspGrow, 51, 10, 128)                /* /128 */                                                       \
-  P(AspDecisive, 0, 0, 1)                /* 10/10/2026, agente AE: un fail-high di aspirazione con valore deciso      \
-                                            (matto o tablebase) non riduce la profondita' di radice e apre beta      \
-                                            (PlentyChess; Reckless e Viridithas non riducono). 0 = come SF19 */      \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
@@ -172,10 +179,6 @@
   P(GoodCaptSeeDiv, 19, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 452, 100, 1200)                                                                             \
-  P(ExclClean, 0, 0, 3)                  /* 10/10/2026, agente AE: nodi della verifica singolare (mossa esclusa), bit:\
-                                            1 niente storia dalla differenza di eval, gia' data dal nodo vero (Reckless,\
-                                            Stormphrax, PlentyChess); 2 niente razoring, RFP e ProbCut (Stormphrax,   \
-                                            Viridithas; la RFP anche Reckless e Berserk). 0 = come SF19 */            \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -191,10 +194,6 @@
   P(NmpRedBase, 7, 3, 12)                                                                                 \
   P(NmpEvalDiv, 223, 64, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
-  P(NmpHashUpper, 0, 0, 1)               /* 10/10/2026, agente AE (docs/audit_8.0/AE_CASI_LIMITE_ALTRI_MOTORI.md):  \
-                                            niente mossa nulla se la hash dice valore < beta (limite UP o esatto);   \
-                                            Stormphrax e Viridithas esplicito, Reckless, PlentyChess, Berserk,       \
-                                            Integral, Caissa via l'eval corretta dalla hash. 0 = spenta */            \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
@@ -220,9 +219,6 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
-  P(SingKeepCount, 0, 0, 1)              /* 10/10/2026, agente AE: dopo la ricerca singolare il contatore mosse del  \
-                                            frame torna quello del nodo (Reckless lo scrive alla make, search.rs:1471;\
-                                            SF19 e noi lo lasciamo sporcato dalla ricerca esclusa). 0 = come SF19 */  \
   P(LdseMargin, 76, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
@@ -334,15 +330,21 @@
      Contro SF19 perdiamo i punti in difesa con poco orologio, soprattutto fra 10 e 23 pezzi. ProgressFade:          \
      smorzamento in piu' col contatore delle 50 mosse oltre ProgressFrom (12_quiesce.inc). TmDefendMul: piu' tempo   \
      quando la radice e' in difesa. TmEarlySave: quota ottimale ridotta con >= 24 pezzi (14_deepen.inc). */          \
-  /* ProgressFade=4 CHIUSA NEUTRA 11/10/2026 (resta spenta): libro dei finali endgame_12_18 senza aggiudicazione, tm30 \
-     (bench 325747; con =4 327217): 10+0.1 +0,85 +- 2,45 su 8.156, poi 2+0.4 -1,22 +- 3,87 su 2.840; insieme +0,32  \
-     +- 2,07 su 11.000 (socket +0,32 / +0,32). Bakata per 20 minuti e tolta (utente: "overall zero"). */             \
-  P(ProgressFade, 0, 0, 64)              /* /1024 per semimossa oltre ProgressFrom (0 = spenta)            */ \
-  P(ProgressFrom, 10, 0, 80)             /* semimosse del contatore da cui parte lo smorzamento in piu'    */ \
+  /* ProgressFade/ProgressFrom: chiusa neutra e TOLTA nella pulizia dell'11/10/2026 sera (vedi sotto, PULIZIA).  */ \
   P(TmDefendMul, 500, 0, 1000)           /* BAKE 11/10/2026 (era 0, vedi in testa): /1000, tempo x (1+Mul) in difesa */ \
   P(TmDefendFrom, 178, 0, 2000)          /* radice <= -From (178 ~ mezzo pedone)                           */ \
   P(TmDefendTo, 1424, 200, 4000)         /* ...e > -To (oltre e' persa: tempo normale)                     */ \
   P(TmEarlySave, 200, 0, 500)            /* BAKE 11/10/2026 (era 0): /1000, quota ottimale x (1-Save) con >= 24 pezzi */ \
+  /* TmJumpGuard (11/10/2026, utente, guardia; SPENTA): se il punteggio della radice sale rispetto alla mossa prima   \
+     di almeno Guard centipedoni STAMPATI (units_to_cp, la scala che si vede nella GUI: +1,00 = 50% di vittorie),    \
+     falling non scende sotto 1: niente taglio del tempo su un salto sospetto. Caso torneo 11/10, partita 250 (audit  \
+     X5): +0,37 -> +3,68 a prof. 19, falling al minimo 0,576, 1,7 s con 48 s d'orologio, mossa persa (31.Nxf6?). Solo \
+     per salti grossi (valore di prova 200 = due "pedoni stampati"); i punteggi decisi (matto, tablebase) esclusi. */ \
+  /* TmJumpGuard ACCESA a 200 l'11/10/2026 sera (utente: "teniamo la guardia, non cambia albero ne' comportamento    \
+     a meno di salti grossi"). SPRT UHO 8+0.08 (TC critico), tm32 (bench 325747, invariato con la guardia),         \
+     TmFenPly=1 su entrambi: -2,52 +- 7,33 su 2.210 partite (socket -1,89 / -3,14), piatta. Scatta nello 0,25% delle \
+     mosse (salto >= +2,00 sulla mossa prima), in una partita su nove. */                                            \
+  P(TmJumpGuard, 200, 0, 2000)           /* cp stampati di salto per la guardia (0 = spenta)               */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
   P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
@@ -384,17 +386,30 @@
   P(LmrExp2, 0, -1536, 1536)                                                                              \
   P(LmrExp3, 0, -1536, 1536)                                                                              \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
-  P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
-  P(RepCycleFifty, 0, 0, 100)            /* 10/10/2026, nostra: ciclo = patta solo da questo contatore 50 mosse */ \
-  P(RepRootTwofold, 0, 0, 1)             /* 10/10/2026, agente AE: tornare nell'albero alla posizione di radice e'   \
-                                            patta, come una ripetizione dentro l'albero (Stormphrax, Viridithas,     \
-                                            PlentyChess, Integral; SF, Reckless, Berserk, Coda no). 0 = come SF19 */  \
-  P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
-  /* 10/10/2026, leve della spinta in quiescenza per uno SPSA (agiscono solo con QsPasserPush=1; i default rifanno la  \
-     spinta di prima: con QsPasserPush=1 bench 211937). */                                                           \
-  P(QsPushNpm, 5133, 0, 12000)           /* soglia di materiale non pedoni propria (prima: PassedPushNpm)  */     \
-  P(QsPushSee, 74, 0, 600)               /* la spinta si gioca se SEE >= -QsPushSee (prima: -QsSeeMargin)  */     \
-  P(QsPushPly, 64, 0, 64)                /* solo nei primi QsPushPly ply di quiescenza (64 = sempre)       */     \
+  /* PULIZIA 11/10/2026 sera (utente: "pulisci il codice se siamo sicuri di togliere delle cose, documentando il     \
+     tentativo"): opzioni CHIUSE e spente, tolte con il loro ramo; a opzioni spente l'albero era identico (bench       \
+     325747 prima e dopo). Codice in _backup/Triumviratus_8.0_pre_pulizia_2026-10-11. Tentativi e misure:             \
+     - AspDecisive (agente AE, PlentyChess/Reckless/Viridithas: fail-high di aspirazione deciso senza ridurre la      \
+       profondita'): +0,7 a 7.000 partite UHO 8+0.08, piatta.                                                         \
+     - ExclClean (AE: nel nodo della verifica singolare niente storia dalla differenza di eval e niente razoring, RFP, \
+       ProbCut e taglio da hash): =3 -0,39 +- 3,46 su 10.764, piatta.                                                 \
+     - NmpHashUpper (AE: niente mossa nulla se la hash dice valore < beta): +0,2 a 7.000, piatta.                     \
+     - SingKeepCount (AE: move_count del frame ripristinato dopo la ricerca esclusa): -0,6 a 7.000, piatta.           \
+     - RepRootTwofold (AE: tornare alla posizione di radice e' gia' patta): +0,59 +- 3,53 su 5.272 (8moves senza      \
+       aggiudicazione), scelta di stile, non correzione.                                                              \
+     - RepCycleFifty (nostra: ciclo = patta solo da un contatore delle 50 mosse): 20 -4,1 +- 9,4 a 8 s, 6 -9,5 +- 11,0. \
+     - QsPasserPush + QsPushNpm/See/Ply (idea 7: spinta in 7a tattica in quiescenza): tre prove piatte, l'ultima      \
+       -2,04 +- 6,38 su ~2.900 (prima +1,13 +- 3,79 e -0,77 +- 7,48).                                                 \
+     - PhaseEdgeNoFut (idea 4: la cattura che cambia esperto non si pota): +1,34 +- 2,30 su 24.292, poi nel pacchetto \
+       dei lean -0,1 +- 6,7 su 3.120.                                                                                 \
+     - ProgressFade/From (audit X3: smorzamento in piu' col contatore delle 50 mosse): +0,32 +- 2,07 su 11.000 finali. \
+     - BLEND FRA ESPERTI (Z1/Z2, opzioni EvalExpertBlendLo/Mid/Hi/Side/MinDepth, sonda TRIUMV_EXPERT_PROBE), TOLTA  \
+       INTERA alle 23:50: al confine fra due esperti (9|10, 15|16, 23|24 pezzi) media delle due valutazioni, il       \
+       vicino ricostruito dalla finny table. Piena +15,4% cicli mg / +17,8% eg, SPRT 8 s -24 +- 11 su 1.034; a nodi   \
+       fissi +5,3 +- 7,9 su 1.978; variante md3 (solo a profondita' >= 3, +3,9% cicli) a 15 s -3,06 +- 9,59 su       \
+       1.248; variante a tile (TRIUMV_BLEND_TILE) meno istruzioni ma IPC 1,38 -> 1,30, cicli peggiori. Rapporti       \
+       docs/audit_8.0/Z1_CONFINI_ESPERTI_CALIBRAZIONE.md, Z2_BLEND_COSTO.md, BLEND_ESPERTI_CHIUSURA.md; codice in    \
+       _backup/Triumviratus_8.0_pre_rimozione_blend_2026-10-11. */                                                   \
   P(CorrPhase, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): idea 9, correzione dei */ \
                                          /* pedoni/minori separata per esperto                           */ \
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \

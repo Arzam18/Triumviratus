@@ -70,13 +70,6 @@ class Network {
                            AccumulatorStack&  accumulatorStack,
                            AccumulatorCaches& cache) const;
 
-    // ExpertBlend (11/10/2026): la stessa posizione con l'esperto HalfKA `nbPhase`, DOPO evaluate() sulla stessa
-    // pila (usa l'accumulatore gia' calcolato e la finny table). Stesso bucket di uscita.
-    NetworkOutput evaluate_neighbor(const NnBoard&     pos,
-                                    AccumulatorStack&  accumulatorStack,
-                                    AccumulatorCaches& cache,
-                                    int                curPhase,
-                                    int                nbPhase) const;
 
     void verify(std::string evalfilePath, const std::function<void(std::string_view)>&) const;
     NnueEvalTrace trace_evaluate(const NnBoard&     pos,

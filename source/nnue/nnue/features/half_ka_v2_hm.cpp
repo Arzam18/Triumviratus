@@ -26,9 +26,6 @@
 #include "half_ka_v2_hm.h"
 
 namespace Triumviratus::Eval::NNUE::Features {
-#ifdef TRIUMV_EXPERT_PROBE
-int g_expert_force = -1;
-#endif
 
 // make_index usa OrientTBL con la casa del re nella NOSTRA numerazione, mentre la tabella e' scritta per quella della
 // rete (traversa riflessa): e' lecito solo se OrientTBL dipende dalla sola colonna.

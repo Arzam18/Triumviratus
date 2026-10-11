@@ -345,6 +345,7 @@ class FeatureTransformer {
                   int                        bucket,
                   NNZInfo<OutputDimensions>& nnzInfo) const {
 
+        using namespace SIMD;
         accumulatorStack.evaluate(pos, *this, cache);
         // Da qui in giu' e' la sola trasformazione (clipped ReLU + pairwise mult):
         // il tempo dell'accumulatore e' gia' stato contato sopra.
@@ -359,19 +360,9 @@ class FeatureTransformer {
         // corrente, non lavoro buttato), ma il numero stampato ora e' quello vero.
         ++prof_n_eval;
 #endif
-        return transform_state(accumulatorStack.latest(), pos.side_to_move(), output, bucket, nnzInfo);
-    }
+        const auto& accumulatorState = accumulatorStack.latest();
 
-    // La trasformazione di un accumulatore gia' calcolato (11/10/2026, ExpertBlend: serve anche su un accumulatore
-    // costruito a parte con l'esperto vicino). Corpo identico a quello che stava in transform().
-    sf_always_inline i32 transform_state(const Accumulator&         accumulatorState,
-                                         Color                      stm,
-                                         OutputType*                output,
-                                         int                        bucket,
-                                         NNZInfo<OutputDimensions>& nnzInfo) const {
-
-        using namespace SIMD;
-        const Color perspectives[2]  = {stm, ~stm};
+        const Color perspectives[2]  = {pos.side_to_move(), ~pos.side_to_move()};
         const auto& psqtAccumulation = accumulatorState.psqtAccumulation;
         const auto  psqt =
           (psqtAccumulation[perspectives[0]][bucket] - psqtAccumulation[perspectives[1]][bucket])

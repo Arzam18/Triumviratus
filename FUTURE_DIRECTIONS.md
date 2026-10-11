@@ -114,7 +114,8 @@ evaluation is harder. This is a mixture of experts with capacity where it is nee
 When a capture moves a position from one expert to the next, the evaluation can jump. In training, each expert could
 also learn from the positions of the neighbouring band, with a lower weight, so that neighbouring experts agree near
 the boundary. The engine would not change at all. Earlier attempts to handle the boundary inside the search did not
-gain; this addresses it where it arises, in the network.
+gain, and neither did averaging the two experts at evaluation time (+5 at fixed nodes, but 15 to 18% slower:
+[`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md)); this addresses it where it arises, in the network.
 
 ## 5. Training on the positions we lose
 
@@ -135,9 +136,9 @@ extra when the reply was stronger than predicted. It will be measured at 40+0.4,
 
 | direction | status |
 |---|---|
-| Inputs from the residual (section 1) | first measurement done; to be confirmed, then grafted one at a time |
+| Inputs from the residual (section 1) | grafts on Consilium closed (§37–38 of the development log); engine-side use without retraining (constant terms, learned corrections, search rules) closed on 11 October (§44); open only for a new network |
 | Experts by material and queens (section 2) | first measurement done; to be confirmed on a larger collection |
 | Shared and private lanes (section 3) | proposal, needs a full training |
-| Overlapping bands (section 4) | proposal, needs a full training |
+| Overlapping bands (section 4) | proposal, needs a full training; the engine-side blend was measured and removed |
 | Positions we lose (section 5) | proposal, needs a dedicated data generation |
 | Graded surprise (section 6) | implemented, off; game test queued |

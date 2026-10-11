@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 49 entries, **9 are new**, **24 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 52 entries, **10 are new**, **26 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -64,12 +64,14 @@ experts of the network.
 | Knight outposts in move ordering (`OutpostOrder`) | New | 8.0 | +0.21 ± 3.93 (10+0.1, 8,244) at a hand-set value | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
+| Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
 | Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24 | off, in a tuning queue |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
 | Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
 | More time in a defence that is not lost, less with 24 or more pieces (`TmDefendMul`, `TmEarlySave`) | Revisited | 8.0 | **+7.27 ± 7.08** at 40+0.4 (2,150), the two together | adopted |
+| Guard on sudden score jumps (`TmJumpGuard`) | Revisited | 8.0 | −2.52 ± 7.33 at 8+0.08 (2,210); triggers on 0.25% of moves | on, as a guard |
 | Passed-pawn pushes in endgames reduced less, never pruned (`PassedPushRed`) | Revisited | 8.0 | +4.4 ± 6.8 on an endgame book | adopted |
 | Passed-pawn push bonus in move ordering (`PassedPush`) | Revisited | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Passed-pawn push to the seventh searched in quiescence in endgames (`QsPasserPush`), with its own levers | Revisited | 8.0 dev | −0.77 ± 7.48 (2,264); +1.1 ± 3.8 (3,370); endgames +0.23 ± 2.45 (7,516) | closed, off |
@@ -78,6 +80,7 @@ experts of the network.
 | Refresh cache of the pawn input blocks keyed by the pawn bitboards | Revisited | 7.0 | +2.8% NPS (AVX2), identical tree | adopted |
 | `tdperft` and `nnperft` | Revisited | 8.0 | 0 errors on 482 M nodes and on the Chess960 suite | permanent tools |
 | Zero-initialised graft of a new block on a finished network, base frozen | Revisited | 6.0 | `PassedPawns` +7 Elo in about 4 epochs | in use |
+| Residual concepts used in the engine without retraining: constant terms, corrections learned with keys on the concept (`CorrKingPawnW`, `CorrShelterW`, `CorrPassKingW`), less pruning with an open king (`KingOpenRfp`), less reduction for an unstoppable passer (`PasserFreeRed`) | Revisited | 8.0 dev | from −16.0 ± 16.0 (564) to −0.37 ± 3.68 (about 9,300); SPSA without a gradient | removed |
 | Graft blocks chosen from the residual between static evaluation and deep search (`KingFiles`, `Space`, `LockedPawns` and two reduced forms) | Revisited | 8.0 dev | −7 to −19 Elo (500 to 1,100 games each) | removed |
 | Analysis mode compiled as a second copy of the search | Revisited | 8.0 | more test positions solved; nothing changes in games | adopted |
 | Fine-tuning one expert at a time | Revisited | 8.0 | +0.7 ± 6.1 (15+0.15, 3,302) | not kept |
@@ -275,6 +278,12 @@ divided by phase.
   (−2.5 ± 10.0, removed); "improving" is not computed between evaluations of different experts (−14.1 ± 19.4,
   removed); a capture that crosses a boundary is neither pruned nor reduced more (+1.3 ± 2.3 on 24,292, neutral, off).
   These ideas cannot exist without a network with experts. **New**, none adopted.
+- **Blending two experts at a boundary, 8.0 development.** Near a boundary between two experts (9|10, 15|16, 23|24
+  pieces), the evaluation of the neighbouring expert is computed as well and the two are averaged, to smooth the jump
+  of the evaluation when a capture changes the expert. At fixed nodes +5.27 ± 7.86 (1,978), but the second
+  evaluation costs 15 to 18% of the cycles per node: −24.23 ± 11.12 at 8+0.08 (1,034); a variant only at depth 3 or
+  more (+3.9% of cycles) −3.06 ± 9.59 at 15+0.15 (1,248). It needs a network with experts. **New**, removed; the full
+  record is in [`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
 - **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** Next to the continuation pairs
   built on our own moves, the pair of the opponent's two last moves. The cells carry information (correlation +0.24
   with the residual error), but −5.2 ± 12.7 (742) at the existing weight and −4.8 ± 8.7 (1,806) at the regression
@@ -315,6 +324,12 @@ These entries take a known idea and change its form, its scale or its use. Those
   measured. Spending time according to the score is known (Stockfish's rule for a falling score reacts to a drop
   between moves, and many engines spend less time early in the game); the absolute defensive window and the phase
   threshold come from our measurements.
+- **Guard on sudden score jumps (`TmJumpGuard`), 8.0, the author's idea.** When the root score rises by two printed
+  pawns or more over the previous move, the time manager may not shorten the think on that jump: the rule for a
+  falling score of Stockfish and of our time manager lends time on a drop, and a sudden rise was treated as good news
+  even when it came from an unconfirmed iteration. Born from a lost tournament game (+0.37 to +3.68 at depth 19,
+  played after 1.7 s with 48 s on the clock). It triggers on 0.25% of the moves; −2.52 ± 7.33 at 8+0.08 (2,210), flat.
+  Kept on as a guard, not as a measured gain.
 - **Passed-pawn pushes in endgames (`PassedPushRed`).** With little material, a push to the sixth or seventh rank is
   reduced less and never pruned, because the network sees passers through `PassedPawns`: +4.4 ± 6.8 on an endgame
   book. Stockfish 8 exempted advanced pawn pushes from shallow pruning.
@@ -352,6 +367,15 @@ These entries take a known idea and change its form, its scale or its use. Those
   inputs already contain, lost 7 to 19 Elo and were removed (§2). Two limits of the method appeared: a block that
   starts from existing rows instead of zero needs a lower learning rate (at 1e-2 the training loss first doubled), and
   a frozen network can only use new information in the way its later layers already read the accumulator.
+- **Residual concepts used without retraining, 8.0 development.** The same residual study pointed at concepts that the
+  network underestimates (an unstoppable passed pawn, open files next to the king, space, connected passers). Without
+  a new network they were tried in three engine-side forms: constant terms added to the evaluation (−6.48 ± 6.17 on
+  endgames, −16.0 ± 16.0 on UHO), corrections learned during the game with keys built on the concept (pawns and king
+  zones −4.68 ± 7.19; king shelter −5.63 ± 5.53; passed pawns and the king's square −5.24 ± 8.49), and search rules
+  (less pruning with an open king, −0.37 ± 3.68 over about 9,300 games; less reduction for an unstoppable passer
+  push, −2.07 ± 3.42 over about 4,300 endgame games; an SPSA of the two found no gradient). Constant terms and
+  correction histories are known; keying a correction on a concept chosen from the network's residual is our form.
+  All removed: what the network misses here is not recovered by the search (`DEVELOPMENT_8.0.md` §44).
 - **Analysis mode, 8.0.** With `UCI_AnalyseMode` or `go infinite` the search prunes and reduces less at depth; the
   search is compiled twice, a game copy with every analysis term a compile-time constant and an analysis copy, so
   games are unaffected.

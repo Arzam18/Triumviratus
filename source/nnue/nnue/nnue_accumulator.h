@@ -153,16 +153,6 @@ class AccumulatorStack {
     NnStack                          ds;
 };
 
-// ExpertBlend (11/10/2026): accumulatore della stessa posizione con l'esperto HalfKA `nbPhase` al posto di `curPhase`,
-// costruito da `cur` (gia' calcolato) e dalle due entry della finny table (nnue_accumulator.cpp).
-void build_neighbor_accumulator(const NnBoard&            pos,
-                                const FeatureTransformer& ft,
-                                AccumulatorCaches&        cache,
-                                const Accumulator&        cur,
-                                int                       curPhase,
-                                int                       nbPhase,
-                                Accumulator&              out);
-
 }  // namespace Triumviratus::Eval::NNUE
 
 #endif  // NNUE_ACCUMULATOR_H_INCLUDED
