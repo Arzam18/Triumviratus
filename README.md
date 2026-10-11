@@ -61,6 +61,8 @@ other.</sub>
 | speed: faster code, identical search tree, new transposition table | +14.7 ± 5.4 against 7.0 |
 | **Consilium**, the new network, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
+| pre-release of 10 October: move ordering with chess knowledge tuned by SPSA, the causal reduction (the author's idea) | **+11.9 ± 7.2** against the 9 October pre-release |
+| **pre-release of 11 October**: the cycle test of Stockfish 19, the draw for insufficient material, a cap on extensions from negative reductions, faster code with an identical tree | each change by SPRT: +5.6 ± 4.5, +1.1 ± 1.6, +3.9 ± 3.3 |
 
 **Consilium** is, to our knowledge, the first mixture-of-experts network released in a top engine and the first shown
 to gain strength: four experts on the network's largest block, one per phase of the game, at almost the cost of one
@@ -88,7 +90,8 @@ Triumviratus so far. On Mark Tang's IQ4 suite the prerelease solves
 development version of Stockfish it scored +3 =17 −10 at 2 min + 1 s and +5 =15 −10 at 103 s + 1 s (30 games each).
 
 Details: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`NOVELTIES.md`](NOVELTIES.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**. `source/` holds the 8.0
-development code; the 7.0 release is the tag `v7.0`.
+development code; the current 8.0 pre-release (11 October, one executable for every x86-64 CPU) is the tag
+[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); the 7.0 release is the tag `v7.0`.
 
 ---
 
@@ -119,7 +122,7 @@ Full log: **[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)**.
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** is derived from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3), and has since been reworked for our own mixture-of-experts network, Consilium (see [Credits](#credits)). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** started from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). For our own mixture-of-experts network, Consilium (architecture TRANN3), most of the part that runs at every node has since been rewritten: the accumulators, the feature blocks and the link with the search. The forward pass (layers, SIMD) and the net loading are still Stockfish's; about 60–70% of the inference lines remain in common with Stockfish (see [`source/nnue/README.md`](source/nnue/README.md) and [Credits](#credits)). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
 
 ## Credits
 
@@ -150,7 +153,7 @@ Ideas for search, move-ordering, time management and pruning were studied from �
 ported and then **re-tuned against the project's own data and network** — a number of open-source
 engines. Credit and thanks to all of them:
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the October 2026 restructuring of the search follows the structure of Stockfish 19's search (see [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the NNUE inference started from Stockfish's code (accumulators, features and the link with the search since largely rewritten for Consilium; forward pass and net loading still theirs, see [`source/nnue/README.md`](source/nnue/README.md)); the October 2026 restructuring of the search follows the structure of Stockfish 19's search (see [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
 - **[Reckless](https://github.com/codedeliveryservice/Reckless)** — quiet move-ordering (offense-square and king-shield-pawn terms), TT prefetch, capture-ordering ideas.
 - **[Caissa](https://github.com/Witek902/Caissa)** — node-count move cache, quiescence capture history, moves-left time curve.
 - **[Alexandria](https://github.com/PGG106/Alexandria)** — the multiplicative, stateless time-management factors.

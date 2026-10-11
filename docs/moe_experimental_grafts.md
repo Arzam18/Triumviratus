@@ -237,3 +237,18 @@ are queued on the training machine.
   score, converted to the scale of the data (the frozen base stays consistent with its labels, λ stays 0.75). The tools
   are written (`04_consilium/residual_labels`).
 * The engine mechanism and its verification tools stay: any future pawn-structure block can use them.
+
+## 8. Follow-up: PassedState (10 October)
+
+The study of section 7 produced PassedState (PassedPawns v3), a block that replaces the PassedPawns rows with one row
+per passed pawn in one of 100 states. Its engine implementation, the index check against the trainer, the three
+training runs and their results are in [DEVELOPMENT_8.0.md, section 38](../DEVELOPMENT_8.0.md); the training material
+is in `04_consilium/graft_passedstate` of the training repository. In short: −2.1 ± 3.7 Elo at fixed nodes with the
+block trained alone, +3.3 ± 5.0 once the layers after the accumulator were unfrozen, an engine cost of about 2.0% /
+2.5% of cycles per node (middlegame / endgames), and +2.9 ± 3.7 at 25+0.25 on endgame openings.
+
+**Chapter closed (10 October).** On ordinary games (UHO book), against the same source built without graft code, all
+the candidates lost: PassedState with the retrained layers −4.8 ± 11.9 at 20+0.2, PassedState alone −16.5 at fixed
+nodes, PassedRel −2.9 ± 7.5 over 2,034 games, worse on the socket with less memory bandwidth. No block enters 8.0 and
+the graft code was removed from the engine; it is archived in the training repository
+(`04_consilium/graft_engine_storico`), see [DEVELOPMENT_8.0.md, section 38](../DEVELOPMENT_8.0.md).

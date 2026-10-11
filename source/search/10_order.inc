@@ -276,9 +276,24 @@ static bool td_upcoming_repetition(ThreadData &td) {
     end = td.repetition_index;
   if (end < 3)
     return false;
+  // RepCycleFifty (10/10/2026, nostra): il ciclo vale come patta solo da RepCycleFifty semimosse del contatore delle
+  // 50 mosse in su. Sotto, la posizione e' ancora viva (la nostra valutazione si smorza col contatore, eval_refade) e
+  // il motore non si accontenta della patta. 0 = sempre, come prima.
+  if (td.fifty < RepCycleFifty)
+    return false;
   const U64 orig = td.hash_key;
+  // BAKE REPCYCLEOTHER (10/10/2026, segnalato dall'agente velocita'): il filtro "other" di SF19. Somma le differenze
+  // di chiave delle mosse dell'AVVERSARIO lungo la finestra; il ciclo vale solo se si annullano (i suoi pezzi sono
+  // tornati dov'erano), cioe' se a chiuderlo basta una mossa del lato al tratto. Senza (forma di SF16) la tabella
+  // cuckoo trovava anche cicli fatti da una mossa dell'avversario (~0,08-0,24% dei nodi). SPRT 8+0.08 UHO: +5,62 +-
+  // 4,47 su 6.500 partite, zero escluso; opzione ritirata. Chiave di k semimosse fa:
+  // repetition_table[repetition_index - (k - 1)].
+  U64 other = orig ^ td.repetition_table[td.repetition_index] ^ side_key;
   for (int i = 3; i <= end; i += 2) {
     const U64 prev = td.repetition_table[td.repetition_index - (i - 1)];
+    other ^= td.repetition_table[td.repetition_index - (i - 2)] ^ prev ^ side_key;
+    if (other)
+      continue;
     const U64 move_key = orig ^ prev;
     int j;
     if ((j = cuckoo_h1(move_key), cuckoo_key[j] == move_key) ||
@@ -286,7 +301,9 @@ static bool td_upcoming_repetition(ThreadData &td) {
       const int s1 = cuckoo_move[j] & 63, s2 = (cuckoo_move[j] >> 6) & 63;
       if (between_tbl[s1][s2] & td.occupancies[both])
         continue; // percorso bloccato
-      if (td.ply > i)
+      // RepRootTwofold (10/10/2026, agente AE): con l'opzione il ciclo che torna alla posizione di radice (i == ply)
+      // vale come quelli dentro l'albero, la stessa regola di repeated_draw.
+      if (td.ply > i - RepRootTwofold)
         return true; // ciclo tutto dentro il search path
       // Ciclo che pesca dietro la radice: vale solo se la mossa e' del lato al
       // tratto E la vecchia posizione era gia' una ripetizione (regola SF).
@@ -311,7 +328,10 @@ static bool repeated_draw(const ThreadData &td) {
   for (int i = 4; i <= end; i += 2) {
     if (td.repetition_table[td.repetition_index - (i - 1)] != td.hash_key)
       continue;
-    if (i < td.ply)
+    // RepRootTwofold (10/10/2026, agente AE; Stormphrax position.cpp:603-618, Viridithas board/mod.rs:1249-1266,
+    // PlentyChess search.cpp:385-405, Integral board.cc:430-447): la volta precedente e' la radice stessa (i == ply).
+    // SF19, Reckless, Berserk e Coda chiedono che sia dopo la radice (i < ply), altrimenti serve una terza volta.
+    if (i < td.ply + RepRootTwofold)
       return true;
     for (int j = i + 4; j <= end; j += 2)
       if (td.repetition_table[td.repetition_index - (j - 1)] == td.hash_key)

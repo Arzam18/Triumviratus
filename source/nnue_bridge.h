@@ -2,14 +2,14 @@
 #ifndef SF_BRIDGE_H
 #define SF_BRIDGE_H
 
-// Thin bridge to the TRANN1 NNUE (in nnue/) — Triumviratus Rubicon Alea NNUE 1:
-// FOUR input blocks (FullThreats + HalfKAv2_hm + PawnPair + PassedPawns), L1=1024,
-// L2/L3, 8 LayerStacks. The evaluation machinery is derived from Stockfish-master's
-// SFNNv13 (GPLv3, attribution in COPYING/README); the last two blocks are ours, so
-// the net format is NOT SFNNv13 and an SFNNv13 net cannot be loaded (the reader
-// accepts only the TRANN1 4-block hash and the 3-block v2 hash, which zero-fills
-// the PassedPawns segment). Keeps all Stockfish headers/types/macros out of the
-// rest of the engine so there is no clash with Triumviratus's own globals.
+// Thin bridge to the TRANN3 NNUE (in nnue/) — Consilium, Triumviratus' own architecture:
+// FOUR input blocks (FullThreats + HalfKAv2_hm with four phase experts + PawnPair +
+// PassedPawns), L1=1024, L2/L3, 8 LayerStacks. The inference code started from
+// Stockfish's NNUE (SFNNv16 line, GPLv3, attribution in COPYING/README) and has since
+// been largely rewritten in the accumulators, features and link with the search; the
+// net format is our own and no Stockfish net can be loaded. Keeps all Stockfish-derived
+// headers/types/macros out of the rest of the engine so there is no clash with
+// Triumviratus's own globals.
 
 #include "nn_dirty.h"   // le dirty di ogni mossa (tipi semplici, condivisi con la rete)
 
@@ -28,17 +28,6 @@ const char* nn_net_memory_status(void);
 // arch-hash verified), 0 otherwise. Must be called once at startup before any
 // nn_pos_create() (the per-handle accumulator caches are built from the net).
 int nn_load_net(const char* net_path);
-
-// Blocchi da innesto (PassedRel, KingFiles, Space, LockedPawns; 09/10/2026): le voci (blocco << 12 | dati, crescenti)
-// dai dodici bitboard per pezzo del motore (P N B R Q K p n b r q k; servono pedoni, re e donne) e dall'occupazione,
-// per i blocchi di mask. Una sola definizione, quella della rete (nnue/nnue/features/pawn_grafts.cpp), usata anche da
-// nn_dirty_catch_up. out deve avere NN_GRAFT_MAX posti se mask & ~NN_GRAFT_LIST_MASK == 0 (solo PassedRel e
-// KingFiles: liste della pila), altrimenti NN_GRAFT_REF_MAX (_wip graft_space_locked).
-// Salva la rete caricata nel formato con i blocchi di mask (a zero quelli che la rete non ha). 1 = salvata.
-int nn_export_graft(unsigned mask, const char* path);
-// PassedState di partenza (10/10/2026, "exportpst <file>"): stati = riga v1, v1 a zero; solo da una rete senza blocchi.
-int nn_export_pst(const char* path);
-int nn_graft_entries(unsigned mask, const unsigned long long* bb12, unsigned long long occ, unsigned short* out);
 
 // Reload the network at runtime (UCI option "EvalFile"). Safe to call when no
 // search is running. Returns 1 on success, 0 if the path could not be loaded.

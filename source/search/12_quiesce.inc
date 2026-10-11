@@ -129,10 +129,11 @@ static inline bool on_line(int a, int b, int c) {
 
 static inline U64 attackers_with(const ThreadData &td, int sq, int by, U64 occ) {
   const int off = by == white ? 0 : 6;
+  const SliderPair sp = get_slider_pair(sq, occ);   // AA1 (10/10/2026): un calcolo per i due (magic.h)
   return (pawn_attacks[by ^ 1][sq] & td.bitboards[P + off]) | (knight_attacks[sq] & td.bitboards[N + off]) |
          (king_attacks[sq] & td.bitboards[K + off]) |
-         (get_bishop_attacks(sq, occ) & (td.bitboards[B + off] | td.bitboards[Q + off])) |
-         (get_rook_attacks(sq, occ) & (td.bitboards[R + off] | td.bitboards[Q + off]));
+         (pair_bishop(sp) & (td.bitboards[B + off] | td.bitboards[Q + off])) |
+         (pair_rook(sp) & (td.bitboards[R + off] | td.bitboards[Q + off]));
 }
 
 // Contesto del nodo per legalita' (inchiodature del nostro re) e scacco (case di scacco sul re nemico),
@@ -177,8 +178,9 @@ __attribute__((noinline)) static bool legal_before_slow(ThreadData &td, MoveSafe
     const int capsq = us == white ? to + 8 : to - 8;
     const U64 occ = (td.occupancies[both] ^ (1ULL << from) ^ (1ULL << capsq)) | (1ULL << to);
     const int eoff = them == white ? 0 : 6;
-    return !(get_rook_attacks(s.our_king, occ) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) &&
-           !(get_bishop_attacks(s.our_king, occ) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
+    const SliderPair sp = get_slider_pair(s.our_king, occ);
+    return !(pair_rook(sp) & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) &&
+           !(pair_bishop(sp) & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
   }
   if (from == s.our_king)
     return !attackers_with(td, to, them, td.occupancies[both] ^ (1ULL << from));
@@ -219,8 +221,9 @@ static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
   if (get_move_enpassant(m)) {
     const int capsq = td.side == white ? to + 8 : to - 8;
     const U64 o = (occ ^ (1ULL << from) ^ (1ULL << capsq)) | (1ULL << to);
-    return (get_rook_attacks(s.their_king, o) & (td.bitboards[R + off] | td.bitboards[Q + off])) ||
-           (get_bishop_attacks(s.their_king, o) & (td.bitboards[B + off] | td.bitboards[Q + off]));
+    const SliderPair sp = get_slider_pair(s.their_king, o);
+    return (pair_rook(sp) & (td.bitboards[R + off] | td.bitboards[Q + off])) ||
+           (pair_bishop(sp) & (td.bitboards[B + off] | td.bitboards[Q + off]));
   }
   if (castling) {
     int rook_pc, rf, rt;
@@ -351,6 +354,31 @@ static inline bool drawn_here(ThreadData &td, bool in_check) {
   return drawn_here_slow(td, in_check);
 }
 
+// InsufMaterial (10/10/2026, agente AE): nessuno dei due lati puo' forzare il matto. La regola e' quella di Reckless
+// (board.rs:242-267): niente pedoni, torri, donne e (1) al piu' tre pezzi (KvK, KNvK, KBvK), oppure (2) quattro pezzi
+// con un minore per parte e nessun re in un angolo (con un re nell'angolo esistono matti, anche se non forzati), oppure
+// (3) due alfieri dalla stessa parte sullo stesso colore di case. KNNvK, KBNvK (vince) e KBBvK di colori diversi no.
+// Stormphrax (position.cpp:621-668), Berserk (board.c:537), Viridithas (evaluation.rs:122), Caissa (Search.cpp:1163,
+// solo dopo una cattura, come qui) e Coda (search.rs:5065) hanno regole simili. La rete da' a queste posizioni
+// 3-15 cp (KNvK +11, KBvK +12): la regola non corregge una valutazione sbagliata ma chiude il nodo con una patta esatta.
+static inline bool insufficient_material(const ThreadData &td) {
+  if (td.bitboards[P] | td.bitboards[p] | td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q])
+    return false;
+  const int pieces = count_bits(td.occupancies[both]);
+  if (pieces < 4)
+    return true;
+  if (pieces > 4)
+    return false;
+  constexpr U64 corners = (1ULL << 0) | (1ULL << 7) | (1ULL << 56) | (1ULL << 63);
+  if ((td.bitboards[N] | td.bitboards[B]) && (td.bitboards[n] | td.bitboards[b]))
+    return !((td.bitboards[K] | td.bitboards[k]) & corners);
+  if (td.bitboards[N] | td.bitboards[n])
+    return false;
+  constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // un colore della scacchiera (a8 = 0): basta che sia una scacchiera
+  const U64 bishops = td.bitboards[B] | td.bitboards[b];
+  return !(bishops & light) || !(bishops & ~light);
+}
+
 static bool has_legal_move(ThreadData &td) {
   moves ml[1];
   td_generate_moves(td, ml, false);
@@ -384,31 +412,34 @@ static inline void pv_extend(ThreadData &td, int m) {
 
 // Idea 7 (QsPasserPush, 04/10/2026): nei finali la spinta di un pedone in 7a traversa (minaccia di promozione
 // immediata) e' tattica. Un pedone che arriva in 7a e' passato per costruzione: davanti ha solo l'ottava. Una sola
-// spinta per nodo; 0 se non ce n'e' o se c'e' troppo materiale (PassedPushNpm, la stessa soglia di PassedPushRed).
+// spinta per nodo; 0 se non ce n'e' o se c'e' troppo materiale (QsPushNpm; fino al 10/10/2026 era PassedPushNpm, la
+// soglia di PassedPushRed, con lo stesso valore di default).
+// 10/10/2026 sera: prima la spinta (una maschera, quasi sempre vuota fuori dai finali), poi il materiale, che costava
+// otto popcount a ogni nodo di quiescenza in ogni fase. Stessa mossa di prima: albero identico.
 static int qs_passer_push(const ThreadData &td) {
+  const int us = td.side, pc = us == white ? P : p;
+  // a8 = 0: la 6a traversa del bianco e' la riga 2 (case 16-23), quella del nero la riga 5 (case 40-47).
+  const U64 on6 = td.bitboards[pc] & (us == white ? 0x0000000000FF0000ULL : 0x0000FF0000000000ULL);
+  // Case davanti libere: per il bianco 8 case piu' in alto (indici minori), per il nero piu' in basso.
+  const U64 free_ahead = us == white ? on6 & ~(td.occupancies[both] << 8) : on6 & ~(td.occupancies[both] >> 8);
+  if (!free_ahead)
+    return 0;
   int npm = 0;
   for (int t = N; t <= Q; t++)
     npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
-  if (npm > PassedPushNpm)
+  if (npm > QsPushNpm)
     return 0;
-  const int us = td.side, pc = us == white ? P : p;
-  // a8 = 0: la 6a traversa del bianco e' la riga 2 (case 16-23), quella del nero la riga 5 (case 40-47).
-  U64 cand = td.bitboards[pc] & (us == white ? 0x0000000000FF0000ULL : 0x0000FF0000000000ULL);
-  while (cand) {
-    const int from = get_ls1b_index(cand);
-    const int to = us == white ? from - 8 : from + 8;
-    if (!((td.occupancies[both] >> to) & 1))
-      return encode_move(from, to, pc, 0, 0, 0, 0, 0);
-    pop_lsb_bb(cand);
-  }
-  return 0;
+  const int from = get_ls1b_index(free_ahead);
+  const int to = us == white ? from - 8 : from + 8;   // variabile: encode_move e' una macro
+  return encode_move(from, to, pc, 0, 0, 0, 0, 0);
 }
 
 // QCHK (AnQsChecks, modalita' analisi, 09/10/2026, idea nostra): primo ply della quiescenza chiamato dalla ricerca
 // principale. Dopo le tattiche si provano anche le mosse quiete che danno scacco con SEE >= 0; il figlio (sotto
 // scacco) e' una quiescenza normale. QCHK = false e' la quiescenza di sempre, identica.
+// qply: ply di quiescenza dal nodo della ricerca principale (0 al primo), per QsPushPly.
 template <bool QCHK = false>
-static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
+static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, int qply = 0) {
   td.pv_length[td.ply] = td.ply;
   if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
     alpha = draw_score(td);
@@ -422,6 +453,10 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (td.ply >= max_ply)
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
+    return contempt(td);
+  // BAKE INSUFMATERIAL (11/10/2026, vedi 01_params.inc): il materiale cambia solo con una cattura, quindi si
+  // controlla solo dopo una cattura.
+  if (f[-1].captured >= 0 && insufficient_material(td))
     return contempt(td);
 
   HashView h;
@@ -461,7 +496,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   int best_move = 0, count = 0, m;
   // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola. Se e' gia' la mossa hash la coda l'ha
   // emessa per prima: riproporla la cercava due volte nello stesso nodo (05/10/2026, audit dei porting).
-  const int qs_push = QsPasserPush && !in_check ? qs_passer_push(td) : 0;
+  const int qs_push = QsPasserPush && !in_check && qply < QsPushPly ? qs_passer_push(td) : 0;
   bool push_left = qs_push != 0 && qs_push != q.hash_move;
   while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
     if (!legal_before(td, safety, m))
@@ -487,7 +522,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
       }
       if (!tact)
         continue;
-      if (!see_holds(td, m, -QsSeeMargin))
+      if (!see_holds(td, m, push ? -QsPushSee : -QsSeeMargin))
         continue;
     }
 
@@ -497,7 +532,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
       continue;
     }
     f[1].in_check = gives;
-    const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
+    const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv, qply + 1);
     step_out(td, m, u);
 
     if (value > best) {
@@ -528,7 +563,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
           continue;
         count++;
         f[1].in_check = true;
-        const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
+        const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv, qply + 1);
         step_out(td, qm, u);
         if (stop_threads.load(std::memory_order_relaxed))
           return 0;

@@ -29,7 +29,17 @@ struct NodeState {
   int  quiets[TRACKED], n_quiets;
   int  tacts[TRACKED], n_tacts;
   U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
+  int  expert;                    // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
 };
+
+// Margini per esperto (10/10/2026, nostra): Consilium valuta con quattro esperti per fascia di materiale (net_phase),
+// e la fiducia nella valutazione statica non e' la stessa nei quattro. Le leve RfpExp*, FutExp*, LmrExp* spostano
+// il margine della futility inversa, quello della futility delle quiete e la riduzione LMR secondo l'esperto del nodo
+// (estensione delle correzioni per esperto, CorrPhase +3,2). Tutte a 0 = albero invariato; nella release, con i
+// parametri costanti a 0, il compilatore toglie anche il calcolo dell'esperto.
+static inline int by_expert(int e, int v0, int v1, int v2, int v3) {
+  return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3;
+}
 
 // CausalRed (09/10/2026, idea di giugno "potatura causale", riscritta sulla ricerca attuale). Quando una nostra mossa
 // quieta fallisce bassa, la mossa dell'avversario che la confuta (il taglio beta nel figlio) dice dove sta il problema:
@@ -229,6 +239,9 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (!n.root) {
     if (stop_threads.load(std::memory_order_relaxed) || td.ply >= max_ply || drawn_here(td, n.in_check))
       return (td.ply >= max_ply && !n.in_check) ? static_evaluate(td) : draw_score(td);
+    // BAKE INSUFMATERIAL (11/10/2026, agente AE): materiale insufficiente dopo una cattura (12_quiesce.inc).
+    if (f[-1].captured >= 0 && insufficient_material(td))
+      return draw_score(td);
     n.alpha = std::max(mated_at(td.ply), n.alpha);
     n.beta = std::min(mating_in(td.ply + 1), n.beta);
     if (n.alpha >= n.beta)
@@ -243,6 +256,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   n.signal = corr_signal(td, f);
   n.signal_x = corr_signal_extra(td);
   n.excluded = f->excluded;
+  n.expert = net_phase(count_bits(td.occupancies[both]));
 
   hash_read(td, n.h);
   f->tt_hit = n.h.hit;
@@ -378,8 +392,15 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
 template <bool AN>
 static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
+  // ExclClean (10/10/2026, agente AE; Reckless search.rs:493, Stormphrax search.cpp:776-810, PlentyChess
+  // search.cpp:774, Viridithas search.rs "whole-node techniques"): il nodo della verifica singolare e' la stessa
+  // posizione del nodo vero, con la mossa hash esclusa. Bit 1: la storia dalla differenza di eval l'ha gia' data il nodo
+  // vero (qui la si darebbe due volte). Bit 2: razoring, RFP e ProbCut decidono sull'eval statica dell'intera posizione,
+  // compresa la mossa esclusa, e possono dichiarare "non singolare" per merito proprio di quella mossa.
+  const bool excl_hist = (ExclClean & 1) && n.excluded;
+  const bool excl_prune = (ExclClean & 2) && n.excluded;
   // La differenza di valutazione col ply precedente insegna qualcosa sulla mossa che ci ha portati qui.
-  if (move_ok(f[-1].move) && !f[-1].in_check && !n.prior_capture) {
+  if (move_ok(f[-1].move) && !f[-1].in_check && !n.prior_capture && !excl_hist) {
     const int diff = std::clamp(-(f[-1].static_eval + f->static_eval), -189, 194) + 60;
     const int pm = f[-1].move;
     stat_push(td.quiet_hist[us ^ 1][quiet_key(pm)], diff * EvalDiffMul, LIM_QUIET);
@@ -390,16 +411,18 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 
   // Valutazione molto sotto alpha: basta la quiescenza.
   // gd_razor (AnGold) e' 0 fuori dalla modalita' analisi; n.crystal e' sempre falso.
-  if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth - (AN ? td.gd_razor : 0) && !(AN && n.crystal))
+  if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth - (AN ? td.gd_razor : 0) && !(AN && n.crystal) &&
+      !excl_prune)
     return quiesce(td, f, n.alpha, n.beta, false);
 
   // Valutazione abbastanza sopra beta: il nodo regge senza cercare.
   if (!f->tt_pv && n.depth < (n.hunt_mate ? 6 : e_rfp_max_depth(td)) && n.eval >= n.beta && (!n.h.move || n.tact_hash) &&
-      !val_lost(n.beta) && !val_won(n.eval) && !(AN && n.crystal)) {
+      !val_lost(n.beta) && !val_won(n.eval) && !(AN && n.crystal) && !excl_prune) {
     int mult = std::min(RfpMultBase + n.depth * RfpMultDepth, RfpMultCap) + (AN ? td.dz_rfp : deep_term(td, DeepRfp));
     if (AN && td.gd_rfp_pct != 100)   // AnGold: margine allargato (150% in attacco o con sacrifici, 120% in manovra)
       mult = mult * td.gd_rfp_pct / 100;
     mult -= RfpNoTTHit * !f->tt_hit;
+    mult += by_expert(n.expert, RfpExp0, RfpExp1, RfpExp2, RfpExp3);
     const int imp = RfpImproving * n.improving;
     const int margin = mult * n.depth - (imp + RfpOppWorse * n.opp_worse) * mult / 1024 +
                        std::abs(n.signal) / RfpCorrDiv;
@@ -410,8 +433,15 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   // Mossa nulla: se anche passando la mano si resta sopra beta, il nodo taglia.
   const int non_pawn = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k]
                            ? 1 : 0;
+  // NmpHashUpper (10/10/2026, agente AE; da Stormphrax search.cpp:871-872 e Viridithas search.rs, e implicito in
+  // Reckless, PlentyChess, Berserk, Integral, Caissa che chiedono anche l'eval corretta dalla hash >= beta): se la hash
+  // ha gia' un limite superiore (o un valore esatto) sotto beta, la posizione non regge beta e una mossa nulla che
+  // taglia direbbe il contrario. SF19 guarda solo l'eval statica. 0 = condizione di prima.
+  const bool hash_says_below = NmpHashUpper && val_known(n.h.value) && bound_covers(n.h.bound, false) &&
+                               n.h.value < n.beta;
   if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
-      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n))) {
+      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n)) &&
+      !hash_says_below) {
     // DeepNmp in 1024-esimi di ply, arrotondato con 10 bit della chiave (fissi per posizione): a 0 il termine e' 0,
     // altrimenti una frazione |v|/1024 dei nodi riduce di un ply in piu' (o in meno) e lo SPSA ne vede la pendenza.
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
@@ -440,7 +470,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 
   // Tagli con le catture: una cattura che supera beta di un margine anche a profondita' ridotta.
   const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving;
-  if (n.depth >= 3 && !val_decided(n.beta) && !(val_known(n.h.value) && n.h.value < cut_beta)) {
+  if (n.depth >= 3 && !val_decided(n.beta) && !(val_known(n.h.value) && n.h.value < cut_beta) && !excl_prune) {
     MoveQueue q;
     queue_start(q, td, f, n.h.move, n.depth, QK_CUTS);
     q.cut_threshold = cut_beta - f->static_eval;
@@ -535,7 +565,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     red_depth += hist < 0 ? -q : q;
   }
   const int fut = f->static_eval + QuietFutDepth * red_depth + e_quiet_fut_alpha(td) * (f->static_eval > n.alpha) + QuietFutBase +
-                  (AN ? td.dz_fut : deep_term(td, DeepFut));
+                  (AN ? td.dz_fut : deep_term(td, DeepFut)) + by_expert(n.expert, FutExp0, FutExp1, FutExp2, FutExp3);
   if (!n.in_check && red_depth < 12 && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
       n.best = fut;
@@ -586,9 +616,16 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
     return SING_SKIPPED;
   const int s_beta = h.value - (SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
   const int s_depth = new_depth / 2;
+  // SingKeepCount (10/10/2026, agente AE): la ricerca esclusa usa lo stesso frame e ne riscrive move_count (lo azzera e
+  // lo porta al numero delle SUE mosse). Il figlio della mossa hash legge poi f[-1].move_count (malus della mossa
+  // precoce nel taglio hash, malus della prima mossa in reward_best, bonus "> 9" in node_close) con il valore della
+  // ricerca esclusa invece di 1. Reckless scrive il contatore alla make (search.rs:1471) e non ha il problema.
+  const int count_before = f->move_count;
   f->excluded = m;
   const int v = explore<AN>(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
   f->excluded = 0;
+  if (SingKeepCount)
+    f->move_count = count_before;
   if (v < s_beta) {
     const int corr_adj = std::abs(n.signal) / SingCorrDiv;
     const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * !n.tact_hash - corr_adj -
@@ -680,6 +717,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
     if (f->tt_pv)
       r += LmrTtPvAdd;
+    r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
     // Idea 4: cattura che cambia esperto della rete (si calcola prima della mossa).
@@ -781,16 +819,15 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (n.depth >= 2 && n.moves > 1) {
       // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
       // queste estensioni si sommano come quelle di Ldse prima della sua guardia (LdseMax). Stesso rimedio: un tetto al
-      // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path). 0 = nessun tetto, come prima.
-      const int neg_cap = (!NegExtMax || f->negext_path < NegExtMax) ? 2 : 0;
+      // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path).
+      // BAKE NEGEXTMAX (11/10/2026, vedi 01_params.inc): tetto fisso a una estensione per linea, opzione ritirata.
+      const int neg_cap = f->negext_path < 1 ? 2 : 0;
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + neg_cap)) + n.pv;
-      if (NegExtMax)
-        f->negext = d - n.pv > new_depth;
+      f->negext = d - n.pv > new_depth;
       f->reduction = new_depth - d;
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
       f->reduction = 0;
-      if (NegExtMax)
-        f->negext = 0;
+      f->negext = 0;
       if (value > n.alpha) {
         new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
@@ -944,10 +981,9 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   // i figli della mossa nulla e del probcut non ne ereditano una.
   f->ldse = 0;
   f->ldse_path = f[-1].ldse_path + f[-1].ldse;
-  if (NegExtMax) {   // NegExtMax: stesso conteggio per le estensioni da riduzione negativa (move_loop)
-    f->negext = 0;
-    f->negext_path = f[-1].negext_path + f[-1].negext;
-  }
+  // Stesso conteggio per le estensioni da riduzione negativa (move_loop; BAKE NEGEXTMAX 11/10/2026).
+  f->negext = 0;
+  f->negext_path = f[-1].negext_path + f[-1].negext;
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;
@@ -962,7 +998,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   // Limite inferiore dalla hash ben sopra beta: basta quello.
   const int hash_beta = n.beta + ProbCutTTMargin;
   if (bound_covers(n.h.bound, true) && n.h.depth >= n.depth - 4 && n.h.value >= hash_beta && !val_decided(n.beta) &&
-      val_known(n.h.value) && !val_decided(n.h.value))
+      val_known(n.h.value) && !val_decided(n.h.value) && !((ExclClean & 2) && n.excluded))   // ExclClean: vedi sopra
     return hash_beta;
 
   if ((v = move_loop<AN>(td, f, n)) != NO_VALUE)

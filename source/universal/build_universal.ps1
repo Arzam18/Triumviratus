@@ -13,7 +13,7 @@
 #
 #  USO (PowerShell, non serve amministratore):
 #    .\build_universal.ps1                         # tutto, data di rilascio = oggi
-#    .\build_universal.ps1 -Day 20261009           # data della riga id name
+#    .\build_universal.ps1 -Day 20261010           # data della riga id name
 #    .\build_universal.ps1 -NoPgo                  # senza PGO (prova veloce)
 #    .\build_universal.ps1 -ExtraFlags "/clang:-mbranches-within-32B-boundaries"
 #    .\build_universal.ps1 -Unity                  # una sola unita' per variante (piu' lenta di ~1%, vedi -Unity sotto)
@@ -27,7 +27,7 @@ param(
     [switch]$NoPgo,
     [switch]$Tune,
     [switch]$NoStrictAliasing,
-    [string]$ExpectedBench = "430151",
+    [string]$ExpectedBench = "222811",
     # File separati (DEFAULT dal 09/10/2026): ogni .cpp del motore e' un'unita' a se' (involucro con il namespace della
     # variante, vns.h), compilata con -flto=thin e unita al collegamento, come la build separata di MSBuild. L'universale
     # a unita' unica per variante costava +0,98/+1,14% di cicli/nodo rispetto alla separata a pari sorgente; a file
@@ -36,7 +36,8 @@ param(
     [switch]$MultiTU,
     [switch]$Unity,
     # Rete per il TRAINING del profilo (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md §5). Vuota = la rete
-    # incorporata. Con una rete a blocchi da innesto il codice dei blocchi entra nel profilo; -PgoNetShare 50 allena
+    # incorporata. Con una rete a blocchi da innesto il codice dei blocchi entrava nel profilo (blocchi tolti dal motore
+    # il 10/10/2026: oggi serve solo per un'altra rete dello stesso formato); -PgoNetShare 50 allena
     # meta' dei worker con questa e meta' con la incorporata (binario che deve andare bene con entrambe). Il bench di
     # verifica resta quello della rete incorporata.
     [string]$PgoNet = "",

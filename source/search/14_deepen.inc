@@ -394,7 +394,14 @@ static void deepen(ThreadData &td) {
         } else if (best >= beta) {
           alpha = std::max(beta - delta, alpha);
           beta = std::min(best + delta, (int)infinity);
-          failed_high++;
+          // AspDecisive (10/10/2026, agente AE; PlentyChess search.cpp:1484-1487, Reckless search.rs:139-144,
+          // Viridithas search.rs:391-394): un matto o una vittoria da tablebase appena trovati non si ricercano a
+          // profondita' ridotta (che puo' non vederli piu' e fallire basso, con un'altra ricerca a profondita' piena).
+          if (AspDecisive && val_decided(best)) {
+            beta = infinity;
+            failed_high = 0;
+          } else
+            failed_high++;
         } else
           break;
         delta += AspGrow * delta / 128;

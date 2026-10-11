@@ -1,6 +1,23 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE NEGEXTMAX (11/10/2026 mattina, utente): tetto di UNA estensione da riduzione negativa per linea (13_search.inc,
+// move_loop; NodeFrame::negext/negext_path), opzione ritirata. SPRT UHO 12+0.12 (leva di profondita'), tm29, due tranche
+// in pool (negext1b_12 + negext1c_12): +3,88 +- 3,26 Elo su 11.384 partite (LLR +1,72, zero escluso; socket 0 +3,05,
+// socket 1 +4,71), fermato dall'utente per compilare la release dell'11/10 ("bakiamolo e registriamo"). Prima tranche
+// +3,59 +- 4,10 su 7.052. Valore 1 scelto perche' e' l'unico tetto che cambia l'albero in modo netto a profondita' fissa
+// (08/10: -6,6% nodi, -0,55 ply di seldepth; da 2 in su il tetto si raggiunge di rado). Bench 325747 (prima 460041).
+// Da verificare a TC lungo nell'A/B della release 20261011 contro la pubblica 20261010 (30 s / 20 s).
+// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (regola di Reckless
+// board.rs:242; anche Stormphrax, Berserk, Viridithas, Caissa, Coda; agente AE, DEVELOPMENT §42), opzione ritirata.
+// SPRT 8+0.08 sul libro dei finali endgame_12_18 senza aggiudicazione di patta, tm28, due tranche in pool (aeinsuf_eg_8
+// + aeinsuf_eg_8b): +1,13 +- 1,56 Elo su 17.162 partite (LLR +0,97; socket 0 +0,77, socket 1 +1,50). Prima tranche
+// +1,47 +- 2,39 su 7.000, poi l'utente: "altre 10000 e poi bake". A profondita' fissa l'albero non cresce (nodi -0,1%
+// su 200 finali del libro a prof. 15, +2,2% su 164 finali a prof. 16 con mediana 0, -0,9% sul bench di SF19 a prof. 14).
+// Bench 460041 (prima 297400).
+// BAKE REPCYCLEOTHER (10/10/2026 sera, utente): il filtro "other" di SF19 nel test dei cicli (td_upcoming_repetition,
+// 10_order.inc), opzione ritirata. SPRT 8+0.08 UHO con hyperthreading, tm26: +5,62 +- 4,47 Elo su 6.500 partite (LLR
+// +1,48, zero escluso; socket 0 +9,72, socket 1 +1,49), fermato dall'utente. Bench 297400 (prima 222811).
 // BAKE CAUSALRED (10/10/2026, utente): CausalRed 0 -> 512 (idea dell'utente di giugno, "potatura causale"). SPRT a
 // 25+0.25 UHO, due tranche in pool (tag causal512 + causal512b): +4,27 +- 4,13 Elo su 6.594 partite, LLR +1,17,
 // profondita' media cand +0,25 ply su entrambi i socket. Fermato dall'utente prima delle 20.000 partite: la misura
@@ -117,6 +134,9 @@
   P(AspBase, 6, 1, 40)                                                                                    \
   P(AspMeanSqDiv, 10193, 1000, 40000)                                                                     \
   P(AspGrow, 51, 10, 128)                /* /128 */                                                       \
+  P(AspDecisive, 0, 0, 1)                /* 10/10/2026, agente AE: un fail-high di aspirazione con valore deciso      \
+                                            (matto o tablebase) non riduce la profondita' di radice e apre beta      \
+                                            (PlentyChess; Reckless e Viridithas non riducono). 0 = come SF19 */      \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
@@ -146,6 +166,10 @@
   P(GoodCaptSeeDiv, 19, 4, 64)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 452, 100, 1200)                                                                             \
+  P(ExclClean, 0, 0, 3)                  /* 10/10/2026, agente AE: nodi della verifica singolare (mossa esclusa), bit:\
+                                            1 niente storia dalla differenza di eval, gia' data dal nodo vero (Reckless,\
+                                            Stormphrax, PlentyChess); 2 niente razoring, RFP e ProbCut (Stormphrax,   \
+                                            Viridithas; la RFP anche Reckless e Berserk). 0 = come SF19 */            \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
   P(RfpMultDepth, 4, 0, 16)                                                                               \
@@ -161,6 +185,10 @@
   P(NmpRedBase, 7, 3, 12)                                                                                 \
   P(NmpEvalDiv, 223, 64, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
+  P(NmpHashUpper, 0, 0, 1)               /* 10/10/2026, agente AE (docs/audit_8.0/AE_CASI_LIMITE_ALTRI_MOTORI.md):  \
+                                            niente mossa nulla se la hash dice valore < beta (limite UP o esatto);   \
+                                            Stormphrax e Viridithas esplicito, Reckless, PlentyChess, Berserk,       \
+                                            Integral, Caissa via l'eval corretta dalla hash. 0 = spenta */            \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
@@ -186,13 +214,16 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
+  P(SingKeepCount, 0, 0, 1)              /* 10/10/2026, agente AE: dopo la ricerca singolare il contatore mosse del  \
+                                            frame torna quello del nodo (Reckless lo scrive alla make, search.rs:1471;\
+                                            SF19 e noi lo lasciamo sporcato dalla ricerca esclusa). 0 = come SF19 */  \
   P(LdseMargin, 76, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
   P(LdseMax, 1, 0, 8)                    /* BAKE 05/10/2026 (era 0, vedi in testa): tetto alle estensioni */ \
                                          /* Ldse lungo una linea (0 = nessun tetto)                      */ \
-  P(NegExtMax, 0, 0, 8)                  /* 08/10/2026: tetto per linea alle estensioni da riduzione negativa */ \
+  /* NegExtMax: bakata a 1 l'11/10/2026 e ritirata come opzione (vedi in testa). */                               \
                                          /* (fino a +2 ply), come LdseMax; 0 = nessun tetto (albero di prima) */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
   P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
@@ -328,15 +359,40 @@
   P(DeepHist, 0, -800, 800)              /* /1024: peso della storia nella profondita' ridotta della futility */   \
   P(DeepTtPv, 0, -2048, 2048)            /* /1024 di ply: riduzione in meno nei nodi ttPv                 */      \
   P(DeepExt, 0, -120, 120)               /* margini delle estensioni doppia e tripla della singolare      */      \
+  /* 10/10/2026, margini per esperto della rete (nostra; esperto = fascia di pezzi <=9, 10-15, 16-23, >=24, come      \
+     net_phase): si sommano al moltiplicatore della futility inversa (RfpExp, base RfpMultBase 50), al margine della  \
+     futility delle quiete (FutExp) e alla riduzione LMR in 1024-esimi di ply (LmrExp). Tutte a 0 = albero invariato. */ \
+  P(RfpExp0, 0, -40, 40)                 /* esperto 0: <= 9 pezzi  */                                     \
+  P(RfpExp1, 0, -40, 40)                 /* esperto 1: 10-15 pezzi */                                     \
+  P(RfpExp2, 0, -40, 40)                 /* esperto 2: 16-23 pezzi */                                     \
+  P(RfpExp3, 0, -40, 40)                 /* esperto 3: >= 24 pezzi */                                     \
+  P(FutExp0, 0, -200, 200)                                                                                \
+  P(FutExp1, 0, -200, 200)                                                                                \
+  P(FutExp2, 0, -200, 200)                                                                                \
+  P(FutExp3, 0, -200, 200)                                                                                \
+  P(LmrExp0, 0, -1536, 1536)                                                                              \
+  P(LmrExp1, 0, -1536, 1536)                                                                              \
+  P(LmrExp2, 0, -1536, 1536)                                                                              \
+  P(LmrExp3, 0, -1536, 1536)                                                                              \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   P(PhaseEdgeNoFut, 0, 0, 1)             /* idea 4: la cattura che cambia esperto della rete non si pota e non si riduce di piu' */ \
+  P(RepCycleFifty, 0, 0, 100)            /* 10/10/2026, nostra: ciclo = patta solo da questo contatore 50 mosse */ \
+  P(RepRootTwofold, 0, 0, 1)             /* 10/10/2026, agente AE: tornare nell'albero alla posizione di radice e'   \
+                                            patta, come una ripetizione dentro l'albero (Stormphrax, Viridithas,     \
+                                            PlentyChess, Integral; SF, Reckless, Berserk, Coda no). 0 = come SF19 */  \
   P(QsPasserPush, 0, 0, 1)               /* idea 7: in quiescenza la spinta in 7a di un passato e' tattica */ \
+  /* 10/10/2026, leve della spinta in quiescenza per uno SPSA (agiscono solo con QsPasserPush=1; i default rifanno la  \
+     spinta di prima: con QsPasserPush=1 bench 211937). */                                                           \
+  P(QsPushNpm, 5133, 0, 12000)           /* soglia di materiale non pedoni propria (prima: PassedPushNpm)  */     \
+  P(QsPushSee, 74, 0, 600)               /* la spinta si gioca se SEE >= -QsPushSee (prima: -QsSeeMargin)  */     \
+  P(QsPushPly, 64, 0, 64)                /* solo nei primi QsPushPly ply di quiescenza (64 = sempre)       */     \
   P(CorrPhase, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): idea 9, correzione dei */ \
                                          /* pedoni/minori separata per esperto                           */ \
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
      uno per uno, ognuno con una forma alternativa. */                                                               \
+  /* InsufMaterial: bakata l'11/10/2026 e ritirata come opzione (vedi in testa). */                               \
   P(SeePinned, 1, 0, 1)                 /* BAKE 06/10/2026 (era 0, vedi in testa): 1 = nella SEE i pezzi */ \
                                          /* inchiodati non ricatturano finche' c'e' l'inchiodatore       */ \
   /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: bakate il 06/10 (vedi in testa) e ritirate la sera come opzioni  \

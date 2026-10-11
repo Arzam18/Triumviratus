@@ -39,6 +39,11 @@
 [Universal executable](#35-one-executable-for-every-cpu-89-october-2026) ·
 [Speed measured again](#36-every-speed-decision-of-68-october-measured-again-9-october-2026) ·
 [Experimental grafts](#37-experimental-grafts-on-consilium-910-october-2026) ·
+[PR4, causal reduction, PassedState](#38-pr4-and-the-causal-reduction-baked-and-a-passed-pawn-block-that-replaces-passedpawns-910-october-2026) ·
+[Release candidate of 10 October](#39-the-release-candidate-of-10-october-2026) ·
+[Speed gap, identical tree](#40-the-speed-gap-to-stockfish-19-with-an-identical-tree-10-october-2026) ·
+[Cycle test](#41-the-cycle-test-of-stockfish-19-and-a-fifty-move-threshold-of-ours-10-october-2026) ·
+[Edge cases from other engines](#42-edge-cases-handled-by-other-engines-10-october-2026) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -48,7 +53,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **430151**.
+> each step starting from what the previous one found. Current `bench`: **325747**.
 
 ## The path so far
 
@@ -69,6 +74,11 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Speed, one board, large pages** | 27–30 | patches that only remove work, the network reading the search's board, search state on large pages, fine-tunes of the network (no gain) | same tree; speed measured again in section 36 | 430151 |
 | **Clean-up and chess knowledge** | 31–34 | closed options retired, the points lost against Stockfish 19 located (defence with a short clock), new levers off, ordering terms moved to an SPSA | ordering terms flat at fixed values (+0.4 ± 5.4); SPSA PR4 running, first check +5.3 ± 8.0 | 430151 |
 | **One executable, speed measured again** | 35–36 | a universal executable for every CPU, every speed decision of 6–8 October measured again, an analysis mode at no cost in games | the universal build 0.5% faster than the separate one; two dropped patches recovered | 430151 |
+| **Grafts, PR4 and the causal reduction** | 37–38 | network blocks grafted on the frozen Consilium (none adopted), the SPSA PR4 vector and the causal reduction baked | PR4 +3.4 ± 3.9 (about 8,100 games), causal reduction +4.27 ± 4.13 (6,594) | 222811 |
+| **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | 222811 |
+| **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | 297400 |
+| **Edge cases from other engines** | 42 | six cases other engines handle and we did not, one SPRT each | insufficient material +1.1 ± 1.6 (17,162 endgame games), baked; the others flat | 460041 |
+| **A cap on extensions** | 33, 42 | at most one extension from a negative reduction per line | +3.9 ± 3.3 at 12+0.12 (11,384 games) | **325747** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -76,16 +86,25 @@ is an SPRT or a match against the step before, on the same machine, with its 95%
 October were measured again on 9 October with a corrected method (section 36); the sections of those days give only
 the confirmed values.
 
-## Where things stand (9 October 2026)
+## Where things stand (10 October 2026)
 
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
-  in sections 21–27 and 31, two speed patches recovered in section 36, and an analysis mode that leaves games
-  unchanged. Bench **430151**. The prerelease on the tag `v8.0` is the universal executable of 9 October morning
-  (section 35, one unit per variant); the next release uses the faster universal build and the SPSA PR4 vector.
+  in sections 21–27 and 31, two speed patches recovered in section 36, an analysis mode that leaves games unchanged,
+  and since 9–10 October the SPSA PR4 vector (the ordering terms of section 34 on) and the causal reduction
+  (section 38). The graft code was removed on 10 October; the same evening, speed patches with an identical tree
+  (section 40) and the cycle test of Stockfish 19 (section 41, +5.6 ± 4.5); on 11 October the draw for insufficient
+  material after a capture (section 42, +1.1 ± 1.6) and the cap of one extension from a negative reduction per line
+  (sections 33 and 42, +3.9 ± 3.3). Bench **325747**.
+- **Release candidate (section 39):** the universal executable of 10 October scored **+11.9 ± 7.2 Elo over 2,866
+  games** against the previous pre-release (`Triumviratus_8.0_20261009_universal.exe`) at 15+0.15, and was published
+  on 10 October as the pre-release on the tag `v8.0`.
+- **Pre-release of 11 October:** the universal executable of that morning (bench 325747: the cycle filter, the
+  insufficient-material draw, the cap on extensions and the speed patches of sections 40–42) replaced it on the tag
+  `v8.0`; each change was measured by SPRT, and a direct comparison with the 10 October pre-release at 20 and 30 s
+  follows.
 - **Against Stockfish 19** at 133+1 (section 26): **+5 =310 −5 over 320, 50.0%**; at 30+0.3 on random openings
   −4.4 ± 7.1 over 395 (section 27). In blitz the remaining gap lies in defence with a short clock (section 32).
-- **Baked on 9–10 October (section 38):** the SPSA PR4 vector and the causal reduction; bench **222811**. Running: an
-  A/B of today's universal build against the public executable of 8 October at 15+0.15.
+- **Closed:** the graft blocks on Consilium (sections 37–38): none enters 8.0.
 - **Open:** the correction SPSA CORR1; the time levers of section 33 at 40+0.4; a short SPSA of the deep levers at
   40+0.4; the shape of the next network.
 - **Test rules,** as they evolved: one idea at a time on the same binary; at least 20,000 games or a clear verdict
@@ -1518,7 +1537,10 @@ PassedRel game test.
 checked in four SPRTs against the defaults (20+0.2 and 15+0.15 with hyperthreading, 15+0.15 and 10+0.1 on physical
 cores only, two opening orders): about 8,100 games together, **+3.4 ± 3.9 Elo**. The two sockets of the test machine
 disagreed in all four (+9.2 ± 5.3 on the first, −2.9 ± 5.7 on the second, about three standard errors), with the
-same depth and time on both; an A/A test was started to separate the machine from the engine. The mean of the last
+same depth and time on both; an A/A test (the same binary on both sides, 8+0.08, 1,618 games) came out neutral on
+both sockets (−4.3 ± 12.3 and +0.9 ± 12.5), so the setup itself does not favour either side. The second socket has
+two memory channels against four on the first, which matters for features that read more memory (see PassedRel
+below). The mean of the last
 300 iterations (5,703–6,002) was baked: the ordering terms of section 34 are now on (`KingShield` 5371,
 `OutpostOrder` 4179, `AttackOrder` 5807, `AttackOrderQ` 6371, `PassedPush` 3975, `PromoOrder` 2412,
 `BishopPairCapt` 601), and 39 pruning, extension and ordering levers moved by a few percent. Bench **269775**.
@@ -1533,7 +1555,11 @@ value stays a parameter of the closing SPSA runs. Bench **222811**.
 
 **Speed since the public executable of 8 October.** That executable was the universal build with one unit per
 variant, which cost about 1% of cycles per node against a separate build (section 35). Today's source is built with
-one unit per file, the SEE patch and the linker flag of section 36: about 1.5% fewer cycles per node in total. Two
+one unit per file, the SEE patch and the linker flag of section 36, worth about 1.5% of cycles per node on the same
+search. Measured against the public executable itself (xperf, four rounds, two identical builds within 0.14%), today's
+build runs 0.9% fewer cycles per node in the middlegame and 0.1% more in endgames: the two searches differ, and the
+ordering terms switched on by PR4 and the causal reduction add about 3.7% instructions per node, which the build
+recovers. Two
 changes for the PassedRel block (an incremental table of row differences, and the passed pawns computed once per
 move for the original PassedPawns rows) gave nothing measurable on deterministic profile-guided builds. The engine
 code of the graft blocks, even unused, cost 1.4% of cycles per node in endgames; a compile switch,
@@ -1547,12 +1573,221 @@ one of 100 states (what stands on the square in front of it, whether it is prote
 connected to another passed pawn, the opponent's material class, and in pawn endgames whether the enemy king is
 outside its square), so a pawn that advances costs what it cost before. At the start every state equals the
 PassedPawns row and the network evaluates exactly as Consilium (bench unchanged, checked with a network exported by
-the new `exportpst` command). In the engine it is verified with `nnperft` against a full refresh. Measured on
-deterministic profile-guided builds it costs +1.9% of cycles per node in the middlegame and +2.8% in endgames, above
-the target of 1–1.5%; the likely reason is that its rows sit outside the pawn-structure cache and outside the
-locality-ordered part of the weight table, which can be improved if the block gains enough Elo. It is being trained
-on the frozen Consilium (60 epochs, positions with at least one passed pawn): the training loss went above the
-starting value early, with the large learning rate, and fell below it at epoch 40 as the rate decreased.
+the new `exportpst` command). In the engine it is verified with `nnperft` against a full refresh, and its indices
+against the trainer's reference on 57,295 positions (a new `pstidx` command; no difference). Two exact changes
+reduce its work, its rows kept in the pawn-structure cache and a leaner per-move update, but they gain only 0.2%: on
+deterministic profile-guided builds the block costs about 2.0% of cycles per node in the middlegame and 2.5% in
+endgames, above the target of 1–1.5%. An analysis of the code (no measurement) attributes most of it to the extra rows
+when a state changes (a king or rook on the square in front of a passed pawn, captures that change the material
+class) and to the per-move update; reaching the target would need a different block shape and new training.
+
+It was trained on the frozen Consilium in three steps. With the block alone at a learning rate of 1e-2 (60 epochs,
+positions with at least one passed pawn) the training loss first doubled, then fell below the starting value at
+epoch 40 and ended 11% lower, yet at 60,000 nodes per move on endgame openings the network scored −2.1 ± 3.7 Elo
+over 4,320 games. A continuation at 1e-3 left the loss unchanged. Unfreezing the layers after the accumulator for 15
+epochs at 2e-5 (the block itself barely moved) gave +3.3 ± 5.0 over 2,190 games at fixed nodes: the information is
+there, but the frozen layers could not use it. At 25+0.25 on endgame openings, paying its speed cost, it scored
++2.9 ± 3.7 over 2,620 games.
+
+**Outcome: no graft enters 8.0.** The release decision rests on ordinary games, so the two candidates were played on
+the UHO book against the same source compiled without any graft code (`-DTRIUMV_NO_GRAFTS`), both networks built into
+deterministic profile-guided executables. PassedState with the retrained layers lost (−4.8 ± 11.9 at 20+0.2, 0.15 ply
+less, and −6 at fixed nodes): retraining the layers after the accumulator helped endgames and hurt the positions
+without passed pawns. PassedState trained alone lost more (−16.5 ± 15.8 at 80,000 nodes per move). PassedRel scored
+−2.9 ± 7.5 over 2,034 games at 12+0.12 on physical cores only, with the two sockets of the test machine disagreeing:
++4.1 on the socket with four memory channels, −8.6 at 12 s and −16.8 at 18 s on the socket with two, where the block's
+extra rows cost more depth (0.26 ply at 18 s). A feature whose value depends on the memory bandwidth of the machine is a
+poor candidate for a release that runs on every kind of computer. The graft code was removed from the engine on
+10 October; it is kept, with the blocks removed earlier and the cost reports, in the training repository
+(`04_consilium/graft_engine_storico`), and the training material in `04_consilium/graft_passedstate`.
+
+## 39. The release candidate of 10 October 2026
+
+**Graft code removed.** With the graft chapter closed, its code left the engine: the PassedRel and PassedState
+feature files and the PawnGrafts loader, the graft lists and their catch-up in the incremental update, the graft
+rows of the threat table and the row differences of PassedRel, the export and index commands (`exportprel`,
+`exportpst`, `exportgraft`, `pstidx`) and their counters. The original PassedPawns rows and their per-move update stay.
+A network with graft blocks is now refused at load with the ordinary hash error. The evaluation does not change:
+bench **222811** as before, `nnperft` (every incremental update compared with a full refresh) with no difference on
+four positions, and a build with both accumulator checks (`TRIUMV_VERIFY_NNSYNC`, `TRIUMV_VERIFY_V1PASS`) runs the
+bench without a mismatch. The `TRIUMV_NO_GRAFTS` switch of section 38 is no longer needed.
+
+**The build.** The universal executable of section 35, built from this source: one unit per file, a profile from a
+deterministic training (fixed node counts, so every build of the same source gets the same profile), the network
+embedded. Bench 222811 on each variant the test machine can run (AVX2 without PEXT, AVX2, AVX-512); the executable
+imports only `KERNEL32.dll`. Besides the standard options it shows those of the analysis mode of section 36
+(`UCI_AnalyseMode`, `AnalyseOnInfinite` and eight components, `AnDeep` to `AnGold`), which change nothing in games.
+
+**Against the public pre-release.** The candidate, today's search in a universal build (the same search as this
+source, compiled with `TRIUMV_NO_GRAFTS` before the code was removed), played the public pre-release
+(`Triumviratus_8.0_20261009_universal.exe`, bench 430151) at 15+0.15, UHO 2024 (+0.85/+0.94), 128 MB hash, 34 games
+per socket with hyperthreading. Expected from the sections before: about +8. Result: **+11.9 ± 7.2 Elo over 2,866
+games** (pentanomial 24, 305, 688, 381, 35), +15.3 ± 9.9 on the first socket and +8.5 ± 10.4 on the second. The first 460 games stood at −11; that was noise. The test was stopped at this
+point: a regression was excluded with margin (the lower end of the interval is +4.7), and the usual SPRT [0, 3] had
+reached LLR 1.39 of 2.94. Two bursts of load on the machine (a build and its profile training) made both engines lose
+games on time, 78 the candidate and 85 the base; without the pairs that contain one the result is the same, +11.85 ±
+7.13 over 2,610 games.
+
+**Publication.** The executable was published on 10 October as the pre-release on the tag `v8.0`, replacing the one
+of 9 October.
+
+## 40. The speed gap to Stockfish 19, with an identical tree (10 October 2026)
+
+Section 36 left a gap of about 1.15× in cycles per node against Stockfish 19. On the evening of 10 October three
+research agents (Claude) each took one part of the engine and wrote patches that leave the search tree exactly as it
+was: the search hot path and its branches, the infrastructure around it (transposition table, exchange evaluation,
+make/unmake), and the network inference. Every patch keeps `bench` at 222811 and passes the checks of the parts it
+touches: `tdperft` (standard and Chess960) for move generation and make/unmake, `nnperft` (every incremental update
+against a full refresh) for the network, and builds with the verification macros (`TRIUMV_VERIFY_NNSYNC`, `_SEEQ`,
+`_TTSTORE`, and new ones for the new shortcuts) that compare each shortcut with the original code and abort on the
+first disagreement.
+
+**Where the branches stand.** Section 16 found 46 mispredicted branches per node against 29 for Stockfish. The
+branch-free work since then (sections 20, 27–30 and 36) brought this to 27–28 per node today, level with Stockfish;
+part of the drop is the node count corrected on 8 October, which had inflated every per-node figure by about a third,
+so on today's count the starting point was about 34. The network is no longer behind in computation either: 2.16
+accumulator updates per evaluation against a minimum of about 2, with the inner loop already minimal. What remains of
+the gap is instructions in the search infrastructure and the memory traffic of a 170 MB network with four experts.
+
+| series | patch | what it changes |
+|---|---|---|
+| search | AA1 | bishop and rook attacks from one vectorised slider computation (DualMagic) where both were needed on the same square (exchange evaluation, check squares, legality, the threat features of the network); before, each call computed both and discarded one. Slider computations per node: from 9.8 to 5.1 in the middlegame, from 11.3 to 5.7 in endgames |
+| search | AA2 | the ordering terms switched on by PR4 (section 38), never optimised: the opponent's attack maps and the safe-square attacks come from one pass over the sliders instead of nine loops, and a hardware division becomes an exact reciprocal |
+| search | AA3 | unmake restores the hash keys, the fifty-move counter and the occupancies from a 64-byte copy taken at make, and make/unmake no longer branch on captures or on the fifty-move counter |
+| search | AA4 | the captures-only generator writes the first capture unconditionally (fewer mispredicted loop exits) |
+| infrastructure | slider, slider_nn | the same idea as AA1 written inline, in the search and in the network threats |
+| infrastructure | undo | unmake restores the partial keys and occupancies copied at make, as Stockfish's `StateInfo` does |
+| infrastructure | tt | the four entries of a hash bucket compared in one AVX-512 register, for probe and store |
+| network | AC1 | in the first sparse layer, on CPUs without VNNI, the products of two input chunks are summed at 16 bits before the multiply-add; exact because the neurons are reordered at load so that the chunks whose weights could overflow come last |
+| network | AC4 | x-ray captures no longer emit two threat entries that cancel each other |
+
+**Measurement.** Deterministic profile-guided builds of the same source (AVX-512 variant, ten training workers each,
+so every build gets the same profile), xperf on the test machine with the engine pinned to one processor, search
+threads only, four rounds in alternating order, 30 middlegame and 30 endgame positions. Two builds of the unchanged
+source differ by 0.02% (middlegame) and 0.17% (endgames), so the session noise is well below the effects.
+
+| package | instructions per node | cycles per node, middlegame | cycles per node, endgames | branch misses per node |
+|---|---:|---:|---:|---:|
+| search (AA1–AA4) | −0.77% / −0.97% | **−1.33%** | **−1.30%** | −5.4% / −4.6% |
+| infrastructure (all four) | −2.37% / −2.50% | **−0.91%** | **−0.85%** | +1.1% / +1.5% |
+| network (AC1 + AC4) | +0.62% / +0.62% | **+0.56%** | **+0.82%** | +1.6% / +1.6% |
+
+The search patches gain most with the fewest instructions removed: they remove mispredicted branches. The
+infrastructure patches remove more than twice as many instructions but gain less, part of the saving being absorbed
+by memory waits. The network patches are slower on this machine in both phases and are not kept. The two first
+series overlap (both compute bishop and rook attacks together and both copy the unmake
+state), so they do not add up.
+
+Each patch alone, in the middlegame (eight builds, four rounds; the spread between rounds is up to 0.9%, so
+differences below 0.3% are not resolved): the unmake of the search series −0.61% against −0.29% for the
+infrastructure version; the slider pair with the ordering terms (AA1 + AA2) −0.36% against −0.11% for the inline
+version; the vectorised hash bucket −0.21% (−1.39% instructions); AC1 +0.72%. For both overlapping ideas the search
+series' version wins, and the whole series (−1.33%) is worth more than its parts (−0.97%).
+
+**The combination.** The search series with the vectorised hash bucket on top, against the search series alone
+(three rounds): the same cycles in the middlegame (−1.34% both) and within the noise in endgames (−1.02% against
+−1.16%), with 1.2% fewer instructions per node. The hash table waits on memory, so fewer instructions do not show
+on this machine; they may on processors with a different balance, and the bucket code is used only by the AVX-512
+variants. The combination is kept: AA1–AA4 with the vectorised bucket, about −1.0 to −1.3% cycles per node.
+
+**Found on the way, not identical-tree.** The repetition check (`td_upcoming_repetition`) still had the form of
+Stockfish 16: without the filter Stockfish added later, it also reported cycles completed by an opponent's move, on
+0.08–0.24% of nodes. Fixing it changes the tree, so it went to an SPRT (section 41).
+
+## 41. The cycle test of Stockfish 19, and a fifty-move threshold of ours (10 October 2026)
+
+**The filter of Stockfish 19.** Before a search, the engine asks whether the side to move has a reversible move that
+returns to a position already on the board, using the cuckoo tables of Stockfish; if it has, and alpha is below the
+draw score, alpha is raised to the draw score. Our port, taken from Stockfish 16, accepted any such cycle. Stockfish
+19 first adds up the key changes of the opponent's moves in the window and accepts the cycle only if they cancel:
+the opponent's pieces must be back where they were, so that one move of the side to move closes the cycle. Without
+this filter the engine sometimes saw a draw it could not claim. Added as an option and tested at 8+0.08 on UHO with
+hyperthreading: **+5.62 ± 4.47 Elo over 6,500 games** (LLR 1.48; +9.7 on the first socket, +1.5 on the second), with
+zero excluded. Baked, the option retired; bench **297400**. It was found by the speed agent of section 40 while
+reading the same code, a reminder that functions ported from Stockfish at different times may lag behind its later
+fixes; an audit of every ported function against Stockfish 19 was started the same evening.
+
+**A threshold of ours (`RepCycleFifty`).** On top of it, an option of ours: a cycle counts as a draw only from a given
+value of the fifty-move counter. Our evaluation already fades towards zero as the counter grows (section 25); early in
+the counter the position is still alive, and the engine may do better not to settle for the draw. Tested the same
+evening against the baked filter on both sides: at 20 half-moves −4.1 ± 9.4 over about 1,500 games (8+0.08), at 6
+half-moves −9.5 ± 11.0 over about 1,300 (5+0.05), negative on both sockets each time. Ignoring a real cycle, even
+for a few moves, loses the draws that save games: closed, off.
+
+**The fifty-move counter in the hash key.** The audit of the ported functions (`docs/audit_8.0/AD_PORTING_SF.md`)
+found the port otherwise faithful to Stockfish 19, with one difference worth a test: Stockfish 19 changes the hash
+key of a position every 8 half-moves of the fifty-move counter from 14 on, so that the same position with very
+different counters does not share a stored value. Our option for this (`HashFiftyStep`, section 25) had been tried
+only from 40 half-moves and on endgame openings (+0.33 ± 3.67); the form of Stockfish 19 (`HashFiftyFrom` 13,
+`HashFiftyStep` 8) went to an SPRT at 8+0.08 the same evening: −3.7 ± 7.8 over 1,968 games, stopped. Our evaluation
+already fades with the counter, and the faded value is recomputed when an evaluation is read from the cache, so part
+of what the bands fix in Stockfish is already covered here, while their cost (fewer positions found again in the
+table) remains. Off.
+
+## 42. Edge cases handled by other engines (10 October 2026)
+
+After the cycle filter, a second research agent read the other engines in our reference set for the same kind of
+detail: cases that strong engines handle and we do not, rather than new heuristics with tunable values
+(`docs/audit_8.0/AE_CASI_LIMITE_ALTRI_MOTORI.md`). Six went into the engine as options, all off (bench 297400
+unchanged), each to a 7,000-game SPRT at 8+0.08 to pick the candidates. None is ours: the engines each comes from are
+given.
+
+| option | what it does | from |
+|---|---|---|
+| `ExclClean` | in the nodes of the singular verification search (with a move excluded), bit 1 stops the history update from the evaluation difference, which was given twice in 80% of those nodes; bit 2 switches off razoring, reverse futility and ProbCut there | Stormphrax, Viridithas, Reckless, PlentyChess, Berserk |
+| `RepRootTwofold` | a return to the root position inside the tree counts as a draw | Stormphrax, Viridithas, PlentyChess, Integral (Reckless, Berserk, Coda and Stockfish do the opposite) |
+| `SingKeepCount` | after the singular search the node's move count is restored; it stayed modified in 54–62% of cases and the hash move's child read it in three history updates | Reckless |
+| `NmpHashUpper` | no null move when the hash holds a value below beta (upper or exact bound) | Stormphrax, Viridithas explicitly; several others through the hash-corrected evaluation |
+| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | Reckless (the rule used), Stormphrax, Berserk, Viridithas, Caissa, Coda |
+| `AspDecisive` | a fail-high of the aspiration window with a decisive score no longer reduces the depth, and opens beta | PlentyChess; Reckless and Viridithas in a similar form |
+
+The agent expected a clear signal, if any, only from the first three; the other three are worth less than one Elo
+each and would go into a package.
+
+### Results (10–11 October 2026)
+
+Each option against the defaults on the same binary (bench 297400), 8+0.08, 34 + 34 games at a time with
+hyper-threading. UHO is the usual book with draw adjudication; the endgame book (`endgame_12_18.epd`, positions from
+move 30 on) runs without draw adjudication, because the rule "from move 40, 8 moves within 10 cp" would close those
+games before material runs out.
+
+| option | book | games | Elo | pentanomial | outcome |
+|---|---|---:|---:|---|---|
+| `ExclClean=3` | UHO | 10,772 (two runs) | −0.4 ± 3.5 | 61, 1270, 2723, 1285, 47 | off |
+| `RepRootTwofold` | UHO | 2,134 | +0.7 ± 7.9 | 10, 261, 521, 265, 10 | stopped, repeated on 8moves |
+| `RepRootTwofold` | 8moves_v3, no adjudication | 5,276 | +0.6 ± 3.5 | 16, 309, 1974, 328, 11 | off |
+| `SingKeepCount` | UHO | 7,020 | −0.6 ± 4.3 | 31, 869, 1727, 848, 35 | off |
+| `NmpHashUpper` | UHO | 7,060 | +0.2 ± 4.2 | 33, 800, 1858, 808, 31 | off |
+| `InsufMaterial` | endgames | 7,126 | +1.5 ± 2.4 | 1, 290, 2951, 319, 2 | continued |
+| `AspDecisive` | UHO | 7,064 | +0.7 ± 4.2 | 38, 799, 1848, 805, 42 | off |
+
+Most of these cases are rare, and their effect lies below what 7,000 games can see. Two of them change what happens
+when a game is drawn, and UHO with draw adjudication suits them poorly: in the games of this queue 47% ended with a
+win by adjudication, 25% with an adjudicated draw and 18% with a threefold repetition. `InsufMaterial` therefore ran on
+the endgame book, and `RepRootTwofold` was stopped and run again on the balanced 8moves_v3 book without draw
+adjudication, where it stayed flat as well. It is a choice of style rather than a correction (by the rules a single
+return to the root is a twofold repetition; Stockfish, Reckless, Berserk and Coda do not score it as a draw), so with
+no measured gain we keep Stockfish's behaviour.
+
+**Two levers of section 33, the same night.** On the build with the insufficient-material draw (bench 460041):
+`NegExtMax=1`, the cap of one extension from a negative reduction per line, at 12+0.12 on UHO: **+3.6 ± 4.1 over
+7,052 games** (LLR +0.98, both sockets positive: +3.2 and +4.0), then continued on 11 October to **+3.88 ± 3.26 over
+11,384 games** (LLR +1.72; sockets +3.05 and +4.71) and **baked**: the option is retired, bench **325747**. It is a
+depth lever measured at 12 s; the long time controls will be checked in the comparison of the 11 October build with
+the public one. The value 1 was chosen
+because it is the only cap that changes the tree clearly at fixed depth (−6.6% nodes, −0.55 plies of selective depth;
+from 2 up the cap is seldom reached). `ProgressFade` waits for its run on the endgame book after the SPSA EXP1 of the
+per-expert margins, started the same night (6,000 iterations at 20+0.2).
+
+**`InsufMaterial` baked.** After the first 7,000 games, another 10,000 on the same book: **+1.13 ± 1.56 Elo over
+17,162 games** (LLR +0.97, both sockets positive: +0.77 and +1.50). The interval does not exclude zero; the option was
+baked because the rule is exact (these positions are draws whatever the search does), it never loses Elo in the
+measurement, and it does not inflate the tree. At fixed depth, with the option on and off, total nodes change by
+−0.1% on 200 positions of the endgame book (depth 15; 4 trees changed, no best move changed), +2.2% on 164 endgames
+from our own games (depth 16; median 0, 13 trees grew by more than half and 12 shrank by a third or more) and −0.9% on
+the 51 positions of Stockfish 19's bench (depth 14). The tree changes only in endgames with a few minor pieces, where
+one branch becomes an exact draw and the search goes elsewhere. The option is retired; bench **460041** (before
+297400). The remaining tests of the queue still run on the binary with the option off.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1611,3 +1846,16 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | SPSA PR4 vector, first check (iterations 2,517–2,816) | 34 | 20+0.2 UHO | 1,842 | +5.3 ± 8.0 | SPSA continues |
 | SPSA PR4 vector, final (four SPRTs together) | 38 | 10–20 s UHO | about 8,100 | +3.4 ± 3.9 | **baked** |
 | **Causal reduction** (author's idea), 512 | 38 | 25+0.25 UHO | 6,594 | **+4.27 ± 4.13** | **baked** |
+| **Today's build against the public pre-release** (PR4, causal reduction, faster build) | 39 | 15+0.15 UHO | 2,866 | **+11.9 ± 7.2** | release candidate |
+| Passed-pawn push in quiescence, first quiescence ply / light endgames | 41 | 15+0.15 UHO / 12+0.12 endgames | 2,070 / 7,516 | −1.8 ± 7.2 / +0.2 ± 2.5 | closed |
+| Continuation correction six plies back, retried | 41 | 15+0.15 UHO | 2,960 | +2.2 ± 6.4 | to a package |
+| **Cycle test filter of Stockfish 19** (`RepCycleOther`) | 41 | 8+0.08 UHO | 6,500 | **+5.62 ± 4.47** | **baked** |
+| Cycle counted as a draw only from a fifty-move threshold (ours), 20 / 6 half-moves | 41 | 8+0.08 / 5+0.05 UHO | about 1,500 / 1,300 | −4.1 ± 9.4 / −9.5 ± 11.0 | closed |
+| Fifty-move bands in the hash key, form of Stockfish 19 (from 13, every 8) | 41 | 8+0.08 UHO | 1,968 | −3.7 ± 7.8 | off |
+| Clean singular-verification nodes (`ExclClean=3`, from several engines) | 42 | 8+0.08 UHO | 10,772 | −0.4 ± 3.5 | off |
+| A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO / 8moves without adjudication | 2,134 / 5,276 | +0.7 ± 7.9 / +0.6 ± 3.5 | off |
+| Move count restored after the singular search (`SingKeepCount`, from Reckless) | 42 | 8+0.08 UHO | 7,020 | −0.6 ± 4.3 | off |
+| No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
+| **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
+| Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
+| **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |

@@ -1,9 +1,11 @@
-// Triumviratus NNUE bridge — routes the engine's eval through the TRANN1 network
-// code (nnue/): ThreatFeatureSet=FullThreats + PSQFeatureSet=HalfKAv2_hm +
-// PawnFeatureSet=PawnPair + PassedFeatureSet=PassedPawns, L1=1024, 8 LayerStacks.
-// The machinery is Stockfish-master's SFNNv13 (GPLv3, attribution in COPYING/README)
-// adapted into our isolated Triumviratus:: namespace; the last two input blocks are
-// ours, so the net format diverges from SFNNv13 (see nnue/nnue/nnue_architecture.h).
+// Triumviratus NNUE bridge — routes the engine's eval through the TRANN3 network
+// (Consilium) code in nnue/: ThreatFeatureSet=FullThreats + PSQFeatureSet=HalfKAv2_hm
+// with four phase experts + PawnFeatureSet=PawnPair + PassedFeatureSet=PassedPawns,
+// L1=1024, 8 LayerStacks. TRANN3 is our own architecture; the inference code started
+// from Stockfish's NNUE (SFNNv16 line, GPLv3, attribution in COPYING/README) inside our
+// Triumviratus:: namespace. The accumulators, the feature blocks and this link with the
+// search have since been largely rewritten; the forward pass (layers, SIMD) and the
+// net loading remain Stockfish's (docs/audit_8.0/AF_ATTRIBUZIONE_INFERENZA.md).
 //
 // Modello (07/10/2026, scacchiera unica v2): ogni thread di ricerca ha un handle con la catena degli accumulatori
 // (AccumulatorStack) e la finny table (AccumulatorCaches). La rete non ha una scacchiera sua e non traduce nulla:
@@ -396,28 +398,8 @@ const char* nn_default_net_name(void) { return EvalFileDefaultName; }
 int nn_load_net(const char* net_path) { return load_net_impl(net_path); }
 int nn_reload_big(const char* net_path) { return load_net_impl(net_path); }
 
-// Salva la rete caricata nel formato con i blocchi da innesto di mask (09/10/2026, "exportgraft <mask> <file>" e
-// "exportprel <file>" = mask 1 in uci_mt.cpp): i blocchi che la rete non ha hanno le righe a zero, quindi il file e' la
-// stessa rete con quei blocchi innestati a zero (stessa valutazione, da verificare col bench). Dopo il salvataggio il
-// motore torna allo stato di prima.
-int nn_export_graft(unsigned mask, const char* path) {
-#ifdef TRIUMV_NO_GRAFTS
-    (void) mask, (void) path;
-    return 0;  // build senza blocchi da innesto
-#else
-    const unsigned was = nn_graft_mask;
-    nn_graft_mask      = mask;
-    const bool ok      = NET_REF.save(std::optional<std::string>(std::string(path)));
-    nn_graft_mask      = was;
-    return ok ? 1 : 0;
-#endif
-}
-
-int nn_export_pst(const char* path) { return NET_REF.save_pst(std::string(path)) ? 1 : 0; }
-
-int nn_graft_entries(unsigned mask, const unsigned long long* bb12, unsigned long long occ, unsigned short* out) {
-    return Eval::NNUE::Features::PawnGrafts::entries_of(mask, bb12, occ, reinterpret_cast<std::uint16_t*>(out));
-}
+// (nn_export_graft, nn_export_pst, nn_pst_indices e nn_graft_entries, per i blocchi da innesto: tolte il 10/10/2026,
+// codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 e nel repo del training, 04_consilium/graft_engine_storico.)
 
 void nn_init_tables(void) {
     Bitboards::init();
