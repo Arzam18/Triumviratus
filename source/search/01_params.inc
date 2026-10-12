@@ -257,7 +257,10 @@
   P(LmrTTMove, 2037, 0, 5000)                                                                             \
   P(CausalRed, 512, 0, 4096)             /* BAKE 10/10/2026 (era 0, vedi in testa): 1/1024 ply in piu' alle  \
                                             quiete fuori dalle case della confutazione di una sorella (13_search.inc,\
-                                            causal_mask; 0 = spenta) */                                             \
+                                            causal_mask; 0 = spenta). 12/10 sera, non-regressione a 10+0.1 HT    \
+                                            (tm42, CausalRed=0 contro 512): dal lato del bake -4,78 +- 9,12 su   \
+                                            1.528, fermata dall'utente; resta 512 e va nello SPSA EXP2 con       \
+                                            CausalRedDepth (forse rende solo a TC lungo/in profondita') */      \
   P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
   P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
