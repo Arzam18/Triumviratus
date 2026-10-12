@@ -29,6 +29,8 @@ struct NodeState {
   int  quiets[TRACKED], n_quiets;
   int  tacts[TRACKED], n_tacts;
   U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
+  int  causal_to, causal_agree;   // CausalAgree (AG1 P3): casa d'arrivo dell'ultima confutazione, conferme di fila
+  bool causal_null;               // CausalNull (AG1 P4): la maschera viene dalla mossa nulla fallita
   int  expert;                    // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
 };
 
@@ -39,6 +41,30 @@ struct NodeState {
 // parametri costanti a 0, il compilatore toglie anche il calcolo dell'esperto.
 static inline int by_expert(int e, int v0, int v1, int v2, int v3) {
   return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3;
+}
+
+// OppPasser* (AG1 P10, 12/10/2026, spente): l'avversario ha un pedone passato sulla 6a o 7a traversa relativa con la
+// casa davanti vuota? (a8 = 0: il bianco va verso la riga 0). La rete sottostima i passati nei finali, e RFP e mossa
+// nulla si fidano della valutazione statica proprio mentre il pedone corre.
+static inline bool opp_runner(const ThreadData &td) {
+  const int them = td.side ^ 1;
+  const U64 theirs = td.bitboards[them == white ? P : p], ours = td.bitboards[them == white ? p : P];
+  const U64 occ = td.occupancies[both];
+  U64 cand = theirs & (them == white ? 0x0000000000FFFF00ULL : 0x00FFFF0000000000ULL);
+  while (cand) {
+    const int sq = get_ls1b_index(cand);
+    pop_bit(cand, sq);
+    const int row = sq >> 3, col = sq & 7, front = them == white ? sq - 8 : sq + 8;
+    if ((occ >> front) & 1)
+      continue;
+    U64 files = 0x0101010101010101ULL << col;
+    if (col > 0) files |= 0x0101010101010101ULL << (col - 1);
+    if (col < 7) files |= 0x0101010101010101ULL << (col + 1);
+    const U64 ahead = them == white ? ((1ULL << (row * 8)) - 1) : ~((1ULL << ((row + 1) * 8)) - 1);
+    if (!(ours & files & ahead))
+      return true;
+  }
+  return false;
 }
 
 // CausalRed (09/10/2026, idea di giugno "potatura causale", riscritta sulla ricerca attuale). Quando una nostra mossa
@@ -414,6 +440,9 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (!n.pv && n.eval < n.alpha - RazorMul * n.depth * n.depth - (AN ? td.gd_razor : 0) && !(AN && n.crystal))
     return quiesce(td, f, n.alpha, n.beta, false);
 
+  // OppPasser* (AG1 P10, spente): esperti 0-1 e un passato avversario libero in 6a/7a.
+  const bool opp_run = (OppPasserRfp || OppPasserNmp) && n.expert <= 1 && opp_runner(td);
+
   // Valutazione abbastanza sopra beta: il nodo regge senza cercare.
   if (!f->tt_pv && n.depth < (n.hunt_mate ? 6 : e_rfp_max_depth(td)) && n.eval >= n.beta && (!n.h.move || n.tact_hash) &&
       !val_lost(n.beta) && !val_won(n.eval) && !(AN && n.crystal)) {
@@ -424,7 +453,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     mult += by_expert(n.expert, RfpExp0, RfpExp1, RfpExp2, RfpExp3);
     const int imp = RfpImproving * n.improving;
     const int margin = mult * n.depth - (imp + RfpOppWorse * n.opp_worse) * mult / 1024 +
-                       std::abs(n.signal) / RfpCorrDiv;
+                       std::abs(n.signal) / RfpCorrDiv + (opp_run ? OppPasserRfp : 0);
     if (n.eval - margin >= n.beta)
       return (RfpBetaWeight * n.beta + (1024 - RfpBetaWeight) * n.eval) / 1024;
   }
@@ -432,8 +461,13 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   // Mossa nulla: se anche passando la mano si resta sopra beta, il nodo taglia.
   const int non_pawn = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k]
                            ? 1 : 0;
-  if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
-      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n))) {
+  // NmpExp* (AG1 P8, spente): margine della nulla per esperto. OppPasserNmp (AG1 P10, spenta): niente nulla con un
+  // passato avversario che corre negli esperti 0-1.
+  if (n.cut &&
+      f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase +
+                            by_expert(n.expert, NmpExp0, NmpExp1, NmpExp2, NmpExp3) &&
+      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n)) &&
+      !(opp_run && OppPasserNmp)) {
     // DeepNmp in 1024-esimi di ply, arrotondato con 10 bit della chiave (fissi per posizione): a 0 il termine e' 0,
     // altrimenti una frazione |v|/1024 dei nodi riduce di un ply in piu' (o in meno) e lo SPSA ne vede la pendenza.
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
@@ -441,8 +475,16 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     NullUndo nu;
     step_in_null(td, f, nu);
     f[1].in_check = false;
+    if (CausalNull)
+      f[1].refute = 0;
     const int nv = -explore<AN>(td, f + 1, -n.beta, -n.beta + 1, n.depth - r, false, false);
     step_out_null(td, nu);
+    // CausalNull (AG1 P4, spenta): la mossa che confuta la nulla fallita (il taglio nel figlio) e' la minaccia del
+    // nodo; diventa la prima maschera causale, prima che una sorella fallisca. La scacchiera e' quella del nodo.
+    if (CausalNull && nv < n.beta && f[1].refute) {
+      n.causal = causal_mask(td, f[1].refute);
+      n.causal_null = true;
+    }
     if (nv >= n.beta && !val_won(nv)) {
       if (td.nmp_min_ply || n.depth < e_nmp_verify_depth(td))
         return nv;
@@ -467,7 +509,8 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.depth--;
 
   // Tagli con le catture: una cattura che supera beta di un margine anche a profondita' ridotta.
-  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving;
+  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving +
+                       by_expert(n.expert, PcExp0, PcExp1, PcExp2, PcExp3);   // PcExp* (AG1 P8, spente)
   if (n.depth >= 3 && !val_decided(n.beta) && !(val_known(n.h.value) && n.h.value < cut_beta)) {
     MoveQueue q;
     queue_start(q, td, f, n.h.move, n.depth, QK_CUTS);
@@ -611,7 +654,8 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   if (n.root || m != h.move || n.excluded || n.depth < 6 + f->tt_pv || !val_known(h.value) || val_decided(h.value) ||
       !bound_covers(h.bound, true) || h.bound == BOUND_UP || h.depth < n.depth - 3 || shuffles(td, f, m) || n.hunt_mate)
     return SING_SKIPPED;
-  const int s_beta = h.value - (SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
+  const int s_beta = h.value - (SingMarginBase + by_expert(n.expert, SingExp0, SingExp1, SingExp2, SingExp3) +   // SingExp* (AG1 P8)
+                                 (AN ? td.dz_sing : deep_term(td, DeepSing)) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
   const int s_depth = new_depth / 2;
   f->excluded = m;
   const int v = explore<AN>(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
@@ -718,6 +762,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (f->tt_pv)
       r += LmrTtPvAdd;
     r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
+    // EgCheckRed (AG1 P6, 12/10/2026, spenta): nei finali con <= 9 pezzi (esperto 0) gli scacchi quieti sono la difesa
+    // (torre da dietro, scacchi al re che appoggia il passato) e si riducono di meno. Prima di skip_move, cosi' tocca
+    // anche la profondita' ridotta della potatura.
+    if (EgCheckRed && gives && !tact && n.expert == 0)
+      r -= EgCheckRed;
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
     if (!passer && skip_move<AN>(td, f, n, q, m, tact, gives, r))
@@ -787,7 +836,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     else
       f->stat_score = (2252 * td.quiet_hist[us][quiet_key(m)] + 1126 * (*f[-1].cont_hist)[pc][to] +
-                       1093 * (*f[-2].cont_hist)[pc][to]) / 1024;
+                       1093 * (*f[-2].cont_hist)[pc][to]) / 1024 +
+                      (ExpHistLmrW ? ExpHistLmrW * td.exp_hist[n.expert][pc][to] / 1024 : 0);   // AG1 P9
+    // 12/10/2026 sera: il peso in stat_score e' separato (ExpHistLmrW) da quello dell'ordinamento (ExpHistW). G3 aveva
+    // ExpHistW 1024 su entrambi, insieme a KnowRed (-5,50 +- 8,62): si prova la storia per esperto solo nell'ordine.
     r -= f->stat_score * LmrStatDiv / 4096;
     if (!tact && !val_decided(n.alpha))
       r += 3 * std::clamp(n.alpha - n.eval, -64, 96);
@@ -805,9 +857,20 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (passer)
       r -= PassedPushRed;
     // CausalRed (0 = spenta): la quieta non tocca le case della confutazione di una sorella fallita bassa.
-    if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
-        !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal))
-      r += CausalRed;
+    // CausalRedDepth (AG1 P2): solo da quella profondita'. CausalAgree (AG1 P3): di piu' se le ultime confutazioni
+    // arrivano sulla stessa casa. CausalNull (AG1 P4): la maschera viene dalla mossa nulla fallita. Tutte spente.
+    if ((CausalRed || CausalNull) && n.causal && !tact && !gives && !passer && m != n.h.move &&
+        n.depth >= CausalRedDepth && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal))
+      r += n.causal_null ? CausalNull : CausalRed + CausalAgree * std::min(n.causal_agree, 2);
+    // KnowRed (AG1 P5, 12/10/2026, spenta): la conoscenza dell'ordinamento anche nella LMR. Meno riduzione alla quieta
+    // che prende un bonus (avamposto, attacco da casa sicura, spinta del passato), piu' riduzione fuori dalla PV al
+    // pedone che lascia lo scudo del re. Solo maschere (nessuna SEE): quelle di score_quiets.
+    if (q.know_ready && !tact && m != n.h.move) {
+      if ((q.know_good[pc % 6] >> to) & 1)
+        r -= KnowRedGood;
+      else if (!n.pv && ((q.know_shield >> move_from(m)) & 1))
+        r += KnowRedShield;
+    }
     // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
     // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
     if (gd_style && n.depth > 5 && f->ply > 1) {
@@ -852,8 +915,13 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 
     if (stop_threads.load(std::memory_order_relaxed))
       return 0;
-    if (CausalRed && !tact && value <= n.alpha && f[1].refute)
+    if (CausalRed && !tact && value <= n.alpha && f[1].refute) {
+      const int rt = move_to(f[1].refute);
+      n.causal_agree = (n.causal && !n.causal_null && rt == n.causal_to) ? n.causal_agree + 1 : 0;
+      n.causal_to = rt;
       n.causal = causal_mask(td, f[1].refute);
+      n.causal_null = false;
+    }
     if (n.root)
       root_record(td, n, m, value, td.nodes - nodes_before, n.moves);
 
@@ -867,7 +935,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           pv_extend(td, m);
         if (value >= n.beta) {
           f->cutoff_cnt += (ext < 2) || n.pv;
-          if (CausalRed)
+          if (CausalRed || CausalNull)
             f->refute = m;   // per il padre: la mossa che confuta la sua
           break;
         }
@@ -980,6 +1048,9 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
   n.causal = 0;
+  n.causal_to = -1;
+  n.causal_agree = 0;
+  n.causal_null = false;
   // LdseMax: estensioni Ldse sulla linea fino a qui. f->ldse torna a 0 finche' move_loop non estende una mossa, cosi'
   // i figli della mossa nulla e del probcut non ne ereditano una.
   f->ldse = 0;

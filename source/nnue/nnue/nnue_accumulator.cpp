@@ -73,6 +73,33 @@ static inline void v1_pass_of(const NnState& st, Bitboard* pb, Bitboard* pa) {
 
 using namespace SIMD;
 
+// HKA8 (12/10/2026, studio AG4): lettura di una riga HalfKA nel percorso vettoriale. Con -DTRIUMV_HKA8 la riga e' int8
+// (weights8, meta' dei byte) e il vettore k vale q allargato a int16 per la scala della riga (wscale); senza, e' la
+// riga int16 di sempre. HKA_ROW(idx, tileOff) prepara la riga, HKA_AT(riga, k) da' il k-esimo vettore del tile.
+#if defined(TRIUMV_HKA8) && defined(VECTOR)
+    #if defined(USE_AVX512)
+        #define HKA_MULLO_16(a, b) _mm512_mullo_epi16(a, b)
+        #define HKA_SET_16(a) _mm512_set1_epi16(a)
+    #elif defined(USE_AVX2)
+        #define HKA_MULLO_16(a, b) _mm256_mullo_epi16(a, b)
+        #define HKA_SET_16(a) _mm256_set1_epi16(a)
+    #else
+        #error "TRIUMV_HKA8: solo AVX2 e AVX-512"
+    #endif
+struct HkaRow {
+    const vec_i8_t* p;
+    vec_t           s;
+};
+    #define HKA_ROW(ft, idx, tileOff) \
+        HkaRow{reinterpret_cast<const vec_i8_t*>(&(ft).weights8[usize(idx) * (ft).OutputDimensions + (tileOff)]), \
+               HKA_SET_16((ft).wscale[usize(idx)])}
+    #define HKA_AT(r, k) HKA_MULLO_16(vec_convert_8_16((r).p[k]), (r).s)
+#else
+    #define HKA_ROW(ft, idx, tileOff) \
+        reinterpret_cast<const vec_t*>(&(ft).weights[usize(idx) * (ft).OutputDimensions + (tileOff)])
+    #define HKA_AT(r, k) ((r)[k])
+#endif
+
 namespace {
 
 // 07/10/2026 (scacchiera unica v2): una transizione della catena e' una coppia (accumulatore, stato) per parte; lo
@@ -415,10 +442,9 @@ void apply_combined(Color                              perspective,
 
         for (int i = 0; i < psqRemoved.ssize(); ++i)
         {
-            auto* row =
-              reinterpret_cast<const vec_t*>(&psqWeights[psqRemoved[i] * Dimensions + tileOff]);
+            const auto row = HKA_ROW(featureTransformer, psqRemoved[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], row[k]);
+                acc[k] = vec_sub_16(acc[k], HKA_AT(row, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -430,10 +456,9 @@ void apply_combined(Color                              perspective,
 
         for (int i = 0; i < psqAdded.ssize(); ++i)
         {
-            auto* row =
-              reinterpret_cast<const vec_t*>(&psqWeights[psqAdded[i] * Dimensions + tileOff]);
+            const auto row = HKA_ROW(featureTransformer, psqAdded[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], row[k]);
+                acc[k] = vec_add_16(acc[k], HKA_AT(row, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -574,8 +599,14 @@ void apply_combined(Color                              perspective,
 inline void prefetch_psq_rows(const FeatureTransformer&       featureTransformer,
                               const PSQFeatureSet::IndexList& a,
                               const PSQFeatureSet::IndexList& b) {
+#if defined(TRIUMV_HKA8) && defined(VECTOR)
+    // HKA8: le righe lette sono quelle int8 (1 KB)
+    constexpr usize RowBytes = usize(FeatureTransformer::OutputDimensions);
+    const char*     base     = reinterpret_cast<const char*>(&featureTransformer.weights8[0]);
+#else
     constexpr usize RowBytes = usize(FeatureTransformer::OutputDimensions) * sizeof(WeightType);
     const char*     base     = reinterpret_cast<const char*>(&featureTransformer.weights[0]);
+#endif
 
     // ⛔ 05/10/2026 — PROVATO E TOLTO (H): due prefetch fissi per lista (prima e ultima voce: le liste incrementali
     // hanno 1 o 2 voci) al posto dei due cicli a conteggio variabile. xperf 6 giri, nodi identici: istruzioni +0,27%,
@@ -1248,10 +1279,9 @@ void update_accumulator_hybrid(Color                     perspective,
                     psqt[k] = oldBasePsqt[k];
             for (int i = 0; i < oldRemove.ssize(); ++i)
             {
-                auto* column =
-                  reinterpret_cast<const vec_t*>(&weights[oldRemove[i] * Dimensions + tileOff]);
+                const auto column = HKA_ROW(featureTransformer, oldRemove[i], tileOff);
                 for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                    acc[k] = vec_sub_16(acc[k], column[k]);
+                    acc[k] = vec_sub_16(acc[k], HKA_AT(column, k));
                 if constexpr (WithPsqt)
                 {
                     auto* columnPsqt =
@@ -1262,10 +1292,9 @@ void update_accumulator_hybrid(Color                     perspective,
             }
             for (int i = 0; i < oldAdd.ssize(); ++i)
             {
-                auto* column =
-                  reinterpret_cast<const vec_t*>(&weights[oldAdd[i] * Dimensions + tileOff]);
+                const auto column = HKA_ROW(featureTransformer, oldAdd[i], tileOff);
                 for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                    acc[k] = vec_add_16(acc[k], column[k]);
+                    acc[k] = vec_add_16(acc[k], HKA_AT(column, k));
                 if constexpr (WithPsqt)
                 {
                     auto* columnPsqt =
@@ -1290,10 +1319,9 @@ void update_accumulator_hybrid(Color                     perspective,
                 psqt[k] = newBasePsqt[k];
         for (int i = 0; i < newRemove.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[newRemove[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, newRemove[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], column[k]);
+                acc[k] = vec_sub_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -1304,10 +1332,9 @@ void update_accumulator_hybrid(Color                     perspective,
         }
         for (int i = 0; i < newAdd.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[newAdd[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, newAdd[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], column[k]);
+                acc[k] = vec_add_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -1346,10 +1373,9 @@ void update_accumulator_hybrid(Color                     perspective,
         //    stiamo togliendo l'HalfKA precedente, non aggiungendolo.
         for (int i = 0; i < oldRemove.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[oldRemove[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, oldRemove[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], column[k]);
+                acc[k] = vec_add_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -1360,10 +1386,9 @@ void update_accumulator_hybrid(Color                     perspective,
         }
         for (int i = 0; i < oldAdd.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[oldAdd[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, oldAdd[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], column[k]);
+                acc[k] = vec_sub_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -1601,10 +1626,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
 
         for (int i = 0; i < removed.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[removed[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, removed[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], column[k]);
+                acc[k] = vec_sub_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =
@@ -1615,10 +1639,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
         }
         for (int i = 0; i < added.ssize(); ++i)
         {
-            auto* column =
-              reinterpret_cast<const vec_t*>(&weights[added[i] * Dimensions + tileOff]);
+            const auto column = HKA_ROW(featureTransformer, added[i], tileOff);
             for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], column[k]);
+                acc[k] = vec_add_16(acc[k], HKA_AT(column, k));
             if constexpr (WithPsqt)
             {
                 auto* columnPsqt =

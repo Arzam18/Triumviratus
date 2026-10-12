@@ -397,6 +397,31 @@
   P(LmrExp2, -6, -1536, 1536)            /* [EXP1 0->-6] */                                               \
   P(LmrExp3, 101, -1536, 1536)           /* [EXP1 0->101] */                                              \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
+  /* Proposte dell'agente AG1 (12/10/2026, docs/audit_8.0/AG1_RICERCA_IDEE_20261012.md), tutte SPENTE (albero       \
+     invariato). P2 CausalRedDepth; P3 CausalAgree; P4 CausalNull; P5 KnowRed*; P6 EgCheckRed; P8 Nmp/Sing/PcExp*;    \
+     P9 ExpHistW; P10 OppPasser*. */                                                                                  \
+  P(CausalRedDepth, 0, 0, 16)            /* P2: CausalRed solo da questa profondita' in su              */ \
+  P(CausalAgree, 0, 0, 2048)             /* P3: 1/1024 ply in piu' per sorella confutata sulla stessa casa */ \
+  P(CausalNull, 0, 0, 2048)              /* P4: riduzione dalla confutazione della nulla fallita (1/1024) */ \
+  P(KnowRedGood, 0, 0, 2048)             /* P5: meno LMR alla quieta con un bonus di conoscenza (1/1024) */ \
+  P(KnowRedShield, 0, 0, 2048)           /* P5: piu' LMR al pedone che lascia lo scudo del re, non PV    */ \
+  P(EgCheckRed, 0, 0, 3072)              /* P6: meno LMR agli scacchi quieti con l'esperto 0 (<= 9 pezzi) */ \
+  P(NmpExp0, 0, -400, 400)               /* P8: margine della nulla per esperto (si somma a NmpBase)     */ \
+  P(NmpExp1, 0, -400, 400)                                                                                \
+  P(NmpExp2, 0, -400, 400)                                                                                \
+  P(NmpExp3, 0, -400, 400)                                                                                \
+  P(SingExp0, 0, -60, 60)                /* P8: margine della singolare per esperto (a SingMarginBase)    */ \
+  P(SingExp1, 0, -60, 60)                                                                                 \
+  P(SingExp2, 0, -60, 60)                                                                                 \
+  P(SingExp3, 0, -60, 60)                                                                                 \
+  P(PcExp0, 0, -200, 200)                /* P8: margine del ProbCut per esperto (a ProbCutMargin)         */ \
+  P(PcExp1, 0, -200, 200)                                                                                 \
+  P(PcExp2, 0, -200, 200)                                                                                 \
+  P(PcExp3, 0, -200, 200)                                                                                 \
+  P(ExpHistW, 0, 0, 4096)                /* P9: peso della storia per esperto nell'ORDINAMENTO (1/1024)   */ \
+  P(ExpHistLmrW, 0, 0, 4096)             /* P9: peso della stessa storia in stat_score (LMR), 12/10 sera  */ \
+  P(OppPasserRfp, 0, 0, 400)             /* P10: margine RFP in piu' con un passato avversario in 6a/7a   */ \
+  P(OppPasserNmp, 0, 0, 1)               /* P10: niente nulla in quel caso (esperti 0-1)                  */ \
   /* PULIZIA 11/10/2026 sera (utente: "pulisci il codice se siamo sicuri di togliere delle cose, documentando il     \
      tentativo"): opzioni CHIUSE e spente, tolte con il loro ramo; a opzioni spente l'albero era identico (bench       \
      325747 prima e dopo). Codice in _backup/Triumviratus_8.0_pre_pulizia_2026-10-11. Tentativi e misure:             \

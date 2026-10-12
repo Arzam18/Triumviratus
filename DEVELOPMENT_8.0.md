@@ -2058,6 +2058,73 @@ Two engines on one core cost about 1.6 plies at 5 s. A test at 10+0.1 with one e
 ideas are tested at half the time control without hyperthreading; time-management levers keep their own time
 control (the plan uses the absolute clock), also without hyperthreading.
 
+## 46. Proposals from three analysis agents, a split accumulator, and 8-bit HalfKA weights (12 October 2026, evening)
+
+Three read-only agents studied the search, the speed and the time management (reports in `docs/audit_8.0`, Italian).
+Their search proposals were added to the code as options, all off by default (bench 221809 unchanged), and tested in
+groups to save machine time.
+
+### 46.1 Search proposals
+
+| test | levers | condition | games | Elo | outcome |
+|---|---|---|---:|---:|---|
+| G3 | `KnowRedGood=512`, `KnowRedShield=256` (ordering knowledge in the reduction), `ExpHistW=1024` (a history per network expert, in ordering and in the reduction) | 12+0.12 UHO, hyperthreading | 1,642 | −5.50 ± 8.62 | stopped, split |
+| KnowRed alone | `KnowRedGood=256`, `KnowRedShield=256` | 12+0.12 UHO, hyperthreading | 688 | −13.64 ± 13.56 | closed |
+| G2 | `CausalAgree=384` (more reduction when sibling refutations land on the same square), `CausalNull=1024` (the failed null move's refutation as the first causal mask) | 10+0.1 UHO, one engine per core | 886 | −5.88 ± 11.73 | stopped, split |
+| `CausalAgree=384` alone | | 10+0.1 UHO, one engine per core | about 750 | −3.14 ± 12.35 | to the next SPSA |
+| G4 | `EgCheckRed=1024` (quiet checks reduced less with nine pieces or fewer), `OppPasserRfp=100`, `OppPasserNmp=1` (caution against an opponent's free passer on the 6th or 7th rank) | 10+0.1 endgames, no draw adjudication, hyperthreading | about 6,000 | −0.29 ± 2.81 | neutral |
+| History per expert, ordering only | `ExpHistW=1024`, with the new `ExpHistLmrW=0` | 10+0.1 UHO, one engine per core | about 5,000 | −1.66 ± 4.64 | neutral, to the next SPSA |
+| `CorrContOppW=4011` (the author's idea) | all runs at 8 s or more pooled | 8–12 s UHO | about 13,300 | +0.57 ± 3.02 | neutral, to the correction SPSA |
+
+KnowRed gives a smaller reduction to moves that already received an ordering bonus. Those moves leave the queue early
+and are reduced less by their move number alone, so the bonus counts twice; it lost at both weights. The history per
+expert has two weights since this evening: `ExpHistW` in move ordering and `ExpHistLmrW` in the reduction score, which
+was tuned without such a term. The levers that are neutral at a fixed value go into one SPSA run together with the
+per-expert margins of EXP1 and new per-expert offsets for the null move, singular extension and ProbCut.
+
+### 46.2 A split accumulator, closed
+
+One agent proposed to split the accumulator of each perspective into a HalfKA part and a threat part (threats and
+pawn blocks), summed before the clamp. The threat part would then survive king moves on the same half of the board
+and changes of expert, which today force a refresh. The tree is identical (wrapping 16-bit sums). Measured with
+hardware counters on deterministic PGO builds, identical nodes:
+
+| variant | instructions per node | cycles per node |
+|---|---:|---:|
+| split, first version | +0.03% | **+12.1%** middlegame, +12.0% endgames |
+| sum inside the transform, lists built before the updates | | about +6% wall time, no change |
+| H and T updated tile by tile, padding against 4 KB aliasing | +3% | +17.8% / +12.3% |
+
+Instructions do not change but the instructions per cycle fall from 1.50 to 1.33: every incremental update reads and
+writes two vectors instead of one, at every node, while the saving exists only for full refreshes whose parent is not
+computed (the hybrid update of Stockfish db98633b covers the other cases). The agent's estimate (+0.7 to 1% of cost)
+counted operations and missed the doubled memory traffic. Closed; the code was never merged.
+
+### 46.3 Where the engine waits for memory
+
+Sampling with xperf on a PGO build with symbols (middlegame positions) attributes 47% of the last-level cache misses
+to the incremental accumulator update, 11% to refreshes from the finny table and 8% to the hybrid update; corrections,
+move ordering and the hash table together stay below 5%. The memory cost of the engine is the network's weight rows.
+In the accumulator update, HalfKA rows (16-bit) and threat rows (already 8-bit) account for similar shares.
+
+### 46.4 HalfKA weights in 8 bits
+
+A fourth agent checked whether the HalfKA weights of Consilium fit in 8 bits: 1.65% of the live weights lie outside
+±127 (maximum 909), so no lossless form exists. The best lossy scheme, an integer scale per row (`s·q`, `q` in ±127),
+adds about 16 internal units of evaluation error on average (about 4 cp; the existing quantization noise is 10.9).
+Expected gain: 23% fewer weight lines read per node.
+
+| test | condition | games | Elo |
+|---|---|---:|---:|
+| Precision only: the network with HalfKA rows rounded as `s·q`, still 16-bit, through `EvalFile` | 5+0.05 UHO, hyperthreading | 3,124 | +2.78 ± 6.49 |
+| 8-bit path (`-DTRIUMV_HKA8`), same rounded network, against the 16-bit build | 15+0.15 UHO, hyperthreading | 222 | −20.4 ± 23.8 |
+
+The precision loss is small. The 8-bit path in the engine (rows widened to 16 bits and multiplied by the row scale,
+one `vpmullw` per vector) gives the same bench as the 16-bit build with the rounded network, so it is exact, but it
+reached 0.2 to 0.5 plies less depth: the multiplication costs more than the halved row bandwidth saves. The code stays
+in the source behind the macro, off by default. To be resumed after an identical-tree speed test, with power-of-two
+row scales (a shift instead of a multiplication), or with weight clipping in the next training.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -2150,4 +2217,13 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | `HashNearMiss=137`, fixed build | 18, 45 | 8+0.08 UHO | 584 | −12.5 ± 14.4 | closed |
 | `TransitionExt`, fixed build | 45 | 8+0.08 endgames, no adjudication | 2,234 | +0.16 ± 4.79 | closed |
 | `NullThreatExt=1070`, rewritten | 45 | 8+0.08 UHO | about 5,900 | −0.42 ± 4.52 | closed |
+| Ordering knowledge in the reduction + history per expert (G3) | 46 | 12+0.12 UHO | 1,642 | −5.50 ± 8.62 | split |
+| Ordering knowledge in the reduction alone (`KnowRed`) | 46 | 12+0.12 UHO | 688 | −13.64 ± 13.56 | closed |
+| `CausalAgree` + `CausalNull` (G2) | 46 | 10+0.1 UHO | 886 | −5.88 ± 11.73 | to the SPSA |
+| `CausalAgree=384` alone | 46 | 10+0.1 UHO | about 750 | −3.14 ± 12.35 | to the SPSA |
+| Quiet checks in endgames + opponent's free passer (G4) | 46 | 10+0.1 endgames, no draw adjudication | about 6,000 | −0.29 ± 2.81 | neutral |
+| History per network expert, ordering only (`ExpHistW=1024`) | 46 | 10+0.1 UHO | about 5,000 | −1.66 ± 4.64 | to the SPSA |
+| `CorrContOppW=4011`, all runs at 8 s or more | 45, 46 | 8–12 s UHO | about 13,300 | +0.57 ± 3.02 | neutral, to the SPSA |
+| HalfKA rows rounded to an 8-bit form, precision only | 46 | 5+0.05 UHO | 3,124 | +2.78 ± 6.49 | small loss |
+| 8-bit HalfKA path (`-DTRIUMV_HKA8`) | 46 | 15+0.15 UHO | 222 | −20.4 ± 23.8 | slower, off |
 | Persistent threads and a ponder wait without sleeps (tree identical) | 45 | latency measures | | ponderhit 12.3 → 0.36 ms | adopted |

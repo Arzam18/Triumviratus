@@ -174,6 +174,7 @@ struct ThreadData {
     int16_t    quiet_hist[2][QH_SIZE];
     int16_t    low_ply_hist[LOW_PLY_SIZE][QH_SIZE];
     int16_t    capt_hist[12][64][7];
+    int16_t    exp_hist[4][12][64];   // ExpHistW (12/10/2026, AG1 P9): storia pezzo-casa per esperto della rete
     PieceToRow cont_corr[NO_PC + 1][64];
     int        tt_move_hist;
 

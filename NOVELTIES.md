@@ -66,7 +66,7 @@ experts of the network.
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
 | Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
-| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05 | off, to be measured at a longer time control |
+| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral** | off; its weight goes into the next correction tuning run |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
@@ -300,7 +300,10 @@ divided by phase.
 - **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** Next to the continuation pairs
   built on our own moves, the pair of the opponent's two last moves. The cells carry information (correlation +0.24
   with the residual error), but −5.2 ± 12.7 (742) at the existing weight and −4.8 ± 8.7 (1,806) at the regression
-  weight. Stockfish and Reckless use only pairs with our moves. **New**, off, waiting for a tuning run.
+  weight. Stockfish and Reckless use only pairs with our moves. After the input/output fix of 12 October 2026 it was
+  measured again at the existing weight: at 5+0.05 the table stays too sparse (−8.0 ± 7.7), and all runs at 8 seconds
+  or more pooled give +0.6 ± 3.0 over about 13,300 games, so the idea is neutral at a fixed weight. **New**, off; the
+  weight enters the next tuning run of the corrections, which can also find a smaller value.
 - **`Mobility` input block, 8.0 development.** One feature per knight, bishop, rook and queen (oriented square and four
   mobility buckets, 2,048 inputs). Only its cost was measured, with random weights: −16.2% NPS, because mobility
   changes with every move. Archived on 29 September 2026 without training. No network of the nine engines has

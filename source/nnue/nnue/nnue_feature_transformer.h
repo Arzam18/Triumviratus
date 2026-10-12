@@ -266,9 +266,53 @@ class FeatureTransformer {
         }
 
         permute_weights();
+#ifdef TRIUMV_HKA8
+        build_hka8();
+#endif
 
         return !stream.fail();
     }
+
+#ifdef TRIUMV_HKA8
+    // HKA8 (12/10/2026, studio AG4, docs/audit_8.0/AG4_HALFKA_INT8_20261012.md): righe HalfKA in int8 con una scala
+    // intera per riga (1..8), w = s*q, q in [-127, 127]. Il percorso vettoriale legge q (meta' dei byte) e moltiplica per
+    // s dopo l'allargamento a int16. Con una rete gia' riquantizzata (make_requant_net.py, schema Ropt) ogni riga e'
+    // esatta e l'albero e' quello del motore int16 con la stessa rete. Una riga non rappresentabile (rete originale) si
+    // arrotonda con s = ceil(max|w|/127) e la riga int16 si riscrive con s*q, cosi' i percorsi rimasti in int16 (scalare,
+    // verifiche) vedono gli stessi valori. Dopo la permutazione: q[i] corrisponde a weights[i] elemento per elemento.
+    usize hka8_lossy_rows = 0;
+    void build_hka8() {
+        hka8_lossy_rows = 0;
+        for (usize r = 0; r < PSQFeatureSet::Dimensions; ++r)
+        {
+            WeightType* w      = &weights[r * HalfDimensions];
+            int         maxabs = 0;
+            for (IndexType j = 0; j < HalfDimensions; ++j)
+                maxabs = std::max(maxabs, std::abs(int(w[j])));
+            int s = 0;
+            for (int c = std::max(1, (maxabs + 126) / 127); c <= 8 && !s; ++c)
+            {
+                bool ok = true;
+                for (IndexType j = 0; j < HalfDimensions && ok; ++j)
+                    ok = int(w[j]) % c == 0;
+                if (ok)
+                    s = c;
+            }
+            if (!s)
+            {
+                s = std::max(1, (maxabs + 126) / 127);
+                hka8_lossy_rows++;
+            }
+            wscale[r] = WeightType(s);
+            for (IndexType j = 0; j < HalfDimensions; ++j)
+            {
+                const int q = std::clamp(int(std::lround(double(w[j]) / s)), -127, 127);
+                weights8[r * HalfDimensions + j] = std::int8_t(q);
+                w[j]                             = WeightType(q * s);
+            }
+        }
+    }
+#endif
 
     // Write network parameters
     bool write_parameters(std::ostream& stream) const {
@@ -520,6 +564,10 @@ class FeatureTransformer {
     alignas(CacheLineSize) std::array<BiasType, HalfDimensions> biases;
     alignas(
       CacheLineSize) std::array<WeightType, HalfDimensions * PSQFeatureSet::Dimensions> weights;
+#ifdef TRIUMV_HKA8
+    alignas(CacheLineSize) std::array<std::int8_t, HalfDimensions * PSQFeatureSet::Dimensions> weights8;
+    alignas(CacheLineSize) std::array<WeightType, PSQFeatureSet::Dimensions>                  wscale;
+#endif
     // TRANN1 folded: [0, ThreatDims) = threats, [ThreatDims, ThreatDims+PawnDims) = pawn-pair
     alignas(CacheLineSize)
       std::array<ThreatWeightType, HalfDimensions * ThreatRowsTotal> threatWeights;
