@@ -163,6 +163,15 @@ static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
   return td.gd_heat + (npm > 2000) + (n.depth > 8) + (n.depth > 12) >= 4;
 }
 
+// TransitionExt: la cattura lascia all'avversario solo re e pedoni?
+static inline bool leaves_pawns_only(const ThreadData &td, int m) {
+  if (!get_move_capture(m) || get_move_enpassant(m))
+    return false;
+  const int them = td.side ^ 1, eoff = them == white ? 0 : 6;
+  const U64 their_pieces = td.occupancies[them] & ~td.bitboards[P + eoff] & ~td.bitboards[K + eoff];
+  return their_pieces == (1ULL << move_to(m));
+}
+
 // Controllo del tempo e dei limiti (solo il thread 0, ogni 512 nodi).
 static int g_poll_countdown = 0;
 static void poll_limits(ThreadData &td) {
@@ -275,6 +284,12 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   const bool enough = h.depth > need;
   // HashNearMiss (Coda: entry un ply piu' corta che taglia oltre un margine) TOLTA il 05/10/2026: -6,7 +- 10,6 su
   // 1.142 partite a 20+0.2 nella versione migliore (solo verso il basso, nodi non-cut); STATO_PROGETTO.md §3.
+  // RIMESSA SPENTA il 12/10/2026 per il ripescaggio dopo il fix di I/O e orologio (allora socket 0 0,0, socket 1
+  // -15,6). Versione migliore del 05/10, ricostruita: un ply sotto il necessario per quel lato (h.depth == need),
+  // solo limite superiore sotto alpha di un margine, solo fuori dai nodi cut. 0 = spenta, albero invariato.
+  if (HashNearMiss && !enough && !n.pv && !n.cut && !n.excluded && h.depth == need && td.fifty < 90 &&
+      h.bound == BOUND_UP && val_known(h.value) && !val_decided(h.value) && h.value + HashNearMiss <= n.alpha)
+    return h.value + HashNearMiss;
   if (n.pv || n.excluded || !enough || !val_known(h.value))
     return NO_VALUE;
   const bool high = h.value >= n.beta;
@@ -436,7 +451,13 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
       td.nmp_min_ply = 0;
       if (v >= n.beta)
         return nv;
-    }
+    } else if (NullThreatExt && nv < n.beta - NullThreatExt && !val_decided(nv) && td.ply < 2 * td.root_depth)
+      // NullThreatExt (idea del 28/09/2026 sulla ricerca della 7.x, estensione per minaccia alla Botvinnik-Markoff;
+      // RISCRITTA il 12/10/2026 sulla ricerca nuova): la valutazione statica bastava per tentare la nulla, ma passando
+      // la mano si crolla di oltre NullThreatExt (nv e' un limite superiore, fail-soft). C'e' una minaccia che la LMR
+      // rischia di vedere tardi: il nodo si cerca un ply piu' a fondo. Una volta per nodo, solo per ply < 2 x la
+      // profondita' di radice. Allora +2,75 +- 5,5 su 7.070 a 10+0.1 (300 cp), mai concluso. 0 = spenta.
+      n.depth++;
   }
 
   n.improving |= f->static_eval >= n.beta;
@@ -709,6 +730,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     const bool sing_skipped = ext == SING_SKIPPED;
     if (sing_skipped)
       ext = 0;
+    // TransitionExt (idea 13, 04/10/2026; RIMESSA SPENTA il 12/10/2026 per il ripescaggio dopo il fix di I/O e
+    // orologio): la cattura che lascia all'avversario solo re e pedoni si estende di un ply. Allora +1,38 +- 4,31
+    // (lean) e -18,2 +- 16,4 su 402. 0 = spenta, albero invariato.
+    if (TransitionExt && ext == 0 && tact && n.depth >= 4 && leaves_pawns_only(td, m))
+      ext = 1;
     // LDSE (nostra, 05/10/2026; l'idea e' in Reckless e Stormphrax): a profondita' bassa, dove la singolare non si
     // prova, la mossa hash con limite inferiore o esatto si estende di un ply se la valutazione statica sta sotto
     // alpha di LdseMargin. La hash dice che quella mossa ha tenuto un valore, l'eval dice che la posizione e' brutta:

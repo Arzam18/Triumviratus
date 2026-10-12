@@ -92,6 +92,7 @@ are recorded too, with their numbers.
 | **Consilium**, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 | pre-releases of 10–12 October: move ordering with chess knowledge, the causal reduction, rules from Stockfish 19, time management in defence | +11.9 ± 7.2 against the 9 October pre-release, then each change by SPRT |
+| development code of 12 October: a hand brake present since 3.0 removed (unbuffered output, a 15.6 ms clock), persistent threads | **+29.8 ± 7.4** at 5+0.05, identical search tree; not yet in a pre-release |
 
 8.0 is also the first version to support **Chess960**.
 

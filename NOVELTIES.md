@@ -50,7 +50,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 52 entries, **10 are new**, **26 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 54 entries, **11 are new**, **27 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network.
@@ -61,11 +61,12 @@ experts of the network.
 | `PassedPawns` input block (96 inputs) | New | 6.0 | **+6.96 ± 6.56** (15+0.15, 2,596), network alone | in every network since 6.0 |
 | Passed-pawn blocks with relations, grafted on Consilium: `PassedRel` (rows added to `PassedPawns`) and `PassedState` (replaces it, one row per passer in one of 100 states) | New | 8.0 dev | `PassedRel` +1.8 ± 4.1 (20+0.2 endgames, 2,484); `PassedState` −2.1 ± 3.7 trained alone, +3.3 ± 5.0 with the layers after the accumulator (60k nodes, endgames); on ordinary games against a build without grafts `PassedRel` −2.9 ± 7.5 (2,034), `PassedState` −4.8 to −16.5 | closed, not in 8.0; engine cost 2 to 3% of cycles per node |
 | Correction history per expert (`CorrPhase`) | New in its form | 8.0 | **+3.2 ± 3.8** (12+0.12, 8,634) | adopted |
+| Search margins per expert (`RfpExp`, `FutExp`, `LmrExp`) | New in its form | 8.0 | +1.6 ± 4.3 (6,562, three tests); tree −2 to −6% at fixed depth | adopted, tuning continues |
 | Knight outposts in move ordering (`OutpostOrder`) | New | 8.0 | +0.21 ± 3.93 (10+0.1, 8,244) at a hand-set value | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
 | Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
-| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24 | off, in a tuning queue |
+| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05 | off, to be measured at a longer time control |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
@@ -94,6 +95,7 @@ experts of the network.
 | `TalStyle`, root switch to verified sacrifices | Revisited | 8.0 dev | −40 ± 18 (388) | removed |
 | Move-ordering rank by mask and popcount, 16 moves at a time | Revisited | 8.0 | −0.70% cycles per node (AVX-512) | adopted |
 | Causal reduction (`CausalRed`): more reduction for quiet moves away from the squares of a sibling's refutation | Revisited | 8.0 | +4.27 ± 4.13 (6,594) | adopted (512) |
+| Threat extension from a failed null move (`NullThreatExt`, Botvinnik-Markoff): our form is a margin on how far the null move falls below beta, once per node, up to twice the root depth | Revisited | 7.x, 8.0 | +2.75 ± 5.5 (7,070, 7.x search); −0.42 ± 4.52 (about 5,900, 8.0 search) | closed |
 | Policy network inside the alpha-beta search | Elsewhere first | 3.1 | −85, −30.56 ± 21.9, −46.89, −22.83 | closed |
 | `DiverseSMP`, LMR bias per helper thread | Elsewhere first (Reckless) | 3.5, 6.0 | +4.91 ± 7.97 at 8 threads (1,700) | in 6.0 and 7.0 |
 | TMv2 multiplicative time manager | Elsewhere first (Alexandria, Caissa) | 6.0 | +23.8 ± 18.2 at 20+0.2 (380) | in 6.0 and 7.0 |
@@ -211,6 +213,17 @@ the pawn and minor-piece corrections by material band, so that each structure is
 expert of the network.
 
 **Category.** New in its form, and tied to Consilium; corrections conditioned on material alone are known.
+
+**The search margins per expert.** The same idea, applied to the search: the reverse futility multiplier, the quiet
+futility margin and the late-move reduction each get an offset per expert of the network (`RfpExp0-3`, `FutExp0-3`,
+`LmrExp0-3`, the four material bands of Consilium), so that each phase of the game is pruned with its own margins.
+An SPSA (EXP1) moved mainly the reductions of two experts, by about a tenth of a ply; the other offsets stayed near
+zero. Three SPRTs of the tuned values against zero offsets give +1.6 ± 4.3 over 6,562 games, and the tree at fixed
+depth shrinks by 2 to 6%. The measure does not exclude zero. The values were adopted on 12 October 2026 because the
+offsets per expert are part of the design, a structure we want to keep and to tune further: the SPSA ran with
+hyperthreading and with the old clock (DEVELOPMENT_8.0 §45), and a new SPSA will continue from these values.
+Search parameters conditioned on game phase or material exist in many engines; tying them to the expert of the
+network that evaluates the position was not found elsewhere. **New in its form**, like `CorrPhase`.
 
 ## 4. Move ordering with chess knowledge
 

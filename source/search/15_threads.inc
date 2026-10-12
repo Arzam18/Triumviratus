@@ -1,23 +1,87 @@
 // search/15_threads.inc -- Avvio e arresto della ricerca, mosse di radice, scelta del thread, bestmove.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
 
+#include <condition_variable>
+#include <functional>
+
+// Thread persistenti (12/10/2026). Prima ogni "go" creava un thread per la ricerca principale e uno per ogni helper,
+// e alla fine li univa: 1-2 ms a mossa con 4-8 thread (misura costi_infrastruttura.py, SF19 tiene i thread vivi).
+// Ora ogni thread nasce una volta e aspetta il lavoro su una condition variable. Gli oggetti non vengono mai
+// distrutti (il thread e' staccato): all'uscita del processo il sistema chiude i thread fermi in attesa.
+struct SearchWorker {
+  std::mutex m;
+  std::condition_variable cv;
+  std::function<void()> job;
+  bool busy = false;
+  std::thread th;
+  SearchWorker() : th([this] { loop(); }) { th.detach(); }
+  void loop() {
+    for (;;) {
+      std::function<void()> j;
+      {
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [this] { return (bool)job; });
+        j = std::move(job);
+        job = nullptr;
+      }
+      j();
+      {
+        std::lock_guard<std::mutex> lk(m);
+        busy = false;
+      }
+      cv.notify_all();
+    }
+  }
+  void run(std::function<void()> f) {
+    {
+      std::lock_guard<std::mutex> lk(m);
+      busy = true;
+      job = std::move(f);
+    }
+    cv.notify_all();
+  }
+  void wait() {
+    std::unique_lock<std::mutex> lk(m);
+    cv.wait(lk, [this] { return !busy; });
+  }
+};
+static SearchWorker *g_master_worker = nullptr;
+static std::vector<SearchWorker *> g_helper_workers;   // helper i = g_helper_workers[i - 1]
+
+// Attesa di stop o ponderhit (12/10/2026): prima un ciclo di sleep da 1 ms, che su Windows dura fino a 15,6 ms (grana
+// del timer), quindi la bestmove dopo un ponderhit poteva partire con ~15 ms di ritardo. Ora una condition variable,
+// svegliata da stop_search_threads e ponder_hit. Chi cambia i flag prende il mutex prima di notificare: cosi' chi
+// aspetta o non ha ancora controllato il predicato o sta gia' dormendo, e la sveglia non si perde.
+static std::mutex g_release_m;
+static std::condition_variable g_release_cv;
+static void notify_release() {
+  { std::lock_guard<std::mutex> lk(g_release_m); }
+  g_release_cv.notify_all();
+}
+static void wait_release() {
+  std::unique_lock<std::mutex> lk(g_release_m);
+  g_release_cv.wait(lk, [] {
+    return !((g_limits.infinite || g_pondering.load(std::memory_order_acquire)) &&
+             !g_uci_stop.load(std::memory_order_relaxed));
+  });
+}
+
 void stop_search_threads() {
   g_uci_stop.store(true, std::memory_order_relaxed);
   stop_threads.store(true, std::memory_order_relaxed);
+  notify_release();
 }
 
 void wait_for_threads() {
-  for (auto &t : search_threads)
-    if (t.joinable())
-      t.join();
-  search_threads.clear();
+  for (int i = 1; i < num_threads && i <= (int)g_helper_workers.size(); i++)
+    g_helper_workers[i - 1]->wait();
 }
 
-std::thread search_master;
+std::thread search_master;   // non piu' usato (thread persistenti, sopra); resta per threads.h
 
 void wait_for_search_done() {
-  if (search_master.joinable())
-    search_master.join();
+  if (g_master_worker)
+    g_master_worker->wait();
 }
 
 // La ricerca gira su un thread a parte, cosi' il ciclo UCI resta libero per stop, ponderhit e isready.
@@ -46,7 +110,9 @@ void launch_search(int depth) {
   g_uci_stop.store(false, std::memory_order_relaxed);
   g_stop_at_ponderhit.store(false, std::memory_order_relaxed);
   g_pondering.store(g_limits.ponder, std::memory_order_relaxed);
-  search_master = std::thread(search_position_mt, depth);
+  if (!g_master_worker)
+    g_master_worker = new SearchWorker();
+  g_master_worker->run([depth] { search_position_mt(depth); });
 }
 
 // L'avversario ha giocato la mossa prevista: la ricerca diventa normale. Se il tempo era gia' finito, si muove.
@@ -56,6 +122,7 @@ void ponder_hit() {
   g_pondering.store(false, std::memory_order_release);
   if (g_stop_at_ponderhit.load(std::memory_order_relaxed))
     stop_threads.store(true, std::memory_order_relaxed);
+  notify_release();
 }
 
 // Mosse legali della radice (ristrette a "go searchmoves" se presenti).
@@ -211,8 +278,7 @@ void search_position_mt(int depth) {
     const bool mated = thread_data[0].frames[FRAME_OFFSET].in_check ||
                        td_is_square_attacked(thread_data[0],
                                              get_ls1b_index(thread_data[0].bitboards[side == white ? K : k]), side ^ 1);
-    while ((g_limits.infinite || g_pondering.load()) && !g_uci_stop.load())
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    wait_release();
     std::lock_guard<std::mutex> lock(output_mutex);
     printf("info depth 0 score %s\nbestmove (none)\n", mated ? "mate 0" : "cp 0");
     fflush(stdout);
@@ -231,15 +297,14 @@ void search_position_mt(int depth) {
     reset_root_lines(td, list, n);
   }
 
-  search_threads.clear();
+  while ((int)g_helper_workers.size() < num_threads - 1)
+    g_helper_workers.push_back(new SearchWorker());
   for (int i = 1; i < num_threads; i++)
-    search_threads.emplace_back(thread_main, i);
+    g_helper_workers[i - 1]->run([i] { thread_main(i); });
   deepen(thread_data[0]);
 
   // "go infinite" e ponder: la bestmove aspetta stop o ponderhit.
-  while ((g_limits.infinite || g_pondering.load(std::memory_order_acquire)) &&
-         !g_uci_stop.load(std::memory_order_relaxed))
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  wait_release();
   g_pondering.store(false, std::memory_order_relaxed);
   stop_threads.store(true, std::memory_order_relaxed);
   wait_for_threads();
