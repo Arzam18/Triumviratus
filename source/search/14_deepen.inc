@@ -74,7 +74,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     const double mine = g_limits.time[us], theirs = g_limits.time[us ^ 1];
     opt_share *= 1 + TmBehindMul / 1000.0 * std::min((mine - theirs) / (1.0 + mine + theirs), 0.0);
   }
-  // TmEarlySave (08/10/2026, audit X3, spenta): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
+  // TmEarlySave (08/10/2026, audit X3; BAKATA a 200 l'11/10/2026): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
   // motori; la quota si riduce e il tempo resta per le fasi 10-23 pezzi, dove in difesa sbagliamo 3-4 volte di piu'.
   // La scacchiera globale e' quella della radice (start_search la copia nel thread prima di chiamare clock_plan).
   if (TmEarlySave && count_bits(occupancies[both]) >= 24)
@@ -394,14 +394,7 @@ static void deepen(ThreadData &td) {
         } else if (best >= beta) {
           alpha = std::max(beta - delta, alpha);
           beta = std::min(best + delta, (int)infinity);
-          // AspDecisive (10/10/2026, agente AE; PlentyChess search.cpp:1484-1487, Reckless search.rs:139-144,
-          // Viridithas search.rs:391-394): un matto o una vittoria da tablebase appena trovati non si ricercano a
-          // profondita' ridotta (che puo' non vederli piu' e fallire basso, con un'altra ricerca a profondita' piena).
-          if (AspDecisive && val_decided(best)) {
-            beta = infinity;
-            failed_high = 0;
-          } else
-            failed_high++;
+          failed_high++;
         } else
           break;
         delta += AspGrow * delta / 128;
@@ -477,6 +470,12 @@ static void deepen(ThreadData &td) {
       double falling = (TmFallBase / 100.0 + TmFallPrev / 100.0 * (prev_avg - best) +
                         TmFallIter / 100.0 * (g_clock.iter_values[g_clock.iter_idx] - best)) / 100.0;
       falling = std::clamp(falling, 0.576, 1.728);
+      // TmJumpGuard (11/10/2026, spenta, vedi 01_params.inc): un salto in su molto grande rispetto alla mossa prima
+      // e' piu' spesso un errore della ricerca che una scoperta; non si taglia il tempo che servirebbe a smentirlo.
+      // Soglia in cp stampati (units_to_cp), cosi' corrisponde a quello che si legge nella GUI.
+      if (TmJumpGuard && g_clock.have_prev && !val_decided(best) && !val_decided(g_clock.prev_avg) &&
+          units_to_cp(best - g_clock.prev_avg) >= TmJumpGuard)
+        falling = std::max(falling, 1.0);
       // TmRedLo/TmRedHi (06/10/2026): estremi della rampa come parametri; 496/1e2 == 4.96, 1879/1e2 == 18.79.
       time_red = lerp_clamped(td.root_depth - last_best_depth, TmRedLo / 1e2, TmRedHi / 1e2, 0.639, 1.712, 0.629, 1.544);
       const double reduction = (1.468 + g_clock.prev_time_red) / (2.284 * time_red);
@@ -502,7 +501,7 @@ static void deepen(ThreadData &td) {
         } else
           total_time *= TmSurpriseScale / 1000.0;
       }
-      // TmDefendMul (08/10/2026, audit X3, spenta): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
+      // TmDefendMul (08/10/2026, audit X3; BAKATA a 500 l'11/10/2026): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
       // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;

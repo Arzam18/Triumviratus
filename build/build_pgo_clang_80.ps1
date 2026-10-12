@@ -67,7 +67,12 @@ param([int]$Movetime = 0, [int]$Positions = 200, [int]$Workers = 8,
       [switch]$Release,
       # -Symbols (04/10/2026): informazioni di debug (/Z7) e .pdb conservato accanto all'exe, per attribuire a funzione
       # e riga i campioni xperf del binario PGO vero (tools/pmc_analyze.py samples). Il codice generato non cambia.
-      [switch]$Symbols)
+      [switch]$Symbols,
+      # -Det (11/10/2026): PGO DETERMINISTICA come l'universale: trainer universal\pgo_train_det.py (`go nodes` fissi
+      # invece di `go movetime`) sulle posizioni fisse universal\pgo_positions.epd. Lo stesso sorgente da' lo stesso
+      # profilo anche con la macchina carica (con il tempo il rumore fra build arrivava a ~1%). Le opzioni di tuning
+      # restano visibili (senza -Release): e' la build dev per gli SPRT.
+      [switch]$Det)
 $ErrorActionPreference = "Stop"
 # -Release => -DTRIUMV_RELEASE: nasconde le opzioni UCI di tuning.
 $reldef = if ($Release) { " -DTRIUMV_RELEASE" } else { "" }
@@ -103,6 +108,11 @@ if ($clangLibDir) {
 $profDir = "$root\clang_pgo_profiles"
 $book    = "$root\OpeningBooks\uho_2024\UHO_2024_+085_+094\UHO_2024_8mvs_+085_+094.epd"
 $trainer = "$root\pgo_train.py"
+if ($Det) {
+    $trainer = "$root\Triumviratus_8.0\universal\pgo_train_det.py"
+    $book    = "$root\Triumviratus_8.0\universal\pgo_positions.epd"
+    Write-Host "PGO deterministica: $trainer su $book" -ForegroundColor DarkGray
+}
 
 function Step($n,$m){ Write-Host "`n==== $m ====" -ForegroundColor Cyan }
 

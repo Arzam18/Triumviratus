@@ -1777,7 +1777,7 @@ depth lever measured at 12 s; the long time controls will be checked in the comp
 the public one. The value 1 was chosen
 because it is the only cap that changes the tree clearly at fixed depth (−6.6% nodes, −0.55 plies of selective depth;
 from 2 up the cap is seldom reached). `ProgressFade` waits for its run on the endgame book after the SPSA EXP1 of the
-per-expert margins, started the same night (6,000 iterations at 20+0.2).
+per-expert margins, started the same night (6,000 iterations at 20+0.2); both are in section 43.
 
 **`InsufMaterial` baked.** After the first 7,000 games, another 10,000 on the same book: **+1.13 ± 1.56 Elo over
 17,162 games** (LLR +0.97, both sockets positive: +0.77 and +1.50). The interval does not exclude zero; the option was
@@ -1788,6 +1788,136 @@ from our own games (depth 16; median 0, 13 trees grew by more than half and 12 s
 the 51 positions of Stockfish 19's bench (depth 14). The tree changes only in endgames with a few minor pieces, where
 one branch becomes an exact draw and the search goes elsewhere. The option is retired; bench **460041** (before
 297400). The remaining tests of the queue still run on the binary with the option off.
+
+## 43. Time in defence, the fifty-move fade, and a check of the SPSA EXP1 (11 October 2026)
+
+All three runs used the same build with the options visible (bench 325747), 34 + 34 games at a time.
+
+**A first look at the SPSA EXP1.** The SPSA of the per-expert margins of section 33 (reverse futility, quiet-move
+futility and LMR for each of the four experts, 20+0.2) was paused at iteration 2,815 of 6,000. The mean of its last
+100 iterations (2,682 to 2,781) against the defaults, UHO at 10+0.1: **+2.47 ± 8.55 over 1,826 games**, then stopped.
+The vector moves LMR in opposite directions at the two ends of the game (about −50/1024 of a ply for the endgame
+expert, +50 for the opening expert); with no visible gain at mid-run, the SPSA was resumed to its end.
+
+**`ProgressFade` closed.** The fade of the evaluation with the fifty-move counter (section 33, 4/1024 per half-move
+beyond the tenth) ran on the endgame book without draw adjudication: **+0.85 ± 2.45 over 8,156 games at 10+0.1**, then
+**−1.22 ± 3.87 over 2,840 at 2+0.4**, which gives more time per move in these endgames. Together **+0.32 ± 2.07 over
+11,000 games**, with the same value on both sockets. It was baked for a few minutes as a correction that could not
+cost Elo, then removed when the second run turned negative; the option stays off. The loss analysis of section 32 had
+already found that waiting moves cost nothing.
+
+**Time in defence, baked.** The two time levers of section 33, together: `TmDefendMul` = 500 (the time for the move
+×1.5 while the root score is between about −0.45 and −3.6 pawns, defending but not lost) and `TmEarlySave` = 200 (the
+optimal share of the clock −20% while 24 or more pieces are on the board). UHO at **40+0.4**, because time levers
+depend on the time control (the surprise rule of section 32 was neutral at 16+0.16 and positive at 40+0.4), with
+`TmFenPly=1` on both sides so that the EPD book does not distort the move count. **+7.27 ± 7.08 over 2,150 games**
+(LLR +0.73; socket 0 +5.17, socket 1 +9.38). At 40+0.4 these games are slow, about 1,000 an hour, and an SPRT to its
+bound would have needed roughly 7,000 games at this value. The run was stopped and the two defaults were baked once
+zero was excluded: in the worst case the change is worth about nothing, and the comparison of the next build with the
+public pre-release at 30 s and 20 s will measure all the levers baked since then together. Bench unchanged (time
+management does not enter the bench). The two levers will be separated later, to learn which one carries the gain.
+
+A second loss analysis on the new games (`docs/audit_8.0/X5_DOVE_PERDIAMO_20261011.md`: the CCRL-style tournament of
+section 39 and the UHO matches of the tester, judged by Stockfish 19) gives a mechanism for the early saving: with 24
+or more pieces we play at least as well as Stockfish, and the real errors of the sample disappear with two to four
+times the nodes of the game. The cell "defending with less than 3 seconds" is still there, about half the size that
+section 32 measured, and in this sample no error remains at 16 million nodes: the remaining loss comes from the depth
+of short searches, not from the evaluation. The same analysis finds our use of the clock equal to Stockfish's in every
+phase, and no error in defence while the clock is still full, so it offers no mechanism for `TmDefendMul`; the
+separate runs will tell whether the gain comes from the saving alone.
+
+**An option added, off: blending two experts at a boundary.** A study of the expert boundaries (agent Z1,
+`docs/audit_8.0/Z1_CONFINI_ESPERTI_CALIBRAZIONE.md`) found that two neighbouring experts agree on average at every
+boundary (within ±1.3 cp) and differ by 22 to 42 cp position by position; a weighted mean of the two predicts the
+deep search, the game result and Stockfish 19 about 1% better. `EvalExpertBlendLo/Mid/Hi` compute that mean exactly
+near the boundaries; off by default, bench unchanged. At fixed depth it leaves the size of the tree unchanged (×1.01
+at depth 13, ×0.98 at depth 16 on 160 positions) and changes the best move in about 16% of them. A fixed-node test
+comes first, then the cost.
+
+## 44. A guard on sudden score jumps, the end of the expert blend and of the residual concepts, and a clean-up (11 October 2026)
+
+The tests of the evening ran one at a time on deterministic PGO builds of the development source with the options
+visible (bench 325747), 34 + 34 games at a time. None of the ideas below was adopted except the guard; all the others
+were removed from the source, and this section is their record.
+
+**A guard on sudden score jumps (`TmJumpGuard`), on.** In a game of the CCRL-style tournament of section 39 (game 250,
+loss analysis of section 43) the root score jumped from +0.37 to +3.68 in iteration 19; the time manager read the jump
+as good news, cut the time to its minimum (the falling-evaluation factor at 0.576) and played after 1.7 s with 48 s on
+the clock, and the move lost (31.Nxf6?). The time stop is checked only at the end of an iteration, so the move came from
+a full iteration 19; the case does not reproduce cold or warm, which points to the state of the hash. The guard: when
+the root score rises by at least `TmJumpGuard` printed centipawns (the scale of the GUI, +1.00 = 50% wins) over the
+previous move, the falling-evaluation factor is not allowed below 1, so the engine does not save time on a jump it has
+not confirmed. Decided scores (mate, tablebase) are excluded. At 200 (two printed pawns) it triggers on 0.25% of the
+moves, about one game in nine. UHO at 8+0.08, the critical time control for a time rule: **−2.52 ± 7.33 over 2,210
+games**, flat. It was switched on as a guard, not as a gain: it changes nothing except after large jumps, and the bench
+does not change.
+
+**The expert blend, measured and removed.** The option of section 43 that averages two neighbouring experts near a
+boundary was measured for quality and cost. At 60,000 nodes per move, where speed does not count, **+5.27 ± 7.86 over
+1,978 games**; with hardware counters the full blend costs **+15.4% of the cycles per node in the middlegame and +17.8%
+in endgames**, and at 8+0.08 it lost **−24.23 ± 11.12 over 1,034 games**. An analysis of the cost (agent Z2) gave
+cheaper variants; the best, blending only at depth 3 or more, costs +3.9%, and at 15+0.15 it scored **−3.06 ± 9.59 over
+1,248 games**. The option and all its variants were removed. The full record, with the variants and the reasons, is in
+[`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
+
+**The residual concepts, closed.** The residual study of 9 October (idea P1 of `FUTURE_DIRECTIONS.md`) found concepts
+that the network underestimates: a passed pawn that the enemy king cannot catch, open files next to a king, space, and
+connected passers. Three ways of using them were tested, and all three failed.
+
+- *Constant terms added to the static evaluation.* Group A (endgames: `ResPasserRank=4` + `ResPasserFree=9`, the
+  estimates of the study halved), endgame book without draw adjudication, 8+0.1: **−6.48 ± 6.17 over 1,502 games**.
+  Group B (`ResKingOpen=7` + `ResSpace=3` + `ResPasserConn=9`), UHO 8+0.08: **−16.03 ± 15.95 over 564 games**. A fixed
+  term counts twice what the network (its `PassedPawns` block) and the search (the passed-pawn push rule) already know,
+  and it moves every pruning margin with it.
+- *Corrections learned during the game*, like the correction histories, keyed on the concept instead of a constant.
+  `CorrKingPawnW`, keyed on the full pawn structure and the 2×2 zone of each king: **−4.68 ± 7.19 over 2,378 games** at
+  weight 10,000 (UHO 8+0.08); in direct matches 5,000 lost to 10,000 (−6.8 ± 13.1, 718 games) and so did 20,000
+  (−9.9 ± 12.1, 847). A read of the code (agent Z3) found no bug and a weight on the scale of the other corrections; the
+  key was too fine (each entry seen too rarely) and, with the kings still, a copy of the pawn correction. Two coarser
+  keys followed, without the pawn key. The coarseness was measured on 800 games as positions per distinct key within
+  a game: pawn correction 3.3 in the middlegame and 4.9 in endgames; a first passer key with king zones was 9.8 and
+  3.5 (kings move in endgames), so the zone was replaced by the concept itself. `CorrShelterW` (the kings' files and
+  the pawns of both colours on the three files around each king, middlegame only, 4.6 positions per key):
+  **−5.63 ± 5.53 over 3,898 games**, UHO 8+0.08. `CorrPassKingW` (passed pawns of both colours and the subset outside
+  the square of the enemy king, 15.8 and 6.8 positions per key): **−5.24 ± 8.49 over 744 games**, endgames 8+0.1. With
+  the expert correction of section 25 that was already neutral, every additional correction table tried with this
+  network is neutral or negative: the existing corrections seem to take the signal that can be learned within a game.
+- *Search-side rules.* `KingOpenRfp`: the reverse-futility margin grows by N for each file around our king without
+  our pawns, in the middlegame, so the search prunes less when our king is open. At 40, UHO 8+0.08, a first run of
+  **+6.45 ± 6.42 over 3,072 games**, then two more runs of about −3 each: **−0.37 ± 3.68 over about 9,300 games** in
+  total. `PasserFreeRed`: less LMR for the quiet push of a passed pawn outside the square of the enemy king, in
+  endgames. At 1024 (one ply), endgame book without draw adjudication, 8+0.1: **−2.07 ± 3.42 over about 4,300 games**.
+  The two were also tuned together by an SPSA (RES1) at 6+0.06 on a book that alternates UHO openings and endgame
+  positions, without draw adjudication: after 1,991 iterations of 16 games the mean gradient was zero (KingOpenRfp
+  40 → 41.6, PasserFreeRed 1024 → 997), and the tuned pair against the defaults at 10+0.1 on the same book scored
+  **−3.76 ± 6.27 over 2,222 games**.
+
+All of these options were removed from the source.
+
+**Clean-up of closed options.** Options that had been measured and left off were removed with their code: the
+decisive aspiration fail-high (`AspDecisive`), the clean singular-verification nodes (`ExclClean`), no null move under
+a hash upper bound (`NmpHashUpper`), the restored move count after the singular search (`SingKeepCount`), the return
+to the root counted as a draw (`RepRootTwofold`) (all five from section 42), the cycle counted as a draw only from a
+fifty-move threshold (`RepCycleFifty`, section 41), the passed-pawn push in quiescence and its three levers
+(`QsPasserPush`, sections 25 and 41), the expert-boundary rule without futility (`PhaseEdgeNoFut`, section 18) and the
+fifty-move fade (`ProgressFade`, section 43). With every option off the tree was already identical, and the bench is
+unchanged at 325747. The comment in `source/search/01_params.inc` (PULIZIA) lists each attempt with its measurement.
+The fifty-move bands in the hash key (`HashFiftyStep`) stay: they act only in long endgames with a large hash and
+will be tested again at 40+0.4 with a 256 MB hash, the conditions where the idea can matter.
+
+**Tools.** `sprt_opts.ps1` gained `-BaseOpts`, to match two values of the same option against each other. The PGO
+build for tests (`build_pgo_clang_80.ps1 -Det`) uses the deterministic trainer of the universal build, so two builds
+of the same source give the same binary and the same bench.
+
+**Release of 12 October.** The universal build of this source (bench 325747) becomes the pre-release of 12 October.
+Against the pre-release of 11 October it differs only in time management: more time in defence and the early saving
+(section 43) and the guard above. A match of the two at 30 s and 20 s will measure them together.
+
+**Fix of 12 October: the move under examination.** Maurizio Platino noticed that Fritz 18 no longer showed which root
+move the engine was examining. The `info currmove … currmovenumber …` line of 7.0 had been lost in the restructured
+search of 4 October. It is back in the root move loop, in the form of 7.0 and Stockfish 19: main thread only, and
+only after 3 seconds of search, so neither the bench nor short games print it. The search tree is unchanged (bench
+325747), and the pre-release of 12 October was rebuilt with the fix under the same name.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -1859,3 +1989,18 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
 | **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |
+| SPSA EXP1 vector at mid-run (mean of iterations 2,682–2,781) | 43 | 10+0.1 UHO | 1,826 | +2.47 ± 8.55 | SPSA continues |
+| Extra fade with the fifty-move counter (`ProgressFade=4`) | 33, 43 | 10+0.1 and 2+0.4 endgames, no adjudication | 11,000 | +0.32 ± 2.07 | off |
+| **More time in defence and less with 24+ pieces** (`TmDefendMul=500`, `TmEarlySave=200`) | 33, 43 | 40+0.4 UHO | 2,150 | **+7.27 ± 7.08** | **baked** |
+| Guard on sudden score jumps (`TmJumpGuard=200`) | 44 | 8+0.08 UHO | 2,210 | −2.52 ± 7.33 | on, as a guard |
+| Expert blend at fixed nodes (quality only) | 43, 44 | 60k nodes UHO | 1,978 | +5.27 ± 7.86 | measured |
+| Expert blend, full (+15.4% / +17.8% cycles) | 44 | 8+0.08 UHO | 1,034 | −24.23 ± 11.12 | removed |
+| Expert blend at depth ≥ 3 (+3.9% cycles) | 44 | 15+0.15 UHO | 1,248 | −3.06 ± 9.59 | removed |
+| Residual terms, group A (endgames) | 44 | 8+0.1 endgames, no adjudication | 1,502 | −6.48 ± 6.17 | removed |
+| Residual terms, group B | 44 | 8+0.08 UHO | 564 | −16.03 ± 15.95 | removed |
+| Learned correction keyed on pawns and king zones (`CorrKingPawnW=10000`) | 44 | 8+0.08 UHO | 2,378 | −4.68 ± 7.19 | removed |
+| Learned correction keyed on king shelter (`CorrShelterW=8000`) | 44 | 8+0.08 UHO | 3,898 | −5.63 ± 5.53 | removed |
+| Learned correction keyed on passers and the king's square (`CorrPassKingW=8000`) | 44 | 8+0.1 endgames, no adjudication | 744 | −5.24 ± 8.49 | removed |
+| Less pruning with an open king (`KingOpenRfp=40`) | 44 | 8+0.08 UHO | about 9,300 | −0.37 ± 3.68 | removed |
+| Less reduction for an unstoppable passer push (`PasserFreeRed=1024`) | 44 | 8+0.1 endgames, no adjudication | about 4,300 | −2.07 ± 3.42 | removed |
+| SPSA RES1 vector (`KingOpenRfp=42`, `PasserFreeRed=997`) | 44 | 10+0.1 UHO + endgames, no draw adjudication | 2,222 | −3.76 ± 6.27 | removed |

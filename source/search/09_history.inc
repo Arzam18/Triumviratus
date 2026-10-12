@@ -87,91 +87,21 @@ static inline int net_evaluate(ThreadData &td) {
   return v;
 }
 
-// Termini dal residuo (Res*, 01_params.inc, 09/10/2026): concetti che la rete sottostima rispetto alla ricerca
-// profonda. Case a8 = 0 .. h1 = 63 (riga 0 = ottava traversa), bitboard P N B R Q K p n b r q k. Restituisce
-// centipedoni stampati, bianco meno nero.
-struct ResTables {
-  U64 ahead_adj[2][64];   // case davanti al pedone sulla sua colonna e sulle vicine (passato se nessun pedone nemico)
-  U64 file[8];
-  ResTables() {
-    for (int f = 0; f < 8; f++) {
-      file[f] = 0;
-      for (int r = 0; r < 8; r++) file[f] |= 1ULL << (r * 8 + f);
-    }
-    for (int sq = 0; sq < 64; sq++) {
-      const int row = sq >> 3, f = sq & 7;
-      ahead_adj[white][sq] = ahead_adj[black][sq] = 0;
-      for (int ff = std::max(0, f - 1); ff <= std::min(7, f + 1); ff++)
-        for (int rr = 0; rr < 8; rr++) {
-          if (rr < row) ahead_adj[white][sq] |= 1ULL << (rr * 8 + ff);
-          if (rr > row) ahead_adj[black][sq] |= 1ULL << (rr * 8 + ff);
-        }
-    }
-  }
-};
-
-static int residual_terms_cp(const ThreadData &td) {
-  static const ResTables T;
-  constexpr U64 FILE_A = 0x0101010101010101ULL, FILE_H = 0x8080808080808080ULL;
-  const int pieces = count_bits(td.occupancies[both]);
-  const bool endgame = pieces <= 15;
-  const U64 occ = td.occupancies[both];
-  const U64 pw = td.bitboards[0], pb = td.bitboards[6];
-  const U64 att_w = ((pw >> 9) & ~FILE_H) | ((pw >> 7) & ~FILE_A);   // il bianco avanza verso la riga 0
-  const U64 att_b = ((pb << 7) & ~FILE_H) | ((pb << 9) & ~FILE_A);
-  int score = 0;
-  for (int c = white; c <= black; c++) {
-    const int sgn = c == white ? 1 : -1;
-    const U64 own = c == white ? pw : pb, opp = c == white ? pb : pw;
-    // passati
-    U64 passers = 0;
-    for (U64 b = own; b; b &= b - 1) {
-      const int sq = get_ls1b_index(b);
-      if (!(T.ahead_adj[c][sq] & opp)) passers |= 1ULL << sq;
-    }
-    if (passers) {
-      const int eksq = get_ls1b_index(td.bitboards[c == white ? 11 : 5]);
-      for (U64 b = passers; b; b &= b - 1) {
-        const int sq = get_ls1b_index(b), row = sq >> 3, f = sq & 7;
-        const int rel = c == white ? 7 - row : row;   // 0 = prima traversa
-        if (endgame) {
-          score += sgn * ResPasserRank * rel;
-          if (ResPasserFree) {
-            const int prom = c == white ? f : 56 + f, dist = 7 - rel;
-            const int kd = std::max(std::abs((eksq >> 3) - (prom >> 3)), std::abs((eksq & 7) - (prom & 7)));
-            if (kd - (td.side == c ? 0 : 1) > dist) score += sgn * ResPasserFree;
-          }
-        }
-        if (ResPasserConn && (passers & ((f > 0 ? T.file[f - 1] : 0) | (f < 7 ? T.file[f + 1] : 0))))
-          score += sgn * ResPasserConn;
-      }
-    }
-    // colonne senza nostri pedoni accanto al proprio re (mediogioco)
-    if (!endgame && ResKingOpen) {
-      const int kf = get_ls1b_index(td.bitboards[c == white ? 5 : 11]) & 7;
-      for (int ff = std::max(0, kf - 1); ff <= std::min(7, kf + 1); ff++)
-        if (!(own & T.file[ff])) score -= sgn * ResKingOpen;
-    }
-    // spazio: colonne c-f, nostre traverse 2-4, vuote e non attaccate da pedoni nemici
-    if (ResSpace) {
-      constexpr U64 CF = 0x3C3C3C3C3C3C3C3CULL;
-      const U64 zone = CF & (c == white ? 0x00FFFFFF00000000ULL : 0x00000000FFFFFF00ULL);
-      score += sgn * ResSpace * count_bits(zone & ~occ & ~(c == white ? att_b : att_w));
-    }
-  }
-  return score;
-}
-
 // Valutazione nelle unita' dei margini della ricerca: x EvalUnits/1024, dentro la fascia delle tablebase.
+// (I termini dal residuo Res*, costanti sommate qui, sono stati tolti l'11/10/2026: vedi 01_params.inc.)
 static inline int static_evaluate(ThreadData &td) {
-  int v = (int)((long long)net_evaluate(td) * EvalUnits / 1024);
-  if (ResPasserRank | ResPasserFree | ResPasserConn | ResKingOpen | ResSpace) {
-    // cp stampati -> unita' dei margini: inverso di units_to_cp (cp = v * 1024 * 25 / (EvalUnits * scala))
-    const int cp = residual_terms_cp(td);
-    v += (int)((long long)(td.side == white ? cp : -cp) * EvalUnits * nn_get_eval_scale() / (1024 * 25));
-  }
+  const int v = (int)((long long)net_evaluate(td) * EvalUnits / 1024);
   return std::clamp(v, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
+
+
+// Correzioni apprese con chiave sui concetti del residuo (11/10/2026 sera): TUTTE CHIUSE e TOLTE, codice nei backup.
+// CorrKingPawnW (tutti i pedoni + zona 2x2 dei re) -4,68 +- 7,19 su 2.378 a 8+0.08, nessun bug (Z3), chiave troppo fine;
+// CorrShelterW (pedoni sulle 3 colonne attorno ai re, mediogioco) -5,63 +- 5,53 su 3.898 a 8+0.08 UHO;
+// CorrPassKingW (passati + passati fuori dal quadrato del re nemico) -5,24 +- 8,49 su 744 nei finali 8+0.1.
+// Grana misurata (posizioni per chiave in partita): pedoni 3,3 mg / 4,9 eg, scudo 4,6 mg, passati 15,8 / 6,8. Le
+// correzioni esistenti sembrano prendere gia' il segnale apprendibile in partita: una tabella in piu' aggiunge rumore.
+// Backup: _pre_corrkey2_2026-10-11, _pre_rimozione_shelter_2026-10-11, _pre_rimozione_passking_2026-10-11.
 
 // Valore per lo schermo: dalle unita' della ricerca ai centipedoni (scala della rete e normalizzazione 400).
 // SCALA 06/10/2026 (richiesta dell'utente): 449 -> 400, cosi' +1,00 = 50% di probabilita' di vincere. Taratura sui
@@ -345,9 +275,10 @@ static inline U64 corr_expert_key(const ThreadData &td) {
 }
 
 static inline int corr_signal_extra(const ThreadData &td) {
-  if (!CorrExpertW)
-    return 0;
-  return CorrExpertW * g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side];
+  int s = 0;
+  if (CorrExpertW)
+    s += CorrExpertW * g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side];
+  return s;
 }
 
 static inline int corrected_eval(int v, int signal) {

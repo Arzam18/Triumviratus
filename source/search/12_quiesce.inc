@@ -88,25 +88,15 @@ static inline void hash_soften(U64 key) {
   e->kw = w ^ nd;
 }
 
-// ProgressFade (08/10/2026, audit X3, spenta): smorzamento in piu' della valutazione oltre ProgressFrom semimosse del
-// contatore delle 50 mosse, applicato DOPO la lettura (in hash resta il valore senza smorzamento, come per quello della
-// rete), tetto a meta' valore. Chi e' avanti preferisce le mosse che azzerano il contatore (pedoni, catture).
-static inline int progress_fade(int v, int fifty) {
-  if (!ProgressFade || fifty <= ProgressFrom)
-    return v;
-  const int k = std::min((fifty - ProgressFrom) * ProgressFade, 512);
-  return v - (int)((long long)v * k / 1024);
-}
-
 // Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
     raw = h.eval_raw;
-    return progress_fade(eval_refade(h.eval_raw, td.fifty), td.fifty);
+    return eval_refade(h.eval_raw, td.fifty);
   }
   const int v = static_evaluate(td);
   raw = eval_unfade(v, td.fifty);
-  return progress_fade(v, td.fifty);
+  return v;
 }
 
 // Idea 3 (Contempt, 04/10/2026): la patta vale -c per il colore al tratto alla radice e +c per l'avversario.
@@ -410,36 +400,11 @@ static inline void pv_extend(ThreadData &td, int m) {
 // QUIESCENZA
 // ============================================================================
 
-// Idea 7 (QsPasserPush, 04/10/2026): nei finali la spinta di un pedone in 7a traversa (minaccia di promozione
-// immediata) e' tattica. Un pedone che arriva in 7a e' passato per costruzione: davanti ha solo l'ottava. Una sola
-// spinta per nodo; 0 se non ce n'e' o se c'e' troppo materiale (QsPushNpm; fino al 10/10/2026 era PassedPushNpm, la
-// soglia di PassedPushRed, con lo stesso valore di default).
-// 10/10/2026 sera: prima la spinta (una maschera, quasi sempre vuota fuori dai finali), poi il materiale, che costava
-// otto popcount a ogni nodo di quiescenza in ogni fase. Stessa mossa di prima: albero identico.
-static int qs_passer_push(const ThreadData &td) {
-  const int us = td.side, pc = us == white ? P : p;
-  // a8 = 0: la 6a traversa del bianco e' la riga 2 (case 16-23), quella del nero la riga 5 (case 40-47).
-  const U64 on6 = td.bitboards[pc] & (us == white ? 0x0000000000FF0000ULL : 0x0000FF0000000000ULL);
-  // Case davanti libere: per il bianco 8 case piu' in alto (indici minori), per il nero piu' in basso.
-  const U64 free_ahead = us == white ? on6 & ~(td.occupancies[both] << 8) : on6 & ~(td.occupancies[both] >> 8);
-  if (!free_ahead)
-    return 0;
-  int npm = 0;
-  for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
-  if (npm > QsPushNpm)
-    return 0;
-  const int from = get_ls1b_index(free_ahead);
-  const int to = us == white ? from - 8 : from + 8;   // variabile: encode_move e' una macro
-  return encode_move(from, to, pc, 0, 0, 0, 0, 0);
-}
-
 // QCHK (AnQsChecks, modalita' analisi, 09/10/2026, idea nostra): primo ply della quiescenza chiamato dalla ricerca
 // principale. Dopo le tattiche si provano anche le mosse quiete che danno scacco con SEE >= 0; il figlio (sotto
 // scacco) e' una quiescenza normale. QCHK = false e' la quiescenza di sempre, identica.
-// qply: ply di quiescenza dal nodo della ricerca principale (0 al primo), per QsPushPly.
 template <bool QCHK = false>
-static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, int qply = 0) {
+static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   td.pv_length[td.ply] = td.ply;
   if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
     alpha = draw_score(td);
@@ -494,23 +459,18 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
   MoveSafety safety;
   safety.ready = false;
   int best_move = 0, count = 0, m;
-  // Spinta in 7a (QsPasserPush): giocata dopo le tattiche, una volta sola. Se e' gia' la mossa hash la coda l'ha
-  // emessa per prima: riproporla la cercava due volte nello stesso nodo (05/10/2026, audit dei porting).
-  const int qs_push = QsPasserPush && !in_check && qply < QsPushPly ? qs_passer_push(td) : 0;
-  bool push_left = qs_push != 0 && qs_push != q.hash_move;
-  while ((m = queue_next(q)) != 0 || (push_left && (push_left = false, (m = qs_push) != 0))) {
+  while ((m = queue_next(q)) != 0) {
     if (!legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
-    const bool push = qs_push && m == qs_push;
-    const bool tact = is_tactical(m) || push;
+    const bool tact = is_tactical(m);
     count++;
 
     if (!val_lost(best)) {
       if (!gives && move_to(m) != prev_to && !val_lost(fut_base) && !get_move_promoted(m)) {
         if (count > 2)
           continue;
-        const int fut = fut_base + (push ? unit_value[Q] - unit_value[P] : unit_value[victim_kind(td, m)]);
+        const int fut = fut_base + unit_value[victim_kind(td, m)];
         if (fut <= alpha) {
           best = std::max(best, fut);
           continue;
@@ -522,7 +482,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
       }
       if (!tact)
         continue;
-      if (!see_holds(td, m, push ? -QsPushSee : -QsSeeMargin))
+      if (!see_holds(td, m, -QsSeeMargin))
         continue;
     }
 
@@ -532,7 +492,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
       continue;
     }
     f[1].in_check = gives;
-    const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv, qply + 1);
+    const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
     step_out(td, m, u);
 
     if (value > best) {
@@ -563,7 +523,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv, i
           continue;
         count++;
         f[1].in_check = true;
-        const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv, qply + 1);
+        const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
         step_out(td, qm, u);
         if (stop_threads.load(std::memory_order_relaxed))
           return 0;

@@ -102,3 +102,30 @@ A second run on the build of 8 October solved **143 / 183** (78.1%).
 
 <sub>About −83 Elo for the first match (95% interval about −170 to −5) and −58 for the second, on the build of
 8 October (about −152 to +28). With 30 games each, both intervals are wide.</sub>
+
+## Andres (EveAnn) — 8.0 pre-release gauntlet
+
+A gauntlet run by **Andres (EveAnn)** on the 8.0 pre-release of 11 October 2026 against fifteen engines, 100 games
+each.
+
+| Opponent | Games | +W =D −L (Triumviratus) | Score | Elo (Triumviratus) |
+|---|---:|---|---:|---:|
+| **Stockfish 19** | 100 | +8 =84 −8 | 50.0% | **+0.0 ± 27.3** |
+| Stockfish 18 | 100 | +9 =85 −6 | 51.5% | +10.4 ± 26.4 |
+| Reckless 0.9.0 | 100 | +13 =82 −5 | 54.0% | +27.9 ± 28.6 |
+| Torch v4d | 100 | +17 =78 −5 | 56.0% | +41.9 ± 31.4 |
+| Plentychess 8.0.0 | 100 | +23 =71 −6 | 58.5% | +59.6 ± 36.0 |
+| Obsidian 16.0 | 100 | +24 =72 −4 | 60.0% | +70.4 ± 34.9 |
+| pawnocchio 2.0 | 100 | +29 =69 −2 | 63.5% | +96.2 ± 35.9 |
+| Viridithas 20.0.0 | 100 | +29 =70 −1 | 64.0% | +100.0 ± 34.9 |
+| Alexandria 9.0 | 100 | +32 =67 −1 | 65.5% | +111.4 ± 36.6 |
+| Hobbes 3.0 | 100 | +33 =66 −1 | 66.0% | +115.2 ± 37.2 |
+| Caissa 1.25 | 100 | +34 =66 −0 | 67.0% | +123.0 ± 36.7 |
+| Viridithas 19.0.1 | 100 | +39 =57 −4 | 67.5% | +127.0 ± 43.3 |
+| Stormphrax 8.0.0 | 100 | +40 =60 −0 | 70.0% | +147.2 ± 40.0 |
+| Raphael 4.2.0 | 100 | +45 =53 −2 | 71.5% | +159.8 ± 45.0 |
+| Heimdall 1.5.0 | 100 | +55 =45 −0 | 77.5% | +214.8 ± 49.2 |
+| **All fifteen opponents** | **1,500** | **+430 =1,025 −45** | **62.8%** | **+91.2 ± 9.4** |
+
+<sub>2 min + 0.4 s per game, book avt-fringe-2026, 68% draws overall. One of Hobbes' losses was on time. Elo and
+intervals as reported by the tester's tool.</sub>
