@@ -101,7 +101,7 @@ experts of the network.
 | Less time when behind on the clock (`TmBehindMul`) | Elsewhere first (Stockfish after 19) | 8.0 | **+5.23 ± 4.72** at 6+0.06 (6,378) | adopted |
 | Low-depth hash-move extension (LDSE) | Elsewhere first (Reckless, Stormphrax) | 8.0 | **+4.5 ± 3.3** (10+0.1, 11,604) | adopted |
 | King-shield malus in move ordering (`KingShield`) | Elsewhere first (inspired by Reckless) | 6.0, 8.0 | +3.53 ± 3.42 (6.0); −1.57 ± 4.32 (8.0) | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
-| Attack from a safe square in move ordering (`AttackOrder`) | Elsewhere first (Reckless), our target rule | 8.0 | +0.39 ± 5.42 with the outposts (4,428) | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
+| Attack from a safe square in move ordering (`AttackOrder`; `AttackOrderQ`, the same term for the queen) | Elsewhere first (Reckless), our target rule | 8.0 | +0.39 ± 5.42 with the outposts (4,428) | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Queen promotion in move ordering (`PromoOrder`) | Elsewhere first (Reckless) | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Advanced pawn pushes exempt from pruning (`PasserGuard`, `PasserLmr`) | Elsewhere first (Stockfish 8) | 7.0 dev | −9.04 ± 7.49; +0.30 ± 2.56 (22,000) | closed |
 | Fifty-move band in the hash key and in the corrections | Elsewhere first (Reckless) | 8.0 | `CorrFiftyStep` +1.25 ± 2.87 | closed |

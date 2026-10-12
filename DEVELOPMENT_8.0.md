@@ -1919,6 +1919,99 @@ search of 4 October. It is back in the root move loop, in the form of 7.0 and St
 only after 3 seconds of search, so neither the bench nor short games print it. The search tree is unchanged (bench
 325747), and the pre-release of 12 October was rebuilt with the fix under the same name.
 
+## 45. A hand brake since 3.0: unbuffered I/O and a 15.6 ms clock; the move-ordering SPSA closed (12 October 2026)
+
+### 45.1 How it was found
+
+Against Stockfish 19 on UHO openings the distance grows as the clock shortens: −11.2 ± 19.4 at 60+0.6, −34.0 ± 14.0
+at 10+0.1 (pre-release of 12 October). The first suspect was the size of the tree. On 60 positions of `UHO_4060_v4`,
+one thread, we counted the nodes each engine needs to complete a given depth (`match_moe/tree_vs_sf19.py`; node
+counts do not depend on the load of the machine):
+
+| depth | 8 | 10 | 12 | 14 | 16 | 18 | 20 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| nodes Triumviratus / Stockfish 19, median, 12 October | 0.72 | 0.76 | 0.86 | 0.65 | 0.67 | 0.62 | 0.59 |
+| same measure on 3 October, before the restructured search | | 1.49 | | 1.71 | | 1.53 | 1.65 |
+
+Since the restructured search we need fewer nodes than Stockfish 19 for the same depth, so the tree does not explain
+the short time controls. The time per search did: with the engine pinned to one core and the machine otherwise idle
+(`match_moe/costo_fisso.py`), a search of 1,000 nodes took 6.15 ms from `go` to `bestmove` against 1.24 ms for
+Stockfish 19, while the engine itself reported 1 ms of search. With `go movetime 100` and `go movetime 300` the
+engine answered after 109.8 and 314.6 ms; Stockfish 19 after 100.2 and 300.1 ms.
+
+### 45.2 The two causes
+
+1. **Unbuffered standard output.** `uci_mt.cpp` switched buffering off for stdin and stdout
+   (`setvbuf(..., _IONBF, 0)`). An `info` line is written with many `printf` calls, one for the header and one per
+   move of the principal variation, and without a buffer each call is a separate write to the pipe of the GUI, a
+   system call of tens of microseconds. A move prints 15 to 25 such lines, so a few milliseconds were lost on every
+   move. Both streams now have a 64 KB buffer. Output stays immediate because the code already flushed after every
+   `info` line, `currmove` and `bestmove`, and the UCI loop flushes before every read. Nothing reads stdin behind the
+   back of the loop any more, so buffering the input is safe.
+2. **A clock that ticks every 15.6 ms.** On Windows `get_time_ms()` returned `GetTickCount()`, which advances in steps
+   of about 15.6 ms. The hard time check and every decision at the end of an iteration saw time in those steps, so
+   the search stopped late, by about 10 ms on average, and the time manager worked with that grain. The clock is now
+   `std::chrono::steady_clock`, counted from the start of the process, as in Stockfish.
+
+The search tree is identical (bench 325747). After the fix, on the PGO builds:
+
+| | before (tm35) | after (tm36) | Stockfish 19 |
+|---|---:|---:|---:|
+| `go nodes 1000`, wall time | 6.15 ms | 1.48 ms | 1.24 ms |
+| `go movetime 100`, answer after | 109.8 ms | 100.4 ms | 100.2 ms |
+| `go movetime 300`, answer after | 314.6 ms | 300.3 ms | 300.1 ms |
+
+**SPRT, fixed against unfixed build** (same source otherwise, UHO, 5+0.05, one thinking engine per physical core):
+**+29.8 ± 7.4 Elo over 2,142 games, H1** (socket 0 +27.0 ± 10.5, socket 1 +32.6 ± 10.4). Eleven games marked
+"abandoned" all date from the moment the test was stopped and are split six to five between the sides.
+
+**Every version since 3.0 had this brake.** Both lines are in the first commit of the project (3.0) and in the 7.0
+source. The loss is a fixed number of milliseconds per move, so it weighs most at short time controls: about a tenth
+of the time per move at 5+0.05, less at 10+0.1, around 1% at 60+0.6, and almost nothing at the 2 min + 1 s of a
+blitz rating list. It also cost more on the second socket of our test machine, where system calls are slower, which
+explains part of the disagreements between sockets seen in earlier SPRTs. A tester running the engine in a GUI that
+reads the output slowly, such as a chess database program, paid more than our test harness did.
+
+**Consequences.** The time-management levers (`TmDefendMul`, `TmEarlySave`, `TmBehindMul`, the surprise rule and the
+`Tm*` constants of the plan) were measured and tuned with the old clock, which made every move last longer than
+planned by roughly 10 ms plus the output cost. At 40+0.4, where they were measured, that is about 1% of the time per
+move and changes little; at short time controls they will be checked again on the fixed build. Ideas that lost on the
+second socket in particular are listed for a new measurement on the fixed build (§45.4).
+
+### 45.3 The move-ordering SPSA (ORD1), closed
+
+ORD1 tuned the eight move-ordering terms with chess knowledge (`AttackOrder`, `AttackOrderQ`, `OutpostOrder`,
+`OutpostOrderB`, `KingShield`, `PromoOrder`, `BishopPairCapt`, `PassedPush`) and three history constants
+(`MalusMax`, `MalusMul`, `ContUpdScale`) at 5+0.05, 2,045 iterations. The pruning levers of PR4 that were still moving
+stayed out, because they depend on depth. `PromoOrder` (+0.60 c), `AttackOrder` (+0.51 c) and `OutpostOrder`
+(+0.27 c) moved clearly and then settled; the others stayed near their start. The mean of iterations 1,545-2,045
+halves the bench (325,747 to 157,775 nodes).
+
+| SPRT of the vector against the defaults | games | Elo |
+|---|---:|---:|
+| 5+0.05, UHO, 34 games per socket (with hyperthreading) | 9,096 | +1.03 ± 3.87 (socket 0 −3.50, socket 1 +5.59) |
+| 2+0.3, UHO +095/+104 | 1,716 | 0.00 ± 8.21 |
+| 5+0.05, one thinking engine per physical core | 1,116 | −0.31 ± 10.66 |
+| only `PromoOrder` and `AttackOrder`, one engine per core | 3,752 | −1.48 ± 5.90 |
+| **all together** | **15,680** | **+0.22 ± 2.90** |
+
+Closed as neutral; the values of PR4 stay. The landscape of an ordering bonus is very flat: the SPSA followed a real
+but almost level gradient. One lesson for the method: ORD1, like the earlier SPSAs, ran with 34 games per socket, with
+hyperthreading and with the slower memory of socket 1, so it tuned for a slowed machine. The vector gained only where
+the machine was slow (socket 1 with hyperthreading) and lost where it was not. Later SPSAs will run with one thinking
+engine per physical core.
+
+### 45.4 The per-expert margins (EXP1), and what is measured again
+
+The SPSA EXP1 (twelve margins of reverse futility, futility and LMR per expert of the network, §43) was paused at
+6,314 iterations. Only `LmrExp1` and `LmrExp3` moved clearly, each to about +0.1 ply of extra reduction. The mean of
+the last 10% shrinks the tree by 2 to 6% at fixed depth and gave +1.53 ± 6.00 over 3,176 games at 20+0.2; a second
+part of the test runs before the idea is closed and recorded.
+
+Measured again on the fixed build, one at a time: `CorrContOppW` (−5.15 ± 12.68, socket 0 +2.2, socket 1 −21.2) and
+`CorrCont6W` (−0.80 ± 5.56, socket 0 +4.3, socket 1 −5.9) inside the correction SPSA, where zero stays reachable; the
+depth ramp `Lt*` at a long time control.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -2004,3 +2097,6 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | Less pruning with an open king (`KingOpenRfp=40`) | 44 | 8+0.08 UHO | about 9,300 | −0.37 ± 3.68 | removed |
 | Less reduction for an unstoppable passer push (`PasserFreeRed=1024`) | 44 | 8+0.1 endgames, no adjudication | about 4,300 | −2.07 ± 3.42 | removed |
 | SPSA RES1 vector (`KingOpenRfp=42`, `PasserFreeRed=997`) | 44 | 10+0.1 UHO + endgames, no draw adjudication | 2,222 | −3.76 ± 6.27 | removed |
+| SPSA EXP1 vector, final (mean of iterations 5,687-6,314) | 43, 45 | 20+0.2 UHO | 3,176 | +1.53 ± 6.00 | second part to run |
+| SPSA ORD1 vector (move ordering and history, 11 levers) | 45 | 5+0.05 and 2+0.3 UHO, with and without hyperthreading | 15,680 | +0.22 ± 2.90 | closed, PR4 values stay |
+| **Buffered I/O and a high-resolution clock** (tree identical) | 45 | 5+0.05 UHO | 2,142 | **+29.8 ± 7.4** | **adopted** |

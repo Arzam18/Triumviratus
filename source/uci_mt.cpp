@@ -289,9 +289,13 @@ void uci_loop()
     // all-zero and Late Move Reductions are effectively disabled.
     init_threads(1);
 
-    // Disable I/O buffering for UCI compliance
-    setvbuf(stdin, NULL, _IONBF, 0);
-    setvbuf(stdout, NULL, _IONBF, 0);
+    // I/O con buffer (12/10/2026). Prima senza buffer: ogni printf di una riga "info" (uno per mossa della pv)
+    // diventava una scrittura sulla pipe, ~2,5-5 ms persi a mossa (go nodes 1000: 4,1 ms a muro contro 1,4; SF19 1,2).
+    // Le uscite restano puntuali: fflush dopo ogni riga info, currmove e bestmove, e il ciclo qui sotto fa fflush
+    // prima di ogni lettura (uciok, readyok, info string). stdin con buffer: nessuno legge piu' stdin di nascosto
+    // durante la ricerca (read_input/communicate di misc.cpp non sono chiamate).
+    setvbuf(stdin, NULL, _IOFBF, 1 << 16);
+    setvbuf(stdout, NULL, _IOFBF, 1 << 16);
 
     // Main UCI loop
     while (1)
