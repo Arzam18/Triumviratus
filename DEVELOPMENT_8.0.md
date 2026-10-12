@@ -1913,6 +1913,12 @@ of the same source give the same binary and the same bench.
 Against the pre-release of 11 October it differs only in time management: more time in defence and the early saving
 (section 43) and the guard above. A match of the two at 30 s and 20 s will measure them together.
 
+**Fix of 12 October: the move under examination.** Maurizio Platino noticed that Fritz 18 no longer showed which root
+move the engine was examining. The `info currmove … currmovenumber …` line of 7.0 had been lost in the restructured
+search of 4 October. It is back in the root move loop, in the form of 7.0 and Stockfish 19: main thread only, and
+only after 3 seconds of search, so neither the bench nor short games print it. The search tree is unchanged (bench
+325747), and the pre-release of 12 October was rebuilt with the fix under the same name.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on

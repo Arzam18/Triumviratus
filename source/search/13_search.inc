@@ -673,6 +673,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         continue;
     }
     f->move_count = ++n.moves;
+    // "info currmove" alla radice (come la 7.0 e SF19: solo thread principale, solo dopo 3 s): le GUI mostrano la
+    // mossa in esame. Persa con la riscrittura del 04/10, segnalata da Maurizio Platino il 12/10/2026 (Fritz 18).
+    // Il tempo la tiene fuori da bench e partite brevi; a radice il ciclo gira poche volte, costo nullo.
+    if (n.root && td.thread_id == 0 && get_time_ms() - g_limits.start_ms > 3000) {
+      std::lock_guard<std::mutex> lock(output_mutex);
+      printf("info depth %d currmove ", td.root_depth);
+      print_move(m);
+      printf(" currmovenumber %d\n", n.moves + td.pv_idx);
+      fflush(stdout);
+    }
     const bool tact = is_tactical(m);
     const int pc = move_piece(m), to = move_to(m);
     const bool gives = checks_before(td, s, m);
