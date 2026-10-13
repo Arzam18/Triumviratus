@@ -22,6 +22,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <condition_variable>   // 12/10/2026: thread persistenti (search/15_threads.inc)
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>

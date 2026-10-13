@@ -92,6 +92,7 @@ are recorded too, with their numbers.
 | **Consilium**, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 | pre-releases of 10–12 October: move ordering with chess knowledge, the causal reduction, rules from Stockfish 19, time management in defence | +11.9 ± 7.2 against the 9 October pre-release, then each change by SPRT |
+| pre-release of 13 October: a hand brake present since 3.0 removed (unbuffered output, a 15.6 ms clock), persistent threads, search margins per network expert | **+29.8 ± 7.4** at 5+0.05 with an identical search tree; margins +1.6 ± 4.3 |
 
 8.0 is also the first version to support **Chess960**.
 
@@ -107,7 +108,7 @@ are recorded too, with their numbers.
 | Andres (EveAnn) | gauntlet against 15 engines, 1,500 games, 2 min + 0.4 s | 11 October | **62.8%, +91.2 ± 9.4**; **Stockfish 19** +8 =84 −8 |
 | the project | Stockfish 18, 600 games, 20+0.2 / Reckless 0.10.0-dev, 526 games, 40+0.4 | 7–8 October | **+24.9 ± 13.7** / **+68 ± 14** |
 
-The current pre-release (12 October, one executable for every x86-64 CPU) is the tag
+The current pre-release (13 October, one executable for every x86-64 CPU) is the tag
 [`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); `source/` holds the development code. Every
 measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** ·
 **[`NOVELTIES.md`](NOVELTIES.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**.

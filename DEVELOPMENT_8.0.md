@@ -53,7 +53,7 @@
 > [!NOTE]
 > **Work in progress.** `source/` holds the 8.0 development code; the 7.0 release is the tag `v7.0`, and
 > the current 8.0 prerelease is the tag `v8.0`. The sections follow the order in which the work was done,
-> each step starting from what the previous one found. Current `bench`: **325747**.
+> each step starting from what the previous one found. Current `bench`: **221809**.
 
 ## The path so far
 
@@ -78,7 +78,9 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Release candidate** | 39 | graft code removed from the engine, a universal build of today's source | **+11.9 ± 7.2** against the public pre-release at 15+0.15 (2,866 games) | 222811 |
 | **Speed and the cycle test** | 40–41 | patches with an identical tree from three research agents; the cycle filter of Stockfish 19 | −1.0 to −1.3% cycles per node; cycle filter +5.6 ± 4.5 | 297400 |
 | **Edge cases from other engines** | 42 | six cases other engines handle and we did not, one SPRT each | insufficient material +1.1 ± 1.6 (17,162 endgame games), baked; the others flat | 460041 |
-| **A cap on extensions** | 33, 42 | at most one extension from a negative reduction per line | +3.9 ± 3.3 at 12+0.12 (11,384 games) | **325747** |
+| **A cap on extensions** | 33, 42 | at most one extension from a negative reduction per line | +3.9 ± 3.3 at 12+0.12 (11,384 games) | 325747 |
+| **A hand brake removed** | 45 | buffered UCI output and a high-resolution clock (wrong since 3.0), persistent threads, a ponder wait without sleeps | **+29.8 ± 7.4** at 5+0.05 (2,142 games), identical tree | 325747 |
+| **Search margins per expert** | 43, 45 | the offsets per network expert of the SPSA EXP1 baked; move-ordering SPSA closed | +1.6 ± 4.3 over 6,562 games in three SPRTs | **221809** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
 more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
@@ -86,8 +88,13 @@ is an SPRT or a match against the step before, on the same machine, with its 95%
 October were measured again on 9 October with a corrected method (section 36); the sections of those days give only
 the confirmed values.
 
-## Where things stand (10 October 2026)
+## Where things stand (12 October 2026)
 
+- **12 October:** the engine wasted a few milliseconds per move writing its output unbuffered and timed itself with
+  a 15.6 ms clock, since version 3.0; fixed, +29.8 ± 7.4 Elo at 5+0.05 with an identical tree (section 45). Threads
+  are now persistent and the ponder wait uses no sleeps. The search margins per expert (SPSA EXP1) are baked, bench
+  **221809**. Ideas closed earlier and possibly hurt by the defect were measured again on the fixed build; none
+  changed its verdict (section 45.5).
 - **Engine:** the restructured search with the RW1 parameters (section 17), the Consilium network, the ideas adopted
   in sections 21–27 and 31, two speed patches recovered in section 36, an analysis mode that leaves games unchanged,
   and since 9–10 October the SPSA PR4 vector (the ordering terms of section 34 on) and the causal reduction
@@ -1919,6 +1926,205 @@ search of 4 October. It is back in the root move loop, in the form of 7.0 and St
 only after 3 seconds of search, so neither the bench nor short games print it. The search tree is unchanged (bench
 325747), and the pre-release of 12 October was rebuilt with the fix under the same name.
 
+## 45. A hand brake since 3.0: unbuffered I/O and a 15.6 ms clock; the move-ordering SPSA closed (12 October 2026)
+
+### 45.1 How it was found
+
+Against Stockfish 19 on UHO openings the distance grows as the clock shortens: −11.2 ± 19.4 at 60+0.6, −34.0 ± 14.0
+at 10+0.1 (pre-release of 12 October). The first suspect was the size of the tree. On 60 positions of `UHO_4060_v4`,
+one thread, we counted the nodes each engine needs to complete a given depth (`match_moe/tree_vs_sf19.py`; node
+counts do not depend on the load of the machine):
+
+| depth | 8 | 10 | 12 | 14 | 16 | 18 | 20 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| nodes Triumviratus / Stockfish 19, median, 12 October | 0.72 | 0.76 | 0.86 | 0.65 | 0.67 | 0.62 | 0.59 |
+| same measure on 3 October, before the restructured search | | 1.49 | | 1.71 | | 1.53 | 1.65 |
+
+Since the restructured search we need fewer nodes than Stockfish 19 for the same depth, so the tree does not explain
+the short time controls. The time per search did: with the engine pinned to one core and the machine otherwise idle
+(`match_moe/costo_fisso.py`), a search of 1,000 nodes took 6.15 ms from `go` to `bestmove` against 1.24 ms for
+Stockfish 19, while the engine itself reported 1 ms of search. With `go movetime 100` and `go movetime 300` the
+engine answered after 109.8 and 314.6 ms; Stockfish 19 after 100.2 and 300.1 ms.
+
+### 45.2 The two causes
+
+1. **Unbuffered standard output.** `uci_mt.cpp` switched buffering off for stdin and stdout
+   (`setvbuf(..., _IONBF, 0)`). An `info` line is written with many `printf` calls, one for the header and one per
+   move of the principal variation, and without a buffer each call is a separate write to the pipe of the GUI, a
+   system call of tens of microseconds. A move prints 15 to 25 such lines, so a few milliseconds were lost on every
+   move. Both streams now have a 64 KB buffer. Output stays immediate because the code already flushed after every
+   `info` line, `currmove` and `bestmove`, and the UCI loop flushes before every read. Nothing reads stdin behind the
+   back of the loop any more, so buffering the input is safe.
+2. **A clock that ticks every 15.6 ms.** On Windows `get_time_ms()` returned `GetTickCount()`, which advances in steps
+   of about 15.6 ms. The hard time check and every decision at the end of an iteration saw time in those steps, so
+   the search stopped late, by about 10 ms on average, and the time manager worked with that grain. The clock is now
+   `std::chrono::steady_clock`, counted from the start of the process, as in Stockfish.
+
+The search tree is identical (bench 325747). After the fix, on the PGO builds:
+
+| | before (tm35) | after (tm36) | Stockfish 19 |
+|---|---:|---:|---:|
+| `go nodes 1000`, wall time | 6.15 ms | 1.48 ms | 1.24 ms |
+| `go movetime 100`, answer after | 109.8 ms | 100.4 ms | 100.2 ms |
+| `go movetime 300`, answer after | 314.6 ms | 300.3 ms | 300.1 ms |
+
+**SPRT, fixed against unfixed build** (same source otherwise, UHO, 5+0.05, one thinking engine per physical core):
+**+29.8 ± 7.4 Elo over 2,142 games, H1** (socket 0 +27.0 ± 10.5, socket 1 +32.6 ± 10.4). Eleven games marked
+"abandoned" all date from the moment the test was stopped and are split six to five between the sides.
+
+**Every version since 3.0 had this brake.** Both lines are in the first commit of the project (3.0) and in the 7.0
+source. The loss is a fixed number of milliseconds per move, so it weighs most at short time controls: about a tenth
+of the time per move at 5+0.05, less at 10+0.1, around 1% at 60+0.6, and almost nothing at the 2 min + 1 s of a
+blitz rating list. It also cost more on the second socket of our test machine, where system calls are slower, which
+explains part of the disagreements between sockets seen in earlier SPRTs. A tester running the engine in a GUI that
+reads the output slowly, such as a chess database program, paid more than our test harness did.
+
+**Consequences.** The time-management levers (`TmDefendMul`, `TmEarlySave`, `TmBehindMul`, the surprise rule and the
+`Tm*` constants of the plan) were measured and tuned with the old clock, which made every move last longer than
+planned by roughly 10 ms plus the output cost. At 40+0.4, where they were measured, that is about 1% of the time per
+move and changes little; at short time controls they will be checked again on the fixed build. Ideas that lost on the
+second socket in particular are listed for a new measurement on the fixed build (§45.4).
+
+### 45.3 The move-ordering SPSA (ORD1), closed
+
+ORD1 tuned the eight move-ordering terms with chess knowledge (`AttackOrder`, `AttackOrderQ`, `OutpostOrder`,
+`OutpostOrderB`, `KingShield`, `PromoOrder`, `BishopPairCapt`, `PassedPush`) and three history constants
+(`MalusMax`, `MalusMul`, `ContUpdScale`) at 5+0.05, 2,045 iterations. The pruning levers of PR4 that were still moving
+stayed out, because they depend on depth. `PromoOrder` (+0.60 c), `AttackOrder` (+0.51 c) and `OutpostOrder`
+(+0.27 c) moved clearly and then settled; the others stayed near their start. The mean of iterations 1,545-2,045
+halves the bench (325,747 to 157,775 nodes).
+
+| SPRT of the vector against the defaults | games | Elo |
+|---|---:|---:|
+| 5+0.05, UHO, 34 games per socket (with hyperthreading) | 9,096 | +1.03 ± 3.87 (socket 0 −3.50, socket 1 +5.59) |
+| 2+0.3, UHO +095/+104 | 1,716 | 0.00 ± 8.21 |
+| 5+0.05, one thinking engine per physical core | 1,116 | −0.31 ± 10.66 |
+| only `PromoOrder` and `AttackOrder`, one engine per core | 3,752 | −1.48 ± 5.90 |
+| **all together** | **15,680** | **+0.22 ± 2.90** |
+
+Closed as neutral; the values of PR4 stay. The landscape of an ordering bonus is very flat: the SPSA followed a real
+but almost level gradient. One lesson for the method: ORD1, like the earlier SPSAs, ran with 34 games per socket, with
+hyperthreading and with the slower memory of socket 1, so it tuned for a slowed machine. The vector gained only where
+the machine was slow (socket 1 with hyperthreading) and lost where it was not. Later SPSAs will run with one thinking
+engine per physical core.
+
+### 45.4 The per-expert margins (EXP1), and what is measured again
+
+The SPSA EXP1 (twelve margins of reverse futility, futility and LMR per expert of the network, §43) was paused at
+6,314 iterations. Only `LmrExp1` and `LmrExp3` moved clearly, each to about +0.1 ply of extra reduction. The mean of
+the last 10% shrinks the tree by 2 to 6% at fixed depth and gave +1.53 ± 6.00 over 3,176 games at 20+0.2; a second
+part of the test runs before the idea is closed and recorded.
+
+**Baked later the same day.** A third SPRT on the fixed build (10+0.1, one thinking engine per core) gave
++0.89 ± 8.58; the three tests together give **+1.64 ± 4.27 over 6,562 games**. Zero is not excluded, but the
+offsets per expert are part of the design and a new SPSA (one engine per physical core, on the fixed build) will
+continue from these values, so they were baked: `RfpExp` 3/1/−3/3, `FutExp` −3/−14/−2/8, `LmrExp` −25/102/−6/101.
+The options stay. Bench **221809**.
+
+### 45.5 The afternoon: two more fixes, ideas measured again, and a lesson on test conditions
+
+**Two more fixes with an identical tree.** Every `go` created a new thread for the main search and one per helper,
+and joined them at the end; the threads are now created once and wait on a condition variable, as in Stockfish
+(a minimal search with 4 threads 3.46 → 2.48 ms, with 8 threads 3.36 → 1.93 ms). When the search finished during
+pondering, the engine waited for `ponderhit` in a loop of 1 ms sleeps, which on Windows last up to 15.6 ms; it now
+waits on a condition variable (`ponderhit` to `bestmove` 12.3 → 0.36 ms). No SPRT: both remove only waiting.
+
+**Ideas closed earlier, measured again on the fixed build.** The defect cost more on the slower socket of our machine,
+so ideas that had lost mainly there were tested again:
+
+| idea | before | on the fixed build | verdict |
+|---|---|---|---|
+| `CorrContOppW=4011` (the author's idea, §6 of NOVELTIES) | −5.15 ± 12.68 (742), socket 1 −21.2 | 8+0.08: **+2.42 ± 4.73** (5,460), sockets agree; 5+0.05: −8.03 ± 7.72 (2,164) | improves with time: to be measured at a longer time control |
+| `CorrContOppW` + `CorrCont6W` | `CorrCont6W` −0.80 ± 5.56, socket 1 −5.9 | 15+0.15: leaning negative, stopped early | `CorrCont6W` closed |
+| `HashNearMiss=137` (non-cut nodes, upper bounds only), code restored | −6.7 ± 10.6 | 8+0.08: −12.5 ± 14.4 (584), both sockets negative | closed |
+| `TransitionExt` (a capture that leaves only pawns extends one ply), code restored | +1.4 ± 4.3 on endgames, −18.2 on UHO | endgames 8+0.08: +0.16 ± 4.79 (2,234) | closed |
+| `NullThreatExt=1070` (a null move failing far below beta extends the node; Botvinnik-Markoff), rewritten for the new search | +2.75 ± 5.5 (7,070, old search) | 8+0.08: −0.42 ± 4.52 (about 5,900) | closed |
+| `TmEarlySave=0` against 200 | part of the +7.3 at 40+0.4 | 10+0.1: +0.62 ± 10.21 (1,112) | kept at 200; time levers to be checked at their own time control |
+
+None of the closed ideas changed its verdict; the defect did not hide a gain in them.
+
+**Hyperthreading and depth.** Reading the depth of every move from the PGNs of today's tests (default side):
+
+| condition | mean depth | time per move |
+|---|---:|---:|
+| 20+0.2, 34 games per socket (hyperthreading) | 17.8 | 0.45 s |
+| **10+0.1, 20 games per socket (one thinking engine per physical core)** | **17.5** | 0.22 s |
+| 15+0.15, with hyperthreading | 17.3 | 0.34 s |
+| 5+0.05, with hyperthreading | 13.2 | 0.12 s |
+| 5+0.05, one engine per core | 14.8 | 0.11 s |
+
+Two engines on one core cost about 1.6 plies at 5 s. A test at 10+0.1 with one engine per core reaches the depth of
+20+0.2 with hyperthreading and plays about 18% more games per hour, with cleaner measurements. From now on search
+ideas are tested at half the time control without hyperthreading; time-management levers keep their own time
+control (the plan uses the absolute clock), also without hyperthreading.
+
+## 46. Proposals from three analysis agents, a split accumulator, and 8-bit HalfKA weights (12 October 2026, evening)
+
+Three read-only agents studied the search, the speed and the time management (reports in `docs/audit_8.0`, Italian).
+Their search proposals were added to the code as options, all off by default (bench 221809 unchanged), and tested in
+groups to save machine time.
+
+### 46.1 Search proposals
+
+| test | levers | condition | games | Elo | outcome |
+|---|---|---|---:|---:|---|
+| G3 | `KnowRedGood=512`, `KnowRedShield=256` (ordering knowledge in the reduction), `ExpHistW=1024` (a history per network expert, in ordering and in the reduction) | 12+0.12 UHO, hyperthreading | 1,642 | −5.50 ± 8.62 | stopped, split |
+| KnowRed alone | `KnowRedGood=256`, `KnowRedShield=256` | 12+0.12 UHO, hyperthreading | 688 | −13.64 ± 13.56 | closed |
+| G2 | `CausalAgree=384` (more reduction when sibling refutations land on the same square), `CausalNull=1024` (the failed null move's refutation as the first causal mask) | 10+0.1 UHO, one engine per core | 886 | −5.88 ± 11.73 | stopped, split |
+| `CausalAgree=384` alone | | 10+0.1 UHO, one engine per core | about 750 | −3.14 ± 12.35 | to the next SPSA |
+| G4 | `EgCheckRed=1024` (quiet checks reduced less with nine pieces or fewer), `OppPasserRfp=100`, `OppPasserNmp=1` (caution against an opponent's free passer on the 6th or 7th rank) | 10+0.1 endgames, no draw adjudication, hyperthreading | about 6,000 | −0.29 ± 2.81 | neutral |
+| History per expert, ordering only | `ExpHistW=1024`, with the new `ExpHistLmrW=0` | 10+0.1 UHO, one engine per core | about 5,000 | −1.66 ± 4.64 | neutral, to the next SPSA |
+| `CorrContOppW=4011` (the author's idea) | all runs at 8 s or more pooled | 8–12 s UHO | about 13,300 | +0.57 ± 3.02 | neutral, to the correction SPSA |
+
+KnowRed gives a smaller reduction to moves that already received an ordering bonus. Those moves leave the queue early
+and are reduced less by their move number alone, so the bonus counts twice; it lost at both weights. The history per
+expert has two weights since this evening: `ExpHistW` in move ordering and `ExpHistLmrW` in the reduction score, which
+was tuned without such a term. The levers that are neutral at a fixed value go into one SPSA run together with the
+per-expert margins of EXP1 and new per-expert offsets for the null move, singular extension and ProbCut.
+
+### 46.2 A split accumulator, closed
+
+One agent proposed to split the accumulator of each perspective into a HalfKA part and a threat part (threats and
+pawn blocks), summed before the clamp. The threat part would then survive king moves on the same half of the board
+and changes of expert, which today force a refresh. The tree is identical (wrapping 16-bit sums). Measured with
+hardware counters on deterministic PGO builds, identical nodes:
+
+| variant | instructions per node | cycles per node |
+|---|---:|---:|
+| split, first version | +0.03% | **+12.1%** middlegame, +12.0% endgames |
+| sum inside the transform, lists built before the updates | | about +6% wall time, no change |
+| H and T updated tile by tile, padding against 4 KB aliasing | +3% | +17.8% / +12.3% |
+
+Instructions do not change but the instructions per cycle fall from 1.50 to 1.33: every incremental update reads and
+writes two vectors instead of one, at every node, while the saving exists only for full refreshes whose parent is not
+computed (the hybrid update of Stockfish db98633b covers the other cases). The agent's estimate (+0.7 to 1% of cost)
+counted operations and missed the doubled memory traffic. Closed; the code was never merged.
+
+### 46.3 Where the engine waits for memory
+
+Sampling with xperf on a PGO build with symbols (middlegame positions) attributes 47% of the last-level cache misses
+to the incremental accumulator update, 11% to refreshes from the finny table and 8% to the hybrid update; corrections,
+move ordering and the hash table together stay below 5%. The memory cost of the engine is the network's weight rows.
+In the accumulator update, HalfKA rows (16-bit) and threat rows (already 8-bit) account for similar shares.
+
+### 46.4 HalfKA weights in 8 bits
+
+A fourth agent checked whether the HalfKA weights of Consilium fit in 8 bits: 1.65% of the live weights lie outside
+±127 (maximum 909), so no lossless form exists. The best lossy scheme, an integer scale per row (`s·q`, `q` in ±127),
+adds about 16 internal units of evaluation error on average (about 4 cp; the existing quantization noise is 10.9).
+Expected gain: 23% fewer weight lines read per node.
+
+| test | condition | games | Elo |
+|---|---|---:|---:|
+| Precision only: the network with HalfKA rows rounded as `s·q`, still 16-bit, through `EvalFile` | 5+0.05 UHO, hyperthreading | 3,124 | +2.78 ± 6.49 |
+| 8-bit path (`-DTRIUMV_HKA8`), same rounded network, against the 16-bit build | 15+0.15 UHO, hyperthreading | 222 | −20.4 ± 23.8 |
+
+The precision loss is small. The 8-bit path in the engine (rows widened to 16 bits and multiplied by the row scale,
+one `vpmullw` per vector) gives the same bench as the 16-bit build with the rounded network, so it is exact, but it
+reached 0.2 to 0.5 plies less depth: the multiplication costs more than the halved row bandwidth saves. The code stays
+in the source behind the macro, off by default. To be resumed after an identical-tree speed test, with power-of-two
+row scales (a shift instead of a multiplication), or with weight clipping in the next training.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -2004,3 +2210,20 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | Less pruning with an open king (`KingOpenRfp=40`) | 44 | 8+0.08 UHO | about 9,300 | −0.37 ± 3.68 | removed |
 | Less reduction for an unstoppable passer push (`PasserFreeRed=1024`) | 44 | 8+0.1 endgames, no adjudication | about 4,300 | −2.07 ± 3.42 | removed |
 | SPSA RES1 vector (`KingOpenRfp=42`, `PasserFreeRed=997`) | 44 | 10+0.1 UHO + endgames, no draw adjudication | 2,222 | −3.76 ± 6.27 | removed |
+| SPSA EXP1 vector, final (mean of iterations 5,687-6,314) | 43, 45 | 20+0.2 and 10+0.1 UHO, three tests | 6,562 | +1.64 ± 4.27 | **baked**, SPSA to redo |
+| SPSA ORD1 vector (move ordering and history, 11 levers) | 45 | 5+0.05 and 2+0.3 UHO, with and without hyperthreading | 15,680 | +0.22 ± 2.90 | closed, PR4 values stay |
+| **Buffered I/O and a high-resolution clock** (tree identical) | 45 | 5+0.05 UHO | 2,142 | **+29.8 ± 7.4** | **adopted** |
+| Correction from the opponent's plan, `CorrContOppW=4011`, fixed build | 45 | 8+0.08 / 5+0.05 UHO | 5,460 / 2,164 | +2.42 ± 4.73 / −8.03 ± 7.72 | longer time control next |
+| `HashNearMiss=137`, fixed build | 18, 45 | 8+0.08 UHO | 584 | −12.5 ± 14.4 | closed |
+| `TransitionExt`, fixed build | 45 | 8+0.08 endgames, no adjudication | 2,234 | +0.16 ± 4.79 | closed |
+| `NullThreatExt=1070`, rewritten | 45 | 8+0.08 UHO | about 5,900 | −0.42 ± 4.52 | closed |
+| Ordering knowledge in the reduction + history per expert (G3) | 46 | 12+0.12 UHO | 1,642 | −5.50 ± 8.62 | split |
+| Ordering knowledge in the reduction alone (`KnowRed`) | 46 | 12+0.12 UHO | 688 | −13.64 ± 13.56 | closed |
+| `CausalAgree` + `CausalNull` (G2) | 46 | 10+0.1 UHO | 886 | −5.88 ± 11.73 | to the SPSA |
+| `CausalAgree=384` alone | 46 | 10+0.1 UHO | about 750 | −3.14 ± 12.35 | to the SPSA |
+| Quiet checks in endgames + opponent's free passer (G4) | 46 | 10+0.1 endgames, no draw adjudication | about 6,000 | −0.29 ± 2.81 | neutral |
+| History per network expert, ordering only (`ExpHistW=1024`) | 46 | 10+0.1 UHO | about 5,000 | −1.66 ± 4.64 | to the SPSA |
+| `CorrContOppW=4011`, all runs at 8 s or more | 45, 46 | 8–12 s UHO | about 13,300 | +0.57 ± 3.02 | neutral, to the SPSA |
+| HalfKA rows rounded to an 8-bit form, precision only | 46 | 5+0.05 UHO | 3,124 | +2.78 ± 6.49 | small loss |
+| 8-bit HalfKA path (`-DTRIUMV_HKA8`) | 46 | 15+0.15 UHO | 222 | −20.4 ± 23.8 | slower, off |
+| Persistent threads and a ponder wait without sleeps (tree identical) | 45 | latency measures | | ponderhit 12.3 → 0.36 ms | adopted |

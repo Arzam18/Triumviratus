@@ -1,6 +1,13 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE EXP1 (12/10/2026 pomeriggio, utente: "bakiamo, registrando l'idea in NOVELTIES; il prossimo SPSA continua il
+// tuning attuale"): margini di ricerca per esperto della rete (RfpExp/FutExp/LmrExp 0-3, fasce di net_phase) al
+// vettore dello SPSA EXP1, media delle iterazioni 5687-6314: RfpExp 3/1/-3/3, FutExp -3/-14/-2/8, LmrExp -25/102/-6/101.
+// Tre SPRT del vettore contro i default, sommati: +1,64 +- 4,27 Elo su 6.562 partite (meta' SPSA 10+0.1 HT +2,47;
+// fine SPSA 20+0.2 HT tm35 +1,53 +- 6,00 / 3.176; tm40 10+0.1 senza HT +0,89 +- 8,58 / ~1.400). Lo SPSA ha girato con
+// hyperthreading e il vecchio orologio: DA RIFARE partendo da questi valori (un motore per core). Le opzioni restano.
+// Albero a profondita' fissa -2/-6% (84 posizioni, D10-D20). Bench 221809 (prima 325747).
 // BAKE TEMPO IN DIFESA (11/10/2026 sera, utente: "secondo me ora e' accettabile"): TmDefendMul 0 -> 500 (tempo della
 // mossa x1,5 con la radice fra -TmDefendTo e -TmDefendFrom, cioe' in difesa ma non persa) e TmEarlySave 0 -> 200 (quota
 // ottimale -20% con >= 24 pezzi), le due leve dell'audit X3 (difesa con poco orologio = 34% della perdita contro SF19),
@@ -250,7 +257,10 @@
   P(LmrTTMove, 2037, 0, 5000)                                                                             \
   P(CausalRed, 512, 0, 4096)             /* BAKE 10/10/2026 (era 0, vedi in testa): 1/1024 ply in piu' alle  \
                                             quiete fuori dalle case della confutazione di una sorella (13_search.inc,\
-                                            causal_mask; 0 = spenta) */                                             \
+                                            causal_mask; 0 = spenta). 12/10 sera, non-regressione a 10+0.1 HT    \
+                                            (tm42, CausalRed=0 contro 512): dal lato del bake -4,78 +- 9,12 su   \
+                                            1.528, fermata dall'utente; resta 512 e va nello SPSA EXP2 con       \
+                                            CausalRedDepth (forse rende solo a TC lungo/in profondita') */      \
   P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
   P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
@@ -347,7 +357,10 @@
   P(TmJumpGuard, 200, 0, 2000)           /* cp stampati di salto per la guardia (0 = spenta)               */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
-  P(HashFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
+  P(NullThreatExt, 0, 0, 4000)           /* 12/10/2026, ripescaggio: nulla fallita di oltre tanto -> +1 ply */ \
+  P(TransitionExt, 0, 0, 1)             /* 12/10/2026, ripescaggio: cattura che lascia solo pedoni, +1 ply */ \
+  P(HashNearMiss, 0, 0, 400)            /* 12/10/2026, ripescaggio: entry un ply corta, sotto alpha di tanto */ \
+  P(HashFiftyStep, 0, 0, 50)            /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
   P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
   P(PassedPushRed, 1125, 0, 4096)           /* finali: meno riduzione e niente potatura per la spinta di un */ \
   P(PassedPushNpm, 5133, 0, 12000)       /* pedone passato in 6a/7a, sotto questo materiale non pedoni   */ \
@@ -372,20 +385,46 @@
   P(DeepExt, 0, -120, 120)               /* margini delle estensioni doppia e tripla della singolare      */      \
   /* 10/10/2026, margini per esperto della rete (nostra; esperto = fascia di pezzi <=9, 10-15, 16-23, >=24, come      \
      net_phase): si sommano al moltiplicatore della futility inversa (RfpExp, base RfpMultBase 50), al margine della  \
-     futility delle quiete (FutExp) e alla riduzione LMR in 1024-esimi di ply (LmrExp). Tutte a 0 = albero invariato. */ \
-  P(RfpExp0, 0, -40, 40)                 /* esperto 0: <= 9 pezzi  */                                     \
-  P(RfpExp1, 0, -40, 40)                 /* esperto 1: 10-15 pezzi */                                     \
-  P(RfpExp2, 0, -40, 40)                 /* esperto 2: 16-23 pezzi */                                     \
-  P(RfpExp3, 0, -40, 40)                 /* esperto 3: >= 24 pezzi */                                     \
-  P(FutExp0, 0, -200, 200)                                                                                \
-  P(FutExp1, 0, -200, 200)                                                                                \
-  P(FutExp2, 0, -200, 200)                                                                                \
-  P(FutExp3, 0, -200, 200)                                                                                \
-  P(LmrExp0, 0, -1536, 1536)                                                                              \
-  P(LmrExp1, 0, -1536, 1536)                                                                              \
-  P(LmrExp2, 0, -1536, 1536)                                                                              \
-  P(LmrExp3, 0, -1536, 1536)                                                                              \
+     futility delle quiete (FutExp) e alla riduzione LMR in 1024-esimi di ply (LmrExp). Tutte a 0 = albero invariato. \
+     BAKE EXP1 12/10/2026 (vedi in testa): valori dello SPSA EXP1, [EXP1 0->nuovo]. */                               \
+  P(RfpExp0, 3, -40, 40)                 /* esperto 0: <= 9 pezzi  [EXP1 0->3] */                         \
+  P(RfpExp1, 1, -40, 40)                 /* esperto 1: 10-15 pezzi [EXP1 0->1] */                         \
+  P(RfpExp2, -3, -40, 40)                /* esperto 2: 16-23 pezzi [EXP1 0->-3] */                        \
+  P(RfpExp3, 3, -40, 40)                 /* esperto 3: >= 24 pezzi [EXP1 0->3] */                         \
+  P(FutExp0, -3, -200, 200)              /* [EXP1 0->-3] */                                               \
+  P(FutExp1, -14, -200, 200)             /* [EXP1 0->-14] */                                              \
+  P(FutExp2, -2, -200, 200)              /* [EXP1 0->-2] */                                               \
+  P(FutExp3, 8, -200, 200)               /* [EXP1 0->8] */                                                \
+  P(LmrExp0, -25, -1536, 1536)           /* [EXP1 0->-25] */                                              \
+  P(LmrExp1, 102, -1536, 1536)           /* [EXP1 0->102] */                                              \
+  P(LmrExp2, -6, -1536, 1536)            /* [EXP1 0->-6] */                                               \
+  P(LmrExp3, 101, -1536, 1536)           /* [EXP1 0->101] */                                              \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
+  /* Proposte dell'agente AG1 (12/10/2026, docs/audit_8.0/AG1_RICERCA_IDEE_20261012.md), tutte SPENTE (albero       \
+     invariato). P2 CausalRedDepth; P3 CausalAgree; P4 CausalNull; P5 KnowRed*; P6 EgCheckRed; P8 Nmp/Sing/PcExp*;    \
+     P9 ExpHistW; P10 OppPasser*. */                                                                                  \
+  P(CausalRedDepth, 0, 0, 16)            /* P2: CausalRed solo da questa profondita' in su              */ \
+  P(CausalAgree, 0, 0, 2048)             /* P3: 1/1024 ply in piu' per sorella confutata sulla stessa casa */ \
+  P(CausalNull, 0, 0, 2048)              /* P4: riduzione dalla confutazione della nulla fallita (1/1024) */ \
+  P(KnowRedGood, 0, 0, 2048)             /* P5: meno LMR alla quieta con un bonus di conoscenza (1/1024) */ \
+  P(KnowRedShield, 0, 0, 2048)           /* P5: piu' LMR al pedone che lascia lo scudo del re, non PV    */ \
+  P(EgCheckRed, 0, 0, 3072)              /* P6: meno LMR agli scacchi quieti con l'esperto 0 (<= 9 pezzi) */ \
+  P(NmpExp0, 0, -400, 400)               /* P8: margine della nulla per esperto (si somma a NmpBase)     */ \
+  P(NmpExp1, 0, -400, 400)                                                                                \
+  P(NmpExp2, 0, -400, 400)                                                                                \
+  P(NmpExp3, 0, -400, 400)                                                                                \
+  P(SingExp0, 0, -60, 60)                /* P8: margine della singolare per esperto (a SingMarginBase)    */ \
+  P(SingExp1, 0, -60, 60)                                                                                 \
+  P(SingExp2, 0, -60, 60)                                                                                 \
+  P(SingExp3, 0, -60, 60)                                                                                 \
+  P(PcExp0, 0, -200, 200)                /* P8: margine del ProbCut per esperto (a ProbCutMargin)         */ \
+  P(PcExp1, 0, -200, 200)                                                                                 \
+  P(PcExp2, 0, -200, 200)                                                                                 \
+  P(PcExp3, 0, -200, 200)                                                                                 \
+  P(ExpHistW, 0, 0, 4096)                /* P9: peso della storia per esperto nell'ORDINAMENTO (1/1024)   */ \
+  P(ExpHistLmrW, 0, 0, 4096)             /* P9: peso della stessa storia in stat_score (LMR), 12/10 sera  */ \
+  P(OppPasserRfp, 0, 0, 400)             /* P10: margine RFP in piu' con un passato avversario in 6a/7a   */ \
+  P(OppPasserNmp, 0, 0, 1)               /* P10: niente nulla in quel caso (esperti 0-1)                  */ \
   /* PULIZIA 11/10/2026 sera (utente: "pulisci il codice se siamo sicuri di togliere delle cose, documentando il     \
      tentativo"): opzioni CHIUSE e spente, tolte con il loro ramo; a opzioni spente l'albero era identico (bench       \
      325747 prima e dopo). Codice in _backup/Triumviratus_8.0_pre_pulizia_2026-10-11. Tentativi e misure:             \

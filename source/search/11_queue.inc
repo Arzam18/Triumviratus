@@ -81,6 +81,11 @@ struct MoveQueue {
   // V2 (08/10/2026): confine fra quiete buone e cattive gia' noto dopo l'ordinamento (quiet_split >= 0), oppure -1
   // (si scorre la lista confrontando ogni punteggio, come prima).
   int           quiet_split;
+  // KnowRed (AG1 P5, 12/10/2026, spenta): le maschere dei bonus d'ordinamento di score_quiets, per tipo di pezzo
+  // (case d'arrivo con un bonus: avamposto, attacco sicuro, spinta del passato) e le case di partenza dello scudo del
+  // re. Valide se know_ready; le legge move_loop per la riduzione.
+  bool          know_ready;
+  U64           know_good[6], know_shield;
 };
 
 // SEE di una mossa quieta decisa senza scambio (06/10/2026, velocita', albero identico). Per una quieta semplice
@@ -190,6 +195,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.n_tact = q.n_all = q.cur = 0;
   q.n_lose = q.cur_lose = 0;
   q.opp_ready = false;
+  q.know_ready = false;
   q.quiet_split = -1;
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
@@ -411,6 +417,18 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     for (int k = P; k <= Q; k++) attack_to[k] &= AttackSafeSee ? ~lesser[k] : safe;
   }
   const int attack_bonus[6] = {AttackOrder, AttackOrder, AttackOrder, AttackOrder, AttackOrderQ, 0};
+  if (KnowRedGood || KnowRedShield) {
+    q.know_good[P] = attack_to[P] | passed_to;
+    q.know_good[N] = attack_to[N] | outpost;
+    q.know_good[B] = attack_to[B] | outpost;
+    q.know_good[R] = attack_to[R];
+    q.know_good[Q] = attack_to[Q];
+    q.know_good[K] = 0;
+    q.know_shield = shield;
+    q.know_ready = true;
+  }
+  // ExpHistW (AG1 P9): riga della storia per l'esperto del nodo.
+  const int16_t (*exp_row)[64] = ExpHistW ? td.exp_hist[net_phase(count_bits(occ))] : nullptr;
 
   const PieceToRow &c1 = *f[-1].cont_hist, &c2 = *f[-2].cont_hist, &c3 = *f[-3].cont_hist,
                    &c4 = *f[-4].cont_hist, &c6 = *f[-6].cont_hist;
@@ -447,6 +465,8 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
       s += PassedPush;
+    if (exp_row)
+      s += ExpHistW * exp_row[pc][to] / 1024;
     sc[i] = s;
   }
 }

@@ -193,6 +193,10 @@ static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus) {
   learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024);
   stat_push(pawn_row(td)[move_piece(m)][move_to(m)],
             bonus * (bonus > -4 ? PawnBonusScale : PawnMalusScale) / 1024, LIM_PAWN);
+  // ExpHistW (AG1 P9, 12/10/2026, spenta): la stessa mossa imparata anche nella tabella dell'esperto del nodo (la
+  // scacchiera e' quella del nodo), cosi' il segnale del mediogioco non resta nel finale e viceversa.
+  if (ExpHistW || ExpHistLmrW)
+    stat_push(td.exp_hist[net_phase(count_bits(td.occupancies[both]))][move_piece(m)][move_to(m)], bonus, LIM_QUIET);
 }
 
 static inline void learn_capture(ThreadData &td, int m, int bonus) {

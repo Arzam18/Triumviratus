@@ -1,6 +1,7 @@
 #include "defs.h"
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 
 #ifdef _WIN32
   #include "Windows.h"
@@ -16,15 +17,14 @@
 #endif
 
 // get time in milliseconds
+// 12/10/2026: su Windows era GetTickCount(), che avanza a scatti di ~15,6 ms: il controllo del tempo sforava di ~10 ms
+// a mossa (go movetime 100 -> 109 ms) e ogni decisione sull'orologio aveva quella grana. Ora steady_clock (QPC) su
+// tutte le piattaforme, come Stockfish, contato dall'avvio del processo (niente giro dell'int dopo 24,8 giorni).
 int get_time_ms()
 {
-#ifdef _WIN32
-    return GetTickCount();
-#else
     using namespace std::chrono;
-    return (int)duration_cast<milliseconds>(
-               steady_clock::now().time_since_epoch()).count();
-#endif
+    static const steady_clock::time_point t0 = steady_clock::now();
+    return (int)duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
 
 int input_waiting()
