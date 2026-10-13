@@ -62,6 +62,7 @@ experts of the network.
 | Passed-pawn blocks with relations, grafted on Consilium: `PassedRel` (rows added to `PassedPawns`) and `PassedState` (replaces it, one row per passer in one of 100 states) | New | 8.0 dev | `PassedRel` +1.8 ± 4.1 (20+0.2 endgames, 2,484); `PassedState` −2.1 ± 3.7 trained alone, +3.3 ± 5.0 with the layers after the accumulator (60k nodes, endgames); on ordinary games against a build without grafts `PassedRel` −2.9 ± 7.5 (2,034), `PassedState` −4.8 to −16.5 | closed, not in 8.0; engine cost 2 to 3% of cycles per node |
 | Correction history per expert (`CorrPhase`) | New in its form | 8.0 | **+3.2 ± 3.8** (12+0.12, 8,634) | adopted |
 | Search margins per expert (`RfpExp`, `FutExp`, `LmrExp`) | New in its form | 8.0 | +1.6 ± 4.3 (6,562, three tests); tree −2 to −6% at fixed depth | adopted, tuning continues |
+| Reduction slope per expert (`LmrScaleExp`) | New in its form | 8.0 | +1.1 ± 3.7 (9,118, 8+0.08); expert 1 alone 0.0 ± 6.0 (3,160) | off, being tested in the defence package |
 | Knight outposts in move ordering (`OutpostOrder`) | New | 8.0 | +0.21 ± 3.93 (10+0.1, 8,244) at a hand-set value | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
@@ -224,6 +225,18 @@ offsets per expert are part of the design, a structure we want to keep and to tu
 hyperthreading and with the old clock (DEVELOPMENT_8.0 §45), and a new SPSA will continue from these values.
 Search parameters conditioned on game phase or material exist in many engines; tying them to the expert of the
 network that evaluates the position was not found elsewhere. **New in its form**, like `CorrPhase`.
+
+**The reduction slope per expert.** The offsets above shift a level: `LmrExp` adds the same fraction of a ply to
+every late move, at depth 3 as at depth 20. On 13 October 2026 we asked whether EXP1 had been looking for a slope
+rather than a level, and added a scale per expert of the base reduction (`LmrScaleExp0-3`, in 1024ths, applied to the
+logarithmic table before the other adjustments), together with a slope per expert of the quiet futility margin
+(`FutDepthExp0-3`). The first test follows the direction of EXP1: experts 1 and 3 (10 to 15 pieces, and 24 or more)
+reduce about 9% more, expert 0 (9 pieces or fewer) about 6% less. At 8+0.08 it measured +1.1 ± 3.7 Elo over 9,118
+games: a small effect at best, which a single test cannot resolve. In an SPSA with the other margins per expert (EXP2,
+43 parameters) neither slope found a clear gradient; the futility slope was removed. A measure of the defence against
+Stockfish 19 then pointed at expert 1 (more errors with 10 to 15 pieces), and the reduction scale of experts 1 and 2
+is being tested again in that direction, against less reduction (`LmrScaleExp1=-128` alone: 0.0 ± 6.0 over 3,160).
+**New in its form**, as an extension of the margins per expert.
 
 ## 4. Move ordering with chess knowledge
 

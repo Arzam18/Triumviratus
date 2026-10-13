@@ -142,6 +142,7 @@ struct ThreadData {
     int  last_pv_len;
     int  opt[2];                      // optimism di questo thread (lato bianco, nero)
     int  root_side;                   // colore al tratto alla radice (Contempt)
+    int  draw_defend;                 // DrawDefend: valore della patta per il colore di radice in questa ricerca
     int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
     // Modalita' analisi (09/10/2026, search/01_params.inc): valori EFFETTIVI per l'iterazione corrente, gia'
     // pesati. In partita valgono quanto i parametri (Deep* a 0 = termini a 0), quindi l'albero non cambia.
@@ -174,7 +175,6 @@ struct ThreadData {
     int16_t    quiet_hist[2][QH_SIZE];
     int16_t    low_ply_hist[LOW_PLY_SIZE][QH_SIZE];
     int16_t    capt_hist[12][64][7];
-    int16_t    exp_hist[4][12][64];   // ExpHistW (12/10/2026, AG1 P9): storia pezzo-casa per esperto della rete
     PieceToRow cont_corr[NO_PC + 1][64];
     int        tt_move_hist;
 

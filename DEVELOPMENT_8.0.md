@@ -66,7 +66,7 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Ablations** | 8 | switch off what was accepted on weak evidence | two features off; +11.7 ± 4.6 against 7.0 at 60+0.6 | 273477 |
 | **A new network, Consilium** | 9, 13 | four phase experts on the king-relative block, network SPSA, then a 45-parameter search SPSA | **+27.3 ± 8.3** against 7.0 at 15+0.15 (+27.6 ± 7.0 with the search SPSA) | 402358 |
 | **The gap to Stockfish** | 10, 16 | why we need more nodes for the same depth: selectivity, not evaluation; a pruning rework | +6.3 ± 6.0 at 20+0.2 | 337035 |
-| **The search restructured** | 17 | Stockfish 19's search structure, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
+| **The search restructured** | 17 | the algorithmic base of Stockfish 19's search, our own ideas kept, complete SPSA re-tune on Consilium | **+85.8 ± 12.8** at 20+0.2 | 141196 |
 | **Our own ideas, one at a time** | 18–23 | thirteen ideas built on what is specific to Triumviratus, audits, more speed; first adoptions | LDSE +4.5 ± 3.3, its guard +6.3 ± 7.9, the surprise rule +6.2 ± 6.8 (40+0.4) | 308883 |
 | **Ideas that need depth, and the corrections** | 24–25 | a match against Stockfish 19, the printed scale, then the adopted SPRTs | quiescence hash depth +3.4 ± 2.6, pins in SEE +4.5 ± 6.8, two consistency fixes +1.6 ± 2.6, per-expert corrections +3.2 ± 3.8 | **309067** |
 | **Progress check** | 26 | more continuation corrections (none adopted), a combined SPSA prepared, today's build against the 4 October prerelease and against Stockfish 19 | **+17.2 ± 6.8** at 10+0.1 for everything since 4 October; **50.0%** against Stockfish 19 at 133+1 (320 games) | 309067 |
@@ -83,7 +83,7 @@ go, compared with Stockfish? Each step answered the question the previous one le
 | **Search margins per expert** | 43, 45 | the offsets per network expert of the SPSA EXP1 baked; move-ordering SPSA closed | +1.6 ± 4.3 over 6,562 games in three SPRTs | **221809** |
 
 The direction, in short: first make the same search faster, then give it a better network, then find why it needed
-more nodes than Stockfish and rebuild its structure, and now add small measured ideas on top of it. Every Elo figure
+more nodes than Stockfish and rebuild its algorithmic base, and now add small measured ideas on top of it. Every Elo figure
 is an SPRT or a match against the step before, on the same machine, with its 95% interval. The speed figures of 6–8
 October were measured again on 9 October with a corrected method (section 36); the sections of those days give only
 the confirmed values.
@@ -562,7 +562,7 @@ each rule only works tuned together with the others.
 
 Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but
 disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of
-Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own
+Stockfish and Reckless, it was reorganised on the algorithmic base of Stockfish 19's search (GPLv3), keeping our own
 ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own
 such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network.
 
@@ -2125,6 +2125,79 @@ reached 0.2 to 0.5 plies less depth: the multiplication costs more than the halv
 in the source behind the macro, off by default. To be resumed after an identical-tree speed test, with power-of-two
 row scales (a shift instead of a multiplication), or with weight clipping in the next training.
 
+## 47. Constants as parameters, new ideas, two flat SPSA runs, and the defence against Stockfish 19 (12–13 October 2026)
+
+The release of 13 October (bench 221809) is still the strength of the engine: nothing in this section was baked.
+
+### 47.1 The search constants became parameters
+
+The numbers written in the search code, almost all equal to those of Stockfish 19 (74 of the 87 constants of 100 or
+more), became parameters: 79 of them, with the same default values and an identical tree. In the release they stay
+constants folded by the compiler; in the development build they are UCI options for tuning runs. The two tables of
+reciprocals that depend on them are rebuilt at every `setoption`. The list is in
+`docs/audit_8.0/PARAMETRI_DA_COSTANTI_20261012.md` (Italian).
+
+### 47.2 New ideas
+
+| idea | levers | condition | games | Elo | outcome |
+|---|---|---|---:|---:|---|
+| Piece values per network expert, measured from Consilium (one piece removed at a time, 21,572 positions), in SEE, MVV and capture futility | `ExpertValuesW=1024` | 10+0.1 UHO | about 1,200 | −4.42 ± 9.37 | removed |
+| (A) A quiet move that creates a double threat is reduced less | `TensionRed=1024` | 8+0.08 UHO, hyperthreading | about 2,300 | −1.2 ± 5.7 | removed |
+| (B) Reductions learned from our own search logs (264 million reduced searches, a table per expert, depth, move number, history and tactic) | `LmrLearnW=-1600` | 8+0.08 UHO, hyperthreading | about 60,000 | −1.36 ± 1.44 | H0, removed |
+| (C) The refutation of a failed null move is the threat of the node: replies to it are ordered first and reduced less | `ThreatMoveOrder=16000`, `ThreatMoveRed=512` | 8+0.08 UHO, hyperthreading | 2,418 | −1.58 ± 7.09 | removed |
+| (F) Optimum time share per network expert at the root, as a redistribution (less in the opening, more in endgames; total time per game unchanged) | `TmExp3..0 = −100, −50, +150, +300` | 30+0.3 UHO, hyperthreading | 2,930 | +1.90 ± 5.93 | parked |
+| Reduction slope per expert (`LmrExp` moves a level; this scales the base reduction) | `LmrScaleExp = −64, +96, 0, +96` | 8+0.08 UHO | 9,118 | +1.11 ± 3.65 | to the SPSA |
+| The same, expert 1 only (10 to 15 pieces) | `LmrScaleExp1=-128` | 10+0.1 UHO, hyperthreading | 3,160 | 0.00 ± 6.03 | stopped |
+| Depth ramp from the 20 s to the 40 s tuning, on today's build | nine `*Lt` offsets of 5 October | 30+0.3 UHO, hyperthreading | 2,742 | +1.01 ± 6.47 | to a night SPSA |
+
+**A helper thread one iteration ahead (the author's idea).** With several threads, one helper stops searching the
+root and searches the position two plies down the main thread's principal variation (our move and the expected
+reply), at the depth the main thread will need at its next iteration; when the main thread publishes a different
+prefix, the helper restarts from the new position. A study of the tree on 20 positions at depth 22 explains where
+such a helper can help: the position at ply 2 of the principal variation is still on it at the next iteration 75%
+of the time and its subtree costs about 58% of the root search, while at plies 15 to 20 the prediction holds about
+4% of the time and the subtree costs less than 0.3%. Time to depth 26 with 8 threads came out at 0.908 [0.844,
+0.977] of plain Lazy SMP over 120 pairs, neutral at 4 threads (1.048) and at ply 4 (0.988). Measured at depths 18,
+21 and 24 on the same positions the ratio showed no trend (0.974, 0.990, 1.052), and an SPRT with 8 threads at
+10+0.1 (depth about 17 in games) stood at −2.23 ± 15.48 over 468 games. Closed and removed; the related work is
+pondering, principal variation splitting and dynamic tree splitting, and the speculative search of candidate
+principal variations of a 1995 University of Alberta report.
+
+### 47.3 Two SPSA runs with no clear gradient
+
+| run | levers | condition | iterations | result |
+|---|---|---|---:|---|
+| EXP2 | 43: the per-expert margins of EXP1, per-expert offsets of null move, singular extension and ProbCut, the levers of 46.1, A, C, `ExpertValuesW`, slopes per expert | 8+0.08 UHO, hyperthreading | 1,440 | one lever with a clear trend (`EgCheckRed`, towards its default 0); vector of the last 100 iterations against the defaults −4.50 ± 7.26 over 2,470 games; nothing baked |
+| SF1 | 20 constants of Stockfish 19 never tuned on Consilium (reductions, history weights in the reduction, singular margins, quiescence mixing, hash bonuses, history limits) | 8+0.08 UHO, hyperthreading | 1,093 | no lever beyond twice a random walk; stopped |
+
+The trend of each lever was measured as its net displacement divided by that of a random walk with the same steps
+(`tools/spsa_trend.py`). At short time control the shape of the tree is at a local optimum: the earlier bakes (RW1,
+PR4, EXP1) took most of what these levers offered. The SPSA queue was reordered: no more short runs on the shape of
+the tree; the corrections run at 10+0.1 (they are a different area and gave the best bakes of the month) and the
+levers that depend on depth or time go to night runs at 20+0.2 without hyperthreading.
+
+### 47.4 The defence against Stockfish 19
+
+A side defends when the opponent's own evaluation reaches +1.0 after the book (`tools/defense_vs_engine.py`).
+Over 915 games against Stockfish 19 at 60+0.6 (UHO) both engines defend about equally often, 390 and 358 times, but
+Triumviratus holds 36.7% of those games and Stockfish 50.6% (at 5 and 10 s: 41.6% against 55.6%). The difference is
+in how often the attacker gets beyond +2.5. Moves after which the attacker's evaluation jumps by half a pawn or more,
+from a position still holdable (+0.5 to +2.0), are 20% more frequent for us overall and 40% more frequent with 10
+to 15 pieces (expert 1: 3.5% against 2.5%); in pure endgames the two engines are level. Our errors are judged by
+Stockfish's evaluation and its errors by ours, so the comparison is indicative. Two consequences are being tested:
+less pruning for experts 1 and 2 (the EXP1 offsets of expert 1 had made it prune more), and a dynamic draw value:
+when the previous move closed below about −1 pawn, a draw is worth up to `DrawDefend` for the side to move at the
+root, through the same function that gives contempt to repetitions, the fifty-move rule, stalemate, insufficient
+material and tablebase draws (off by default).
+
+### 47.5 Clean-up
+
+The options closed in sections 45 to 47 were removed with their code, with an identical tree (bench 221809):
+`KnowRed*`, `EgCheckRed`, `CausalRedDepth`, `CausalAgree`, `CausalNull`, the per-expert null move, singular and
+ProbCut offsets, the history per expert, `OppPasser*`, A, B with its logging build, C, `ExpertValuesW`, the futility
+slope per expert, `NullThreatExt`, `TransitionExt` and the helper of 47.2. The source of the removed code is kept in
+the project's backups; the measurements are in the comments of `search/01_params.inc` and in this section.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on
@@ -2227,3 +2300,13 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | HalfKA rows rounded to an 8-bit form, precision only | 46 | 5+0.05 UHO | 3,124 | +2.78 ± 6.49 | small loss |
 | 8-bit HalfKA path (`-DTRIUMV_HKA8`) | 46 | 15+0.15 UHO | 222 | −20.4 ± 23.8 | slower, off |
 | Persistent threads and a ponder wait without sleeps (tree identical) | 45 | latency measures | | ponderhit 12.3 → 0.36 ms | adopted |
+| Piece values per network expert (`ExpertValuesW=1024`) | 47 | 10+0.1 UHO | about 1,200 | −4.42 ± 9.37 | removed |
+| (A) Double threat reduced less (`TensionRed=1024`) | 47 | 8+0.08 UHO | about 2,300 | −1.2 ± 5.7 | removed |
+| (B) Reductions learned from our logs (`LmrLearnW=-1600`) | 47 | 8+0.08 UHO | about 60,000 | −1.36 ± 1.44 | H0, removed |
+| (C) Replies to the failed null move's threat (`ThreatMoveOrder`, `ThreatMoveRed`) | 47 | 8+0.08 UHO | 2,418 | −1.58 ± 7.09 | removed |
+| (F) Time share per network expert (author's idea) | 47 | 30+0.3 UHO | 2,930 | +1.90 ± 5.93 | parked |
+| Reduction slope per expert (`LmrScaleExp −64/+96/0/+96`) | 47 | 8+0.08 UHO | 9,118 | +1.11 ± 3.65 | to the SPSA |
+| `LmrScaleExp1=-128` alone | 47 | 10+0.1 UHO | 3,160 | 0.00 ± 6.03 | stopped |
+| Depth ramp RW1 → LTC1 on today's build | 18, 47 | 30+0.3 UHO | 2,742 | +1.01 ± 6.47 | to a night SPSA |
+| Helper one iteration ahead at ply 2, 8 threads (author's idea) | 47 | 10+0.1 UHO | 468 | −2.23 ± 15.48 | removed (no depth trend in time to depth) |
+| SPSA EXP2 vector (43 levers, iterations 1,328-1,429) | 47 | 8+0.08 UHO | 2,470 | −4.50 ± 7.26 | closed, nothing baked |

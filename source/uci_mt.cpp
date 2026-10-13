@@ -82,6 +82,7 @@ int parse_move(char* move_string)
 }
 
 // parse UCI "position" command
+
 void parse_position(char* command)
 {
     command += 9;

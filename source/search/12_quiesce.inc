@@ -102,7 +102,9 @@ static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
 // Idea 3 (Contempt, 04/10/2026): la patta vale -c per il colore al tratto alla radice e +c per l'avversario.
 // Punta all'Elo di lista (CCRL: ~90% di patte), non al self-play. 0 = spento, valori di patta di prima.
 static inline int contempt(const ThreadData &td) {
-  return Contempt ? (td.side == td.root_side ? -Contempt : Contempt) : 0;
+  // DrawDefend (13/10/2026): in svantaggio la patta vale +draw_defend per il colore di radice (vedi 01_params.inc).
+  const int c = Contempt - (DrawDefend ? td.draw_defend : 0);
+  return c ? (td.side == td.root_side ? -c : c) : 0;
 }
 
 // Patta a valore quasi nullo: +-1 secondo i nodi, per non trattare tutte le patte come identiche.
@@ -442,7 +444,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
       best = h.value;
     if (best >= beta) {
       if (!val_decided(best))
-        best = (441 * best + 583 * beta) / 1024;
+        best = (QsFhMix * best + (1024 - QsFhMix) * beta) / 1024;
       if (!h.hit)
         hash_write(td, VAL_NONE, false, BOUND_LOW, HD_EVAL, 0, eval_raw);
       return best;
@@ -556,7 +558,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   }
 
   if (!val_decided(best) && best > beta)
-    best = (462 * best + 562 * beta) / 1024;
+    best = (QsStandMix * best + (1024 - QsStandMix) * beta) / 1024;
   hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, hd_qs(), best_move, eval_raw);
   return best;
 }

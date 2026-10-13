@@ -134,9 +134,16 @@ static inline void stat_push(int &e, int bonus, int limit) {
   e += b - e * (b < 0 ? -b : b) / limit;
 }
 
-constexpr int LIM_QUIET  = 7183;
-constexpr int LIM_CAPT   = 10692;
-constexpr int LIM_FOLLOW = 30000;
+// 12/10/2026 sera: i tre limiti sono parametri (HistLim*, 01_params.inc); nella release restano costanti.
+#ifdef TRIUMV_RELEASE
+constexpr int LIM_QUIET  = HistLimQuiet;
+constexpr int LIM_CAPT   = HistLimCapt;
+constexpr int LIM_FOLLOW = HistLimFollow;
+#else
+#define LIM_QUIET  HistLimQuiet
+#define LIM_CAPT   HistLimCapt
+#define LIM_FOLLOW HistLimFollow
+#endif
 constexpr int LIM_PAWN   = 8192;
 constexpr int LIM_CORR   = 1024;
 constexpr int LIM_TTMOVE = 8192;
@@ -170,8 +177,8 @@ static inline PieceToRow &pawn_row(const ThreadData &td) {
 // Statistiche di seguito: la mossa (pc, to) dopo le mosse fatte 1..6 ply prima. Pesi per distanza e un fattore
 // che cresce con il numero di distanze che gia' la premiano.
 static void learn_followups(NodeFrame *f, int pc, int to, int bonus) {
-  static const int dist_weight[7] = {0, 520, 390, 145, 251, 66, 209};
-  static const int agree_mul[7] = {94, 103, 110, 106, 119, 126, 121};
+  const int dist_weight[7] = {0, ContDist1, ContDist2, ContDist3, ContDist4, ContDist5, ContDist6};
+  const int agree_mul[7] = {ContAgree0, ContAgree1, ContAgree2, ContAgree3, ContAgree4, ContAgree5, ContAgree6};
   int agreeing = 0;
   for (int d = 1; d <= 6; d++) {
     if (f->in_check && d > 2)
@@ -181,7 +188,7 @@ static void learn_followups(NodeFrame *f, int pc, int to, int bonus) {
     int16_t &e = (*f[-d].cont_hist)[pc][to];
     if (e > 0)
       agreeing++;
-    stat_push(e, bonus * dist_weight[d] * agree_mul[agreeing] / 65536 + (d < 2 ? 73 : 0), LIM_FOLLOW);
+    stat_push(e, bonus * dist_weight[d] * agree_mul[agreeing] / 65536 + (d < 2 ? ContNearBonus : 0), LIM_FOLLOW);
   }
 }
 
@@ -193,10 +200,6 @@ static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus) {
   learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024);
   stat_push(pawn_row(td)[move_piece(m)][move_to(m)],
             bonus * (bonus > -4 ? PawnBonusScale : PawnMalusScale) / 1024, LIM_PAWN);
-  // ExpHistW (AG1 P9, 12/10/2026, spenta): la stessa mossa imparata anche nella tabella dell'esperto del nodo (la
-  // scacchiera e' quella del nodo), cosi' il segnale del mediogioco non resta nel finale e viceversa.
-  if (ExpHistW || ExpHistLmrW)
-    stat_push(td.exp_hist[net_phase(count_bits(td.occupancies[both]))][move_piece(m)][move_to(m)], bonus, LIM_QUIET);
 }
 
 static inline void learn_capture(ThreadData &td, int m, int bonus) {
