@@ -59,6 +59,7 @@ The release 8.0, 1 thread per engine:
 
 | opponent | games | conditions | +W =D −L | Elo (Triumviratus) |
 |---|---:|---|---|---:|
+| **Triumviratus 7.0** | 378 of 4,000 | 20+0.2, UHO 2024 | +165 =179 −34 | **+125.6 ± 16.2** |
 | **Triumviratus 7.0** | 800 of 4,000 | 5+0.05, UHO 2024 | +361 =359 −80 | **+127.5 ± 12.6** |
 | **Stockfish 19** | 240 of 600 | 133+1 (CCRL Blitz), TopGM openings | +5 =227 −8 | **−4.3 ± 6.3** |
 | **Stockfish 18** | 116 of 600 | 133+1 (CCRL Blitz), TopGM openings | +5 =107 −4 | **+3.0 ± 10.1** |
