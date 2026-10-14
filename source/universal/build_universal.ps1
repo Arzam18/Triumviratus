@@ -243,7 +243,9 @@ function Link($exe, $objs, [switch]$Gen) {
 }
 function Bench($exe, $isa) {
     $env:TRIUMV_ISA = $isa
-    $o = "bench`nquit`n" | & $exe 2>&1 | Select-String "Nodes searched" | Select-Object -First 1
+    # Riga vuota in testa (14/10/2026): una PowerShell con $OutputEncoding UTF-8 manda il BOM davanti al primo comando,
+    # il motore leggeva BOM+bench, non lo riconosceva e il bench risultava "?".
+    $o = "`nbench`nquit`n" | & $exe 2>&1 | Select-String "Nodes searched" | Select-Object -First 1
     Remove-Item Env:TRIUMV_ISA -ErrorAction SilentlyContinue
     if ($o -and "$o" -match '(\d+)\s*$') { return $Matches[1] } else { return "?" }
 }

@@ -2296,7 +2296,7 @@ Arasan 2026 collection (200 positions):
 | Stockfish 19 | 139 | 140 | | |
 | release 8.0, analysis mode | 145 | 137 | 153 | |
 | Pos Solver, tree of 11 October | 152–153 | 146–151 | 161 | 166 |
-| **Pos Solver with the two-line search** | 152 | **158** | **163** | **178** |
+| **Pos Solver with the two-line search** | 152 | **161** | **163** | **178** |
 
 - **Two-line search** (`AnShadow`, default in the Pos Solver): the search always looks at the second best root move
   with a full window, as MultiPV 2 does, and prints only the lines the interface asks for. It costs two to three plies
