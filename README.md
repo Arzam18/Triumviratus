@@ -55,27 +55,13 @@ engines):
 
 ## Strength
 
-**8.0 against 7.0**, step by step during development (SPRT and fixed-length matches, details in
-[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)):
+The release 8.0, 1 thread per engine:
 
-| step | Elo |
-|---|---:|
-| faster code at an identical tree, new transposition table | +14.7 ± 5.4 against 7.0 |
-| Consilium, with its parameters re-tuned | +27.3 ± 8.3 against 7.0 |
-| restructured search, re-tuned on Consilium | +85.8 ± 12.8 against the previous 8.0 |
-| move ordering with chess knowledge, causal reduction, defence time rules | +11.9 ± 7.2 |
-| buffered I/O and high-resolution clock (identical tree) | +29.8 ± 7.4 at 5+0.05 |
-| **release against 7.0, one match** | *in progress* |
-
-**Against Stockfish** (1 thread unless stated):
-
-| opponent | test | build | result |
-|---|---|---|---:|
-| **Stockfish 19** | Maurizio Platino, 300 games, 1 min + 1 s, 3 threads each | pre-release, 8 October | −6.9 ± 9.6 |
-| **Stockfish 19** | Andres (EveAnn), 100 games in a 15-engine gauntlet, 2 min + 0.4 s | pre-release, 11 October | +8 =84 −8 (50%) |
-| **Stockfish 19** | 600 games at CCRL Blitz conditions (133+1) | release | *in progress* |
-| **Stockfish 18** | 600 games, 20+0.2 | pre-release, 7–8 October | +24.9 ± 13.7 |
-| **Stockfish 18** | 600 games at CCRL Blitz conditions (133+1) | release | *in progress* |
+| opponent | games | conditions | Elo (Triumviratus) |
+|---|---:|---|---:|
+| **Triumviratus 7.0** | 4,000 | 5+0.05, UHO 2024 | *in progress* |
+| **Stockfish 19** | 600 | 133+1 (CCRL Blitz), TopGM openings | *in progress* |
+| **Stockfish 18** | 600 | 133+1 (CCRL Blitz), TopGM openings | *in progress* |
 
 **Test suites:**
 
@@ -100,8 +86,27 @@ name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_
 
 ## Rating lists
 
-**CCRL Blitz** (2 min + 1 s): **7.0** 3757 ± 19, rank 8 (list of 26 September 2026); 6.0 3749 ± 13; 4.2 3670 ± 13.
-**CCRL 40/15**: **6.0** (4 CPU) 3632 ± 17, rank 13–14; 5.1 3605; 5.0 3603 (4 CPU) and 3570. 8.0 has not been listed yet.
+8.0 has not been listed yet.
+
+**CCRL Blitz** (2 min + 1 s)
+
+| version | rating | rank | list |
+|---|---:|---:|---|
+| **Triumviratus 7.0** (1 CPU) | **3757** ± 19 | **8** | 2026-09-26 |
+| Triumviratus 6.0 (1 CPU) | 3749 ± 13 | 12–14 | 2026-08-16 |
+| Triumviratus 4.2 (1 CPU) | 3670 ± 13 | 51–52 | 2026-08-08 |
+
+**CCRL 40/15** (40 moves in 15 minutes, with increment)
+
+| version | rating | rank | list |
+|---|---:|---:|---|
+| **Triumviratus 6.0** (4 CPU) | **3632** ± 17 | **13–14** | 2026-09-23 |
+| Triumviratus 5.1 (1 CPU) | 3605 | | 2026-07-23 |
+| Triumviratus 5.0 (4 CPU) | 3603 | | 2026-07-16 |
+| Triumviratus 5.0 (1 CPU) | 3570 | | 2026-07-16 |
+
+<sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
+other.</sub>
 
 ## Earlier releases
 
