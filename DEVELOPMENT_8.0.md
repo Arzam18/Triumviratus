@@ -2275,6 +2275,44 @@ hybrid update for castling and promotions, the feature counters in registers, th
 terms, the 16-entry pawn-block cache and the lane-permuted bishop and rook attacks (Stockfish's development, measured
 twice within the noise). The old paths of the adopted speed changes went with them. Bench unchanged, 137419.
 
+## 49. An analysis build: Triumviratus 8.0 Pos Solver (14 October 2026)
+
+Maurizio Platino measured the release on the IQ4 collection (183 positions, 1 second each, 1 thread, Hash 64 MB) and
+found 147 solutions, against 155 for the pre-release of 11 October and 142 for Stockfish 19. At fixed nodes the drop
+was reproduced (157 to 148) and traced to two tree changes made for games after 11 October: the per-expert margins
+(EXP1, the larger part) and LDSE switched off. With both restored the curve matches the 11 October one exactly.
+
+A collection of hard positions does not predict Elo, and the release is stronger in games, so the game build keeps its
+settings. The analysis settings live in a separate build, compiled with `-DTRIUMV_POS_SOLVER`
+(`build_universal.ps1 -PosSolver`): the defaults of a few parameters change through one selector (`PSV(game, solver)`
+in `search/01_params.inc`), analysis mode is always on, and the engine reports itself as "Triumviratus - 8.0 Pos
+Solver". The game build is unchanged (bench 137419).
+
+Measurements, at fixed nodes (repeatable) and at 1 second per position (Maurizio's conditions), on IQ4 and on the
+Arasan 2026 collection (200 positions):
+
+| | IQ4, 1 s | Arasan, 1 s | IQ4, 4M nodes | Arasan, 2M nodes |
+|---|---:|---:|---:|---:|
+| Stockfish 19 | 139 | 140 | | |
+| release 8.0, analysis mode | 145 | 137 | 153 | |
+| Pos Solver, tree of 11 October | 152–153 | 146–151 | 161 | 166 |
+| **Pos Solver with the two-line search** | 152 | **158** | **163** | **178** |
+
+- **Two-line search** (`AnShadow`, default in the Pos Solver): the search always looks at the second best root move
+  with a full window, as MultiPV 2 does, and prints only the lines the interface asks for. It costs two to three plies
+  of average depth and gains about twelve positions on Arasan at every budget; on IQ4 it is level or slightly ahead.
+- Loosening pruning does not help at a fixed budget: thirteen single changes and one combination all solved the same
+  or fewer positions, because less pruning means less depth.
+- Components tried and left off: protection of the king zone and of repetition cycles, the two runners-up at the root
+  without reductions, no depth cut after a new best move near the root, and three ideas read in Crystal's search (no
+  move-count pruning near the root, captures without reductions, a null-move guard near the solution).
+- A display defect fixed for every build: with MultiPV 2 or more, a search stopped in the middle of an iteration could
+  return a best move different from the first line shown. The lines are now printed again at the stop, as they
+  already were with one line. Games use one line and are not affected.
+
+The engine Maurizio compared with, Leptir TI MPV (165/183 in his test), chooses its root move at random among its best
+lines; our search is deterministic. The full record of this work is in the project's working notes.
+
 ## Appendix: every search idea tested since the restructured search
 
 One line per idea, in the order tested; details in the section given. Elo is the candidate against the defaults on

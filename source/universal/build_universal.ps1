@@ -49,7 +49,11 @@ param(
     [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
     # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.0", -DTRIUMV_OFFICIAL) e file
     # Triumviratus_8.0_universal.exe. Senza -Official resta la pre-release datata.
-    [switch]$Official
+    [switch]$Official,
+    # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
+    # dell'11/10), id name "Triumviratus - 8.0 Pos Solver", file Triumviratus_8.0_PosSolver_universal.exe. Il bench e'
+    # quello della modalita' analisi: va passato con -ExpectedBench.
+    [switch]$PosSolver
 )
 $MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
@@ -131,6 +135,7 @@ if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
 $base += '/clang:-falign-loops=64'
 if ($ExtraFlags) { $base += $ExtraFlags.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
 if ($Official) { $base += '-DTRIUMV_OFFICIAL' }
+if ($PosSolver) { $base += '-DTRIUMV_POS_SOLVER' }
 function VFlags($n) {
     switch ($n) {
         1 { @('/arch:AVX2', '-UUSE_PEXT', '-mno-bmi2', '-mno-avx512f') }
@@ -313,6 +318,7 @@ if (-not $NoPgo) {
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
 $exe = if ($Official) { "$Out\Triumviratus_8.0_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
+if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8\.0_', 'Triumviratus_8.0_PosSolver_' }
 if ($Only) {
     if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
     $exe = "$Out\Triumviratus_8.0_${Day}_v$Only.exe"

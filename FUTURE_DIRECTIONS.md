@@ -205,6 +205,19 @@ endgames). The next step is to go through its components one at a time: an audit
 mixture-of-experts network, a rewrite where the network calls for a different design, and an SPRT for each rewrite.
 Per-expert margins were the first example: the right pruning margin depends on which expert evaluates the position.
 
+## 12. Analysis ideas worth a game test
+
+The analysis build (Triumviratus Pos Solver) added search components that act only in analysis. Most of them spend
+depth to keep rare candidate moves alive, which is the opposite of what a game needs, but one may also help in games:
+
+- a null-move guard near the solution: from root depth 11, for the side opposite to the root, the null move is tried
+  only with more than five legal moves (an idea from Crystal by Joseph Ellis, our implementation). It changes the
+  search in a few positions out of a hundred, so its effect in games is expected to be small; it needs a long SPRT on a
+  book with many endgames.
+
+The two-line search (always searching the second best root move with a full window) clearly helps on hard positions
+but costs two to three plies of average depth, so it stays an analysis feature.
+
 ## Status
 
 | direction | status |
@@ -220,3 +233,4 @@ Per-expert margins were the first example: the right pruning margin depends on w
 | Speed (section 9) | three small candidates; for 8.1 |
 | 8-bit HalfKA weights (section 10) | engine path ready behind a build flag; needs clipped training, for 9.0 |
 | A search shaped by the network (section 11) | direction for 8.1 and later |
+| Analysis ideas for games (section 12) | null-move guard implemented for analysis; one game SPRT for 8.1 |

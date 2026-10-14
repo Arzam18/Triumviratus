@@ -303,14 +303,18 @@ static void deepen(ThreadData &td) {
   td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
   // Modalita' analisi: decisa una volta per ricerca (un setoption durante la ricerca vale dalla prossima).
-  const bool analyse = g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
+  // Pos Solver (TRIUMV_POS_SOLVER): sempre accesa, qualunque cosa mandi la GUI (utente 14/10/2026).
+  const bool analyse = PSV(false, true) || g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
   td.an_bits = analyse ? (g_an_bits | AN_ACTIVE) : 0;
   // Una riga per ricerca, solo dal thread principale e solo in analisi (in partita an_bits = 0: niente stampa), con
   // il preset in uso: chi analizza vede che la modalita' e' accesa e con quali componenti.
   if (main && (td.an_bits & AN_ACTIVE)) {
     static const struct { const char *name; int bit; } kAnNames[] = {
       {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
-      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
+      {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
+    {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}};
     printf("info string Analysis mode activated AnDeep=%d", g_an_deep);
     for (const auto &o : kAnNames)
       if (td.an_bits & o.bit)
@@ -336,7 +340,9 @@ static void deepen(ThreadData &td) {
     g_clock.iter_idx = 0;
     g_clock.best_changes = 0;
   }
-  const int lines = std::min(g_multipv, td.root_count);
+  // AnShadow (Pos Solver, 14/10/2026 notte): si cercano almeno 2 linee a finestra piena, se ne stampano g_multipv.
+  const int shown = std::min(g_multipv, td.root_count);
+  const int lines = std::min(std::max(g_multipv, (td.an_bits & AN_SHADOW) ? 2 : 1), td.root_count);
   int again = 0;
   double time_red = 1;
   int last_best_depth = 0, last_best_score = -infinity;
@@ -395,7 +401,7 @@ static void deepen(ThreadData &td) {
         if (stop_threads.load(std::memory_order_relaxed))
           break;
         U64 total = 0;
-        if (main && lines == 1 && (best <= alpha || best >= beta)) {
+        if (main && shown == 1 && td.pv_idx == 0 && (best <= alpha || best >= beta)) {
           for (auto &t : thread_data) total += t.nodes;
           if (total > 10000000)
             report_lines(td, td.root_depth);
@@ -424,6 +430,22 @@ static void deepen(ThreadData &td) {
       }
       if (stop_threads.load(std::memory_order_relaxed))
         break;
+    }
+    // AnStopKeep (14/10/2026 notte, solo con piu' linee): fermata a meta' iterazione, le linee da pv_idx in giu' hanno
+    // punteggi di profondita' diverse; quella con un limite superiore fresco (fallimento basso non ancora risolto)
+    // torna al valore completo dell'iterazione prima invece di finire dietro a punteggi vecchi delle altre.
+    if ((td.an_bits & AN_STOPKEEP) && lines > 1 && stop_threads.load(std::memory_order_relaxed)) {
+      for (int i = td.pv_idx; i < td.root_count; i++) {
+        RootLine &rl = td.root[i];
+        if (rl.upper && rl.prev_score != -infinity && rl.prev_pv_len) {
+          rl.score = rl.uci_score = rl.prev_score;
+          memcpy(rl.pv, rl.prev_pv, sizeof(int) * rl.prev_pv_len);
+          rl.pv_len = rl.prev_pv_len;
+          rl.upper = rl.lower = false;
+        }
+      }
+      settle_lines(td, td.pv_idx, td.root_count);
+      settle_lines(td, 0, lines);
     }
     td.pv_idx = 0;
 
@@ -463,7 +485,9 @@ static void deepen(ThreadData &td) {
     // finita. La bestmove poteva allora non essere la prima mossa dell'ultima pv stampata (fastchess: "Bestmove
     // does not match beginning of last PV", ~1 volta ogni 3 partite). Si ristampa la linea definitiva, dopo il
     // recupero del matto e della linea perduta.
-    if (main && stopped && td.completed_depth > 0 && lines == 1)
+    // 14/10/2026 notte: anche con MultiPV >= 2 (prima solo con una linea): la bestmove poteva non essere la linea 1
+    // mostrata (Arasan 36: linea 1 c5b6, bestmove f2g3). In partita MultiPV e' 1: nulla cambia.
+    if (main && stopped && td.completed_depth > 0)
       report_lines(td, td.root_depth);
 
     if (g_limits.mate && !stopped && val_mating(td.root[0].score) &&
