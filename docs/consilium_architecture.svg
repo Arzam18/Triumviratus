@@ -29,7 +29,7 @@
   <rect width="1440" height="880" fill="#11161E"/>
 
   <text x="40" y="48" font-size="24" font-weight="600">Consilium · the Triumviratus 8.0 network (TRANN3)</text>
-  <text x="40" y="74" font-size="14" class="dim">The HalfKA block of the first layer is split into four experts by material, one active per position. The rest follows the SFNNv16 body with the PassedPawns block.</text>
+  <text x="40" y="74" font-size="14" class="dim">The HalfKA block of the first layer is split into four experts by material (4 piece-count input buckets), one active per position. The rest follows the SFNNv16 body with PassedPawns.</text>
 
   <!-- ===== 1. INPUTS ===== -->
   <text x="40" y="116" class="sec">1 · INPUTS (FOR EACH SIDE) · 154,576</text>
@@ -39,7 +39,7 @@
   <text x="344" y="157" font-size="13" class="dim mono" text-anchor="end">59,808</text>
 
   <rect x="40" y="182" width="320" height="196" rx="8" fill="none" stroke="#3F8C7C" stroke-dasharray="4 4"/>
-  <text x="56" y="205" font-size="14" font-weight="600">HalfKA × 4 material bands</text>
+  <text x="56" y="205" font-size="14" font-weight="600">HalfKA × 4 experts <tspan class="dim" font-weight="400" font-size="12">(input buckets)</tspan></text>
   <text x="344" y="205" font-size="13" class="mono" text-anchor="end">4 × 22,528</text>
   <text x="56" y="225" font-size="12" class="dim">king × piece × square, 32 king buckets in each expert</text>
   <rect x="52" y="236" width="296" height="30" rx="5" class="verd-soft"/>
