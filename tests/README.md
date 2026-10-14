@@ -74,6 +74,21 @@ From 6.0 to the 1 October build every version solved about three quarters of the
 of 4 October, the first with the restructured search, solves **89**: the best Triumviratus so far,
 eight more than three days earlier, and within two positions of Stockfish 19.
 
+## Maurizio Platino — IQ4 test suite
+
+**IQ4**: 183 hard positions. 1 second per position, 1 thread, 64 MB hash, on Maurizio Platino's machine.
+
+| Engine | Solved |
+|---|---:|
+| Leptir TI MPV | 165 / 183 |
+| **Triumviratus 8.0 (pre-release of 11 October 2026)** | **155 / 183** |
+| Cinder 0.6.1 | 149 / 183 |
+| Alexandria 9.1.0 | 147 / 183 |
+| Corchess 5 (2026-10-01) | 145 / 183 |
+| Stockfish 19 | 142 / 183 |
+
+Triumviratus is second of the six engines and solves 13 positions more than Stockfish 19 under the same conditions.
+
 ## Mark Tang — 8.0 prerelease
 
 Tests run by **Mark Tang** on the 8.0 prerelease builds of 5 and 8 October 2026.
