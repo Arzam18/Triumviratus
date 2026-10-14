@@ -60,8 +60,10 @@
 
   <!-- ===== 2. FEATURE TRANSFORMER ===== -->
   <text x="410" y="116" class="sec">2 · FEATURE TRANSFORMER</text>
-  <path d="M360,300 C385,300 385,240 408,240" class="arrow" marker-end="url(#a)"/>
-  <path d="M360,300 C385,300 385,340 408,340" class="arrow" marker-end="url(#a)"/>
+  <text x="410" y="146" font-size="12" class="dim">computed twice, from each side's point of view</text>
+  <text x="410" y="164" font-size="12" class="dim">(inputs relative to that side's king), same weights</text>
+  <path d="M360,300 C380,300 380,240 394,240 L408,240" class="arrow" marker-end="url(#a)"/>
+  <path d="M360,300 C380,300 380,340 394,340 L408,340" class="arrow" marker-end="url(#a)"/>
   <rect x="410" y="200" width="200" height="80" rx="8" class="box"/><!-- PSQT arrow leaves the opponent box at x=470 -->
   <text x="510" y="226" font-size="12" class="dim" text-anchor="middle">accumulator · side to move</text>
   <text x="510" y="254" font-size="20" font-weight="600" text-anchor="middle">1024</text>
@@ -70,9 +72,9 @@
   <text x="510" y="326" font-size="12" class="dim" text-anchor="middle">accumulator · opponent</text>
   <text x="510" y="354" font-size="20" font-weight="600" text-anchor="middle">1024</text>
   <text x="510" y="372" font-size="12" class="dim" text-anchor="middle">+ 8 PSQT values</text>
-  <text x="560" y="402" font-size="12" class="dim">updated incrementally: only the rows</text>
-  <text x="560" y="418" font-size="12" class="dim">of the pieces that moved are added</text>
-  <text x="560" y="434" font-size="12" class="dim">and subtracted</text>
+  <text x="640" y="402" font-size="12" class="dim">updated incrementally: only the rows</text>
+  <text x="640" y="418" font-size="12" class="dim">of the pieces that moved are added</text>
+  <text x="640" y="434" font-size="12" class="dim">and subtracted</text>
 
   <!-- ===== 3. TRANSFORM ===== -->
   <text x="650" y="116" class="sec">3 · ACTIVATION</text>
@@ -86,11 +88,11 @@
   <text x="735" y="328" font-size="12" class="dim" text-anchor="middle">clipped ReLU,</text>
   <text x="735" y="344" font-size="12" class="dim" text-anchor="middle">pairwise product</text>
   <text x="735" y="368" font-size="16" class="mono" text-anchor="middle">1024 → 512</text>
-  <path d="M820,240 C845,240 845,290 868,290" class="arrow"/>
-  <path d="M820,340 C845,340 845,290 868,290" class="arrow" marker-end="url(#a)"/>
+  <path d="M820,240 C840,240 840,290 854,290" class="arrow"/>
+  <path d="M820,340 C840,340 840,290 854,290 L868,290" class="arrow" marker-end="url(#a)"/>
   <rect x="870" y="270" width="110" height="40" rx="20" class="box"/>
   <text x="925" y="295" font-size="13" class="mono" text-anchor="middle">concat 1024</text>
-  <path d="M980,290 C1000,290 1000,192 1028,192" class="arrow" marker-end="url(#a)"/>
+  <path d="M980,290 C998,290 998,192 1014,192 L1028,192" class="arrow" marker-end="url(#a)"/>
 
   <!-- ===== 4. LAYER STACK ===== -->
   <text x="1010" y="116" class="sec">4 · LAYER STACK (1 OF 8)</text>
@@ -146,10 +148,11 @@
   <text x="846" y="736" font-size="12" class="dim">output of the layer stack</text>
   <text x="1160" y="728" font-size="22" class="dim" text-anchor="middle">=</text>
   <rect x="1190" y="692" width="210" height="56" rx="8" class="verd"/>
-  <text x="1295" y="726" font-size="16" font-weight="600" text-anchor="middle">evaluation</text>
-  <path d="M470,380 L470,690" class="arrow" marker-end="url(#a)"/>
-  <text x="478" y="600" font-size="11" class="dim">PSQT</text>
-  <path d="M1205,650 C1205,672 980,668 980,690" class="arrow" marker-end="url(#a)"/>
+  <text x="1295" y="716" font-size="16" font-weight="600" text-anchor="middle">evaluation</text>
+  <text x="1295" y="736" font-size="12" class="dim" text-anchor="middle">weighted sum, then scaled</text>
+  <path d="M590,380 L590,690" class="arrow" marker-end="url(#a)"/>
+  <text x="598" y="600" font-size="11" class="dim">PSQT</text>
+  <path d="M1205,650 C1205,668 980,664 980,676 L980,690" class="arrow" marker-end="url(#a)"/>
 
   <!-- ===== piece count ===== -->
   <rect x="100" y="510" width="200" height="38" rx="19" fill="#2A2116" stroke="#C4913F"/>
