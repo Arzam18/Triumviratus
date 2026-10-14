@@ -141,9 +141,9 @@ positions at long time controls and against other engines on his own machine, an
 the cloud GPUs on which the networks are trained, Consilium included. Triumviratus would be materially weaker without
 his work.
 
-**Mark Tang** tested the 8.0 pre-release against other engines and on the IQ4 suite. His remark that Stoofvlees
-answers very quickly between two moves started the line of thought that led the author to the surprise rule of 8.0's
-time management.
+**Mark Tang** tested almost every 8.0 pre-release extensively, in matches against Stockfish and other engines and on
+tactical test suites such as IQ4. His remark that Stoofvlees answers very quickly between two moves started the line
+of thought that led the author to the surprise rule of 8.0's time management.
 
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included.
