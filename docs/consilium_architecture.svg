@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 880" width="1440" height="880"
+     font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img"
+     aria-label="Consilium, the Triumviratus 8.0 network: shared threat, pawn-pair and passed-pawn inputs and a HalfKA block split into four material-band experts; two 1024 accumulators, clipped ReLU with pairwise product, eight layer stacks chosen by piece count (1024 to 32, 64 to 32, 128 to 1 with a skip) and a PSQT term">
+  <title>Consilium architecture</title>
+  <defs>
+    <style>
+      text       { fill: #E6EAF0; }
+      .dim       { fill: #9AA6B6; }
+      .gold      { fill: #E8C170; }
+      .mono      { font-family: 'Cascadia Mono', Consolas, Menlo, monospace; }
+      .sec       { font-size: 12px; letter-spacing: .14em; fill: #9AA6B6; font-weight: 600; }
+      .box       { fill: #1B222D; stroke: #2A3340; }
+      .verd      { fill: #27564C; stroke: #3F8C7C; }
+      .verd-soft { fill: #1A302C; stroke: #2F6A5D; }
+      .bronze    { fill: #5E4520; stroke: #C4913F; }
+      .bz-soft   { fill: #2A2116; stroke: #8A6630; }
+      .arrow     { stroke: #56647C; stroke-width: 1.6; fill: none; }
+      .arrow-b   { stroke: #C4913F; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#56647C"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C4913F"/>
+    </marker>
+  </defs>
+
+  <rect width="1440" height="880" fill="#11161E"/>
+
+  <text x="40" y="48" font-size="24" font-weight="600">Consilium · the Triumviratus 8.0 network (TRANN3)</text>
+  <text x="40" y="74" font-size="14" class="dim">The HalfKA block of the first layer is split into four experts by material, one active per position. The rest follows the SFNNv16 body with the PassedPawns block.</text>
+
+  <!-- ===== 1. INPUTS ===== -->
+  <text x="40" y="116" class="sec">1 · INPUTS (FOR EACH SIDE) · 154,576</text>
+
+  <rect x="40" y="132" width="320" height="40" rx="6" class="box"/>
+  <text x="56" y="157" font-size="14">Threats <tspan class="dim" font-size="12">· who attacks what · shared</tspan></text>
+  <text x="344" y="157" font-size="13" class="dim mono" text-anchor="end">59,808</text>
+
+  <rect x="40" y="182" width="320" height="196" rx="8" fill="none" stroke="#3F8C7C" stroke-dasharray="4 4"/>
+  <text x="56" y="205" font-size="14" font-weight="600">HalfKA × 4 material bands</text>
+  <text x="344" y="205" font-size="13" class="mono" text-anchor="end">4 × 22,528</text>
+  <text x="56" y="225" font-size="12" class="dim">king × piece × square, 32 king buckets in each expert</text>
+  <rect x="52" y="236" width="296" height="30" rx="5" class="verd-soft"/>
+  <text x="66" y="256" font-size="13">E3 · 24+ pieces</text><text x="334" y="256" font-size="12" class="dim" text-anchor="end">opening</text>
+  <rect x="52" y="270" width="296" height="30" rx="5" class="verd"/>
+  <text x="66" y="290" font-size="13" font-weight="600">E2 · 16–23 pieces</text><text x="334" y="290" font-size="12" class="gold" font-weight="600" text-anchor="end">active</text>
+  <rect x="52" y="304" width="296" height="30" rx="5" class="verd-soft"/>
+  <text x="66" y="324" font-size="13">E1 · 10–15 pieces</text><text x="334" y="324" font-size="12" class="dim" text-anchor="end">late middlegame</text>
+  <rect x="52" y="338" width="296" height="30" rx="5" class="verd-soft"/>
+  <text x="66" y="358" font-size="13">E0 · up to 9 pieces</text><text x="334" y="358" font-size="12" class="dim" text-anchor="end">endgame</text>
+
+  <rect x="40" y="388" width="320" height="34" rx="6" class="box"/>
+  <text x="56" y="410" font-size="14">PawnPair <tspan class="dim" font-size="12">· same / adjacent files · shared</tspan></text>
+  <text x="344" y="410" font-size="13" class="dim mono" text-anchor="end">4,560</text>
+  <rect x="40" y="430" width="320" height="34" rx="6" class="box"/>
+  <text x="56" y="452" font-size="14">PassedPawns <tspan class="dim" font-size="12">· ours · shared</tspan></text>
+  <text x="344" y="452" font-size="13" class="dim mono" text-anchor="end">96</text>
+
+  <!-- ===== 2. FEATURE TRANSFORMER ===== -->
+  <text x="410" y="116" class="sec">2 · FEATURE TRANSFORMER</text>
+  <path d="M360,300 C385,300 385,240 408,240" class="arrow" marker-end="url(#a)"/>
+  <path d="M360,300 C385,300 385,340 408,340" class="arrow" marker-end="url(#a)"/>
+  <rect x="410" y="200" width="200" height="80" rx="8" class="box"/><!-- PSQT arrow leaves the opponent box at x=470 -->
+  <text x="510" y="226" font-size="12" class="dim" text-anchor="middle">accumulator · side to move</text>
+  <text x="510" y="254" font-size="20" font-weight="600" text-anchor="middle">1024</text>
+  <text x="510" y="272" font-size="12" class="dim" text-anchor="middle">+ 8 PSQT values</text>
+  <rect x="410" y="300" width="200" height="80" rx="8" class="box"/>
+  <text x="510" y="326" font-size="12" class="dim" text-anchor="middle">accumulator · opponent</text>
+  <text x="510" y="354" font-size="20" font-weight="600" text-anchor="middle">1024</text>
+  <text x="510" y="372" font-size="12" class="dim" text-anchor="middle">+ 8 PSQT values</text>
+  <text x="560" y="402" font-size="12" class="dim">updated incrementally: only the rows</text>
+  <text x="560" y="418" font-size="12" class="dim">of the pieces that moved are added</text>
+  <text x="560" y="434" font-size="12" class="dim">and subtracted</text>
+
+  <!-- ===== 3. TRANSFORM ===== -->
+  <text x="650" y="116" class="sec">3 · ACTIVATION</text>
+  <path d="M610,240 L648,240" class="arrow" marker-end="url(#a)"/>
+  <path d="M610,340 L648,340" class="arrow" marker-end="url(#a)"/>
+  <rect x="650" y="200" width="170" height="80" rx="8" class="box"/>
+  <text x="735" y="228" font-size="12" class="dim" text-anchor="middle">clipped ReLU,</text>
+  <text x="735" y="244" font-size="12" class="dim" text-anchor="middle">pairwise product</text>
+  <text x="735" y="268" font-size="16" class="mono" text-anchor="middle">1024 → 512</text>
+  <rect x="650" y="300" width="170" height="80" rx="8" class="box"/>
+  <text x="735" y="328" font-size="12" class="dim" text-anchor="middle">clipped ReLU,</text>
+  <text x="735" y="344" font-size="12" class="dim" text-anchor="middle">pairwise product</text>
+  <text x="735" y="368" font-size="16" class="mono" text-anchor="middle">1024 → 512</text>
+  <path d="M820,240 C845,240 845,290 868,290" class="arrow"/>
+  <path d="M820,340 C845,340 845,290 868,290" class="arrow" marker-end="url(#a)"/>
+  <rect x="870" y="270" width="110" height="40" rx="20" class="box"/>
+  <text x="925" y="295" font-size="13" class="mono" text-anchor="middle">concat 1024</text>
+  <path d="M980,290 C1000,290 1000,192 1028,192" class="arrow" marker-end="url(#a)"/>
+
+  <!-- ===== 4. LAYER STACK ===== -->
+  <text x="1010" y="116" class="sec">4 · LAYER STACK (1 OF 8)</text>
+  <rect x="1010" y="130" width="390" height="520" rx="10" fill="none" stroke="#C4913F" stroke-dasharray="5 4"/>
+  <text x="1205" y="154" font-size="13" class="gold" font-weight="600" text-anchor="middle">bucket = (pieces − 1) / 4</text>
+
+  <rect x="1030" y="170" width="350" height="44" rx="6" class="bronze"/>
+  <text x="1046" y="198" font-size="14" font-weight="600">fc_0 · sparse affine</text>
+  <text x="1366" y="198" font-size="14" class="mono" text-anchor="end">1024 → 32</text>
+  <path d="M1205,214 L1205,234" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="236" width="170" height="40" rx="6" class="box"/>
+  <text x="1115" y="261" font-size="13" text-anchor="middle">squared CReLU · 32</text>
+  <rect x="1210" y="236" width="170" height="40" rx="6" class="box"/>
+  <text x="1295" y="261" font-size="13" text-anchor="middle">CReLU · 32</text>
+  <path d="M1205,276 L1205,298" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="300" width="350" height="44" rx="6" class="bronze"/>
+  <text x="1046" y="328" font-size="14" font-weight="600">fc_1 · affine</text>
+  <text x="1366" y="328" font-size="14" class="mono" text-anchor="end">64 → 32</text>
+  <path d="M1205,344 L1205,364" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="366" width="170" height="40" rx="6" class="box"/>
+  <text x="1115" y="391" font-size="13" text-anchor="middle">squared CReLU · 32</text>
+  <rect x="1210" y="366" width="170" height="40" rx="6" class="box"/>
+  <text x="1295" y="391" font-size="13" text-anchor="middle">CReLU · 32</text>
+  <path d="M1205,406 L1205,428" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="430" width="350" height="44" rx="6" class="box"/>
+  <text x="1046" y="452" font-size="13">concat of both activation pairs</text>
+  <text x="1046" y="467" font-size="11" class="dim">skip: the output also sees the fc_0 layer</text>
+  <text x="1366" y="458" font-size="14" class="mono" text-anchor="end">128</text>
+  <path d="M1205,474 L1205,494" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="496" width="350" height="44" rx="6" class="bronze"/>
+  <text x="1046" y="524" font-size="14" font-weight="600">fc_2 · affine</text>
+  <text x="1366" y="524" font-size="14" class="mono" text-anchor="end">128 → 1</text>
+  <path d="M1205,540 L1205,560" class="arrow" marker-end="url(#a)"/>
+
+  <rect x="1030" y="562" width="350" height="40" rx="6" class="box"/>
+  <text x="1046" y="587" font-size="13">+ fc_0[30] − fc_0[31]</text>
+  <text x="1366" y="587" font-size="12" class="dim" text-anchor="end">skip from fc_0</text>
+  <text x="1205" y="630" font-size="12" class="dim" text-anchor="middle">8 such stacks, one per 4 pieces: 1–4, 5–8, … 29–32</text>
+
+  <!-- ===== 5. OUTPUT ===== -->
+  <text x="410" y="676" class="sec">5 · OUTPUT</text>
+  <rect x="410" y="692" width="360" height="56" rx="8" class="box"/>
+  <text x="426" y="716" font-size="14" font-weight="600">PSQT term</text>
+  <text x="426" y="736" font-size="12" class="dim">side to move − opponent, same bucket</text>
+  <text x="800" y="728" font-size="22" class="dim" text-anchor="middle">+</text>
+  <rect x="830" y="692" width="300" height="56" rx="8" class="bronze"/>
+  <text x="846" y="716" font-size="14" font-weight="600">positional term</text>
+  <text x="846" y="736" font-size="12" class="dim">output of the layer stack</text>
+  <text x="1160" y="728" font-size="22" class="dim" text-anchor="middle">=</text>
+  <rect x="1190" y="692" width="210" height="56" rx="8" class="verd"/>
+  <text x="1295" y="726" font-size="16" font-weight="600" text-anchor="middle">evaluation</text>
+  <path d="M470,380 L470,690" class="arrow" marker-end="url(#a)"/>
+  <text x="478" y="600" font-size="11" class="dim">PSQT</text>
+  <path d="M1205,650 C1205,672 980,668 980,690" class="arrow" marker-end="url(#a)"/>
+
+  <!-- ===== piece count ===== -->
+  <rect x="100" y="510" width="200" height="38" rx="19" fill="#2A2116" stroke="#C4913F"/>
+  <text x="200" y="534" font-size="14" class="gold" font-weight="600" text-anchor="middle">piece count</text>
+  <path d="M100,529 L22,529 L22,300 L37,300" class="arrow-b" marker-end="url(#b)"/>
+  <path d="M300,529 L1006,529" class="arrow-b" marker-end="url(#b)"/>
+  <path d="M290,548 L290,720 L406,720" class="arrow-b" marker-end="url(#b)"/>
+  <text x="40" y="578" font-size="12" class="dim">picks three things:</text>
+  <text x="40" y="596" font-size="12" class="dim">the HalfKA expert (first layer),</text>
+  <text x="40" y="614" font-size="12" class="dim">the layer stack and the PSQT bucket</text>
+
+  <!-- footer -->
+  <text x="40" y="806" font-size="13" class="dim">New in Consilium: piece count also picks the HalfKA expert of the first layer, which holds almost all the weights. Only the active expert's rows are summed,</text>
+  <text x="40" y="826" font-size="13" class="dim">so the network has 4× the HalfKA weights at about −7.5% NPS. A capture that crosses 9|10, 15|16 or 23|24 pieces switches the expert (a full refresh, like a</text>
+  <text x="40" y="846" font-size="13" class="dim">king-bucket change). Each expert was trained as a shared base plus its own delta, starting from zero.</text>
+</svg>

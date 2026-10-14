@@ -46,6 +46,8 @@ the mixture-of-experts models of language AI.
 > accumulator (chosen by piece count). What is new in Consilium is not the routing itself but where piece count is
 > used: on the input layer, which holds almost all the weights, rather than only in the small layers after it.
 
+<p align="center"><img src="docs/consilium_architecture.svg" alt="Consilium architecture: four HalfKA experts by material band, two 1024 accumulators, eight layer stacks chosen by piece count" width="100%"></p>
+
 [How it was built](NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
