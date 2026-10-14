@@ -34,10 +34,18 @@
 
 ## Triumviratus 8.0
 
-**Consilium**, the 8.0 network, splits its largest layer, the king-relative inputs, into **four experts, one per
-phase of the game**, chosen by the number of pieces; only one is active at a time, so the layer has four times the
-weights at almost the cost of one. To our knowledge it is the first mixture-of-experts network in a top engine shown
-to gain strength. The idea is the author's own, from the mixture-of-experts models of language AI.
+**Consilium**, the 8.0 network, is a mixture-of-experts network: its largest layer, the king-relative HalfKA inputs,
+is split into **four experts, one per material band** (chosen by the number of pieces, on top of the usual king
+buckets); only one is active at a time, so the layer has four times the weights at almost the cost of one. To our
+knowledge it is **the first engine with piece-count buckets on the input layer**. The idea is the author's own, from
+the mixture-of-experts models of language AI.
+
+> **What "mixture of experts" means here.** The experts are chosen by a fixed rule, the number of pieces on the
+> board, not by a learned gate as in language models. In this sense other routing schemes of NNUE networks are also
+> experts: king buckets on the input layer (chosen by king square) and output buckets or layer stacks after the
+> accumulator (chosen by piece count). What is new in Consilium is not the routing itself but where piece count is
+> used: on the input layer, which holds almost all the weights, rather than only in the small layers after it.
+
 [How it was built](NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 

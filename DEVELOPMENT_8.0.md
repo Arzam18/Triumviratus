@@ -281,6 +281,14 @@ network: **Consilium**, the `legio-septima` architecture with the king-relative 
 experts by game phase. Design, data, training and every intermediate measurement are in
 [NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
 
+**What "mixture of experts" means in this log.** The four experts are four weight sets of the king-relative HalfKA
+block, one per material band (up to 9, 10–15, 16–23, 24 or more pieces), each with the usual 32 king buckets; the
+other input blocks are shared. The expert is chosen by a fixed rule, the piece count, not by a learned gate. Routing
+by piece count is standard after the accumulator (output buckets, layer stacks); what Consilium adds is the same
+routing on the input layer. The training scheme, a shared base plus a per-band delta starting at zero, is the
+nnue-pytorch factorizer applied to material bands. The comparison with other engines is in
+[NOVELTIES.md](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer).
+
 **Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
 release build.
 

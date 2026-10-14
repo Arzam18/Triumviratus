@@ -123,8 +123,15 @@ The thresholds are quartiles of the training corpus, so each expert sees about a
 is active per position, so an evaluation costs almost the same as with a single block: −7.5% NPS, against −11.2% for
 a first layer of 1,536 and −20% for 2,048. In the trainer each expert is a shared base plus a per-band delta that
 starts at zero: the network begins as an ordinary HalfKA network and the experts separate only where the data asks
-for it. In the engine, a capture that crosses a threshold forces a refresh, and the refresh cache is kept per band.
-The idea is the author's, taken from mixture-of-experts language models (many parameters, few active per token).
+for it; this is the same scheme as the factorizer that nnue-pytorch uses for king buckets (the `^` of `HalfKAv2_hm^`),
+applied to material bands. In the engine, a capture that crosses a threshold forces a refresh, and the refresh cache
+is kept per band. The idea is the author's, taken from mixture-of-experts language models (many parameters, few
+active per token).
+
+**What "mixture of experts" means here.** The experts are chosen by a fixed rule, the number of pieces, not by a
+learned gate. In that sense every routing scheme of an NNUE network is a mixture of experts: king buckets on the
+input layer, output buckets and layer stacks after the accumulator. The name describes where the idea came from;
+what is new is the routing key on the input layer, as the next paragraphs explain.
 
 **Measured.** Trained on 28-29 September 2026 (374 epochs of pre-training and two fine-tunes, about 472 billion
 positions). Version 8.0 against the 7.0 release: **+27.3 ± 8.3 Elo** at 15+0.15 on 2,000 games, of which about +15
@@ -133,7 +140,9 @@ come from the network with its re-tuned parameters ([`NETWORKS.md`](NETWORKS.md)
 **Compared with others.** The idea was reached independently by the author, and no network of this kind was found
 in another engine. What exists elsewhere is of a different nature. Choosing weights by piece count is common, but
 after the accumulator: Stockfish's layer stacks and the output buckets of many engines select the small output layers
-by piece count. The input buckets of the first layer are chosen by the king square, never by material. Stockfish 16.1
+by piece count. In the engines we checked, the input buckets of the first layer are chosen by the king square only,
+not by material; an external engine developer confirmed on 14 October 2026 that, as far as she knew, no other engine
+buckets the input layer by piece count. Stockfish 16.1
 switched between two whole networks by material imbalance, which routes between separate networks rather than between
 experts inside one layer. The academic work on phase-specific models uses separate full networks with AlphaZero-style
 MCTS ([arXiv 2401.16852](https://arxiv.org/abs/2401.16852);
@@ -141,9 +150,10 @@ MCTS ([arXiv 2401.16852](https://arxiv.org/abs/2401.16852);
 efficiently updatable first layer of an alpha-beta engine. Mark Tang had tried an unpublished network of phase experts
 in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](NETWORKS.md)).
 
-**Category.** New: experts by material band on the king-relative block of the first layer, one active per position,
-trained as a shared base plus per-band deltas, in a top engine and with a measured gain. To our knowledge Consilium is
-the first network of this architecture.
+**Category.** New: piece-count buckets on the input layer, that is experts by material band on the king-relative
+block of the first layer, on top of the king buckets, one active per position, in a top engine and with a measured
+gain. To our knowledge Triumviratus is the first engine to do this. Not new: hard routing by piece count as such
+(output buckets, layer stacks) and the shared-base training scheme (the nnue-pytorch factorizer).
 
 ## 2. The PassedPawns input block
 
