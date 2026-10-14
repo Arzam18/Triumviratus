@@ -79,6 +79,14 @@ static void clock_plan(int us, int game_ply, int overhead) {
   // La scacchiera globale e' quella della radice (start_search la copia nel thread prima di chiamare clock_plan).
   if (TmEarlySave && count_bits(occupancies[both]) >= 24)
     opt_share *= 1 - TmEarlySave / 1000.0;
+  // Idea F (13/10/2026, utente): tempo per esperto della rete. La quota ottimale si moltiplica per (1 + TmExpK/1000)
+  // secondo l'esperto della radice; il massimo della mossa (multiplo dell'ottimo, sotto il tetto dell'orologio) segue.
+  // Tutte a 0: tempi identici.
+  if (TmExp0 | TmExp1 | TmExp2 | TmExp3) {
+    const int e = net_phase(count_bits(occupancies[both]));
+    const int k = e == 0 ? TmExp0 : e == 1 ? TmExp1 : e == 2 ? TmExp2 : TmExp3;
+    opt_share *= 1 + k / 1000.0;
+  }
   g_clock.optimum = (int)std::max(1.0, opt_share * left);
   g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
   if (g_ponder_option)
@@ -284,6 +292,13 @@ static void deepen(ThreadData &td) {
   prepare_frames(td);
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
   td.root_side = td.side;   // Contempt: la patta vale meno per chi muove alla radice
+  // DrawDefend: dal punteggio con cui si e' chiusa la mossa precedente (fisso per tutta la ricerca e uguale per tutti i
+  // thread; ricalcolarlo a ogni iterazione lo spegnerebbe appena la ricerca trova la patta che cercava).
+  td.draw_defend = 0;
+  if (DrawDefend && g_clock.have_prev && g_clock.prev_best != -infinity && g_clock.prev_best <= -DrawDefendFrom)
+    td.draw_defend = (int)((long long)DrawDefend *
+                           std::min<long long>(1024, (long long)(-g_clock.prev_best - DrawDefendFrom) * 1024 / DrawDefendSpan) /
+                           1024);
   td.deep_w = 0;
   td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
@@ -327,10 +342,10 @@ static void deepen(ThreadData &td) {
   int last_best_depth = 0, last_best_score = -infinity;
   int last_best_pv[max_ply + 4], last_best_len = 0;
 
-  fill_with(&td.low_ply_hist[0][0], (size_t)LOW_PLY_SIZE * QH_SIZE, 102);
+  fill_with(&td.low_ply_hist[0][0], (size_t)LOW_PLY_SIZE * QH_SIZE, LowPlyFill);
   for (int c = 0; c < 2; c++)
     for (int i = 0; i < QH_SIZE; i++)
-      td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * 729 / 1024);
+      td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
   int best = -infinity;
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
@@ -480,7 +495,7 @@ static void deepen(ThreadData &td) {
       time_red = lerp_clamped(td.root_depth - last_best_depth, TmRedLo / 1e2, TmRedHi / 1e2, 0.639, 1.712, 0.629, 1.544);
       const double reduction = (1.468 + g_clock.prev_time_red) / (2.284 * time_red);
       const double instability = TmInstabBase / 1000.0 + TmInstabMul / 1000.0 * g_clock.best_changes / num_threads;
-      const double heavy = lerp_clamped((double)effort, 75800, 104510, 0.969, 0.714, 0.693, 0.838);
+      const double heavy = lerp_clamped((double)effort, TmEffortLo, TmEffortHi, 0.969, 0.714, 0.693, 0.838);
       double total_time = g_clock.optimum * falling * reduction * instability * heavy;
       if (td.root_count == 1)
         total_time = std::min(500.0, total_time);

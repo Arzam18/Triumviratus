@@ -4,7 +4,7 @@
 
 # Triumviratus
 
-**A strong UCI chess engine in C++** — NNUE evaluation · SPSA-tuned alpha-beta search · Syzygy tablebases
+**A strong UCI chess engine in C++** · mixture-of-experts NNUE · SPSA-tuned alpha-beta search · Syzygy tablebases
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 [![C++](https://img.shields.io/badge/language-C%2B%2B-00599C.svg)](source/)
@@ -15,114 +15,110 @@
 
 <sub>in collaboration with Maurizio Platino</sub>
 
+**Current version: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (official release, October 2026)
+
 </div>
 
 ---
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [Earlier releases](#earlier-releases) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[8.0](#triumviratus-80) · [Strength](#strength) · [Download](#download) · [Rating lists](#rating-lists) ·
+[Earlier releases](#earlier-releases) · [What is new](NOVELTIES.md) · [Dev log](DEVELOPMENT_8.0.md) ·
+[Networks](NETWORKS.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) ·
+[License](#license) · [Credits](#credits)
 
 </div>
 
 ---
 
-## Rating
+## Triumviratus 8.0
 
-**CCRL Blitz** (2 min + 1 s):
-
-| Version | Rating | Rank | List |
-|---|---|---|---|
-| **Triumviratus 7.0 64-bit (1 CPU)** | **3757** ±19 | **8** | 2026-09-26 |
-| Triumviratus 6.0 64-bit (1 CPU) | 3749 ±13 | 12–14 | 2026-08-16 |
-| Triumviratus 4.2 64-bit (1 CPU) | 3670 ±13 | 51–52 | 2026-08-08 |
-
-**CCRL 40/15** (40 moves in 15 minutes + increment):
-
-| Version | Rating | Rank | Games | List |
-|---|---|---|---:|---|
-| **Triumviratus 6.0 64-bit (4 CPU)** | **3632** ±17 | **13–14** | 678 | 2026-09-23 |
-| Triumviratus 5.1 64-bit (1 CPU) | 3605 | — | — | 2026-07-23 |
-| Triumviratus 5.0 64-bit (4 CPU) | 3603 | — | — | 2026-07-16 |
-| Triumviratus 5.0 64-bit (1 CPU) | 3570 | — | — | 2026-07-16 |
-
-<sub>Ranks are tie bands shared by the engines inside the interval: read the rating, not the rank. On
-40/15, 6.0 sits 18 Elo behind the first entry (Stockfish 19 4 CPU, 3650 ±19). On Blitz, 7.0 (750 games
-so far) is eighth among the best version of every engine, single- and multi-CPU mixed, ahead of
-several 8-CPU entries; it has not appeared on 40/15 yet. The two lists are not comparable with each
-other.</sub>
-
----
-
-## Triumviratus 8.0 — in development
-
-### Consilium
-
-**Consilium**, the 8.0 network, is to our knowledge the first mixture-of-experts network released in a top engine
-and the first shown to gain strength. The network's largest block, the king-relative input layer, is split into
-**four experts, one per phase of the game** (chosen by the number of pieces), and only one is active at a time, so
-the network has four times the weights in that layer at almost the cost of one. The idea is the author's own, from
-the mixture-of-experts models of language AI. Consilium with its parameters re-tuned is **+27.3 ± 8.3** Elo over
-7.0; a study of its first layer neuron by neuron found no dead or duplicate neurons and experts that specialise.
-[How it was built and trained](NETWORKS.md#consilium--the-triumviratus-80-network) ·
+**Consilium**, the 8.0 network, splits its largest layer, the king-relative inputs, into **four experts, one per
+phase of the game**, chosen by the number of pieces; only one is active at a time, so the layer has four times the
+weights at almost the cost of one. To our knowledge it is the first mixture-of-experts network in a top engine shown
+to gain strength. The idea is the author's own, from the mixture-of-experts models of language AI.
+[How it was built](NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
-### What is new in Triumviratus
+What else is new in 8.0 ([`NOVELTIES.md`](NOVELTIES.md) compares each technique with the published work of other
+engines):
 
-[`NOVELTIES.md`](NOVELTIES.md) compares every technique of the engine with the published work of other engines: of
-52 entries, 10 are new, 26 are known ideas in a different form, 16 were done elsewhere first. The new ones in use:
+- **`PassedPawns`**, an input block of our own for passed pawns;
+- **corrections per network expert** (`CorrPhase`) and **search margins per expert**;
+- **move ordering with chess knowledge**: knight outposts, the capture of a bishop of the pair;
+- **time management**: more time when the opponent does not play the expected reply (the surprise rule), less time
+  when behind on the clock, rules for defending;
+- a **restructured search**, re-tuned by SPSA on Consilium, with the **causal reduction** of quiet moves;
+- faster code at an identical search tree, buffered UCI I/O and a high-resolution clock;
+- **Chess960** support, and **one executable for every x86-64 CPU** with AVX2.
 
-- **Consilium**, experts by material on the first layer (above);
-- **`PassedPawns`**, an input block of our own for passed pawns, in every network since 6.0
-  ([§2](NOVELTIES.md#2-the-passedpawns-input-block));
-- **corrections per expert** (`CorrPhase`): the correction history follows the experts of the network
-  ([§3](NOVELTIES.md#3-correction-history-per-expert-corrphase));
-- **move ordering with chess knowledge**: knight outposts and the capture of a bishop of the pair
-  ([§4](NOVELTIES.md#4-move-ordering-with-chess-knowledge)).
+## Strength
 
-Among the known ideas in a new form, the author's own: the **surprise rule** of time management (more time when the
-opponent does not play the expected reply) and the **causal reduction** of quiet moves. Ideas measured and dropped
-are recorded too, with their numbers.
+The release 8.0, 1 thread per engine:
 
-### Measurements
+| opponent | games | conditions | +W =D −L | Elo (Triumviratus) |
+|---|---:|---|---|---:|
+| **Triumviratus 7.0** | 400 of 4,000 | 20+0.2, UHO 2024 | +177 =189 −34 | **+129.9 ± 15.7** |
+| **Triumviratus 7.0** | 800 of 4,000 | 5+0.05, UHO 2024 | +361 =359 −80 | **+127.5 ± 12.6** |
+| **Stockfish 19** | 240 of 600 | 133+1 (CCRL Blitz), TopGM openings | +5 =227 −8 | **−4.3 ± 6.3** |
+| **Stockfish 18** | 180 of 600 | 133+1 (CCRL Blitz), TopGM openings | +6 =170 −4 | **+3.9 ± 7.5** |
 
-| step | result |
-|---|---:|
-| speed: faster code, identical search tree, new transposition table | +14.7 ± 5.4 against 7.0 |
-| **Consilium**, with its parameters re-tuned | **+27.3 ± 8.3** against 7.0 |
-| **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
-| pre-releases of 10–12 October: move ordering with chess knowledge, the causal reduction, rules from Stockfish 19, time management in defence | +11.9 ± 7.2 against the 9 October pre-release, then each change by SPRT |
-| pre-release of 13 October: a hand brake present since 3.0 removed (unbuffered output, a 15.6 ms clock), persistent threads, search margins per network expert | **+29.8 ± 7.4** at 5+0.05 with an identical search tree; margins +1.6 ± 4.3 |
+<sub>Partial results of matches still running, counted on complete opening pairs only; they will be completed after the release. ± is the 95% interval on
+the opening pairs (pentanomial); against Stockfish 19 almost every pair is drawn, which makes the interval small.</sub>
 
-8.0 is also the first version to support **Chess960**.
+**Test suites:**
 
-**Against other engines** (1 thread unless stated; details and games in [`tests/`](tests/) and
-[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)):
+| suite | tester | result |
+|---|---|---|
+| IQ4 (183 positions, 1 s, 1 thread) | Maurizio Platino | **155 / 183**, second of six; Stockfish 19 142 |
+| IQ4 (183 positions, 1 s) | Mark Tang | 145 / 183, highest among the engines tested |
+| ENET 2026 (110 positions) | Maurizio Platino | 89 / 110; Stockfish 19 91 |
 
-| tester | test | build | result |
-|---|---|---|---|
-| Maurizio Platino | **Stockfish 19**, 300 games, 1 min + 1 s, 3 threads | 8 October | **−6.9 ± 9.6** |
-| Maurizio Platino | Stormphrax 8.0.0 / Reckless 0.10.0-dev, 300 games each | 4 October | **+94 ± 16** / **+25.5 ± 14.6** |
-| Maurizio Platino | ENET 2026 suite | 4 October | **89 / 110**, best Triumviratus so far |
-| Mark Tang | IQ4 tactical suite, 1 s per position | 5 October | **145 / 183**, highest among the engines tested |
-| Andres (EveAnn) | gauntlet against 15 engines, 1,500 games, 2 min + 0.4 s | 11 October | **62.8%, +91.2 ± 9.4**; **Stockfish 19** +8 =84 −8 |
-| the project | Stockfish 18, 600 games, 20+0.2 / Reckless 0.10.0-dev, 526 games, 40+0.4 | 7–8 October | **+24.9 ± 13.7** / **+68 ± 14** |
+Other engines: Andres (EveAnn)'s gauntlet of the 11 October pre-release scored **62.8%, +91.2 ± 9.4** against fifteen
+engines (1,500 games); Maurizio Platino measured **+94 ± 16** against Stormphrax 8.0.0 and **+25.5 ± 14.6** against
+Reckless 0.10.0-dev. Games and details: [`tests/`](tests/) and
+[Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing).
 
-The current pre-release (13 October, one executable for every x86-64 CPU) is the tag
-[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); `source/` holds the development code. Every
-measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** ·
-**[`NOVELTIES.md`](NOVELTIES.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**.
+## Download
 
----
+From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0):
+`Triumviratus_8.0_universal.exe`, one file for every x86-64 CPU with AVX2, with the network embedded. At start-up it
+picks the best of five builds for the CPU (AVX2 without PEXT, AVX2, AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine
+name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
+`source/universal/build_universal.ps1 -Official`.
+
+## Rating lists
+
+8.0 has not been listed yet.
+
+**CCRL Blitz** (2 min + 1 s)
+
+| version | rating | rank | list |
+|---|---:|---:|---|
+| **Triumviratus 7.0** (1 CPU) | **3757** ± 19 | **8** | 2026-09-26 |
+| Triumviratus 6.0 (1 CPU) | 3749 ± 13 | 12–14 | 2026-08-16 |
+| Triumviratus 4.2 (1 CPU) | 3670 ± 13 | 51–52 | 2026-08-08 |
+
+**CCRL 40/15** (40 moves in 15 minutes, with increment)
+
+| version | rating | rank | list |
+|---|---:|---:|---|
+| **Triumviratus 6.0** (4 CPU) | **3632** ± 17 | **13–14** | 2026-09-23 |
+| Triumviratus 5.1 (1 CPU) | 3605 | | 2026-07-23 |
+| Triumviratus 5.0 (4 CPU) | 3603 | | 2026-07-16 |
+| Triumviratus 5.0 (1 CPU) | 3570 | | 2026-07-16 |
+
+<sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
+other.</sub>
 
 ## Earlier releases
 
-- **7.0** (tag `v7.0`, current CCRL entry): the network **`legio-septima`**, the first trained from scratch with all
-  its blocks together, including our own **`PassedPawns`**; **+21.3 ± 6.7** over 6.0 at 25+0.25 (3,000 games), fourth
-  most aggressive of 16 engines on the [EAS ratinglist](https://www.sp-cc.de/eas-ratinglist.htm).
-  [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
-- **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; **+53.0 ± 12.3**
-  over 5.1 at 40+0.4 (760 games). [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
+- **7.0** (tag `v7.0`): the network `legio-septima`, the first trained from scratch with all its blocks, including
+  `PassedPawns`; +21.3 ± 6.7 over 6.0 at 25+0.25. [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
+- **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; +53.0 ± 12.3 over
+  5.1 at 40+0.4. [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
+- Older versions: [`HISTORY.md`](HISTORY.md).
 
 ---
 
@@ -131,50 +127,51 @@ measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVEL
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** started from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). For our own mixture-of-experts network, Consilium (architecture TRANN3), most of the part that runs at every node has since been rewritten: the accumulators, the feature blocks and the link with the search. The forward pass (layers, SIMD) and the net loading are still Stockfish's; about 60–70% of the inference lines remain in common with Stockfish (see [`source/nnue/README.md`](source/nnue/README.md) and [Credits](#credits)). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised following the structure of Stockfish 19's search (GPLv3), keeping our own ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3**, see [`COPYING`](COPYING). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved in every file that contains its code.
+>
+> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
+>
+> **What comes from Stockfish.** The **NNUE inference code** started from Stockfish's SFNNv16 machinery in `nnue/`. For Consilium the part that runs at every node has been largely rewritten (accumulators, feature blocks, the link with the search); the forward pass (layers, SIMD) and the net loading are still Stockfish's, and a line-by-line count gives about 60–70% of the inference lines in common with Stockfish ([`source/nnue/README.md`](source/nnue/README.md)). The **search** was restructured in October 2026: its structures were already in the engine, accumulated since version 5.0, and they were reorganised on the **algorithmic base of Stockfish 19's search**, then re-tuned by SPSA on Consilium and extended with the project's own techniques. The search code is written in the project's own structure and names. The `PawnPair` input block implements a feature designed by Jonathan Hallström for Pawnocchio, also used by Stormphrax, Viridithas and Stockfish; the implementation and the weights are ours (see [Credits](#credits)).
 
 ## Credits
 
 ### Testing & tuning
 
-**Maurizio Platino** is the project's tester and search-tuner throughout its development. Beyond the
-SPSA search-parameter tuning, he probes the engine's real playing strength by running it against
-curated **hard positions at long time controls** — the kind of qualitative strength testing that fast
-automated match-play cannot reach, and the project's only systematic testing of that sort — and has
-generously contributed his hardware for the long tuning and testing runs. He also shares with the
-author the cost of the cloud GPUs on which the project's networks are trained, Consilium included.
-Triumviratus would be materially weaker without his work.
+**Maurizio Platino** is the project's tester and search-tuner. Beyond SPSA tuning, he tests the engine on hard
+positions at long time controls and against other engines on his own machine, and shares with the author the cost of
+the cloud GPUs on which the networks are trained, Consilium included. Triumviratus would be materially weaker without
+his work.
 
-**Mark Tang** has tested the 8.0 prerelease against other engines and on the IQ4 tactical suite (results
-in [`tests/`](tests/)). His remark that Stoofvlees answers very quickly between two moves, even at long time
-controls, started the train of thought that led the author to the "surprise" rule of 8.0's time management: more
-time on a move when the opponent did not play the reply the engine expected.
+**Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
+extensively, in matches against Stockfish and other engines and on tactical test suites such as IQ4, and his reports
+shaped the release. His remark that Stoofvlees answers very quickly between two moves started the line of thought that
+led the author to the surprise rule of 8.0's time management. Many thanks to him.
 
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
-included (results in [`tests/`](tests/)).
+included.
 
-### Derived code
+### Code from other projects
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3) — the NNUE inference machinery in `nnue/` (accumulator stack, feature transformer, layers, threat and HalfKA features), ported from SFNNv16. Since then it has been extensively modified, tested and extended to fit Triumviratus' own networks: its own input blocks (PassedPawns, PawnPair), the four phase experts of the Consilium network, row permutation for cache locality, refresh caches for the pawn blocks and for phase changes, and many measured speed changes.
-- **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh ("Code Monkey King") — the original bitboard/magic-number move generator; the project's earliest (2024) foundation for `attacks.cpp`/`magic.cpp`/`movegen.cpp` and the first search, both since substantially rewritten and extended.
-- **[Fathom](https://github.com/jdart1/Fathom)** (MIT) — Syzygy tablebase probing.
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): the NNUE inference machinery in `nnue/`, ported from SFNNv16 and since extended for Triumviratus' own networks (the PassedPawns and PawnPair blocks, the four experts of Consilium, row permutation for cache locality, refresh caches, measured speed changes).
+- **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh: the original bitboard and magic-number move generator, the project's 2024 foundation, since rewritten and extended.
+- **[Fathom](https://github.com/jdart1/Fathom)** (MIT): Syzygy tablebase probing.
 
 ### Open-source engines studied
 
-Ideas for search, move-ordering, time management and pruning were studied from — and in several cases
-ported and then **re-tuned against the project's own data and network** — a number of open-source
-engines. Credit and thanks to all of them:
+Ideas for search, move ordering, time management and pruning were studied from these engines and, where adopted,
+re-tuned on the project's own network:
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the NNUE inference started from Stockfish's code (accumulators, features and the link with the search since largely rewritten for Consilium; forward pass and net loading still theirs, see [`source/nnue/README.md`](source/nnue/README.md)); the October 2026 restructuring of the search follows the structure of Stockfish 19's search (see [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
-- **[Reckless](https://github.com/codedeliveryservice/Reckless)** — quiet move-ordering (offense-square and king-shield-pawn terms), TT prefetch, capture-ordering ideas.
-- **[Caissa](https://github.com/Witek902/Caissa)** — node-count move cache, quiescence capture history, moves-left time curve.
-- **[Alexandria](https://github.com/PGG106/Alexandria)** — the multiplicative, stateless time-management factors.
-- **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, **[Viridithas](https://github.com/cosmobobak/viridithas)** — the **`PawnPair` NNUE input feature** (see below).
-- **[Berserk](https://github.com/jhonnold/berserk)**, **[Obsidian](https://github.com/gab8192/Obsidian)**, **[Ethereal](https://github.com/AndyGrant/Ethereal)** and **[Stormphrax](https://github.com/Ciekce/Stormphrax)** — assorted search, pruning and ordering refinements.
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the algorithmic base of the October 2026 search ([`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
+- **[Reckless](https://github.com/codedeliveryservice/Reckless)**: quiet move-ordering terms, TT prefetch, capture ordering.
+- **[Caissa](https://github.com/Witek902/Caissa)**: node-count move cache, quiescence capture history, moves-left time curve.
+- **[Alexandria](https://github.com/PGG106/Alexandria)**: the multiplicative time-management factors.
+- **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, **[Viridithas](https://github.com/cosmobobak/viridithas)**: the `PawnPair` input feature.
+- **[Berserk](https://github.com/jhonnold/berserk)**, **[Obsidian](https://github.com/gab8192/Obsidian)**, **[Ethereal](https://github.com/AndyGrant/Ethereal)**, **[Stormphrax](https://github.com/Ciekce/Stormphrax)**: search, pruning and ordering refinements.
 
-**NNUE input features — attribution.** The **`PawnPair`** block (pairs of pawns on the same or adjacent files, `4560` inputs) is **not an original idea of this project**. It was **invented by Jonathan Hallström for [Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, from his observation that in a network trained on *all* pawn pairs the ones that mattered were those at most one file apart. It was also used by **Stormphrax** and **Viridithas**, and in July 2026 **Stockfish adopted it too, as `PP_3Wide`**. Our C++ implementation (`nnue/features/pawn_pair.*`) and the trained weights are our own; the idea is his.
-
-The **`PassedPawns`** block (one input per passed pawn, 96 slots) is, by contrast, **an original feature of this project** — designed, implemented and trained here, and present in no other engine we know of.
+**NNUE input features.** The **`PawnPair`** block (pairs of pawns on the same or adjacent files) was **invented by
+Jonathan Hallström for [Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, also used by Stormphrax and
+Viridithas, and adopted by Stockfish in July 2026 as `PP_3Wide`; our implementation and weights are our own, the idea
+is his. The **`PassedPawns`** block (one input per passed pawn) is **an original feature of this project**.
 
 The open-source computer-chess community is what makes a project like this possible.
 

@@ -64,6 +64,9 @@ param([int]$Movetime = 0, [int]$Positions = 200, [int]$Workers = 8,
       [ValidateSet("both","all","avx512","vnni512","avx512icl","avx2","avx2-nopext",
                    "avx2-intel","avx512-intel","avx512icl-intel")][string]$Arch = "avx512",
       [string]$ExtraDefs = "",
+      # -ExtraLink (14/10/2026): opzioni del linker lld (codegen ThinLTO), solo nella FASE 4, per le prove di disposizione
+      # del codice: es. "/mllvm:-enable-ext-tsp-block-placement=true" o "/mllvm:-hot-cold-split=true".
+      [string]$ExtraLink = "",
       [switch]$Release,
       # -Symbols (04/10/2026): informazioni di debug (/Z7) e .pdb conservato accanto all'exe, per attribuire a funzione
       # e riga i campioni xperf del binario PGO vero (tools/pmc_analyze.py samples). Il codice generato non cambia.
@@ -273,7 +276,7 @@ function Build-Variant([string]$tag) {
 
     Clear-IntDir
     Step 4 "[$tag] FASE 4: build ottimizzata (-fprofile-use)"
-    & $msbuild $proj @common "-p:ClangPgoFlags=-fprofile-use=$merged$extra$reldef /clang:-ffp-contract=off" "-p:ClangArchFlags=$archFlags" "-t:Build"
+    & $msbuild $proj @common "-p:ClangPgoFlags=-fprofile-use=$merged$extra$reldef /clang:-ffp-contract=off" "-p:ClangArchFlags=$archFlags" "-p:ClangLinkFlags=$ExtraLink" "-t:Build"
     if ($LASTEXITCODE -ne 0) { throw "[$tag] build ottimizzata fallita" }
 
     if (-not (Test-Path "$outDir\$netName")) { Copy-Item $netSrc "$outDir\$netName" -Force }

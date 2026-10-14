@@ -226,7 +226,11 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
-  P(LdseMargin, 76, 0, 400)              /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
+  /* SBAKE LDSE 14/10/2026 (utente): non regressione a 40+0.4 HT di tempo + Ldse insieme (tm53), lato release            \
+     -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
+     senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
+     Torna 0 (spenta); da riprovare da sola a 30 s. Prima: 76. */                                                      \
+  P(LdseMargin, 0, 0, 400)               /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
@@ -259,8 +263,8 @@
                                             quiete fuori dalle case della confutazione di una sorella (13_search.inc,\
                                             causal_mask; 0 = spenta). 12/10 sera, non-regressione a 10+0.1 HT    \
                                             (tm42, CausalRed=0 contro 512): dal lato del bake -4,78 +- 9,12 su   \
-                                            1.528, fermata dall'utente; resta 512 e va nello SPSA EXP2 con       \
-                                            CausalRedDepth (forse rende solo a TC lungo/in profondita') */      \
+                                            1.528, fermata dall'utente; resta 512 (SPSA EXP2: 512 -> ~464, senza \
+                                            trend netto; le varianti AG1 sono state tolte il 13/10) */          \
   P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
   P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
@@ -345,6 +349,14 @@
   P(TmDefendFrom, 178, 0, 2000)          /* radice <= -From (178 ~ mezzo pedone)                           */ \
   P(TmDefendTo, 1424, 200, 4000)         /* ...e > -To (oltre e' persa: tempo normale)                     */ \
   P(TmEarlySave, 200, 0, 500)            /* BAKE 11/10/2026 (era 0): /1000, quota ottimale x (1-Save) con >= 24 pezzi */ \
+  /* Idea F (13/10/2026, utente): tempo per esperto della rete. Quota ottimale x (1 + TmExpK/1000) secondo l'esperto  \
+     della radice (net_phase: <=9, 10-15, 16-23, >=24 pezzi), dopo TmEarlySave. 0 = invariato. Da provare come      \
+     REDISTRIBUZIONE (piu' tempo nei finali, meno in apertura): in self-play il lato che spende di piu' vince.       \
+     X5: gli errori contro SF19 sono nei finali con <= 9 pezzi; X3: in difesa con 10-23 pezzi. */                    \
+  P(TmExp0, 0, -500, 1000)                                                                                 \
+  P(TmExp1, 0, -500, 1000)                                                                                 \
+  P(TmExp2, 0, -500, 1000)                                                                                 \
+  P(TmExp3, 0, -500, 1000)                                                                                 \
   /* TmJumpGuard (11/10/2026, utente, guardia; SPENTA): se il punteggio della radice sale rispetto alla mossa prima   \
      di almeno Guard centipedoni STAMPATI (units_to_cp, la scala che si vede nella GUI: +1,00 = 50% di vittorie),    \
      falling non scende sotto 1: niente taglio del tempo su un salto sospetto. Caso torneo 11/10, partita 250 (audit  \
@@ -357,8 +369,6 @@
   P(TmJumpGuard, 200, 0, 2000)           /* cp stampati di salto per la guardia (0 = spenta)               */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
-  P(NullThreatExt, 0, 0, 4000)           /* 12/10/2026, ripescaggio: nulla fallita di oltre tanto -> +1 ply */ \
-  P(TransitionExt, 0, 0, 1)             /* 12/10/2026, ripescaggio: cattura che lascia solo pedoni, +1 ply */ \
   P(HashNearMiss, 0, 0, 400)            /* 12/10/2026, ripescaggio: entry un ply corta, sotto alpha di tanto */ \
   P(HashFiftyStep, 0, 0, 50)            /* nostra (05/10/2026): la chiave hash porta la fascia del contatore */ \
   P(HashFiftyFrom, 40, 0, 100)           /* delle 50 mosse, una ogni Step semimosse sopra From (0 = spenta) */ \
@@ -399,32 +409,41 @@
   P(LmrExp1, 102, -1536, 1536)           /* [EXP1 0->102] */                                              \
   P(LmrExp2, -6, -1536, 1536)            /* [EXP1 0->-6] */                                               \
   P(LmrExp3, 101, -1536, 1536)           /* [EXP1 0->101] */                                              \
+  /* 13/10/2026 (utente: "i margini si sommano, non dovrebbero sostituirli?"): LmrExp sposta solo il livello della    \
+     riduzione; LmrScaleExp ne da' a ogni esperto anche la PENDENZA: scala la riduzione di base (tabella log x log,      \
+     finestra, LmrBase) in 1024-esimi prima delle altre correzioni. 0 = albero invariato. -64/96/0/96 +1,11 +- 3,65 su  \
+     9.118 (8+0.08); LmrScaleExp1 -128 0,00 +- 6,03 su 3.160; in prova nel pacchetto difesa (exp1fix). */             \
+  P(LmrScaleExp0, 0, -256, 256)          /* /1024: +102 = riduzione di base +10%                          */ \
+  P(LmrScaleExp1, 0, -256, 256)                                                                           \
+  P(LmrScaleExp2, 0, -256, 256)                                                                           \
+  P(LmrScaleExp3, 0, -256, 256)                                                                           \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
-  /* Proposte dell'agente AG1 (12/10/2026, docs/audit_8.0/AG1_RICERCA_IDEE_20261012.md), tutte SPENTE (albero       \
-     invariato). P2 CausalRedDepth; P3 CausalAgree; P4 CausalNull; P5 KnowRed*; P6 EgCheckRed; P8 Nmp/Sing/PcExp*;    \
-     P9 ExpHistW; P10 OppPasser*. */                                                                                  \
-  P(CausalRedDepth, 0, 0, 16)            /* P2: CausalRed solo da questa profondita' in su              */ \
-  P(CausalAgree, 0, 0, 2048)             /* P3: 1/1024 ply in piu' per sorella confutata sulla stessa casa */ \
-  P(CausalNull, 0, 0, 2048)              /* P4: riduzione dalla confutazione della nulla fallita (1/1024) */ \
-  P(KnowRedGood, 0, 0, 2048)             /* P5: meno LMR alla quieta con un bonus di conoscenza (1/1024) */ \
-  P(KnowRedShield, 0, 0, 2048)           /* P5: piu' LMR al pedone che lascia lo scudo del re, non PV    */ \
-  P(EgCheckRed, 0, 0, 3072)              /* P6: meno LMR agli scacchi quieti con l'esperto 0 (<= 9 pezzi) */ \
-  P(NmpExp0, 0, -400, 400)               /* P8: margine della nulla per esperto (si somma a NmpBase)     */ \
-  P(NmpExp1, 0, -400, 400)                                                                                \
-  P(NmpExp2, 0, -400, 400)                                                                                \
-  P(NmpExp3, 0, -400, 400)                                                                                \
-  P(SingExp0, 0, -60, 60)                /* P8: margine della singolare per esperto (a SingMarginBase)    */ \
-  P(SingExp1, 0, -60, 60)                                                                                 \
-  P(SingExp2, 0, -60, 60)                                                                                 \
-  P(SingExp3, 0, -60, 60)                                                                                 \
-  P(PcExp0, 0, -200, 200)                /* P8: margine del ProbCut per esperto (a ProbCutMargin)         */ \
-  P(PcExp1, 0, -200, 200)                                                                                 \
-  P(PcExp2, 0, -200, 200)                                                                                 \
-  P(PcExp3, 0, -200, 200)                                                                                 \
-  P(ExpHistW, 0, 0, 4096)                /* P9: peso della storia per esperto nell'ORDINAMENTO (1/1024)   */ \
-  P(ExpHistLmrW, 0, 0, 4096)             /* P9: peso della stessa storia in stat_score (LMR), 12/10 sera  */ \
-  P(OppPasserRfp, 0, 0, 400)             /* P10: margine RFP in piu' con un passato avversario in 6a/7a   */ \
-  P(OppPasserNmp, 0, 0, 1)               /* P10: niente nulla in quel caso (esperti 0-1)                  */ \
+  /* DrawDefend (13/10/2026, utente: "la patta dinamica in svantaggio, la devi implementare"). Misura contro SF19     \
+     (tools/defense_vs_engine.py): teniamo il 37% delle posizioni peggiori, SF il 51%. Se la mossa precedente si e'    \
+     chiusa sotto -DrawDefendFrom, per il colore di radice la patta vale fino a +DrawDefend (rampa lineare su         \
+     DrawDefendSpan, piena oltre): la ricerca preferisce le linee che semplificano, ripetono o arrivano a una fortezza. \
+     Passa da contempt(), quindi vale per ripetizioni, 50 mosse, stallo, materiale insufficiente e tablebase. Unita'   \
+     interne (178 ~ mezzo pedone). 0 = spenta, albero invariato. */                                                    \
+  P(DrawDefend, 0, 0, 600)                                                                                \
+  P(DrawDefendFrom, 356, 0, 3000)        /* ~1 pedone                                                    */ \
+  P(DrawDefendSpan, 356, 1, 3000)        /* bonus pieno da ~2 pedoni                                     */ \
+  /* PULIZIA 13/10/2026 sera (utente: "pusha tutto, tranne il codice morto, che va tolto al 100%"): opzioni CHIUSE e  \
+     spente, tolte con il loro codice; a opzioni spente l'albero era identico (bench 221809 prima e dopo). Codice in   \
+     _backup/Triumviratus_8.0_pre_pulizia_morti_2026-10-13. Tentativi e misure (STATO_PROGETTO.md, 12-13/10):         \
+     - AG1 (docs/audit_8.0/AG1_RICERCA_IDEE_20261012.md): KnowRedGood/Shield (conoscenza dell'ordinamento nella LMR) \
+       chiusa negativa (256/256 -13,6 +- 13,6); EgCheckRed (scacchi quieti meno ridotti nei finali) neutra, nello SPSA \
+       EXP2 verso 0 (z -3,3); CausalRedDepth/CausalAgree/CausalNull, NmpExp/SingExp/PcExp0-3 (margini per esperto di \
+       nulla, singolare, ProbCut), ExpHistW/ExpHistLmrW (storia per esperto), OppPasserRfp/Nmp: neutre negli SPRT e  \
+       senza trend nello SPSA EXP2 (43 leve, 1.440 iterazioni; vettore medio -4,50 +- 7,26 su 2.470).               \
+     - Idea A TensionRed/Min (doppia minaccia meno ridotta) -1,2 +- 5,7; idea C ThreatMoveOrder/Red (risposta alla  \
+       minaccia della nulla fallita) -2,1 +- 7,0; ExpertValuesW (valori dei pezzi per esperto da Consilium nella SEE, \
+       MVV e futility delle catture) -4,4 +- 9,4; tutte senza trend in EXP2.                                         \
+     - Idea B LmrLearnW (LMR imparata dai log, lmr_learned.inc, strumentazione TRIUMV_LMRLOG) chiusa H0: -1600 a     \
+       -1,36 +- 1,44 su ~60.000.                                                                                      \
+     - FutDepthExp0-3 (pendenza per esperto della futility) senza trend in EXP2.                                      \
+     - NullThreatExt (nulla fallita di molto -> +1 ply) -0,42 +- 4,52 su 5.900; TransitionExt (cattura che lascia   \
+       solo pedoni -> +1 ply) richiusa al ripescaggio del 12/10.                                                       \
+     - PvAhead (helper dedicato alla posizione a ply 2 della PV) tolta prima: _backup/Triumviratus_8.0_pvahead_*. */  \
   /* PULIZIA 11/10/2026 sera (utente: "pulisci il codice se siamo sicuri di togliere delle cose, documentando il     \
      tentativo"): opzioni CHIUSE e spente, tolte con il loro ramo; a opzioni spente l'albero era identico (bench       \
      325747 prima e dopo). Codice in _backup/Triumviratus_8.0_pre_pulizia_2026-10-11. Tentativi e misure:             \
@@ -476,6 +495,100 @@
   P(LmrNoTTFullLt, 0, -1500, 1500)                                                                         \
   P(NmpImprovingLt, 0, -100, 100)                                                                          \
   P(QuietFutAlphaLt, 0, -200, 200)                                                                         \
+  /* COSTANTI DEL CODICE RESE PARAMETRI (12/10/2026 sera, utente: "tutto come variabili, nella release frozen").     \
+     Erano numeri scritti nel codice della ricerca, quasi tutti uguali a quelli di Stockfish 19 (tools/               \
+     search_attribution.py: 74 su 87 costanti >= 100). Default = valore di prima: albero identico, bench invariato.   \
+     Nella release sono constexpr come gli altri parametri; nel dev le due tabelle di reciproci (HistDiv*,            \
+     LmrAllDivBase) si ricalcolano a ogni setoption (param_tables_refresh, 13_search.inc). Servono agli SPSA.        \
+     Limiti delle statistiche (09_history.inc, stat_push) */                                                     \
+  P(HistLimQuiet, 7183, 2000, 20000)     /* storie delle quiete (butterfly, low ply, per esperto)          */ \
+  P(HistLimCapt, 10692, 3000, 30000)     /* storia delle catture                                           */ \
+  P(HistLimFollow, 30000, 8000, 32000)   /* storie di continuazione (int16: al piu' 32767)                 */ \
+  /* learn_followups (09_history.inc): peso per distanza 1..6 ply e fattore per numero di distanze che gia' premiano */ \
+  P(ContDist1, 520, 0, 1500)                                                                               \
+  P(ContDist2, 390, 0, 1500)                                                                               \
+  P(ContDist3, 145, 0, 1000)                                                                               \
+  P(ContDist4, 251, 0, 1000)                                                                               \
+  P(ContDist5, 66, 0, 1000)                                                                                \
+  P(ContDist6, 209, 0, 1000)                                                                               \
+  P(ContAgree0, 94, 40, 200)                                                                               \
+  P(ContAgree1, 103, 40, 200)                                                                              \
+  P(ContAgree2, 110, 40, 200)                                                                              \
+  P(ContAgree3, 106, 40, 200)                                                                              \
+  P(ContAgree4, 119, 40, 200)                                                                              \
+  P(ContAgree5, 126, 40, 200)                                                                              \
+  P(ContAgree6, 121, 40, 200)                                                                              \
+  P(ContNearBonus, 73, 0, 300)           /* bonus fisso alle distanze 1 */                                \
+  /* taglio dalla hash (13_search.inc, hash_cutoff) */                                                         \
+  P(HashCutQuietMul, 112, 0, 400)        /* bonus alla mossa hash quieta: min(Mul*depth, Max) */          \
+  P(HashCutQuietMax, 695, 0, 2500)                                                                         \
+  P(HashCutPrevMalus, 2210, 0, 6000)     /* malus alla mossa avversaria precedente, se uscita presto */     \
+  /* prima delle mosse (13_search.inc) */                                                                    \
+  P(PriorRedEvalSum, 166, 0, 500)        /* depth-- dopo una riduzione forte se le due eval sommano oltre */ \
+  P(EvalDiffLo, 189, 0, 600)             /* clamp(-(eval prec + eval), -Lo, Hi) + Ofs: storia della mossa  */ \
+  P(EvalDiffHi, 194, 0, 600)             /* che ci ha portati qui                                          */ \
+  P(EvalDiffOfs, 60, -200, 200)                                                                            \
+  /* estensione singolare (13_search.inc, singular) */                                                         \
+  P(SingTtHistMul, 1175, 0, 4000)        /* margine doppia: - Mul * tt_move_hist / Div                     */ \
+  P(SingTtHistDiv, 114178, 20000, 400000)                                                                  \
+  P(SingDoubleDeep, 38, 0, 150)          /* oltre la profondita' di radice: margini doppia/tripla ridotti */ \
+  P(SingTripleDeep, 43, 0, 150)                                                                            \
+  P(SingFhTtBase, 421, 0, 1500)          /* tt_move_hist dopo il taglio multiplo: -(Base + Depth*depth)  */ \
+  P(SingFhTtDepth, 110, 0, 400)                                                                            \
+  /* move_loop (13_search.inc) */                                                                             \
+  P(CaptStatMul, 873, 0, 2500)           /* stat_score delle catture: Mul * valore della vittima / 128      */ \
+  P(StatQuietW, 2252, 0, 6000)           /* stat_score delle quiete: (W*storia + C1*cont1 + C2*cont2)/1024 */ \
+  P(StatCont1W, 1126, 0, 4000)                                                                             \
+  P(StatCont2W, 1093, 0, 4000)                                                                             \
+  P(LmrAllDivBase, 268, 1, 1500)         /* r * LmrAllNode / (256*depth + Base) nei nodi all             */ \
+  P(FollowFhBonus, 1334, 0, 4000)        /* continuazioni dopo la ricerca piu' profonda riuscita            */ \
+  P(LmrDeepRed1, 5234, 2000, 9000)       /* ricerca ridotta: -1 ply se r > Red1, -1 se r > Red2           */ \
+  P(LmrDeepRed2, 5487, 2000, 9000)                                                                         \
+  /* fine del nodo (13_search.inc, node_close) */                                                             \
+  P(TtMoveHistGood, 918, 0, 3000)        /* tt_move_hist: + se la migliore e' la mossa hash, - altrimenti */ \
+  P(TtMoveHistBad, 747, 0, 3000)                                                                           \
+  P(PriorScaleBase, 241, -500, 1000)     /* nessuna mossa sopra alpha: premio alla mossa avversaria       */ \
+  P(PriorScaleStatDiv, 98, 10, 500)                                                                        \
+  P(PriorScaleDepthMul, 59, 0, 300)                                                                        \
+  P(PriorScaleDepthMax, 420, 0, 1500)                                                                      \
+  P(PriorScaleLate, 186, 0, 600)                                                                           \
+  P(PriorScaleEval, 142, 0, 600)                                                                           \
+  P(PriorScaleEvalMargin, 106, 0, 400)                                                                     \
+  P(PriorScaleOppEval, 159, 0, 600)                                                                        \
+  P(PriorScaleOppMargin, 68, 0, 400)                                                                       \
+  P(PriorBonusDepthMul, 150, 0, 500)                                                                       \
+  P(PriorBonusSub, 85, -300, 500)                                                                          \
+  P(PriorBonusMax, 1337, 200, 4000)                                                                        \
+  P(PriorContW, 263, 0, 1500)            /* /16384 */                                                     \
+  P(PriorQuietW, 215, 0, 1500)           /* /32768 */                                                     \
+  P(PriorPawnW, 324, 0, 1500)            /* /8192 */                                                      \
+  P(PriorCaptBonus, 892, 0, 3000)        /* storia della cattura avversaria che ci ha portati qui          */ \
+  P(CorrLearnW, 1061, 0, 3000)           /* /1024: peso dell'aggiornamento delle correzioni a fine nodo    */ \
+  /* potatura per storia delle quiete: divisore per profondita' 1..16 (13_search.inc, prune_quiet)      */      \
+  P(HistDiv1, 3637, 500, 8000)                                                                             \
+  P(HistDiv2, 2787, 500, 8000)                                                                             \
+  P(HistDiv3, 2761, 500, 8000)                                                                             \
+  P(HistDiv4, 2939, 500, 8000)                                                                             \
+  P(HistDiv5, 3171, 500, 8000)                                                                             \
+  P(HistDiv6, 3347, 500, 8000)                                                                             \
+  P(HistDiv7, 3147, 500, 8000)                                                                             \
+  P(HistDiv8, 2762, 500, 8000)                                                                             \
+  P(HistDiv9, 2772, 500, 8000)                                                                             \
+  P(HistDiv10, 3106, 500, 8000)                                                                            \
+  P(HistDiv11, 3107, 500, 8000)                                                                            \
+  P(HistDiv12, 3060, 500, 8000)                                                                            \
+  P(HistDiv13, 3112, 500, 8000)                                                                            \
+  P(HistDiv14, 2991, 500, 8000)                                                                            \
+  P(HistDiv15, 3090, 500, 8000)                                                                            \
+  P(HistDiv16, 3542, 500, 8000)                                                                            \
+  /* quiescenza (12_quiesce.inc): valore restituito sopra beta = (Mix*best + (1024-Mix)*beta)/1024        */      \
+  P(QsFhMix, 441, 0, 1024)               /* taglio di una mossa                                            */ \
+  P(QsStandMix, 462, 0, 1024)            /* taglio della valutazione statica                               */ \
+  /* tra un'iterazione e l'altra (14_deepen.inc) */                                                          \
+  P(LowPlyFill, 102, -500, 500)          /* valore iniziale della storia dei primi ply a ogni ricerca       */ \
+  P(QuietHistDecay, 729, 0, 1024)        /* /1024: storie delle quiete conservate fra le mosse              */ \
+  P(TmEffortLo, 75800, 40000, 100000)    /* quota dei nodi sulla mossa migliore (x100000): rampa del tempo */ \
+  P(TmEffortHi, 104510, 60000, 140000)                                                                     \
   /* gestione del tempo (in millesimi) */                                                                 \
   P(TmFallBase, 1148, 500, 2500)         /* /100: fallingEval = (base + a*(prev-best) + b*(iter-best)) */ \
   P(TmFallPrev, 230, 0, 600)                                                                              \
@@ -687,6 +800,10 @@ void print_analysis_options() {
     printf("option name %s type check default %s\n", o.n, (kAnDefaultBits & o.bit) ? "true" : "false");
 }
 
+#ifndef TRIUMV_RELEASE
+static void param_tables_refresh();   // 13_search.inc
+#endif
+
 bool set_search_param(const char* name, int value) {
   if (!strcmp(name, "MultiPV")) { g_multipv = value < 1 ? 1 : (value > 64 ? 64 : value); return true; }
   if (!strcmp(name, "UCI_ShowWDL")) { g_show_wdl = parse_bool_value(value); return true; }
@@ -715,7 +832,8 @@ bool set_search_param(const char* name, int value) {
   }
 #ifndef TRIUMV_RELEASE
   // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
-  const auto sync = [] { g_see_pinned = SeePinned; };
+  // 12/10/2026 sera: anche le tabelle di reciproci costruite dai parametri (HistDiv*, LmrAllDivBase).
+  const auto sync = [] { g_see_pinned = SeePinned; param_tables_refresh(); };
 #define TP_SET(pname, def, lo, hi)                                                                         \
   if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
   TRIUMV_SEARCH_PARAMS(TP_SET)

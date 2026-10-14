@@ -78,7 +78,7 @@ constexpr bool g_see_fix = true;
 constexpr int  g_see_pinned = 1;
 #else
 extern bool g_see_fix;
-extern int  g_see_pinned;   // SeePinned (copia del parametro della ricerca, 01_params.inc)
+extern int  g_see_pinned;      // SeePinned (copia del parametro della ricerca, 01_params.inc)
 #endif
 
 // SEE implementation

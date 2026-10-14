@@ -82,6 +82,7 @@ int parse_move(char* move_string)
 }
 
 // parse UCI "position" command
+
 void parse_position(char* command)
 {
     command += 9;
@@ -333,7 +334,12 @@ void uci_loop()
             // "Triumviratus - 7.0 2026-08-06".
             // Anche nel binario universale l'id name resta questo: e' il nome che GUI e liste (CCRL) registrano. La
             // variante scelta si legge nella riga d'avvio (main.cpp), solo in terminale.
+            // Release ufficiale (14/10/2026, -DTRIUMV_OFFICIAL da build_universal.ps1 -Official): nome senza data.
+#ifdef TRIUMV_OFFICIAL
+            printf("id name %s%s\n", NAME, VERSION);
+#else
             printf("id name %s%s %s\n", NAME, VERSION, build_date());
+#endif
             printf("id author %s\n", AUTHOR);
             printf("option name Hash type spin default 64 min 1 max %d\n", max_hash);
             printf("option name Threads type spin default 1 min 1 max %d\n", max_threads);
@@ -351,7 +357,11 @@ void uci_loop()
             // Ponder: la GUI decide se pondera. Dal 04/10/2026 l'opzione accesa da' il 25% di tempo ottimale in piu'
             // (search/14_deepen.inc, clock_plan). Senza dichiararla molte GUI non mandano mai `go ponder`.
             printf("option name Ponder type check default false\n");
+#ifdef TRIUMV_OFFICIAL
+            printf("option name UCI_EngineAbout type string default %s%s by %s\n", NAME, VERSION, AUTHOR);
+#else
             printf("option name UCI_EngineAbout type string default %s%s build %s by %s\n", NAME, VERSION, build_date(), AUTHOR);
+#endif
             printf("option name Move Overhead type spin default 10 min 0 max 5000\n"); // ms riservati a lag/GUI per mossa
             printf("option name EvalFile type string default %s\n", nn_default_net_name());
             // Gruppo Syzygy standard: le GUI ChessBase/Fritz riconoscono un motore con tablebase dal set completo.

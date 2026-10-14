@@ -1,6 +1,7 @@
 """Toglie dal sorgente i blocchi condizionali di una macro, trattandola come NON definita.
 
-Uso: python unifdef_undef.py MACRO file1 [file2 ...] [--dry]
+Uso: python unifdef_undef.py MACRO file1 [file2 ...] [--dry] [--def]
+(--def: tratta la macro come definita, per togliere il ramo vecchio di una patch adottata)
 
 Riconosce solo le forme semplici, che sono quelle usate nel progetto:
   #ifdef M / #ifndef M / #if defined(M) / #if !defined(M)  (con #else, senza #elif)
@@ -81,9 +82,14 @@ def process(text, macro):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != '--dry']
+    args = [a for a in sys.argv[1:] if a not in ('--dry', '--def')]
     dry = '--dry' in sys.argv
     macro, files = args[0], args[1:]
+    if '--def' in sys.argv:
+        # --def (14/10/2026): la macro e' trattata come DEFINITA (patch adottata: resta il ramo nuovo).
+        global classify
+        undef = classify
+        classify = lambda kind, rest, m: (lambda v: None if v is None else not v)(undef(kind, rest, m))
     for f in files:
         with open(f, encoding='utf-8', errors='surrogateescape', newline='') as fh:
             src = fh.read()

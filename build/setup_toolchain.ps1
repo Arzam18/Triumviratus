@@ -5,7 +5,7 @@
 #      Set-ExecutionPolicy -Scope Process Bypass -Force
 #      .\setup_toolchain.ps1
 #
-#  Installa solo cio' che serve a `build_pgo_clang_7_trann2.ps1`:
+#  Installa solo cio' che serve a `build_pgo_clang_80.ps1`:
 #    - Visual Studio 2022 Community + workload C++ desktop
 #    - C++ Clang Compiler for Windows      -> clang-cl, llvm-profdata, clang_rt.profile
 #    - MSBuild support for LLVM (clang-cl) -> PlatformToolset=ClangCL richiesto dal vcxproj
@@ -107,7 +107,7 @@ if ($ok) {
     Write-Host '  git clone https://github.com/<utente>/Triumviratus.git' -ForegroundColor Gray
     Write-Host "  ripristina dal backup: Networks_Triumviratus_7\, OpeningBooks\, _artifacts\, Tuning_SPSA\" -ForegroundColor Gray
     Write-Host '  ssh-keygen -t ed25519    # la vecchia chiave e'' compromessa' -ForegroundColor Gray
-    Write-Host '  .\build_pgo_clang_7_trann2.ps1 -Arch all -Release -Net "Networks_Triumviratus_7\nn-legio-septima-v1.nnue"' -ForegroundColor Gray
+    Write-Host '  .\build_pgo_clang_80.ps1 -Arch avx512 -Det    # oppure source\universal\build_universal.ps1 per la release' -ForegroundColor Gray
     Write-Host "  poi VERIFICA: tutte e cinque le varianti devono benchare 261287" -ForegroundColor Yellow
 } else {
     Write-Host "Qualcosa manca: rilancia l'installer di VS e aggiungi a mano i componenti segnati sopra." -ForegroundColor Red

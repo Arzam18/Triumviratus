@@ -22,20 +22,12 @@
 #include <new>
 #include <type_traits>   // std::true_type / false_type: tile con o senza PSQT in apply_combined
 // ADOTTATE 08/10/2026 sera (xperf 6 giri, docs/audit_8.0/X4_VELOCITA_PROFONDA.md): OLDWB + BIASBASE insieme -1,06%
-// cicli/nodo in mediogioco (rumore A/A +-0,26), -0,96% nei finali (+-0,42). Accese di default; -DTRIUMV_NO_SPEED_X4
-// torna al codice di prima (misure A/B). HYBALL resta spenta (peggiora OLDWB).
-#if !defined(TRIUMV_NO_SPEED_X4)
-    #ifndef TRIUMV_VG_OLDWB
-        #define TRIUMV_VG_OLDWB
-    #endif
-    #ifndef TRIUMV_VG_BIASBASE
-        #define TRIUMV_VG_BIASBASE
-    #endif
-#endif
-// X2 (08/10/2026): patch di velocita' della rete ad albero identico, ognuna sotto la sua macro (rapporto
-// docs/audit_8.0/X2_VELOCITA_RETE.md). TRIUMV_VG_OLDWB, TRIUMV_VG_BIASBASE, TRIUMV_VG_HYBALL; le rispettive
+// cicli/nodo in mediogioco (rumore A/A +-0,26), -0,96% nei finali (+-0,42). Unico percorso dal 14/10/2026 (rami vecchi
+// e macro tolti). Pulizia 14/10/2026: tolte le varianti misurate e non adottate (HYBALL, X4_VLREG, X4_NOLAST, PE16,
+// SD_DUALPERM); codice di prima in _backup/Triumviratus_8.0_pre_pulizia_2026-10-14.
+// X2 (08/10/2026): patch di velocita' della rete ad albero identico (rapporto docs/audit_8.0/X2_VELOCITA_RETE.md); le
 // TRIUMV_VERIFY_VG_* ricalcolano da zero le entry e l'accumulatore dopo ogni ibrido e ogni refresh.
-#if defined(TRIUMV_VERIFY_VG_OLDWB) || defined(TRIUMV_VERIFY_VG_BIASBASE) || defined(TRIUMV_VERIFY_VG_HYBALL)
+#if defined(TRIUMV_VERIFY_VG_OLDWB) || defined(TRIUMV_VERIFY_VG_BIASBASE)
     #define TRIUMV_VG_VERIFY_ANY
 #endif
 #if defined(TRIUMV_VG_VERIFY_ANY)
@@ -283,23 +275,11 @@ void AccumulatorStack::evaluate_side(Color                     perspective,
         const usize   n                   = size();
         const auto&   dp                  = ds.st[n - 1].dp;
         const bool    ownKing             = dp.pc == NN_KING + NN_BLACK * int(perspective);
-    #ifdef TRIUMV_VG_HYBALL
-        // X2 (08/10/2026, VG_HYBALL): anche l'ARROCCO che non porta il re oltre la colonna d/e (O-O, e in 960 ogni
-        // arrocco che resta nella stessa meta') e la PROMOZIONE con cattura che cambia fascia passano dall'ibrido. In
-        // entrambi i casi gli indici di minaccia/pedoni restano validi (orientamento invariato) e le dirty delle
-        // minacce coprono anche la torre e il pezzo promosso; la posizione precedente si ricostruisce togliendo prima
-        // i pezzi arrivati e poi rimettendo quelli partiti, che regge anche le case condivise dell'arrocco 960. Escluso
-        // solo l'arrocco 960 col re fermo: entry vecchia e nuova sarebbero la stessa.
-        if (n >= 2 && ds.st[n - 2].computed[perspective] && pos.count() >= MIN_PC_COUNT_HYBRID
-            && (!ownKing || ((int(dp.from) & 0b100) == (int(dp.to) & 0b100) && dp.from != dp.to)))
-        {
-    #else
         if (n >= 2 && dp.to != NN_SQ_NONE
             && ds.st[n - 2].computed[perspective]
             && pos.count() >= MIN_PC_COUNT_HYBRID
             && (!ownKing || (int(dp.from) & 0b100) == (int(dp.to) & 0b100)) && dp.add_sq == NN_SQ_NONE)
         {
-    #endif
     #ifdef TRIUMV_PROFILE
             prof_refresh_same_orient++;
     #endif
@@ -919,12 +899,7 @@ inline void diff_entry(Color                           perspective,
     }
     Bitboard rem = changed & haveOcc;
     Bitboard add = changed & wantOcc;
-#ifdef TRIUMV_X4_VLREG
-    // X4 (08/10/2026, VLREG): contatori delle due liste in registri (ValueList::Tail, misc.h).
-    typename List::Tail remOut(removed), addOut(added);
-#else
     List &remOut = removed, &addOut = added;
-#endif
     if (rem)
     {
         const PiecePlanes look(have.data());
@@ -945,7 +920,6 @@ inline void diff_entry(Color                           perspective,
     }
 }
 
-#ifdef TRIUMV_VG_BIASBASE
 // X2 (08/10/2026, VG_BIASBASE): scelta della base contando le righe. Una entry della finny table puo' essere vecchia
 // di molte mosse (quattro tabelle per fascia, 64 case del re, due lati: le entry poco usate restano indietro). Dalla
 // entry servono rem + add righe; dai soli bias (scacchiera vuota) ne serve una per pezzo. Se la entry costa di piu' si
@@ -1003,7 +977,6 @@ inline bool diff_entry_base(Color                           perspective,
 
 // PSQT di partenza quando la base sono i bias (una entry vuota ha PSQT nullo, vedi Entry::clear).
 alignas(64) const PSQTWeightType kZeroPsqt[PSQTBuckets] = {};
-#endif
 
 #if defined(TRIUMV_VG_VERIFY_ANY)
 // Verifica delle patch X2: ricalcolo da zero, scalare, di un accumulatore HalfKA (bias + una riga per pezzo) e di un
@@ -1132,31 +1105,15 @@ void update_accumulator_hybrid(Color                     perspective,
     Bitboard        previousPieces[12];
     for (int pc = 0; pc < 12; ++pc)
         previousPieces[pc] = currentPieces[pc];
-#ifdef TRIUMV_VG_HYBALL
-    // Arrocco e promozioni ammessi (vedi il cancello in evaluate_side): prima si tolgono i pezzi ARRIVATI (pezzo mosso,
-    // torre dell'arrocco o pezzo promosso), poi si rimettono quelli PARTITI (pezzo mosso, catturato o torre). Nell'arrocco
-    // remove_sq e' la casa di partenza della torre, non una cattura: la fascia non cambia.
-    const bool castling = dirtyPiece.to != NN_SQ_NONE && dirtyPiece.add_sq != NN_SQ_NONE;
-    if (dirtyPiece.to != NN_SQ_NONE)
-        previousPieces[dirtyPiece.pc] &= ~(1ULL << dirtyPiece.to);
-    if (dirtyPiece.add_sq != NN_SQ_NONE)
-        previousPieces[dirtyPiece.add_pc] &= ~(1ULL << dirtyPiece.add_sq);
-    previousPieces[dirtyPiece.pc] |= 1ULL << dirtyPiece.from;
-    if (dirtyPiece.remove_sq != NN_SQ_NONE)
-        previousPieces[dirtyPiece.remove_pc] |= 1ULL << dirtyPiece.remove_sq;
-    const bool captured = dirtyPiece.remove_sq != NN_SQ_NONE && !castling;
-#else
     previousPieces[dirtyPiece.pc] ^= (1ULL << dirtyPiece.to) | (1ULL << dirtyPiece.from);
     const bool captured = dirtyPiece.remove_sq != NN_SQ_NONE;
     if (captured)
         previousPieces[dirtyPiece.remove_pc] |= 1ULL << dirtyPiece.remove_sq;
-#endif
 
     // Fascia (HalfKA a esperti): la entry vecchia sta nella fascia della posizione PRIMA della mossa, che con una
     // cattura a cavallo di soglia e' diversa da quella di adesso.
     const int   psqPhase = PSQFeatureSet::phase_of(dirtyPiece);
     const int   oldPhase = PSQFeatureSet::phase_of_count(pos.count() + int(captured));
-#ifdef TRIUMV_VG_OLDWB
     // X2 (08/10/2026, VG_OLDWB): la entry VECCHIA si riscrive con l'HalfKA della posizione precedente, che l'ibrido
     // ricostruisce comunque. Il caso che conta e' il cambio di fascia: con 24, 16 o 10 pezzi ogni cattura cambia
     // esperto, e tutte le catture sorelle partono dalla STESSA posizione precedente. Prima ognuna ricalcolava gli
@@ -1165,9 +1122,6 @@ void update_accumulator_hybrid(Color                     perspective,
     // sottoalbero di una cattura la fascia vecchia non torna (i pezzi non aumentano), quindi la entry resta valida
     // per tutte le sorelle. Si scrive solo se la entry era davvero diversa.
     auto&       oldEntry = cache.at(oldPhase, Square(oldKsq))[perspective];
-#else
-    const auto& oldEntry = cache.at(oldPhase, Square(oldKsq))[perspective];
-#endif
     auto&       newEntry = cache.at(psqPhase, Square(newKsq))[perspective];
     // La entry nuova si riscrive prima di leggere la vecchia: non devono essere la stessa.
     assert(&oldEntry != &newEntry);
@@ -1175,22 +1129,15 @@ void update_accumulator_hybrid(Color                     perspective,
     // "Remove"/"Add" = cosa togliere/aggiungere ALLA ENTRY per ottenere
     // l'accumulatore HalfKA voluto.
     PSQFeatureSet::IndexList oldRemove, oldAdd, newRemove, newAdd;
-#ifdef TRIUMV_VG_BIASBASE
     // Base scelta contando le righe (vedi diff_entry_base): entry o bias, per ognuna delle due ricostruzioni.
     const bool oldFromBias =
       diff_entry_base(perspective, oldEntry.pieces, previousPieces, oldKsq, oldPhase, oldRemove, oldAdd);
     const bool newFromBias =
       diff_entry_base(perspective, newEntry.pieces, currentPieces, newKsq, psqPhase, newRemove, newAdd);
-#else
-    diff_entry(perspective, oldEntry.pieces, previousPieces, oldKsq, oldPhase, oldRemove, oldAdd);
-    diff_entry(perspective, newEntry.pieces, currentPieces, newKsq, psqPhase, newRemove, newAdd);
-#endif
     NSTATV(HYB_OLD_ROWS, oldRemove.size() + oldAdd.size());
     NSTATV(HYB_NEW_ROWS, newRemove.size() + newAdd.size());
-#ifdef TRIUMV_VG_OLDWB
     // Entry vecchia da riallineare? (con la base dai bias la lista oldAdd contiene tutti i pezzi: e' sempre si')
     const bool oldDirty = oldRemove.ssize() + oldAdd.ssize() > 0;
-#endif
 
     // Delta dei tre blocchi non-HalfKA. Gli indici di PawnPair/PassedPawns sono
     // "folded" nelle stesse liste (gia' offsettati), come nel percorso incrementale.
@@ -1229,45 +1176,26 @@ void update_accumulator_hybrid(Color                     perspective,
     const auto* psqtWeights      = &featureTransformer.psqtWeights[0];
     const auto* thrPsqtWeights   = &featureTransformer.threatPsqtWeights[0];
     auto*       fromTilePsqt     = reinterpret_cast<const psqt_vec_t*>(&fromPsqtAcc[0]);
-#ifdef TRIUMV_VG_OLDWB
     auto*       oldEntryTilePsqt = reinterpret_cast<psqt_vec_t*>(&oldEntry.psqtAccumulation[0]);
-#else
-    auto*       oldEntryTilePsqt = reinterpret_cast<const psqt_vec_t*>(&oldEntry.psqtAccumulation[0]);
-#endif
     auto*       newEntryTilePsqt = reinterpret_cast<psqt_vec_t*>(&newEntry.psqtAccumulation[0]);
     auto*       toTilePsqt       = reinterpret_cast<psqt_vec_t*>(&toPsqtAcc[0]);
-#ifdef TRIUMV_VG_BIASBASE
     // Basi delle due ricostruzioni HalfKA: la entry oppure i bias con PSQT nullo.
     auto* oldBasePsqt = oldFromBias ? reinterpret_cast<const psqt_vec_t*>(kZeroPsqt)
                                     : static_cast<const psqt_vec_t*>(oldEntryTilePsqt);
     auto* newBasePsqt = newFromBias ? reinterpret_cast<const psqt_vec_t*>(kZeroPsqt)
                                     : static_cast<const psqt_vec_t*>(newEntryTilePsqt);
-#else
-    auto* oldBasePsqt = static_cast<const psqt_vec_t*>(oldEntryTilePsqt);
-    auto* newBasePsqt = static_cast<const psqt_vec_t*>(newEntryTilePsqt);
-#endif
 
     const auto tile = [&](const IndexType j, auto withPsqtTag) {
         constexpr bool WithPsqt     = decltype(withPsqtTag)::value;
         const usize    tileOff      = j * Tiling::TileHeight;
         auto*          fromTile     = reinterpret_cast<const vec_t*>(&fromAcc[tileOff]);
-#ifdef TRIUMV_VG_OLDWB
         auto*          oldEntryTile = reinterpret_cast<vec_t*>(&oldEntry.accumulation[tileOff]);
-#else
-        auto*          oldEntryTile = reinterpret_cast<const vec_t*>(&oldEntry.accumulation[tileOff]);
-#endif
         auto*          newEntryTile = reinterpret_cast<vec_t*>(&newEntry.accumulation[tileOff]);
         auto*          toTile       = reinterpret_cast<vec_t*>(&toAcc[tileOff]);
-#ifdef TRIUMV_VG_BIASBASE
         auto* biasTile    = reinterpret_cast<const vec_t*>(&featureTransformer.biases[tileOff]);
         auto* oldBaseTile = oldFromBias ? biasTile : static_cast<const vec_t*>(oldEntryTile);
         auto* newBaseTile = newFromBias ? biasTile : static_cast<const vec_t*>(newEntryTile);
-#else
-        auto* oldBaseTile = static_cast<const vec_t*>(oldEntryTile);
-        auto* newBaseTile = static_cast<const vec_t*>(newEntryTile);
-#endif
 
-#ifdef TRIUMV_VG_OLDWB
         // 0) HalfKA VECCHIO, esatto, riscritto nella sua entry: base meno oldRemove piu' oldAdd. Dopo questo passo
         //    la entry vecchia vale esattamente l'HalfKA della posizione precedente e il passo 3 non serve piu'.
         if (oldDirty)
@@ -1309,7 +1237,6 @@ void update_accumulator_hybrid(Color                     perspective,
                 for (IndexType k = 0; k < Tiling::NumPsqtRegs; ++k)
                     vec_store_psqt(&oldEntryTilePsqt[k], psqt[k]);
         }
-#endif
 
         // 1) HalfKA NUOVO, esatto, a partire dalla finny entry del nuovo ksq.
         for (IndexType k = 0; k < Tiling::NumRegs; ++k)
@@ -1344,14 +1271,9 @@ void update_accumulator_hybrid(Color                     perspective,
             }
         }
 
-#ifdef TRIUMV_VG_OLDWB
         // Con la riscrittura (passo 0) la entry vecchia e' gia' l'HalfKA esatto: si toglie lei e basta.
         auto* oldSubTile = static_cast<const vec_t*>(oldEntryTile);
         auto* oldSubPsqt = static_cast<const psqt_vec_t*>(oldEntryTilePsqt);
-#else
-        auto* oldSubTile = oldBaseTile;
-        auto* oldSubPsqt = oldBasePsqt;
-#endif
         for (IndexType k = 0; k < Tiling::NumRegs; ++k)
         {
             // La finny entry del NUOVO ksq e' ora aggiornata (HalfKA puro).
@@ -1368,36 +1290,6 @@ void update_accumulator_hybrid(Color                     perspective,
                 psqt[k] = vec_add_psqt_32(psqt[k], fromTilePsqt[k]);
                 psqt[k] = vec_sub_psqt_32(psqt[k], oldSubPsqt[k]);
             }
-#ifndef TRIUMV_VG_OLDWB
-        // 3) ...e si corregge con i diff della entry vecchia, a segno INVERTITO:
-        //    stiamo togliendo l'HalfKA precedente, non aggiungendolo.
-        for (int i = 0; i < oldRemove.ssize(); ++i)
-        {
-            const auto column = HKA_ROW(featureTransformer, oldRemove[i], tileOff);
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], HKA_AT(column, k));
-            if constexpr (WithPsqt)
-            {
-                auto* columnPsqt =
-                  reinterpret_cast<const psqt_vec_t*>(&psqtWeights[oldRemove[i] * PSQTBuckets]);
-                for (usize k = 0; k < Tiling::NumPsqtRegs; ++k)
-                    psqt[k] = vec_add_psqt_32(psqt[k], columnPsqt[k]);
-            }
-        }
-        for (int i = 0; i < oldAdd.ssize(); ++i)
-        {
-            const auto column = HKA_ROW(featureTransformer, oldAdd[i], tileOff);
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], HKA_AT(column, k));
-            if constexpr (WithPsqt)
-            {
-                auto* columnPsqt =
-                  reinterpret_cast<const psqt_vec_t*>(&psqtWeights[oldAdd[i] * PSQTBuckets]);
-                for (usize k = 0; k < Tiling::NumPsqtRegs; ++k)
-                    psqt[k] = vec_sub_psqt_32(psqt[k], columnPsqt[k]);
-            }
-        }
-#endif
 
         // 4) Delta di threat/PawnPair/PassedPawns (pesi int8 -> convert).
         for (int i = 0; i < thrRemoved.ssize(); ++i)
@@ -1461,11 +1353,9 @@ void update_accumulator_hybrid(Color                     perspective,
     // Le entry della finny ora riflettono le rispettive posizioni HalfKA.
     for (int pc = 0; pc < 12; ++pc)
         newEntry.pieces[pc] = currentPieces[pc];
-    #ifdef TRIUMV_VG_OLDWB
     if (oldDirty)
         for (int pc = 0; pc < 12; ++pc)
             oldEntry.pieces[pc] = previousPieces[pc];
-    #endif
     #if defined(TRIUMV_VG_VERIFY_ANY)
     vg_check_entry("ibrido, entry nuova", perspective, featureTransformer, newEntry, newKsq, psqPhase);
     vg_check_acc("ibrido", perspective, featureTransformer, pos, target);
@@ -1499,13 +1389,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
     auto&                    entry    = cache.at(psqPhase, Square(ksq))[perspective];
     PSQFeatureSet::IndexList removed, added;
 
-#ifdef TRIUMV_VG_BIASBASE
     // Base scelta contando le righe (vedi diff_entry_base): se la entry e' piu' lontana della scacchiera vuota si
     // riparte dai bias. La entry riceve comunque l'HalfKA esatto della posizione.
     const bool fromBias = diff_entry_base(perspective, entry.pieces, pos.bbs(), ksq, psqPhase, removed, added);
-#else
-    diff_entry(perspective, entry.pieces, pos.bbs(), ksq, psqPhase, removed, added);
-#endif
     NSTATV(REF_ROWS, removed.size() + added.size());
     for (int pc = 0; pc < 12; ++pc)
         entry.pieces[pc] = pos.bb(pc);
@@ -1609,15 +1495,10 @@ void update_accumulator_refresh_cache(Color                     perspective,
         auto* accTile   = reinterpret_cast<vec_t*>(&accumulator.accumulation[perspective][tileOff]);
         auto* entryTile = reinterpret_cast<vec_t*>(&entry.accumulation[tileOff]);
 
-#ifdef TRIUMV_VG_BIASBASE
         auto* baseTile = fromBias ? reinterpret_cast<const vec_t*>(&featureTransformer.biases[tileOff])
                                   : static_cast<const vec_t*>(entryTile);
         auto* basePsqt = fromBias ? reinterpret_cast<const psqt_vec_t*>(kZeroPsqt)
                                   : static_cast<const psqt_vec_t*>(entryTilePsqt);
-#else
-        auto* baseTile = entryTile;
-        auto* basePsqt = entryTilePsqt;
-#endif
         for (IndexType k = 0; k < Tiling::NumRegs; ++k)
             acc[k] = baseTile[k];
         if constexpr (WithPsqt)
@@ -1761,13 +1642,11 @@ void update_accumulator_refresh_cache(Color                     perspective,
 
 #else
 
-    #ifdef TRIUMV_VG_BIASBASE
     if (fromBias)
     {
         entry.accumulation = featureTransformer.biases;
         entry.psqtAccumulation.fill(0);
     }
-    #endif
     for (const auto index : removed)
     {
         const IndexType offset = Dimensions * index;

@@ -9,10 +9,10 @@
 #
 #  USO (PowerShell, NON serve amministratore se il toolchain c'e' gia'):
 #     Set-ExecutionPolicy -Scope Process Bypass -Force
-#     .\bootstrap_release_laptop.ps1                    # tutto, data di rilascio = oggi
-#     .\bootstrap_release_laptop.ps1 -Day 20261011      # data della riga id name
+#     .\bootstrap_release_laptop.ps1                    # la release ufficiale 8.0 (id name senza data)
+#     .\bootstrap_release_laptop.ps1 -Dated -Day 20261011   # una build datata (pre-release)
 #     .\bootstrap_release_laptop.ps1 -NoBuild           # solo download e controlli
-#  Risultato: <Dest>\out\Triumviratus_8.0_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt
+#  Risultato: <Dest>\out\Triumviratus_8.0_universal.exe (con -Dated: _<Day>_universal.exe), SHA256SUMS.txt, verifica.txt
 #
 #  Sostituisce la versione della 7.0 (matrice di sei build separate): dalla 8.0 la
 #  release e' un solo file. La rete (170 MB) si scarica dal pre-release v8.0 e si
@@ -30,7 +30,8 @@ param(
   [int]$Workers    = [Environment]::ProcessorCount,
   [string]$NetUrl  = "https://github.com/Tors3/Triumviratus/releases/download/v8.0/nn-consilium.nnue",
   [string]$ExtraFlags = "",
-  [string]$ExpectedBench = "325747",
+  [string]$ExpectedBench = "137419",
+  [switch]$Dated,
   [switch]$NoBuild
 )
 $ErrorActionPreference = "Stop"
@@ -113,8 +114,10 @@ Step "Binario universale con PGO"
 Write-Host "  Cinque varianti in parallelo: build strumentata, training, build ottimizzata, bench di ognuna." -ForegroundColor DarkGray
 $b = @{ Day = $Day; Out = "$Dest\out"; Workers = $Workers; ExpectedBench = $ExpectedBench }
 if ($ExtraFlags) { $b["ExtraFlags"] = $ExtraFlags }
+if (-not $Dated) { $b["Official"] = $true }
 & "$src\universal\build_universal.ps1" @b
 
 Step "Fatto"
 Get-Content "$Dest\out\verifica.txt" | ForEach-Object { Write-Host "  $_" }
-Write-Host "`n  $Dest\out\Triumviratus_8.0_${Day}_universal.exe" -ForegroundColor Green
+$name = if ($Dated) { "Triumviratus_8.0_${Day}_universal.exe" } else { "Triumviratus_8.0_universal.exe" }
+Write-Host "`n  $Dest\out\$name" -ForegroundColor Green

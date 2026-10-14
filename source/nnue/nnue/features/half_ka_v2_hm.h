@@ -22,10 +22,8 @@
 #define NNUE_FEATURES_HALF_KA_V2_HM_H_INCLUDED
 
 // ADOTTATA 08/10/2026 sera (xperf, docs/audit_8.0/X4_VELOCITA_PROFONDA.md): HKAIDX -0,24% cicli/nodo in mediogioco,
-// neutra nei finali, meno istruzioni in entrambi. Accesa di default; -DTRIUMV_NO_SPEED_X4 torna al codice di prima.
-#if !defined(TRIUMV_NO_SPEED_X4) && !defined(TRIUMV_SD_HKAIDX)
-    #define TRIUMV_SD_HKAIDX
-#endif
+// neutra nei finali, meno istruzioni in entrambi. Unico percorso dal 14/10/2026 (ramo vecchio e macro tolti; codice di
+// prima in _backup/Triumviratus_8.0_pre_pulizia_2026-10-14).
 
 #include <array>
 
@@ -129,7 +127,6 @@ class HalfKAv2_hm {
     // colore (KingBuckets[ksq ^ flip]): basta quindi che la riflessione del colore sia quella complementare, 56 per il
     // bianco e 0 per il nero, e l'indice e' identico a quello calcolato nella numerazione della rete.
     // phase = fascia di materiale (0 se TRIUMV_PSQ_PHASES == 1).
-#ifdef TRIUMV_SD_HKAIDX
     // X4 (08/10/2026, SD_HKAIDX): orientamento, blocco del pezzo e king bucket in UNA lettura. Blocco e bucket sono
     // multipli di 64 e la casa orientata sta sotto 64, quindi (s ^ orient) + base = s ^ (orient + base): la tabella
     // tiene orient + blocco + bucket per [prospettiva][re][pezzo] (3 KB) e l'indice e' uno XOR. Stessi indici.
@@ -163,15 +160,6 @@ class HalfKAv2_hm {
         return psq_row(IndexType(s) ^ IndexType(OffsetTable[int(perspective) * SQUARE_NB + ksq][pc]))
              + IndexType(phase) * BaseDimensions;
     }
-#else
-    static IndexType make_index(Color perspective, int s, int pc, int ksq, int phase = 0) {
-        const IndexType flip = 56 * (1 - int(perspective));
-        // `psq_row` e' l'identita' (permutazione per localita' provata e tolta, vedi feat_perm.h).
-        return psq_row((IndexType(s) ^ OrientTBL[ksq] ^ flip) + PieceSquareIndex[perspective][pc]
-                       + KingBuckets[ksq ^ flip])
-             + IndexType(phase) * BaseDimensions;
-    }
-#endif
 
     // Get a list of indices for recently changed features. La fascia e' quella dello stato di arrivo; dentro una
     // catena incrementale e' costante (un cambio di fascia forza il refresh, vedi requires_refresh).
@@ -181,18 +169,6 @@ class HalfKAv2_hm {
                                        IndexList&       removed,
                                        IndexList&       added,
                                        int              phase = 0) {
-#ifdef TRIUMV_X4_VLREG
-        // X4 (08/10/2026, VLREG): campi della mossa letti una volta e contatori in registri (ValueList::Tail).
-        const DiffType  d = diff;
-        IndexList::Tail remOut(removed), addOut(added);
-        remOut.push_back(make_index(perspective, d.from, d.pc, ksq, phase));
-        if (d.to != NN_SQ_NONE)
-            addOut.push_back(make_index(perspective, d.to, d.pc, ksq, phase));
-        if (d.remove_sq != NN_SQ_NONE)
-            remOut.push_back(make_index(perspective, d.remove_sq, d.remove_pc, ksq, phase));
-        if (d.add_sq != NN_SQ_NONE)
-            addOut.push_back(make_index(perspective, d.add_sq, d.add_pc, ksq, phase));
-#else
         removed.push_back(make_index(perspective, diff.from, diff.pc, ksq, phase));
         if (diff.to != NN_SQ_NONE)
             added.push_back(make_index(perspective, diff.to, diff.pc, ksq, phase));
@@ -200,7 +176,6 @@ class HalfKAv2_hm {
             removed.push_back(make_index(perspective, diff.remove_sq, diff.remove_pc, ksq, phase));
         if (diff.add_sq != NN_SQ_NONE)
             added.push_back(make_index(perspective, diff.add_sq, diff.add_pc, ksq, phase));
-#endif
     }
 
     // Mossa del nostro re o cambio di fascia (una cattura che attraversa una soglia cambia TUTTE le righe HalfKA
