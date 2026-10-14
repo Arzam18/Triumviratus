@@ -62,7 +62,7 @@ The release 8.0, 1 thread per engine:
 | **Triumviratus 7.0** | 400 of 4,000 | 20+0.2, UHO 2024 | +177 =189 −34 | **+129.9 ± 15.7** |
 | **Triumviratus 7.0** | 800 of 4,000 | 5+0.05, UHO 2024 | +361 =359 −80 | **+127.5 ± 12.6** |
 | **Stockfish 19** | 240 of 600 | 133+1 (CCRL Blitz), TopGM openings | +5 =227 −8 | **−4.3 ± 6.3** |
-| **Stockfish 18** | 116 of 600 | 133+1 (CCRL Blitz), TopGM openings | +5 =107 −4 | **+3.0 ± 10.1** |
+| **Stockfish 18** | 180 of 600 | 133+1 (CCRL Blitz), TopGM openings | +6 =170 −4 | **+3.9 ± 7.5** |
 
 <sub>Partial results of matches still running, counted on complete opening pairs only; they will be completed after the release. ± is the 95% interval on
 the opening pairs (pentanomial); against Stockfish 19 almost every pair is drawn, which makes the interval small.</sub>
