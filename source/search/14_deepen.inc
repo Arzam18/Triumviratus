@@ -173,6 +173,32 @@ static void settle_lines(ThreadData &td, int from, int to) {
   std::stable_sort(td.root + from, td.root + to, line_before);
 }
 
+// AnDirect (Pos Solver, 15/10/2026): le raccolte di posizioni indicano come chiave la vittoria piu' diretta, e chi
+// analizza vuole vedere quella; noi (e SF19) scegliamo spesso una mossa tranquilla con un punteggio un po' piu' alto.
+// Con due linee esatte entrambe sopra DirectFrom e distanti al massimo DirectGap, se la seconda e' forzante (scacco,
+// cattura, promozione) e la prima no, si scambiano. Va chiamata con la scacchiera alla radice.
+// 15/10/2026 sera: restituisce true se ha scambiato; deepen rimette l'ordine prima dell'iterazione successiva, cosi'
+// l'albero resta quello di AnShadow e cambiano solo la linea mostrata e la bestmove.
+static bool an_direct(ThreadData &td, int lines) {
+  if (!(td.an_bits & AN_DIRECT) || lines < 2)
+    return false;
+  RootLine &a = td.root[0], &b = td.root[1];
+  if (a.score == -infinity || b.score == -infinity || a.upper || a.lower || b.upper || b.lower ||
+      val_decided(a.score) || val_decided(b.score))
+    return false;
+  const int ca = units_to_cp(a.score), cb = units_to_cp(b.score);
+  if (cb < DirectFrom || ca - cb > DirectGap)
+    return false;
+  MoveSafety s;
+  s.ready = false;
+  const auto forcing = [&](int m) { return is_tactical(m) || checks_before(td, s, m); };
+  if (forcing(b.pv[0]) && !forcing(a.pv[0])) {
+    std::swap(a, b);
+    return true;
+  }
+  return false;
+}
+
 static void prepare_frames(ThreadData &td) {
   memset(td.frames, 0, sizeof(td.frames));
   for (int i = 0; i < (int)(sizeof(td.frames) / sizeof(td.frames[0])); i++) {
@@ -314,7 +340,7 @@ static void deepen(ThreadData &td) {
       {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
       {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
     {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
-    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}};
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}};
     printf("info string Analysis mode activated AnDeep=%d", g_an_deep);
     for (const auto &o : kAnNames)
       if (td.an_bits & o.bit)
@@ -354,9 +380,14 @@ static void deepen(ThreadData &td) {
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
   int best = -infinity;
+  bool direct_swapped = false;
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
+    if (direct_swapped) {   // AnDirect: la ricerca riparte dall'ordine vero delle linee
+      std::swap(td.root[0], td.root[1]);
+      direct_swapped = false;
+    }
     lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
     an_iteration(td);   // leve Deep* pesate (deep_w) e, in analisi, i componenti accesi
     if (gold && td.root_depth > 1 && td.root[0].score > -infinity)
@@ -373,7 +404,14 @@ static void deepen(ThreadData &td) {
     if (!g_clock.increase_depth)
       again++;
 
-    for (td.pv_idx = 0; td.pv_idx < lines; td.pv_idx++) {
+    // Varianti di AnShadow (ShadowFrom/ShadowMargin): in questa iterazione si cercano solo le linee mostrate.
+    int iter_lines = lines;
+    if (lines > shown &&
+        (td.root_depth < ShadowFrom ||
+         (ShadowMargin && td.root[shown].score != -infinity && td.root[0].score != -infinity &&
+          td.root[0].score - td.root[shown].score > ShadowMargin)))
+      iter_lines = shown;
+    for (td.pv_idx = 0; td.pv_idx < iter_lines; td.pv_idx++) {
       td.pv_last = td.root_count;
       RootLine &cur = td.root[td.pv_idx];
       memcpy(td.last_pv, cur.prev_pv, sizeof(int) * cur.prev_pv_len);
@@ -393,7 +431,8 @@ static void deepen(ThreadData &td) {
 
       int failed_high = 0;
       for (;;) {
-        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4);
+        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4 -
+                                      (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: seconda linea piu' corta
         td.root_delta = beta - alpha;
         best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // modalita' analisi
                           : explore<false>(td, root, alpha, beta, depth, false, true);  // partita: termini costanti
@@ -422,10 +461,12 @@ static void deepen(ThreadData &td) {
       }
 
       settle_lines(td, 0, td.pv_idx + 1);
+      if (td.pv_idx + 1 == iter_lines && !stop_threads.load(std::memory_order_relaxed))
+        direct_swapped = an_direct(td, lines);   // AnDirect prima della stampa: la GUI vede la mossa diretta
       if (main && !stop_threads.load(std::memory_order_relaxed)) {
         U64 total = 0;
         for (auto &t : thread_data) total += t.nodes;
-        if (td.pv_idx + 1 == lines || total > 10000000)
+        if (td.pv_idx + 1 == iter_lines || total > 10000000)
           report_lines(td, td.root_depth);
       }
       if (stop_threads.load(std::memory_order_relaxed))
@@ -448,6 +489,8 @@ static void deepen(ThreadData &td) {
       settle_lines(td, 0, lines);
     }
     td.pv_idx = 0;
+    if (!direct_swapped)   // ricerca fermata a meta' iterazione: la regola vale anche per la linea ristampata
+      direct_swapped = an_direct(td, lines);
 
     // Un matto gia' provato non si dimentica: se l'iterazione lo perde, si torna alla linea che lo aveva.
     RootLine &top = td.root[0];

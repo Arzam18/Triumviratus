@@ -1,0 +1,3 @@
+# The search is split into source/search/*.inc files included by threads.cpp (one C++ translation unit);
+# GitHub's language detection would otherwise count them as the Pawn scripting language.
+*.inc linguist-language=C++

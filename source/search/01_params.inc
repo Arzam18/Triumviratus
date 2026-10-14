@@ -241,6 +241,16 @@
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
      senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
      Torna 0 (spenta); da riprovare da sola a 30 s. Prima: 76. */                                                      \
+  /* Ricerca a due linee (AnShadow, Pos Solver, 15/10/2026): varianti piu' economiche. ShadowFrom: la seconda   */\
+  /* linea solo da questa profondita' di radice; ShadowRed: la seconda linea N ply piu' corta; ShadowMargin: la   */\
+  /* seconda linea solo se il suo ultimo punteggio sta entro il margine (unita' interne, ~526 = 100 cp) dalla    */\
+  /* prima (0 = sempre). Default = AnShadow pieno; senza AnShadow nessuna delle tre conta.                     */\
+  P(ShadowFrom, 1, 1, 40)                                                                                 \
+  P(ShadowRed, 0, 0, 8)                                                                                   \
+  P(ShadowMargin, 0, 0, 4000)                                                                             \
+  /* AnDirect (15/10/2026): soglia di vittoria e distanza massima fra le due linee, in cp stampati.             */\
+  P(DirectFrom, 300, 0, 3000)                                                                             \
+  P(DirectGap, 200, 0, 2000)                                                                              \
   P(LdseMargin, PSV(0, 76), 0, 400)      /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
@@ -730,6 +740,8 @@ enum AnalysisBits {
                        // piu' di 5 mosse (pseudo-legali) disponibili (zugzwang vicino alla soluzione)
   AN_STOPKEEP = 32768, // MultiPV fermata a meta' iterazione: il limite superiore fresco di una linea che stava fallendo
                        // bassa non la mette dietro ai punteggi vecchi delle altre (si torna al suo valore completo)
+  AN_DIRECT = 65536,   // fra due mosse nettamente vincenti (le due linee esatte di AnShadow), la forzante (scacco o
+                       // cattura) se la piu' alta e' tranquilla e distano al massimo DirectGap cp (15/10/2026)
   AN_ACTIVE = 1 << 30
 };
 // Preset delle leve Deep* (una sola tabella: cambiare qui). DeepKnee 4 e DeepSpan 1: pesi pieni da profondita' 5.
@@ -835,7 +847,7 @@ void print_analysis_options() {
     {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
     {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
     {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
-    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}};
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}};
   for (const auto &o : an_opts)
     printf("option name %s type check default %s\n", o.n, (kAnDefaultBits & o.bit) ? "true" : "false");
 }
@@ -866,7 +878,7 @@ bool set_search_param(const char* name, int value) {
       {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
       {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
     {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
-    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}};
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}};
     for (const auto &o : an_opts)
       if (!strcmp(name, o.n)) {
         g_an_bits = parse_bool_value(value) ? (g_an_bits | o.bit) : (g_an_bits & ~o.bit);
