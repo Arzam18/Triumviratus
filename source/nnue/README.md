@@ -20,8 +20,9 @@ still Stockfish's. A line-by-line comparison with Stockfish 19 and with our 7.0 
 
 Overall about 60–70% of the lines are still in common with Stockfish (about 40–50% of the code that runs at every
 node). Credit and copyright for the original machinery belong to the Stockfish developers: their license headers are
-kept in every file derived from their code, and the namespace is `Triumviratus::` (renamed from `Stockfish::` on
-13 July 2026) only to keep it apart from the engine's own globals. This is a GPLv3 derivative work.
+kept in every file that contains their code, and the namespace is `Triumviratus::` (renamed from `Stockfish::` on
+13 July 2026) only to keep it apart from the engine's own globals. This directory is distributed under GPLv3 with the
+rest of the project.
 
 **Our contributions in this directory.**
 - **Consilium's mixture of experts**: four phase experts in the king-relative block, with per-phase accumulator

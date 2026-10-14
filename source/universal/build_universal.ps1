@@ -46,7 +46,10 @@ param(
     # istruzioni, collegata con standalone.cpp (niente ingresso cpuid). Esce <Out>\Triumviratus_8.0_<Day>_v<n>.exe.
     # Solo a file separati (default). Per misurare, non per distribuire.
     [int]$Only = 0,
-    [int]$Jobs = [Environment]::ProcessorCount     # compilazioni insieme a file separati
+    [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
+    # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.0", -DTRIUMV_OFFICIAL) e file
+    # Triumviratus_8.0_universal.exe. Senza -Official resta la pre-release datata.
+    [switch]$Official
 )
 $MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
@@ -127,6 +130,7 @@ if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
 # rispetto alle build separate in avx512 a istruzioni identiche; l'allineamento ne recupera 0,7 (xperf 08/10/2026).
 $base += '/clang:-falign-loops=64'
 if ($ExtraFlags) { $base += $ExtraFlags.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
+if ($Official) { $base += '-DTRIUMV_OFFICIAL' }
 function VFlags($n) {
     switch ($n) {
         1 { @('/arch:AVX2', '-UUSE_PEXT', '-mno-bmi2', '-mno-avx512f') }
@@ -228,6 +232,7 @@ function Link($exe, $objs, [switch]$Gen) {
     if ($MultiTU) { $a += "/opt:lldltojobs=$Jobs" }   # gli oggetti sono bitcode ThinLTO: il codice nasce qui
     # W3 (09/10/2026): niente conversione cmov -> salto nel codegen ThinLTO (-0,15% mediogioco, -0,29% finali, z_w3)
     $a += '/mllvm:-x86-cmov-converter=false'
+    $a += '/mllvm:-enable-ext-tsp-block-placement=true'   # 14/10/2026: ext-tsp adottata (xperf v14/et, con EVC8 -0,6% mediogioco)
     & $LNK @a 2>&1 | Out-File -Append -Encoding utf8 $LOG
     if ($LASTEXITCODE -ne 0) { Fail "collegamento di $exe fallito" }
 }
@@ -307,7 +312,7 @@ if (-not $NoPgo) {
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
-$exe = "$Out\Triumviratus_8.0_${Day}_universal.exe"
+$exe = if ($Official) { "$Out\Triumviratus_8.0_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
 if ($Only) {
     if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
     $exe = "$Out\Triumviratus_8.0_${Day}_v$Only.exe"

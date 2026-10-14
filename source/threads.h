@@ -184,7 +184,13 @@ struct ThreadData {
     static constexpr int EVAL_CACHE_BITS = 16;
     static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
     static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    struct EvalCacheEntry { U64 key; int eval; };
+    // EVC8 ADOTTATA 14/10/2026 (xperf a macchina ferma, 3 giri: con ext-tsp -0,6% cicli mediogioco, 0 finali; albero
+    // identico; unico percorso dal 14/10/2026, la voce da 16 byte e' in _backup/Triumviratus_8.0_pre_pulizia_2026-10-14).
+    // EVC8 (14/10/2026, velocita' ad albero identico, idea 2 di AG2_VELOCITA_IDEE): una parola da 8 byte invece di 16 =
+    // 48 bit alti della chiave + 16 bit di valutazione. L'indice usa gia' i 16 bit bassi, quindi indice + 48 bit
+    // confrontano tutti i 64 bit della chiave: stessi hit. La tabella passa da 1 MB a 512 KB (la L2 di questo Xeon e'
+    // 1 MB). Le valutazioni fuori da int16 non si scrivono (hit perso, stesso valore ricalcolato: albero identico).
+    struct EvalCacheEntry { U64 word; };
     EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
 };
 

@@ -79,11 +79,13 @@ static inline int net_evaluate(ThreadData &td) {
     return td.side == white ? s : -s;
   }
   ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-  if (ce.key == td.hash_key)
-    return eval_refade(ce.eval, td.fifty);
+  constexpr U64 kHi = ~(U64)0xFFFF;   // EVC8 (threads.h): 48 bit alti della chiave + 16 bit di valutazione
+  if (((ce.word ^ td.hash_key) & kHi) == 0)
+    return eval_refade((int16_t)(uint16_t)ce.word, td.fifty);
   const int v = td_nn_eval(td);
-  ce.key = td.hash_key;
-  ce.eval = eval_unfade(v, td.fifty);
+  const int u = eval_unfade(v, td.fifty);
+  if (u >= INT16_MIN && u <= INT16_MAX)
+    ce.word = (td.hash_key & kHi) | (uint16_t)(int16_t)u;
   return v;
 }
 

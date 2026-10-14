@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[Rating](#rating) · [8.0 (in development)](#triumviratus-80--in-development) · [Earlier releases](#earlier-releases) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
+[Rating](#rating) · [8.0](#triumviratus-80) · [Earlier releases](#earlier-releases) · [Dev log 8.0](DEVELOPMENT_8.0.md) · [Dev log 7.0](archive/DEVELOPMENT_7.0.md) · [Dev log 6.0](archive/DEVELOPMENT_6.0.md) · [Networks](NETWORKS.md) · [What is new](NOVELTIES.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) · [License](#license) · [Credits](#credits)
 
 </div>
 
@@ -54,7 +54,7 @@ other.</sub>
 
 ---
 
-## Triumviratus 8.0 — in development
+## Triumviratus 8.0
 
 ### Consilium
 
@@ -93,6 +93,7 @@ are recorded too, with their numbers.
 | **restructured search**, re-tuned on our network | **+85.8 ± 12.8** against the previous 8.0 |
 | pre-releases of 10–12 October: move ordering with chess knowledge, the causal reduction, rules from Stockfish 19, time management in defence | +11.9 ± 7.2 against the 9 October pre-release, then each change by SPRT |
 | pre-release of 13 October: a hand brake present since 3.0 removed (unbuffered output, a 15.6 ms clock), persistent threads, search margins per network expert | **+29.8 ± 7.4** at 5+0.05 with an identical search tree; margins +1.6 ± 4.3 |
+| release of 14 October: the low-depth hash-move extension turned off after a long time control check, three small speed gains with an identical tree, dead code removed | −0.6% cycles per node; time rules checked at 25+0.25, −1.3 ± 6.9 for the release (2,388 games) |
 
 8.0 is also the first version to support **Chess960**.
 
@@ -108,8 +109,8 @@ are recorded too, with their numbers.
 | Andres (EveAnn) | gauntlet against 15 engines, 1,500 games, 2 min + 0.4 s | 11 October | **62.8%, +91.2 ± 9.4**; **Stockfish 19** +8 =84 −8 |
 | the project | Stockfish 18, 600 games, 20+0.2 / Reckless 0.10.0-dev, 526 games, 40+0.4 | 7–8 October | **+24.9 ± 13.7** / **+68 ± 14** |
 
-The current pre-release (13 October, one executable for every x86-64 CPU) is the tag
-[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); `source/` holds the development code. Every
+The release (14 October 2026, one executable for every x86-64 CPU) is the tag
+[`v8.0`](https://github.com/Tors3/Triumviratus/releases/tag/v8.0); `source/` holds its code. Every
 measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)** ·
 **[`NOVELTIES.md`](NOVELTIES.md)** · **[`NETWORKS.md`](NETWORKS.md)** · **[`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md)**.
 
@@ -131,7 +132,11 @@ measurement, the ideas adopted and those dropped: **[`DEVELOPMENT_8.0.md`](DEVEL
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 
 > [!IMPORTANT]
-> **GPLv3** — see [`COPYING`](COPYING). The **NNUE inference code** started from **Stockfish** (the SFNNv16 evaluation machinery in `nnue/`, GPLv3). For our own mixture-of-experts network, Consilium (architecture TRANN3), most of the part that runs at every node has since been rewritten: the accumulators, the feature blocks and the link with the search. The forward pass (layers, SIMD) and the net loading are still Stockfish's; about 60–70% of the inference lines remain in common with Stockfish (see [`source/nnue/README.md`](source/nnue/README.md) and [Credits](#credits)). Triumviratus' search was restructured in October 2026. Nearly all of its structures were already in the engine, but disordered and clogged by parameters and tests accumulated one at a time since version 5.0. After studying the searches of Stockfish and Reckless, it was reorganised on the algorithmic base of Stockfish 19's search (GPLv3), keeping our own ideas, with a complete SPSA re-tune on the new MoE network. It is Triumviratus' own code, with techniques of our own such as passed-pawn pushes in endgames, and our own data structures, move generation, evaluation and network. Of the two extra NNUE input blocks: **`PassedPawns` is an original feature of this project**, whereas **`PawnPair` implements a pawn-pair input feature that is shared across several open-source engines** (Stormphrax, Viridithas, Pawnocchio — see [Credits](#credits)); its C++ implementation and its trained weights are the project's own, but the feature *design* is not. The shipped network was trained by the project (see [`NETWORKS.md`](NETWORKS.md)). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved.
+> **GPLv3**, see [`COPYING`](COPYING). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved in every file that contains its code.
+>
+> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
+>
+> **What comes from Stockfish.** The **NNUE inference code** started from Stockfish's SFNNv16 machinery in `nnue/`. For Consilium the part that runs at every node has been largely rewritten (accumulators, feature blocks, the link with the search); the forward pass (layers, SIMD) and the net loading are still Stockfish's, and a line-by-line count gives about 60–70% of the inference lines in common with Stockfish ([`source/nnue/README.md`](source/nnue/README.md)). The **search** was restructured in October 2026: its structures were already in the engine, accumulated since version 5.0, and they were reorganised on the **algorithmic base of Stockfish 19's search**, then re-tuned by SPSA on Consilium and extended with the project's own techniques. The search code is written in the project's own structure and names. The `PawnPair` input block implements a feature designed by Jonathan Hallström for Pawnocchio, also used by Stormphrax, Viridithas and Stockfish; the implementation and the weights are ours (see [Credits](#credits)).
 
 ## Credits
 
@@ -153,7 +158,7 @@ time on a move when the opponent did not play the reply the engine expected.
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included (results in [`tests/`](tests/)).
 
-### Derived code
+### Code from other projects
 
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3) — the NNUE inference machinery in `nnue/` (accumulator stack, feature transformer, layers, threat and HalfKA features), ported from SFNNv16. Since then it has been extensively modified, tested and extended to fit Triumviratus' own networks: its own input blocks (PassedPawns, PawnPair), the four phase experts of the Consilium network, row permutation for cache locality, refresh caches for the pawn blocks and for phase changes, and many measured speed changes.
 - **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh ("Code Monkey King") — the original bitboard/magic-number move generator; the project's earliest (2024) foundation for `attacks.cpp`/`magic.cpp`/`movegen.cpp` and the first search, both since substantially rewritten and extended.

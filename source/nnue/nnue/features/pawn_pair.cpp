@@ -47,11 +47,7 @@ void PawnPair::append_active_indices(Color perspective, const NnBoard& pos, Inde
     // enumerazione non cambia nessun indice: il refresh resta bit-identico.
     const Bitboard whitePawns = pos.pawns(WHITE);
     const Bitboard allPawns   = whitePawns | pos.pawns(BLACK);
-#ifdef TRIUMV_X4_VLREG
-    IndexList::Tail out(active);   // X4 VLREG: contatore in un registro (misc.h)
-#else
     IndexList&      out = active;
-#endif
 
     Bitboard bb = allPawns;
     while (bb)
@@ -82,11 +78,7 @@ void PawnPair::append_changed_indices(Color           perspective,
                                       IndexList&      added) {
     if (!diff.any)
         return;
-#ifdef TRIUMV_X4_VLREG
-    IndexList::Tail remOut(removed), addOut(added);   // X4 VLREG: contatori in registri (misc.h)
-#else
     IndexList &     remOut = removed, &addOut = added;
-#endif
 
     const Bitboard beforeAll = diff.before[WHITE] | diff.before[BLACK];
 

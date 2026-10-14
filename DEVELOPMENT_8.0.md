@@ -44,6 +44,7 @@
 [Speed gap, identical tree](#40-the-speed-gap-to-stockfish-19-with-an-identical-tree-10-october-2026) ·
 [Cycle test](#41-the-cycle-test-of-stockfish-19-and-a-fifty-move-threshold-of-ours-10-october-2026) ·
 [Edge cases from other engines](#42-edge-cases-handled-by-other-engines-10-october-2026) ·
+[Toward the release](#48-toward-the-release-a-defect-in-the-spsa-tool-the-opponents-plan-closed-three-small-speed-gains-ldse-off-1314-october-2026) ·
 [All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
 
 </div>
@@ -2197,6 +2198,74 @@ The options closed in sections 45 to 47 were removed with their code, with an id
 ProbCut offsets, the history per expert, `OppPasser*`, A, B with its logging build, C, `ExpertValuesW`, the futility
 slope per expert, `NullThreatExt`, `TransitionExt` and the helper of 47.2. The source of the removed code is kept in
 the project's backups; the measurements are in the comments of `search/01_params.inc` and in this section.
+
+## 48. Toward the release: a defect in the SPSA tool, the opponent's plan closed, three small speed gains, LDSE off (13–14 October 2026)
+
+### 48.1 The SPSA perturbation was half of what was intended
+
+The project's SPSA tool decayed the perturbation `c` from the value given as the final one, `c_k = c_end / k^0.101`,
+so `c_end` was in fact the step of the first iteration: after 1,000 iterations the runs explored with half the
+intended step, after 4,000 with two fifths. Fishtest reaches `c_end` at the last iteration. The tool now follows the
+schedule of fishtest, with the learning rate scaled to keep the same step on the parameters. The first run with the
+larger step, on the 15 evaluation-correction weights, moved several of them clearly; its mean vector was then
+neutral at 8+0.08 (+0.68 ± 2.92 over 14,386 games) and nothing was baked. The vectors of the earlier runs are a rough
+tuning; the runs to repeat are listed in [`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md) §8.
+
+| measurement | condition | games | Elo | outcome |
+|---|---|---:|---:|---|
+| Eight levers moved by the 20 s run on the 20 search constants | 15+0.15 UHO, hyperthreading | 3,602 | +1.64 ± 5.79 | stopped, rough |
+| Its full vector with the history levers | 15+0.15 UHO, hyperthreading | 864 | −5.63 ± 11.42 | stopped |
+| Draw value in defence, `DrawDefend=200` | 8+0.08 UHO, hyperthreading | 7,296 | +0.29 ± 3.97 | stopped |
+| Four "+1 to +2" changes together (time per expert, reduction slope per expert, depth ramp, `DrawDefend`) | 20+0.2 UHO, hyperthreading | 2,746 | +0.51 ± 6.49 | stopped |
+
+The last row is the lesson of these days: single estimates of +1 to +2 Elo stopped early, chosen because they were
+high, add up to nothing. Seven tests out of thirteen had an early peak between +5 and +17 and ended between −2 and +2.
+From now on each change runs alone until the SPRT decides.
+
+### 48.2 The correction from the opponent's plan, closed
+
+`CorrContOppW` (the author's idea, [`NOVELTIES.md`](NOVELTIES.md)) was measured again at 8+0.08 with hyperthreading.
+The two processor sockets of the test machine disagreed: +5.4 on socket 0 against −1.3 on socket 1 (−7.0 with fewer
+concurrent games), over 8,474 games in all (+1.23 ± 3.82). Socket 1 has two memory modules instead of four, so half
+the bandwidth; the depth per move read from the games showed the side with the term 0.013 plies shallower on socket 0
+and 0.04 plies shallower on socket 1. The extra table read costs more where memory is slower. The child node reads
+cells of the continuation-correction tables that the parent already knows: prefetching them when the move is made
+(Stockfish has the same prefetch, which our restructured search of 4 October had lost) made the depth loss equal on
+the two sockets. On the build with the prefetch the term read −0.64 ± 4.64 over 5,952 games; with the earlier build
+(same tree) +0.46 ± 2.95 over 14,426. Neutral, closed, off.
+
+### 48.3 Speed
+
+Hardware counters on an idle machine, three rounds, cycles per node at an identical tree:
+
+| change | middlegame | endgames | outcome |
+|---|---:|---:|---|
+| Eval cache entry of 8 bytes (48 key bits and the 16-bit score; the table halves, 1 MB to 512 KB) | −0.4% | 0 | adopted |
+| The same with the ext-tsp block layout at link time (block order from the PGO profile) | −0.6% | 0 | adopted |
+| Prefetch of the continuation-correction cells (48.2) | −0.3% | | adopted |
+| Pawn-block cache with 16 entries instead of 8 | 0 | | removed |
+| Hot-cold function splitting; a higher inlining threshold | −0.2%, 0 | | not adopted |
+
+A defect was found in the analysis script of these measurements: since the search threads became persistent (section
+45), the rule that discarded the thread spanning the whole process discarded the search thread itself. The cycle
+counts of 12 to 14 October before the fix were wrong. The split accumulator of section 46 was checked again from the
+run times: it is still 3 to 4% slower, so its closure stands.
+
+### 48.4 LDSE off in the release
+
+A non-regression test of the release settings at 40+0.4 with hyperthreading, the four time rules adopted between 5
+and 11 October together with the low-depth hash-move extension (LDSE), read −9.37 ± 10.91 over 890 games for the
+release side. The games showed equal time per phase of the game on both sides and a search 0.1 to 0.25 plies
+shallower on the side with LDSE. LDSE was adopted at 10+0.1 (+4.5 ± 3.3); at the longer time control the extension
+near the horizon costs depth. It is off in the release (`LdseMargin` 0, bench 137419) and will be measured alone at
+30+0.3. The four time rules alone went to a separate non-regression test at 25+0.25.
+
+### 48.5 Clean-up
+
+Tree-identical variants that were measured and not adopted were removed from the source with their build flags: the
+hybrid update for castling and promotions, the feature counters in registers, the removal of the last-evaluation
+terms, the 16-entry pawn-block cache and the lane-permuted bishop and rook attacks (Stockfish's development, measured
+twice within the noise). The old paths of the adopted speed changes went with them. Bench unchanged, 137419.
 
 ## Appendix: every search idea tested since the restructured search
 

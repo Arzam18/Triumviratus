@@ -262,6 +262,21 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   f->captured = u.captured_piece;
   f->cont_hist = &g_stats.follow[f->in_check][is_tactical(m)][move_piece(m)][move_to(m)];
   f->cont_corr = &td.cont_corr[move_piece(m)][move_to(m)];
+  // CCPF (14/10/2026, velocita' ad albero identico): prefetch delle celle della correzione di continuazione che il
+  // figlio legge per prime in corr_signal. Trovato da noi dal costo di CorrContOppW diverso fra i socket; poi visto che
+  // Stockfish lo fa dall'agosto 2026 ("Prefetch continuation correction histories", 4150d22b86, gia' in SF19: la
+  // riscrittura del 04/10 lo aveva perso). xperf v14 a macchina ferma: ~-0,3% cicli (SF: neutro su AVX-512, +0,5% Zen 3). Nel figlio f[-1] e' questo frame, quindi le righe sono quelle di f[-1] e f[-3]
+  // qui (CorrContW, il figlio a -2 e -4) e di f[-2] (CorrContOppW, il figlio a -3), la cella e' (pezzo arrivato, casa).
+  // Le correzioni per struttura sono gia' anticipate nella make; queste no. Misura del 14/10: con CorrContOppW accesa
+  // il lato in prova perdeva -0,04 ply sul socket 1 (2 banchi di memoria) contro -0,01 sul socket 0: una lettura in
+  // piu' per nodo che manca la cache sotto carico. Le cornici prima della radice esistono sempre (riga sentinella).
+  {
+    const int to = move_to(m), pc = td.piece_on[to];
+    TT_PREFETCH(&(*f[-1].cont_corr)[pc][to]);
+    TT_PREFETCH(&(*f[-3].cont_corr)[pc][to]);
+    if (CorrContOppW)
+      TT_PREFETCH(&(*f[-2].cont_corr)[pc][to]);
+  }
   return true;
 }
 

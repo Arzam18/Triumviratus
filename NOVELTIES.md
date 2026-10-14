@@ -67,10 +67,10 @@ experts of the network.
 | Capture of a bishop of the pair in move ordering (`BishopPairCapt`) | New | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Expert-boundary ideas (PhaseEdge) | New | 8.0 | from +1.3 ± 2.3 (24,292) to −14.1 | closed |
 | Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
-| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral** | off; its weight goes into the next correction tuning run |
+| Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral**; SPSA CORR1p2 kept it on (about 4,550); on the release-candidate build at 8+0.08 (14 October, two runs with the same tree, before and after the prefetch below): **+0.5 ± 3.0 over 14,426 games, neutral** | off |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
-| Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted |
+| Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted; inactive while LDSE is off |
 | Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
 | More time in a defence that is not lost, less with 24 or more pieces (`TmDefendMul`, `TmEarlySave`) | Revisited | 8.0 | **+7.27 ± 7.08** at 40+0.4 (2,150), the two together | adopted |
 | Guard on sudden score jumps (`TmJumpGuard`) | Revisited | 8.0 | −2.52 ± 7.33 at 8+0.08 (2,210); triggers on 0.25% of moves | on, as a guard |
@@ -102,7 +102,7 @@ experts of the network.
 | TMv2 multiplicative time manager | Elsewhere first (Alexandria, Caissa) | 6.0 | +23.8 ± 18.2 at 20+0.2 (380) | in 6.0 and 7.0 |
 | `PawnPair` input block | Elsewhere first (Pawnocchio) | 6.0 | +18.27 ± 9.94 (1,104), with self-play data | in every network since 6.0 |
 | Less time when behind on the clock (`TmBehindMul`) | Elsewhere first (Stockfish after 19) | 8.0 | **+5.23 ± 4.72** at 6+0.06 (6,378) | adopted |
-| Low-depth hash-move extension (LDSE) | Elsewhere first (Reckless, Stormphrax) | 8.0 | **+4.5 ± 3.3** (10+0.1, 11,604) | adopted |
+| Low-depth hash-move extension (LDSE) | Elsewhere first (Reckless, Stormphrax) | 8.0 | **+4.5 ± 3.3** (10+0.1, 11,604); −9.4 ± 10.9 at 40+0.4 (890) | off in the release, to be measured alone at 30+0.3 |
 | King-shield malus in move ordering (`KingShield`) | Elsewhere first (inspired by Reckless) | 6.0, 8.0 | +3.53 ± 3.42 (6.0); −1.57 ± 4.32 (8.0) | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Attack from a safe square in move ordering (`AttackOrder`; `AttackOrderQ`, the same term for the queen) | Elsewhere first (Reckless), our target rule | 8.0 | +0.39 ± 5.42 with the outposts (4,428) | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
 | Queen promotion in move ordering (`PromoOrder`) | Elsewhere first (Reckless) | 8.0 | not measured alone | adopted with the SPSA PR4 vector (+3.4 ± 3.9, about 8,100 games) |
@@ -310,13 +310,20 @@ divided by phase.
   evaluation costs 15 to 18% of the cycles per node: −24.23 ± 11.12 at 8+0.08 (1,034); a variant only at depth 3 or
   more (+3.9% of cycles) −3.06 ± 9.59 at 15+0.15 (1,248). It needs a network with experts. **New**, removed; the full
   record is in [`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
-- **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** Next to the continuation pairs
-  built on our own moves, the pair of the opponent's two last moves. The cells carry information (correlation +0.24
-  with the residual error), but −5.2 ± 12.7 (742) at the existing weight and −4.8 ± 8.7 (1,806) at the regression
-  weight. Stockfish and Reckless use only pairs with our moves. After the input/output fix of 12 October 2026 it was
-  measured again at the existing weight: at 5+0.05 the table stays too sparse (−8.0 ± 7.7), and all runs at 8 seconds
-  or more pooled give +0.6 ± 3.0 over about 13,300 games, so the idea is neutral at a fixed weight. **New**, off; the
-  weight enters the next tuning run of the corrections, which can also find a smaller value.
+- **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** The continuation correction
+  corrects the static evaluation with a table indexed by pairs of moves: the row is chosen by one of our earlier moves
+  (two and four plies back), the cell by the opponent's last move, so each cell learns how far the evaluation is off
+  after "our move, then this reply". `CorrContOppW` adds a term from the same table whose row is chosen by the
+  opponent's previous move (three plies back) and whose cell is the opponent's last move: the pair is two consecutive
+  moves of the same side, a fragment of the opponent's plan, instead of our move and its answer. It is updated with the
+  other continuation terms (step `CorrContOppUpd`) and weighted by `CorrContOppW`. The version with the opponent's last
+  move alone, without the earlier one, was closed (−7.6 ± 7.8 at 20+0.2). The cells carry information (correlation
+  +0.24 with the residual error, as much as the existing pair term), at a cost of about 1% of the speed. Measured at the
+  existing weight −5.2 ± 12.7 (742) and at the regression weight −4.8 ± 8.7 (1,806). Stockfish and Reckless use only
+  pairs that contain one of our moves. After the input/output fix of 12 October 2026 it was measured again at the
+  existing weight: at 5+0.05 the table stays too sparse (−8.0 ± 7.7), and all runs at 8 seconds or more pooled give
+  +0.6 ± 3.0 over about 13,300 games. In the correction SPSA of 13 October (CORR1p2) the weight stayed on, near 4,550.
+  On 14 October it was measured again on the release-candidate build at 8+0.08: +0.5 ± 3.0 over 14,426 games, neutral, and it stays off. During that test the two processor sockets of the test machine disagreed: the build with the term lost about three times more depth per move on the socket with half the memory bandwidth (−0.04 against −0.01 plies), because the extra table read missed the cache under load. A prefetch of the continuation-correction cells, issued when the move is made, removed the difference; Stockfish has had the same prefetch since August 2026 (commit 4150d22b86), which our rewrite of the search had left out. On an idle machine the term costs nothing in the middlegame and about 0.5% of the cycles in the endgame. **New**, neutral.
 - **`Mobility` input block, 8.0 development.** One feature per knight, bishop, rook and queen (oriented square and four
   mobility buckets, 2,048 inputs). Only its cost was measured, with random weights: −16.2% NPS, because mobility
   changes with every move. Archived on 29 September 2026 without training. No network of the nine engines has
@@ -453,8 +460,10 @@ the engine pinned to one processor and only the search threads counted, is descr
 Ideas we use or tried that other engines published first. Several we reached on our own; the category records public
 priority.
 
-- **Low-depth hash-move extension (LDSE).** +4.5 ± 3.3 on 11,604 games, adopted. From Reckless and Stormphrax, with
-  our form and values.
+- **Low-depth hash-move extension (LDSE).** +4.5 ± 3.3 on 11,604 games at 10+0.1, adopted on 5 October. From Reckless
+  and Stormphrax, with our form and values. Turned off for the release on 14 October: in a 40+0.4 non-regression test
+  of the release settings it read −9.4 ± 10.9 over 890 games, and the side with it searched 0.1 to 0.25 plies
+  shallower at the same time per move. It will be measured alone at 30+0.3.
 - **Less time when behind on the clock (`TmBehindMul`).** The author's idea, +5.23 ± 4.72 on 6,378 games at 6+0.06.
   Stockfish has an almost identical rule in a development commit after version 19 (`5ca4bfe7`, "Decrease time usage
   if engine has time disadvantage").
