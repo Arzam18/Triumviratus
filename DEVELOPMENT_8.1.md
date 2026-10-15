@@ -29,7 +29,18 @@ engine pinned to one core.
    An audit of the search component by component (the same as Stockfish 19, changed, or ours), then a rewrite of
    one component at a time, designed for a network of experts, each with a non-regression SPRT at unchanged
    parameters. The description of the search changes only when the facts do. If the release date matters more than
-   completeness, only the components that step 2 shows to be weakest are rewritten for 8.1.
+   completeness, only the components that step 2 shows to be weakest are rewritten for 8.1. Four stages, in this
+   order, because each one feeds the next:
+   1. **histories and move ordering**: a history of quiet moves indexed by the threat context of the move, in a form
+      of our own built on the value of the attacking pieces, and the ordering rethought around it;
+   2. **reductions**: one formula of our own on our signals (the expert of the network, the causal reduction,
+      captures with a scale of their own, one rule for raised alpha);
+   3. **pruning**: reverse futility, null move, futility, ProbCut and losing captures, with per-expert margins where
+      they pay;
+   4. **extensions**: singular extension, the low-depth hash-move extension and internal reduction in one design.
+
+   Each stage: a written design, code behind an option (off, the tree is unchanged), a non-regression SPRT, then the
+   old code is removed. Time management runs as a fifth line in parallel.
 4. **Tuning with the corrected schedule** ([section 8](docs/project/FUTURE_DIRECTIONS.md#8-tuning-again-with-the-corrected-schedule)).
    The six SPSA runs P1 to P6 on the final structure, without hyperthreading; each vector enters the engine only
    through an SPRT against the release.
