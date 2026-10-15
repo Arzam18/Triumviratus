@@ -161,13 +161,17 @@ led the author to the surprise rule of 8.0's time management. Many thanks to him
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included.
 
-### Code from other projects
+<details>
+<summary><b>Code from other projects</b></summary>
 
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): the NNUE inference machinery in `nnue/`, ported from SFNNv16 and since extended for Triumviratus' own networks (the PassedPawns and PawnPair blocks, the four experts of Consilium, row permutation for cache locality, refresh caches, measured speed changes).
 - **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh: the original bitboard and magic-number move generator, the project's 2024 foundation, since rewritten and extended.
 - **[Fathom](https://github.com/jdart1/Fathom)** (MIT): Syzygy tablebase probing.
 
-### Open-source engines studied
+</details>
+
+<details>
+<summary><b>Open-source engines studied</b></summary>
 
 Ideas for search, move ordering, time management and pruning were studied from these engines and, where adopted,
 re-tuned on the project's own network:
@@ -178,6 +182,8 @@ re-tuned on the project's own network:
 - **[Alexandria](https://github.com/PGG106/Alexandria)**: the multiplicative time-management factors.
 - **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, **[Viridithas](https://github.com/cosmobobak/viridithas)**: the `PawnPair` input feature.
 - **[Berserk](https://github.com/jhonnold/berserk)**, **[Obsidian](https://github.com/gab8192/Obsidian)**, **[Ethereal](https://github.com/AndyGrant/Ethereal)**, **[Stormphrax](https://github.com/Ciekce/Stormphrax)**: search, pruning and ordering refinements.
+
+</details>
 
 **NNUE input features.** The **`PawnPair`** block (pairs of pawns on the same or adjacent files) was **invented by
 Jonathan Hallström for [Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**, also used by Stormphrax and
