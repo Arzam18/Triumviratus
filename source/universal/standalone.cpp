@@ -26,6 +26,16 @@ __declspec(allocate(".tv3$z")) const TvInit tv_z = nullptr;
 #pragma section(".tv4$z", read)
 __declspec(allocate(".tv4$a")) const TvInit tv_a = nullptr;
 __declspec(allocate(".tv4$z")) const TvInit tv_z = nullptr;
+#elif TRIUMV_VID == 6
+#pragma section(".tv6$a", read)
+#pragma section(".tv6$z", read)
+__declspec(allocate(".tv6$a")) const TvInit tv_a = nullptr;
+__declspec(allocate(".tv6$z")) const TvInit tv_z = nullptr;
+#elif TRIUMV_VID == 7
+#pragma section(".tv7$a", read)
+#pragma section(".tv7$z", read)
+__declspec(allocate(".tv7$a")) const TvInit tv_a = nullptr;
+__declspec(allocate(".tv7$z")) const TvInit tv_z = nullptr;
 #else
 #pragma section(".tv5$a", read)
 #pragma section(".tv5$z", read)

@@ -135,13 +135,12 @@ struct MoveSafety {
   int  our_king, their_king;
   U64  pinned;
   LmpChkCtx checks;
+  bool pins_ready;   // GL: le inchiodature si calcolano solo se legal_before serve (mossa hash, Chess960)
 };
 
-static void safety_init(ThreadData &td, MoveSafety &s) {
-  const int us = td.side, them = us ^ 1;
-  const int off = us == white ? 0 : 6, eoff = them == white ? 0 : 6;
-  s.our_king = get_ls1b_index(td.bitboards[K + off]);
-  s.their_king = get_ls1b_index(td.bitboards[K + eoff]);
+// Inchiodature del nostro re, per legal_before.
+static void safety_pins(ThreadData &td, MoveSafety &s) {
+  const int us = td.side, eoff = us == white ? 6 : 0;
   const U64 occ = td.occupancies[both];
   U64 snipers = (empty_rook_att[s.our_king] & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
                 (empty_bishop_att[s.our_king] & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
@@ -153,6 +152,18 @@ static void safety_init(ThreadData &td, MoveSafety &s) {
       s.pinned |= between;
     pop_lsb_bb(snipers);
   }
+  s.pins_ready = true;
+}
+
+static void safety_init(ThreadData &td, MoveSafety &s) {
+  const int us = td.side, them = us ^ 1;
+  const int off = us == white ? 0 : 6, eoff = them == white ? 0 : 6;
+  s.our_king = get_ls1b_index(td.bitboards[K + off]);
+  s.their_king = get_ls1b_index(td.bitboards[K + eoff]);
+  // GL: con le liste legali legal_before serve solo alla mossa hash, che le chiede da se' (legal_before).
+  s.pins_ready = false;
+  if (!td_lists_legal())
+    safety_pins(td, s);
   if (!s.checks.ready)   // l'ordinamento delle quiete puo' averle gia' calcolate
     td_lmp_chk_init(td, s.checks);
   s.ready = true;
@@ -182,6 +193,7 @@ __attribute__((noinline)) static bool legal_before_slow(ThreadData &td, MoveSafe
 static inline bool legal_before(ThreadData &td, MoveSafety &s, int m) {
   PROF_GUARD(prof_gc);
   if (!s.ready) safety_init(td, s);
+  if (!s.pins_ready) safety_pins(td, s);
   const int from = move_from(m);
   if ((m & 0xC00000) || from == s.our_king)   // arrocco (bit 23), en passant (bit 22), re
     return legal_before_slow(td, s, m);
@@ -228,7 +240,9 @@ static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
 // ============================================================================
 // PASSI: entrare in un figlio e tornare indietro
 // ============================================================================
-static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
+// legal (GL, 15/10/2026): la mossa viene da una lista del generatore legale (queue_move_legal), quindi la make salta il
+// test del re anche sotto scacco.
+static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, bool legal = false) {
   td.repetition_table[++td.repetition_index] = td.hash_key;
   td.ply++;
   // ⛔ 04/10/2026 — TOLTA la "legalita' decisa una volta" (make con known_legal = true quando legal_before aveva
@@ -242,16 +256,16 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   // re che non entra in presa, en passant, arrocco) e la make salta il test; sotto scacco il test resta. Arrocco del
   // 960 sempre alla make. Con -DTRIUMV_VERIFY_LEGAL la make rifa' sempre il test e stampa ogni disaccordo.
 #ifdef TRIUMV_VERIFY_LEGAL
-  if (!f->in_check && !td_make_move(td, m, u)) {
+  if ((!f->in_check || legal) && !td_make_move(td, m, u)) {
     printf("info string LEGALITA' SBAGLIATA: mossa %d ritenuta legale\n", m);
     fflush(stdout);
     td.ply--;
     td.repetition_index--;
     return false;
   }
-  if (f->in_check && !td_make_move(td, m, u)) {
+  if (f->in_check && !legal && !td_make_move(td, m, u)) {
 #else
-  if (!td_make_move(td, m, u, !f->in_check && !(g_chess960 && get_move_castling(m)))) {
+  if (!td_make_move(td, m, u, (legal || !f->in_check) && !(g_chess960 && get_move_castling(m)))) {
 #endif
     td.ply--;
     td.repetition_index--;
@@ -334,6 +348,8 @@ __attribute__((noinline)) static bool drawn_here_slow(ThreadData &td, bool in_ch
       return true;
     moves ml[1];
     td_generate_moves(td, ml, false, false, 1);
+    if (td_lists_legal() && ml->count)   // GL: lista legale, una mossa basta
+      return true;
     for (int i = 0; i < ml->count; i++) {
       UndoInfo u;
       td.repetition_table[++td.repetition_index] = td.hash_key;
@@ -392,6 +408,8 @@ static inline bool insufficient_material(const ThreadData &td) {
 static bool has_legal_move(ThreadData &td) {
   moves ml[1];
   td_generate_moves(td, ml, false);
+  if (td_lists_legal())   // GL: la lista e' gia' legale
+    return ml->count != 0;
   for (int i = 0; i < ml->count; i++) {
     UndoInfo u;
     td.repetition_table[++td.repetition_index] = td.hash_key;
@@ -480,7 +498,8 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   safety.ready = false;
   int best_move = 0, count = 0, m;
   while ((m = queue_next(q)) != 0) {
-    if (!legal_before(td, safety, m))
+    const bool gen_legal = queue_move_legal(q, m);
+    if (!gen_legal && !legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
     const bool tact = is_tactical(m);
@@ -507,7 +526,7 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     }
 
     UndoInfo u;
-    if (!step_in(td, f, m, u)) {
+    if (!step_in(td, f, m, u, gen_legal)) {
       count--;
       continue;
     }
@@ -533,13 +552,14 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     if (!in_check && best < beta) {
       moves ml[1];
       td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
+      const bool list_legal = td_lists_legal();
       for (int i = 0; i < ml->count && best < beta; i++) {
         const int qm = ml->moves[i];
-        if (is_tactical(qm) || qm == q.hash_move || !legal_before(td, safety, qm) || !checks_before(td, safety, qm) ||
-            !see_holds(td, qm, 0))
+        if (is_tactical(qm) || qm == q.hash_move || (!list_legal && !legal_before(td, safety, qm)) ||
+            !checks_before(td, safety, qm) || !see_holds(td, qm, 0))
           continue;
         UndoInfo u;
-        if (!step_in(td, f, qm, u))
+        if (!step_in(td, f, qm, u, list_legal))
           continue;
         count++;
         f[1].in_check = true;

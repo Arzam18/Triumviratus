@@ -1,12 +1,12 @@
 # =====================================================================================================================
 #  build_universal.ps1 -- binario universale di Triumviratus 8.0 con PGO, da questa cartella del sorgente.
 #
-#  Cinque varianti ISA, ognuna nel suo namespace Triumv_v<n>: di default un'unita' di compilazione per ogni .cpp del
+#  Sette varianti ISA, ognuna nel suo namespace Triumv_v<n>: di default un'unita' di compilazione per ogni .cpp del
 #  motore (involucri con vns.h, ThinLTO; -Unity = una sola unita' per variante, variant.cpp), ingresso con cpuid (entry.cpp),
 #  rete incorporata (triumv.rc), runtime C++ statico. Per ogni variante: build strumentata, training deterministico
 #  (pgo_train_det.py su pgo_positions.epd, `go nodes` fissi: stesso profilo a ogni build), merge, build ottimizzata.
-#  Ogni variante si allena con le SUE istruzioni se questa CPU le ha (su Zen 4 tutte e cinque); altrimenti vnni512 e
-#  avx512icl si allenano con quelle di avx512, e senza AVX-512 le varianti 3-5 restano senza profilo.
+#  Ogni variante si allena con le SUE istruzioni se questa CPU le ha; altrimenti vnni512 e avx512icl si allenano con
+#  quelle di avx512 e avxvnni con quelle di avx2, e senza AVX-512 le varianti 3-5 restano senza profilo.
 #
 #  Serve: Visual Studio 2022 (o Build Tools) con i componenti "C++ Clang Compiler for Windows" e "MSBuild support for
 #  LLVM (clang-cl) toolset", Windows SDK, Python 3, la rete nn-consilium.nnue nella cartella del sorgente (una sopra).
@@ -101,7 +101,7 @@ int main(void) {
   int r[4]; char vendor[13] = {0};
   __cpuid(r, 0); memcpy(vendor, &r[1], 4); memcpy(vendor + 4, &r[3], 4); memcpy(vendor + 8, &r[2], 4);
   __cpuid(r, 1); int ecx1 = r[2], fam = ((r[0] >> 8) & 15) + ((r[0] >> 20) & 255);
-  __cpuidex(r, 7, 0); unsigned ebx7 = r[1], ecx7 = r[2];
+  __cpuidex(r, 7, 0); unsigned ebx7 = r[1], ecx7 = r[2], sub7 = r[0];
   unsigned long long x = (ecx1 >> 27 & 1) ? xcr0() : 0;
   int avx = (x & 6) == 6, z = (x & 0xE6) == 0xE6;
   int avx2 = avx && (ebx7 >> 5 & 1) && (ebx7 >> 3 & 1);
@@ -110,8 +110,10 @@ int main(void) {
   int vnni = f512 && (ecx7 >> 11 & 1);
   int icl = vnni && (ecx7 >> 1 & 1) && (ecx7 >> 6 & 1) && (ecx7 >> 12 & 1);
   int s41 = (ecx1 >> 19 & 1) && (ecx1 >> 23 & 1);
-  printf("%s%s%s%s%s%s %s %d\n", s41 ? "6" : "", avx2 ? "1" : "", pext ? "2" : "", f512 ? "3" : "", vnni ? "4" : "",
-         icl ? "5" : "", vendor, fam);
+  int avxvnni = 0;
+  if (sub7 >= 1) { __cpuidex(r, 7, 1); avxvnni = pext && (r[0] >> 4 & 1); }
+  printf("%s%s%s%s%s%s%s %s %d\n", s41 ? "6" : "", avx2 ? "1" : "", pext ? "2" : "", avxvnni ? "7" : "", f512 ? "3" : "",
+         vnni ? "4" : "", icl ? "5" : "", vendor, fam);
   return 0;
 }
 '@
@@ -119,10 +121,11 @@ Set-Content -Encoding ascii "$OBJ\probe.c" $probe
 & $CXX /nologo /O2 "$OBJ\probe.c" "/Fe$OBJ\probe.exe" "/Fo$OBJ\probe.obj" | Out-Null
 $cpu = (& "$OBJ\probe.exe").Trim().Split(' ')
 $can = $cpu[0]
-Say "CPU $($cpu[1]) famiglia $($cpu[2]): varianti eseguibili '$can' (6 sse41, 1 avx2-nopext, 2 avx2, 3 avx512, 4 vnni512, 5 avx512icl)"
+Say "CPU $($cpu[1]) famiglia $($cpu[2]): varianti eseguibili '$can' (6 sse41, 1 avx2-nopext, 2 avx2, 7 avxvnni, 3 avx512, 4 vnni512, 5 avx512icl)"
 if (-not $can.Contains('1')) { Fail "questa CPU non ha AVX2: la build (training PGO delle varianti AVX2) non si puo' fare qui" }
-# 6 = sse41 (15/10/2026): stampata per prima dalla sonda, cosi' $can[-1] resta la variante AVX piu' alta.
-$names = @{ 1 = 'avx2-nopext'; 2 = 'avx2'; 3 = 'avx512'; 4 = 'vnni512'; 5 = 'avx512icl'; 6 = 'sse41' }
+# 6 = sse41 (15/10/2026): stampata per prima dalla sonda, cosi' $can[-1] resta la variante AVX piu' alta. 7 = avxvnni
+# (15/10/2026) stampata dopo avx2 e prima di avx512: $can[-1] e' 7 su Intel da Alder Lake senza AVX-512, 3-5 con AVX-512.
+$names = @{ 1 = 'avx2-nopext'; 2 = 'avx2'; 3 = 'avx512'; 4 = 'vnni512'; 5 = 'avx512icl'; 6 = 'sse41'; 7 = 'avxvnni' }
 
 # --- flag (come build_pgo_clang_80.ps1 e il prototipo dello Xeon) ---------------------------------------------------
 $base = @('/c', '/nologo', '/std:c++17', '/EHsc', '/MT', '/O2', '/Oy', '/GS-', '/Gy', '/Gw', '/clang:-O3',
@@ -149,6 +152,7 @@ function VFlags($n) {
         5 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-DUSE_AVX512ICL', '-mavx512f', '-mavx512bw',
               '-mavx512dq', '-mavx512vl', '-mbmi2', '-mavx512vnni', '-mavx512vbmi', '-mavx512vbmi2', '-mavx512bitalg') }
         6 { @('-UUSE_AVX2', '-UUSE_PEXT', '-msse4.1', '-mssse3', '-mpopcnt', '-mno-avx', '-mno-avx2', '-mno-bmi2') }
+        7 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_VNNI', '-DUSE_AVXVNNI', '-mbmi2', '-mavxvnni', '-mno-avx512f') }
     }
 }
 # Messa a punto per i processori a cui la variante e' destinata. SPENTA di default (-Tune per accenderla): sullo Xeon
@@ -266,9 +270,10 @@ if ($rcOk -ne 0) { Fail "risorse (triumv.rc)" }
 $profs = @{}
 if (-not $NoPgo) {
     $train = @{}
-    foreach ($n in 1..6) {
+    foreach ($n in 1..7) {
         if ($can.Contains("$n")) { $train[$n] = $n }
-        elseif ($n -ge 4 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, namespace della variante
+        elseif ($n -eq 7 -and $can.Contains('2')) { $train[$n] = 2 }   # istruzioni di avx2, namespace della variante
+        elseif ($n -ge 4 -and $n -le 5 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, idem
     }
     if ($Only) {
         if (-not $train.ContainsKey($Only)) { Fail "-Only ${Only}: variante non allenabile su questa CPU" }
@@ -345,23 +350,24 @@ if ($Only) {
     return
 }
 if ($MultiTU) {
-    $pobjs = Compile-Units @(1..6 | ForEach-Object {
+    $pobjs = Compile-Units @(1..7 | ForEach-Object {
         if ($profs.ContainsKey($_)) { @{ n = $_; mode = 'use'; as = $_; prof = $profs[$_] } }
         else { @{ n = $_; mode = 'none'; as = $_; prof = '' } } })
-    Link $exe (@("$OBJ\entry.obj") + $pobjs[1] + $pobjs[2] + $pobjs[3] + $pobjs[4] + $pobjs[5] + $pobjs[6])
+    Link $exe (@("$OBJ\entry.obj") + $pobjs[1] + $pobjs[2] + $pobjs[3] + $pobjs[4] + $pobjs[5] + $pobjs[6] + $pobjs[7])
 } else {
-    $ps = foreach ($n in 1..6) {
+    $ps = foreach ($n in 1..7) {
         if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
         else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
     }
     Wait-All $ps "build ottimizzata"
-    Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj", "$OBJ\p6.obj")
+    Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj", "$OBJ\p6.obj",
+         "$OBJ\p7.obj")
 }
 
 # --- verifica -----------------------------------------------------------------------------------------------------
 $ver = @()
 $ok = $true
-foreach ($n in 1..6) {
+foreach ($n in 1..7) {
     if (-not $can.Contains("$n")) { $ver += "{0,-12} non eseguibile su questa CPU" -f $names[$n]; continue }
     $b = Bench $exe $names[$n]
     $tag = if ($b -eq $ExpectedBench) { "ok" } else { $ok = $false; "BENCH DIVERSO (atteso $ExpectedBench)" }

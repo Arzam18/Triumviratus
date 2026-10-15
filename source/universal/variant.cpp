@@ -22,11 +22,14 @@
 #elif TRIUMV_VID == 6
 #pragma init_seg(".tv6$m")
 #define TRIUMV_VNS Triumv_v6
+#elif TRIUMV_VID == 7
+#pragma init_seg(".tv7$m")
+#define TRIUMV_VNS Triumv_v7
 #elif TRIUMV_VID == 5
 #pragma init_seg(".tv5$m")
 #define TRIUMV_VNS Triumv_v5
 #else
-#error "TRIUMV_VID mancante (1..6)"
+#error "TRIUMV_VID mancante (1..7)"
 #endif
 
 namespace TRIUMV_VNS {
@@ -89,6 +92,11 @@ __declspec(allocate(".tv4$z")) const TvInit tv_z = nullptr;
 #pragma section(".tv6$z", read)
 __declspec(allocate(".tv6$a")) const TvInit tv_a = nullptr;
 __declspec(allocate(".tv6$z")) const TvInit tv_z = nullptr;
+#elif TRIUMV_VID == 7
+#pragma section(".tv7$a", read)
+#pragma section(".tv7$z", read)
+__declspec(allocate(".tv7$a")) const TvInit tv_a = nullptr;
+__declspec(allocate(".tv7$z")) const TvInit tv_z = nullptr;
 #else
 #pragma section(".tv5$a", read)
 #pragma section(".tv5$z", read)

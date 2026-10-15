@@ -81,6 +81,7 @@ struct MoveQueue {
   // V2 (08/10/2026): confine fra quiete buone e cattive gia' noto dopo l'ordinamento (quiet_split >= 0), oppure -1
   // (si scorre la lista confrontando ogni punteggio, come prima).
   int           quiet_split;
+  LegalNode     lgen;            // GL: inchiodature, scacchi e maschere del nodo, condivisi dalle fasi
 };
 
 // SEE di una mossa quieta decisa senza scambio (06/10/2026, velocita', albero identico). Per una quieta semplice
@@ -124,7 +125,7 @@ static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int th
 // 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
 // vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
 // (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
-#if defined(__AVX512F__)
+#if defined(__AVX512F__) || defined(__AVX2__)
 #include <immintrin.h>
 #endif
 // 05/10/2026 — CONTEGGIO A MASCHERE (AVX-512). Il ciclo `r += key[j] > x` ha un conteggio nh che cambia a ogni
@@ -166,6 +167,24 @@ static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int l
       out[r] = {mv[hi[k]], sc[hi[k]]};
     }
   } else
+#elif defined(__AVX2__)
+  // R1 (15/10/2026): lo stesso conteggio a gruppi pieni sulle build AVX2, 8 chiavi per confronto (vpcmpgtd ->
+  // movmskps -> popcnt). Il ciclo scalare aveva un numero di giri nh diverso a ogni chiamata e la sua coda (nh % 8
+  // giri dopo la parte vettoriale) usciva con un salto mal predetto quasi a ogni mossa ordinata (profilo dei salti mal
+  // predetti, bench 20: ~2,6% del totale nelle righe di rank_into). Qui ogni mossa fa lo stesso numero di gruppi.
+  // Stesse chiavi, stesse posizioni.
+  if constexpr (!Wide) {
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(key + nh), _mm256_set1_epi32(INT_MIN));
+    const int nchunk = (nh + 7) >> 3;
+    for (int k = 0; k < nh; k++) {
+      const __m256i x = _mm256_set1_epi32(key[k]);
+      int r = 0;
+      for (int c = 0; c < nchunk; c++)
+        r += count_bits((U64)(unsigned)_mm256_movemask_ps(_mm256_castsi256_ps(
+                 _mm256_cmpgt_epi32(_mm256_load_si256(reinterpret_cast<const __m256i *>(key + 8 * c)), x))));
+      out[r] = {mv[hi[k]], sc[hi[k]]};
+    }
+  } else
 #endif
   for (int k = 0; k < nh; k++) {
     const Key x = key[k];
@@ -191,6 +210,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.n_lose = q.cur_lose = 0;
   q.opp_ready = false;
   q.quiet_split = -1;
+  q.lgen.ready = false;
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -461,8 +481,11 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
-                    /*promo_quiet=*/true, /*promo_queen_only=*/true);
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::TACTICS>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
+                      /*promo_quiet=*/true, /*promo_queen_only=*/true);
   // La mossa hash e' gia' uscita (QS_HASH): si toglie qui compattando sul posto, senza salti, e i cicli di
   // queue_next non la confrontano piu' a ogni mossa (04/10/2026 sera; stesso ordine delle altre, stesso albero).
   int n = 0;
@@ -482,7 +505,10 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::QUIETS>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
   // La promozione a donna e' gia' fra le tattiche e la mossa hash e' gia' uscita: si tolgono compattando sul posto,
   // senza salti.
   int n = 0;
@@ -523,7 +549,10 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::ALL>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
   int n = 0;   // senza la mossa hash, gia' uscita (vedi fill_tactics)
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
@@ -542,6 +571,52 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   q.n_all = q.n_tact = n;
   rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
+}
+
+// GL (15/10/2026): la mossa m, uscita dalla coda, viene da una lista del generatore legale e non dalla tabella hash:
+// e' legale senza legal_before ne' test del re nella make. In Chess960 sempre false.
+static inline bool queue_move_legal(const MoveQueue &q, int m) { return td_lists_legal() && m != q.hash_move; }
+
+// T1 (15/10/2026, velocita' ad albero identico): quando la coda consegna una mossa da una lista gia' ordinata, si
+// anticipa il bucket hash del figlio della mossa DOPO (chiave stimata, come la
+// make). La probe del figlio aspettava la memoria anche col prefetch della make, che parte poche centinaia di cicli
+// prima; questo parte un intero sottoalbero prima, e la maggior parte dei sottoalberi e' piccola (quiescenza, profondita'
+// basse). Solo prefetch: nessun effetto sull'albero. La mossa sbirciata puo' non essere quella che esce (SEE delle
+// tattiche, fasi successive): allora il prefetch va a vuoto.
+// T1v (15/10/2026): il prefetch della mossa dopo paga su Intel (i9-14900KF, un motore per core: +1,1/+1,25%) ma costa su
+// AMD (benchnet, nodi identici: Ryzen 7 2700X -1,4%, Ryzen 7 5700 -1,6% con un solo motore, -4,2% con sette insieme).
+// La build avx2 serve entrambi, quindi si decide una volta all'avvio dalla stringa del produttore (CPUID foglia 0).
+// Fuori da x86 (ARM: Apple, Android) resta spento, come prima di T1: non e' stato misurato. Provata e scartata una
+// versione che anticipa solo le mosse che stanno per essere giocate (niente quiescenza, ProbCut, prima mossa dei nodi
+// cut; prefetch utili dal 29% a ~75%): Intel -0,27% [-0,71, +0,16], AMD ancora negativo (2700X -0,9%, 5700 -0,6%).
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+  #if defined(_MSC_VER)
+    #include <intrin.h>
+  #else
+    #include <cpuid.h>
+  #endif
+#endif
+static bool cpu_vendor_intel() {
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+  unsigned b = 0, c = 0, d = 0;
+  #if defined(_MSC_VER)
+  int x[4];
+  __cpuid(x, 0);
+  b = (unsigned)x[1], c = (unsigned)x[2], d = (unsigned)x[3];
+  #else
+  unsigned a = 0;
+  __get_cpuid(0, &a, &b, &c, &d);
+  #endif
+  return b == 0x756e6547u && d == 0x49656e69u && c == 0x6c65746eu;   // "Genu" "ineI" "ntel"
+#else
+  return false;
+#endif
+}
+static const bool g_next_prefetch = cpu_vendor_intel();
+
+static inline void queue_prefetch(const MoveQueue &q, int m) {
+  if (g_next_prefetch)
+    td_prefetch_child(*q.td, td_child_key_guess(*q.td, m));
 }
 
 // Prossima mossa pseudo-legale, 0 a coda finita. La mossa hash esce una volta sola.
@@ -563,8 +638,11 @@ static int queue_next(MoveQueue &q) {
     case QS_TACT_WIN:
       while (q.cur < q.n_tact) {
         const ScoredMove sm = q.list[q.cur++];
-        if (see_holds(td, sm.move, -sm.score / GoodCaptSeeDiv))
+        if (see_holds(td, sm.move, -sm.score / GoodCaptSeeDiv)) {
+          if (q.cur < q.n_tact)
+            queue_prefetch(q, q.list[q.cur].move);
           return sm.move;
+        }
         q.losers[q.n_lose++] = (unsigned char)(q.cur - 1);
       }
       q.step = QS_QUIET_FILL;
@@ -578,8 +656,12 @@ static int queue_next(MoveQueue &q) {
 
     case QS_QUIET_HIGH:
       if (q.quiet_split >= 0) {   // V2: le buone sono il prefisso [n_tact, quiet_split)
-        if (!q.quiets_off && q.cur < q.quiet_split)
-          return q.list[q.cur++].move;
+        if (!q.quiets_off && q.cur < q.quiet_split) {
+          const int m = q.list[q.cur++].move;
+          if (q.cur < q.n_all)
+            queue_prefetch(q, q.list[q.cur].move);
+          return m;
+        }
       } else
         while (!q.quiets_off && q.cur < q.n_all) {
           const ScoredMove sm = q.list[q.cur++];
@@ -590,16 +672,24 @@ static int queue_next(MoveQueue &q) {
       break;
 
     case QS_TACT_LOSE:
-      if (q.cur_lose < q.n_lose)
-        return q.list[q.losers[q.cur_lose++]].move;
+      if (q.cur_lose < q.n_lose) {
+        const int m = q.list[q.losers[q.cur_lose++]].move;
+        if (q.cur_lose < q.n_lose)
+          queue_prefetch(q, q.list[q.losers[q.cur_lose]].move);
+        return m;
+      }
       q.cur = q.quiet_split >= 0 ? q.quiet_split : q.n_tact;
       q.step = QS_QUIET_LOW;
       break;
 
     case QS_QUIET_LOW:
       if (q.quiet_split >= 0) {   // V2: le cattive sono il resto [quiet_split, n_all), gia' nell'ordine giusto
-        if (!q.quiets_off && q.cur < q.n_all)
-          return q.list[q.cur++].move;
+        if (!q.quiets_off && q.cur < q.n_all) {
+          const int m = q.list[q.cur++].move;
+          if (q.cur < q.n_all)
+            queue_prefetch(q, q.list[q.cur].move);
+          return m;
+        }
       } else
         while (!q.quiets_off && q.cur < q.n_all) {
           const ScoredMove sm = q.list[q.cur++];
@@ -624,6 +714,8 @@ static int queue_next(MoveQueue &q) {
         const ScoredMove sm = q.list[q.cur++];
         if (q.kind == QK_CUTS && !see_holds(td, sm.move, q.cut_threshold))
           continue;
+        if (q.cur < q.n_tact)
+          queue_prefetch(q, q.list[q.cur].move);
         return sm.move;
       }
       q.step = QS_DONE;

@@ -8,6 +8,7 @@
 #    make clean nopext -> build AVX2 SENZA pext  (AMD Zen1/Zen2: OBBLIGATORIA, vedi sotto)
 #    make clean avx512 -> build AVX512 F/BW/DQ/VL, SENZA VNNI (Skylake-X, Xeon W-21xx)
 #    make clean vnni512-> build AVX512 + VNNI (Cascade Lake, Ice Lake SP, Zen4) = piu' veloce
+#    make clean avxvnni-> build AVX2 + AVX-VNNI (Alder Lake, Raptor Lake, Arrow Lake, Meteor Lake: Intel senza AVX-512)
 #    make CXX=clang++  -> usa clang invece di g++
 #    make clean
 #
@@ -97,6 +98,14 @@ endif
 ifneq (,$(filter vnni512 avx512icl,$(MAKECMDGOALS)))
   DEFS += -DUSE_VNNI
   ARCH += -mavx512vnni
+endif
+# V1 (15/10/2026): AVX-VNNI, la forma VEX a 256 bit di vpdpbusd (Intel dal 12a generazione senza AVX-512). Il prodotto
+# scalare u8 x i8 della prima rete sparsa e degli strati densi diventa una istruzione invece di tre (maddubs, madd,
+# add); identico perche' gli ingressi valgono al piu' 127. Misurato su i9-14900KF, g++, nodi identici (bench 137419):
+# +4,55% NPS (tre giri nps_pair: +4,71, +4,55, +4,40; nullo +0,02). CPUID: foglia 7, sottofoglia 1, EAX bit 4.
+ifeq (avxvnni,$(filter avxvnni,$(MAKECMDGOALS)))
+  DEFS += -DUSE_VNNI -DUSE_AVXVNNI
+  ARCH += -mavxvnni
 endif
 ifeq (avx512icl,$(filter avx512icl,$(MAKECMDGOALS)))
   DEFS += -DUSE_AVX512ICL
@@ -266,6 +275,7 @@ CFLAGS   ?= -O3 -w $(ARCH) -pthread -I. -Ifathom
 all: $(EXE)
 avx512: $(EXE)
 vnni512: $(EXE)
+avxvnni: $(EXE)
 avx512icl: $(EXE)
 nopext: $(EXE)
 intel: $(EXE)
@@ -326,4 +336,4 @@ endif
 	$(MAKE) all $(RELGOAL) CXX=$(CXX) PGO_PHASE=use
 	@echo "[+] PGO fatto: ./$(EXE)"
 
-.PHONY: all avx512 vnni512 avx512icl nopext intel profile release android android-dotprod clean pgo-avx512 pgo-avx2
+.PHONY: all avx512 vnni512 avxvnni avx512icl nopext intel profile release android android-dotprod clean pgo-avx512 pgo-avx2

@@ -225,6 +225,11 @@ class AffineTransformSparseInput {
         }
     #else
         static_assert(InputDimensions % 256 == 0);
+        #if defined(USE_AVXVNNI)
+        outvec_t acc2[NumAccums], acc3[NumAccums];
+        for (IndexType k = 0; k < NumAccums; ++k)
+            acc2[k] = acc3[k] = _mm256_setzero_si256();
+        #endif
 
         for (IndexType k = 0; k < InputDimensions / 256; ++k)
         {
@@ -248,6 +253,41 @@ class AffineTransformSparseInput {
             asm("" : "+r"(base_addr), "+r"(weights_base));  // opt barrier
         #endif
 
+        #if defined(USE_AVXVNNI)
+            // V1 (15/10/2026): con AVX-VNNI ogni chunk e' una sola vpdpbusd per registro, che dipende dalla precedente
+            // sullo stesso accumulatore (latenza ~5 cicli): con una catena sola il ciclo aspetterebbe la latenza. Tre
+            // catene (acc, acc2, acc3) a turno, sommate alla fine: stesse somme intere, risultato identico.
+            for (;;)
+            {
+                if (!bits)
+                    break;
+                {
+                    const isize   i   = pop_lsb(bits);
+                    const invec_t in  = vec_set_32(load_as<i32>(base_addr + i * sizeof(i32)));
+                    const auto    col = reinterpret_cast<const invec_t*>(&weights_base[i * OutputDimensions * ChunkSize]);
+                    for (IndexType l = 0; l < NumAccums; ++l)
+                        vec_add_dpbusd_32(acc[l], in, col[l]);
+                }
+                if (!bits)
+                    break;
+                {
+                    const isize   i   = pop_lsb(bits);
+                    const invec_t in  = vec_set_32(load_as<i32>(base_addr + i * sizeof(i32)));
+                    const auto    col = reinterpret_cast<const invec_t*>(&weights_base[i * OutputDimensions * ChunkSize]);
+                    for (IndexType l = 0; l < NumAccums; ++l)
+                        vec_add_dpbusd_32(acc2[l], in, col[l]);
+                }
+                if (!bits)
+                    break;
+                {
+                    const isize   i   = pop_lsb(bits);
+                    const invec_t in  = vec_set_32(load_as<i32>(base_addr + i * sizeof(i32)));
+                    const auto    col = reinterpret_cast<const invec_t*>(&weights_base[i * OutputDimensions * ChunkSize]);
+                    for (IndexType l = 0; l < NumAccums; ++l)
+                        vec_add_dpbusd_32(acc3[l], in, col[l]);
+                }
+            }
+        #else
             while (bits)
             {
                 isize       i          = pop_lsb(bits);
@@ -255,16 +295,21 @@ class AffineTransformSparseInput {
                 auto        col =
                   reinterpret_cast<const invec_t*>(&weights_base[i * OutputDimensions * ChunkSize]);
 
-        #ifdef FIX_GCC15_MISOPTIMIZATION
+            #ifdef FIX_GCC15_MISOPTIMIZATION
                 asm("" : "+r"(col), "+r"(input_addr));
-            #undef FIX_GCC15_MISOPTIMIZATION
-        #endif
+                #undef FIX_GCC15_MISOPTIMIZATION
+            #endif
 
                 const invec_t in = vec_set_32(load_as<i32>(input_addr));
                 for (IndexType l = 0; l < NumAccums; ++l)
                     vec_add_dpbusd_32(acc[l], in, col[l]);
             }
+        #endif
         }
+        #if defined(USE_AVXVNNI)
+        for (IndexType k = 0; k < NumAccums; ++k)
+            acc[k] = vec_add_32(vec_add_32(acc[k], acc2[k]), acc3[k]);
+        #endif
     #endif
         outvec_t* outptr = reinterpret_cast<outvec_t*>(output);
         for (IndexType k = 0; k < NumAccums; ++k)
