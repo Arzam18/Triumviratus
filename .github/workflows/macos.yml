@@ -1,0 +1,43 @@
+# macOS builds of Triumviratus 8.0 (issue #4). Started by hand (Actions -> macOS builds -> Run workflow).
+# Each job downloads the network from the v8.0 release, builds with Apple clang, checks the bench on the Mac
+# itself (game build 137419, Position Solver 2989507) and uploads the executable as an artifact.
+name: macOS builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      intel_runner:
+        description: "Runner label for the Intel build"
+        default: "macos-13"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: macos-arm, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_arm }
+          - { runner: macos-14, target: macos-arm, flavour: possolver, bench: "2989507", out: Triumviratus_8.0_PosSolver_macos_arm }
+          - { runner: intel, target: macos-x86, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_x86 }
+          - { runner: intel, target: macos-x86, flavour: possolver, bench: "2989507", out: Triumviratus_8.0_PosSolver_macos_x86 }
+    runs-on: ${{ matrix.runner == 'intel' && inputs.intel_runner || matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Network
+        run: curl -sSL -o source/nn-consilium.nnue https://github.com/Tors3/Triumviratus/releases/download/v8.0/nn-consilium.nnue
+      - name: Build
+        run: |
+          EXTRA="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL"
+          if [ "${{ matrix.flavour }}" = "possolver" ]; then EXTRA="$EXTRA -DTRIUMV_POS_SOLVER"; fi
+          make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue EXTRACXXFLAGS="$EXTRA"
+          cp source/triumviratus_${{ matrix.target == 'macos-arm' && 'macos_arm' || 'macos_x86' }} ${{ matrix.out }}
+      - name: Bench
+        run: |
+          printf 'bench\nquit\n' | ./${{ matrix.out }} > bench.txt 2>&1 || true
+          grep "Nodes searched" bench.txt
+          printf 'uci\nquit\n' | ./${{ matrix.out }} | grep "^id name"
+          grep -q "Nodes searched *: *${{ matrix.bench }}$" bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: ${{ matrix.out }}
