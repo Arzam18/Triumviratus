@@ -218,6 +218,16 @@ depth to keep rare candidate moves alive, which is the opposite of what a game n
 The two-line search (always searching the second best root move with a full window) clearly helps on hard positions
 but costs two to three plies of average depth, so it stays an analysis feature.
 
+## 13. Playing strength levels
+
+Triumviratus always plays at full strength, so a human cannot play a useful game against it. 8.1 should add playing
+levels through the standard UCI options, `UCI_LimitStrength` and `UCI_Elo`, which most interfaces show as a strength
+slider. A weaker level should play like a weaker player, with plausible moves and occasional errors, not like a full
+strength engine that blunders at random. The plan is to limit the search (depth and nodes per move) and to choose
+among the best root lines with a chance that grows with the level's distance from full strength and shrinks with the
+score loss. Each level is then calibrated in games against engines with a known rating, so that the number in
+`UCI_Elo` means what it says.
+
 ## Status
 
 | direction | status |
@@ -234,3 +244,4 @@ but costs two to three plies of average depth, so it stays an analysis feature.
 | 8-bit HalfKA weights (section 10) | engine path ready behind a build flag; needs clipped training, for 9.0 |
 | A search shaped by the network (section 11) | direction for 8.1 and later |
 | Analysis ideas for games (section 12) | null-move guard implemented for analysis; one game SPRT for 8.1 |
+| Playing strength levels (section 13) | planned for 8.1 (`UCI_LimitStrength`, `UCI_Elo`), calibrated in games |
