@@ -17,6 +17,8 @@ struct NodeState {
   bool pv, root, cut, all;
   bool in_check, improving, opp_worse, tact_hash, prior_capture, hunt_mate;
   bool crystal;                   // AnCrystal: nodo della linea principale precedente vicino alla radice (crystal_node)
+  bool no_early;                  // AnKingDanger / AnCycle: niente potature prima delle mosse (solo in analisi)
+  bool no_lmr;                    // AnKingDanger / AnCycle: niente riduzioni LMR positive (solo in analisi)
   int  alpha, beta, depth;
   int  best, best_move, cap_value;
   int  moves;                     // mosse legali cercate (il contatore del frame lo riusa la ricerca singolare)
@@ -174,6 +176,37 @@ static inline int deep_term(const ThreadData &td, int offset) { return offset * 
 // alla radice? In partita crystal_ply = -1 e il test e' sempre falso.
 static inline bool crystal_node(const ThreadData &td, const NodeFrame *f) {
   return f->ply <= td.crystal_ply && f->follow_pv;
+}
+
+// Re in pericolo (AnKingDanger, Pos Solver, 14/10/2026; idea di Crystal, codice nostro): almeno 3 delle case intorno
+// al re del lato `s` sono attaccate dall'avversario. Fino a 8 controlli di attacco: si calcola solo in analisi con il
+// componente acceso.
+// AnNmpZug: al massimo 5 mosse legali, come Crystal. Prima versione con le pseudo-legali (14/10/2026 notte): non
+// scattava quasi mai (1 posizione su 383 con la ricerca diversa). Chiamata solo fuori scacco (mossa nulla), dove
+// legal_before vale.
+static bool few_moves(ThreadData &td) {
+  moves ml;
+  td_generate_moves(td, &ml);
+  MoveSafety s;
+  s.ready = false;
+  int legal = 0;
+  for (int i = 0; i < ml.count; i++)
+    if (legal_before(td, s, ml.moves[i]) && ++legal > 5)
+      return false;
+  return true;
+}
+
+static bool king_in_danger(ThreadData &td, int s) {
+  const int ksq = get_ls1b_index(td.bitboards[s == white ? K : k]);
+  U64 zone = king_attacks[ksq];
+  int hit = 0;
+  while (zone) {
+    const int sq = get_ls1b_index(zone);
+    zone &= zone - 1;
+    if (td_is_square_attacked(td, sq, s ^ 1) && ++hit >= 3)
+      return true;
+  }
+  return false;
 }
 
 // GoldDigger (AnGold, idea di ShashChess/amchess, codice nostro): la mossa nulla si salta quando il "calore" tattico
@@ -451,7 +484,8 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int non_pawn = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k]
                            ? 1 : 0;
   if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
-      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n))) {
+      !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n)) &&
+      !(AN && (td.an_bits & AN_NMPZUG) && td.root_depth >= 11 && td.side != td.root_side && few_moves(td))) {
     // DeepNmp in 1024-esimi di ply, arrotondato con 10 bit della chiave (fissi per posizione): a 0 il termine e' 0,
     // altrimenti una frazione |v|/1024 dei nodi riduce di un ply in piu' (o in meno) e lo SPSA ne vede la pendenza.
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
@@ -525,7 +559,8 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   if (!own_pieces)
     return false;
   // (3 + d^2) / (2 - improving) diviso 1 o 2: uno shift, non una divisione hardware (04/10/2026, stesso valore).
-  if (f->move_count >= (3 + n.depth * n.depth) >> (1 - (int)n.improving))
+  if (f->move_count >= (3 + n.depth * n.depth) >> (1 - (int)n.improving) &&
+      !(AN && (td.an_bits & AN_LMPNEAR) && (n.pv || f->ply <= 2)))   // AnLmpNear
     q.quiets_off = true;
   int red_depth = n.depth - 1 - r / 1024;
   const int pc = move_piece(m), to = move_to(m);
@@ -692,10 +727,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   while ((m = queue_next(q)) != 0) {
     if (m == n.excluded || !legal_before(td, s, m))
       continue;
+    int root_rank = 0;   // posizione della mossa nella lista della radice (ordine dell'iterazione precedente)
     if (n.root) {
       bool listed = false;
       for (int i = td.pv_idx; i < td.pv_last; i++)
-        if (td.root[i].pv[0] == m) { listed = true; break; }
+        if (td.root[i].pv[0] == m) { listed = true; root_rank = i - td.pv_idx; break; }
       if (!listed)
         continue;
     }
@@ -829,6 +865,12 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path).
       // BAKE NEGEXTMAX (11/10/2026, vedi 01_params.inc): tetto fisso a una estensione per linea, opzione ritirata.
       const int neg_cap = f->negext_path < 1 ? 2 : 0;
+      if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: niente riduzione, le riduzioni negative restano
+        r = 0;
+      if (AN && n.root && (td.an_bits & AN_ROOTALT) && root_rank >= 1 && root_rank <= 2 && r > 0)   // AnRootAlt
+        r = 0;
+      if (AN && tact && (td.an_bits & AN_CAPTLMR) && !(n.cut && f[-1].move_count > 1) && r > 0)    // AnCaptLmr
+        r = 0;
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + neg_cap)) + n.pv;
       f->negext = d - n.pv > new_depth;
       f->reduction = new_depth - d;
@@ -875,7 +917,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
             f->refute = m;   // per il padre: la mossa che confuta la sua
           break;
         }
-        if (n.depth > 3 && n.depth < 12 && !val_decided(value))
+        if (n.depth > 3 && n.depth < 12 && !val_decided(value) &&
+            !(AN && (td.an_bits & AN_KEEPDEPTH) && f->ply <= kAnKeepPly))   // AnKeepDepth: vicino alla radice no
           n.depth -= 3;
         n.alpha = value;
       }
@@ -996,10 +1039,22 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;
   n.crystal = AN && crystal_node(td, f);   // dopo node_open, che decide follow_pv
+  // AnKingDanger / AnCycle (Pos Solver, 14/10/2026): in partita an_bits = 0 e i due flag restano falsi.
+  n.no_early = n.no_lmr = false;
+  if (AN && (td.an_bits & (AN_KDANGER | AN_CYCLE)) && !n.root) {
+    if ((td.an_bits & AN_CYCLE) && td_upcoming_repetition(td))
+      n.no_early = n.no_lmr = true;
+    if (td.an_bits & AN_KDANGER) {
+      if (!n.no_early && king_in_danger(td, td.side))
+        n.no_early = true;
+      if (!n.no_lmr && f->ply <= 6 && king_in_danger(td, td.side ^ 1))
+        n.no_lmr = true;
+    }
+  }
   node_evaluate(td, f, n);
   if ((v = hash_cutoff(td, f, n)) != NO_VALUE) return v;
   if ((v = tablebase_probe(td, f, n)) != NO_VALUE) return v;
-  if (!n.in_check) {
+  if (!n.in_check && !n.no_early) {
     if ((v = prune_before_moves<AN>(td, f, n)) != NO_VALUE) return v;
   }
 

@@ -13,7 +13,11 @@
 #include <vector>
 
 // Define version information
+#ifdef TRIUMV_POS_SOLVER
+#define VERSION " - 8.0 Pos Solver"   // build per l'analisi (search/01_params.inc, PSV)
+#else
 #define VERSION " - 8.0"
+#endif
 #define AUTHOR "Francesco Torsello"
 #define NAME "Triumviratus"
 

@@ -19,6 +19,9 @@
 #elif TRIUMV_VID == 5
 #pragma init_seg(".tv5$m")
 #define TRIUMV_VNS Triumv_v5
+#elif TRIUMV_VID == 6
+#pragma init_seg(".tv6$m")
+#define TRIUMV_VNS Triumv_v6
 #else
-#error "TRIUMV_VID mancante (1..5)"
+#error "TRIUMV_VID mancante (1..6)"
 #endif

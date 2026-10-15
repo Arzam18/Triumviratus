@@ -48,8 +48,12 @@ param(
     [int]$Only = 0,
     [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
     # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.0", -DTRIUMV_OFFICIAL) e file
-    # Triumviratus_8.0_universal.exe. Senza -Official resta la pre-release datata.
-    [switch]$Official
+    # Triumviratus_8.0_windows_universal.exe. Senza -Official resta la pre-release datata.
+    [switch]$Official,
+    # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
+    # dell'11/10), id name "Triumviratus - 8.0 Pos Solver", file Triumviratus_8.0_PosSolver_windows_universal.exe. Il bench e'
+    # quello della modalita' analisi: va passato con -ExpectedBench.
+    [switch]$PosSolver
 )
 $MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
@@ -105,8 +109,9 @@ int main(void) {
   int f512 = z && (ebx7 >> 16 & 1) && (ebx7 >> 17 & 1) && (ebx7 >> 30 & 1) && (ebx7 >> 31 & 1);
   int vnni = f512 && (ecx7 >> 11 & 1);
   int icl = vnni && (ecx7 >> 1 & 1) && (ecx7 >> 6 & 1) && (ecx7 >> 12 & 1);
-  printf("%s%s%s%s%s %s %d\n", avx2 ? "1" : "", pext ? "2" : "", f512 ? "3" : "", vnni ? "4" : "", icl ? "5" : "",
-         vendor, fam);
+  int s41 = (ecx1 >> 19 & 1) && (ecx1 >> 23 & 1);
+  printf("%s%s%s%s%s%s %s %d\n", s41 ? "6" : "", avx2 ? "1" : "", pext ? "2" : "", f512 ? "3" : "", vnni ? "4" : "",
+         icl ? "5" : "", vendor, fam);
   return 0;
 }
 '@
@@ -114,9 +119,10 @@ Set-Content -Encoding ascii "$OBJ\probe.c" $probe
 & $CXX /nologo /O2 "$OBJ\probe.c" "/Fe$OBJ\probe.exe" "/Fo$OBJ\probe.obj" | Out-Null
 $cpu = (& "$OBJ\probe.exe").Trim().Split(' ')
 $can = $cpu[0]
-Say "CPU $($cpu[1]) famiglia $($cpu[2]): varianti eseguibili '$can' (1 avx2-nopext, 2 avx2, 3 avx512, 4 vnni512, 5 avx512icl)"
-if (-not $can.Contains('1')) { Fail "questa CPU non ha AVX2: il motore non gira" }
-$names = @{ 1 = 'avx2-nopext'; 2 = 'avx2'; 3 = 'avx512'; 4 = 'vnni512'; 5 = 'avx512icl' }
+Say "CPU $($cpu[1]) famiglia $($cpu[2]): varianti eseguibili '$can' (6 sse41, 1 avx2-nopext, 2 avx2, 3 avx512, 4 vnni512, 5 avx512icl)"
+if (-not $can.Contains('1')) { Fail "questa CPU non ha AVX2: la build (training PGO delle varianti AVX2) non si puo' fare qui" }
+# 6 = sse41 (15/10/2026): stampata per prima dalla sonda, cosi' $can[-1] resta la variante AVX piu' alta.
+$names = @{ 1 = 'avx2-nopext'; 2 = 'avx2'; 3 = 'avx512'; 4 = 'vnni512'; 5 = 'avx512icl'; 6 = 'sse41' }
 
 # --- flag (come build_pgo_clang_80.ps1 e il prototipo dello Xeon) ---------------------------------------------------
 $base = @('/c', '/nologo', '/std:c++17', '/EHsc', '/MT', '/O2', '/Oy', '/GS-', '/Gy', '/Gw', '/clang:-O3',
@@ -131,6 +137,7 @@ if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
 $base += '/clang:-falign-loops=64'
 if ($ExtraFlags) { $base += $ExtraFlags.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
 if ($Official) { $base += '-DTRIUMV_OFFICIAL' }
+if ($PosSolver) { $base += '-DTRIUMV_POS_SOLVER' }
 function VFlags($n) {
     switch ($n) {
         1 { @('/arch:AVX2', '-UUSE_PEXT', '-mno-bmi2', '-mno-avx512f') }
@@ -141,6 +148,7 @@ function VFlags($n) {
               '-mbmi2', '-mavx512vnni') }
         5 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-DUSE_AVX512ICL', '-mavx512f', '-mavx512bw',
               '-mavx512dq', '-mavx512vl', '-mbmi2', '-mavx512vnni', '-mavx512vbmi', '-mavx512vbmi2', '-mavx512bitalg') }
+        6 { @('-UUSE_AVX2', '-UUSE_PEXT', '-msse4.1', '-mssse3', '-mpopcnt', '-mno-avx', '-mno-avx2', '-mno-bmi2') }
     }
 }
 # Messa a punto per i processori a cui la variante e' destinata. SPENTA di default (-Tune per accenderla): sullo Xeon
@@ -238,7 +246,9 @@ function Link($exe, $objs, [switch]$Gen) {
 }
 function Bench($exe, $isa) {
     $env:TRIUMV_ISA = $isa
-    $o = "bench`nquit`n" | & $exe 2>&1 | Select-String "Nodes searched" | Select-Object -First 1
+    # Riga vuota in testa (14/10/2026): una PowerShell con $OutputEncoding UTF-8 manda il BOM davanti al primo comando,
+    # il motore leggeva BOM+bench, non lo riconosceva e il bench risultava "?".
+    $o = "`nbench`nquit`n" | & $exe 2>&1 | Select-String "Nodes searched" | Select-Object -First 1
     Remove-Item Env:TRIUMV_ISA -ErrorAction SilentlyContinue
     if ($o -and "$o" -match '(\d+)\s*$') { return $Matches[1] } else { return "?" }
 }
@@ -256,7 +266,7 @@ if ($rcOk -ne 0) { Fail "risorse (triumv.rc)" }
 $profs = @{}
 if (-not $NoPgo) {
     $train = @{}
-    foreach ($n in 1..5) {
+    foreach ($n in 1..6) {
         if ($can.Contains("$n")) { $train[$n] = $n }
         elseif ($n -ge 4 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, namespace della variante
     }
@@ -312,7 +322,8 @@ if (-not $NoPgo) {
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
-$exe = if ($Official) { "$Out\Triumviratus_8.0_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
+$exe = if ($Official) { "$Out\Triumviratus_8.0_windows_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
+if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8\.0_', 'Triumviratus_8.0_PosSolver_' }
 if ($Only) {
     if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
     $exe = "$Out\Triumviratus_8.0_${Day}_v$Only.exe"
@@ -334,23 +345,23 @@ if ($Only) {
     return
 }
 if ($MultiTU) {
-    $pobjs = Compile-Units @(1..5 | ForEach-Object {
+    $pobjs = Compile-Units @(1..6 | ForEach-Object {
         if ($profs.ContainsKey($_)) { @{ n = $_; mode = 'use'; as = $_; prof = $profs[$_] } }
         else { @{ n = $_; mode = 'none'; as = $_; prof = '' } } })
-    Link $exe (@("$OBJ\entry.obj") + $pobjs[1] + $pobjs[2] + $pobjs[3] + $pobjs[4] + $pobjs[5])
+    Link $exe (@("$OBJ\entry.obj") + $pobjs[1] + $pobjs[2] + $pobjs[3] + $pobjs[4] + $pobjs[5] + $pobjs[6])
 } else {
-    $ps = foreach ($n in 1..5) {
+    $ps = foreach ($n in 1..6) {
         if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
         else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
     }
     Wait-All $ps "build ottimizzata"
-    Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj")
+    Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj", "$OBJ\p6.obj")
 }
 
 # --- verifica -----------------------------------------------------------------------------------------------------
 $ver = @()
 $ok = $true
-foreach ($n in 1..5) {
+foreach ($n in 1..6) {
     if (-not $can.Contains("$n")) { $ver += "{0,-12} non eseguibile su questa CPU" -f $names[$n]; continue }
     $b = Bench $exe $names[$n]
     $tag = if ($b -eq $ExpectedBench) { "ok" } else { $ok = $false; "BENCH DIVERSO (atteso $ExpectedBench)" }

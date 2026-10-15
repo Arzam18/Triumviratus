@@ -1,0 +1,69 @@
+# macOS builds of Triumviratus 8.0 (issue #4). Started by hand (Actions -> macOS builds -> Run workflow).
+# Each job downloads the network from the v8.0 release and builds with Apple clang and PGO, with the same training
+# as the Windows release (source/universal/pgo_train_det.py on pgo_positions.epd, fixed nodes): instrumented build,
+# training, llvm-profdata merge, optimised build. The bench is then checked on the Mac itself (game build 137419,
+# Position Solver 2911093) and the executable is uploaded as an artifact.
+name: macOS builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      intel_runner:
+        description: "Runner label for the Intel build"
+        default: "macos-15-intel"
+      pgo:
+        description: "Profile-guided optimisation"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, target: macos-arm, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_arm }
+          - { runner: macos-14, target: macos-arm, flavour: possolver, bench: "2911093", out: Triumviratus_8.0_PosSolver_macos_arm }
+          - { runner: intel, target: macos-x86, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_x86 }
+          - { runner: intel, target: macos-x86, flavour: possolver, bench: "2911093", out: Triumviratus_8.0_PosSolver_macos_x86 }
+    runs-on: ${{ matrix.runner == 'intel' && inputs.intel_runner || matrix.runner }}
+    env:
+      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue
+      BIN: source/triumviratus_${{ matrix.target == 'macos-arm' && 'macos_arm' || 'macos_x86' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Network
+        run: curl -sSL -o source/nn-consilium.nnue https://github.com/Tors3/Triumviratus/releases/download/v8.0/nn-consilium.nnue
+      - name: Flags
+        run: |
+          EXTRA="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL -ffp-contract=off"   # as the Windows build: no fused multiply-add, same bench
+          if [ "${{ matrix.flavour }}" = "possolver" ]; then EXTRA="$EXTRA -DTRIUMV_POS_SOLVER"; fi
+          echo "EXTRA=$EXTRA" >> "$GITHUB_ENV"
+      - name: Instrumented build and training
+        if: ${{ inputs.pgo }}
+        run: |
+          $MK EXTRACXXFLAGS="$EXTRA -fprofile-generate -DCLANG_PGO_GEN"
+          mkdir -p prof
+          LLVM_PROFILE_FILE="$PWD/prof/p_%p.profraw" python3 source/universal/pgo_train_det.py "$PWD/$BIN" 0 \
+            source/universal/pgo_positions.epd 200 --workers 3
+          ls prof | head -3; ls prof | wc -l
+          xcrun llvm-profdata merge -output=merged.profdata prof/*.profraw
+          make -C source clean >/dev/null && rm -f "$BIN"   # only clean: the next step builds with the profile
+      - name: Build
+        run: |
+          if [ "${{ inputs.pgo }}" = "true" ]; then
+            $MK EXTRACXXFLAGS="$EXTRA -fprofile-use=$PWD/merged.profdata -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
+          else
+            $MK EXTRACXXFLAGS="$EXTRA"
+          fi
+          cp "$BIN" ${{ matrix.out }}
+      - name: Bench
+        run: |
+          printf 'bench\nquit\n' | ./${{ matrix.out }} > bench.txt 2>&1 || true
+          tail -5 bench.txt
+          printf 'uci\nquit\n' | ./${{ matrix.out }} | grep "^id name"
+          grep -q "Nodes searched *: *${{ matrix.bench }}$" bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: ${{ matrix.out }}

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../images/logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus: what is new
 
@@ -21,7 +21,8 @@ engines**
 [PassedPawns](#2-the-passedpawns-input-block) · [CorrPhase](#3-correction-history-per-expert-corrphase) ·
 [Move ordering](#4-move-ordering-with-chess-knowledge) · [Neurons](#5-the-first-layer-neuron-by-neuron-per-expert) ·
 [Other new ideas](#6-other-new-ideas-not-adopted) · [Revisited](#7-known-ideas-revisited-in-a-different-form) ·
-[Speed](#8-speed-work) · [Done elsewhere first](#9-done-elsewhere-first) · [Open checks](#10-open-checks)
+[Speed](#8-speed-work) · [Done elsewhere first](#9-done-elsewhere-first) · [Analysis build](#10-analysis-build-position-solver) ·
+[Open checks](#11-open-checks)
 
 </div>
 
@@ -45,15 +46,15 @@ Each entry is in one of three categories:
   the source is named. The category describes public priority, not where our idea came from.
 
 Measurements are Elo differences from SPRT or fixed-games runs on the project's test machine, with the 95% error
-margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md),
-[`NETWORKS.md`](NETWORKS.md) and the [`archive`](archive) of earlier versions.
+margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md),
+[`NETWORKS.md`](../networks/NETWORKS.md) and the [`archive`](../development/archive) of earlier versions.
 
 ## Summary
 
 Of 54 entries, **11 are new**, **27 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
-experts of the network.
+experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
 
 | entry | category | version | measured effect | status |
 |---|---|---|---|---|
@@ -123,27 +124,37 @@ The thresholds are quartiles of the training corpus, so each expert sees about a
 is active per position, so an evaluation costs almost the same as with a single block: −7.5% NPS, against −11.2% for
 a first layer of 1,536 and −20% for 2,048. In the trainer each expert is a shared base plus a per-band delta that
 starts at zero: the network begins as an ordinary HalfKA network and the experts separate only where the data asks
-for it. In the engine, a capture that crosses a threshold forces a refresh, and the refresh cache is kept per band.
-The idea is the author's, taken from mixture-of-experts language models (many parameters, few active per token).
+for it; this is the same scheme as the factorizer that nnue-pytorch uses for king buckets (the `^` of `HalfKAv2_hm^`),
+applied to material bands. In the engine, a capture that crosses a threshold forces a refresh, and the refresh cache
+is kept per band. The idea is the author's, taken from mixture-of-experts language models (many parameters, few
+active per token).
+
+**What "mixture of experts" means here.** The experts are chosen by a fixed rule, the number of pieces, not by a
+learned gate. In that sense every routing scheme of an NNUE network is a mixture of experts: king buckets on the
+input layer, output buckets and layer stacks after the accumulator. The name describes where the idea came from;
+what is new is the routing key on the input layer, as the next paragraphs explain.
 
 **Measured.** Trained on 28-29 September 2026 (374 epochs of pre-training and two fine-tunes, about 472 billion
 positions). Version 8.0 against the 7.0 release: **+27.3 ± 8.3 Elo** at 15+0.15 on 2,000 games, of which about +15
-come from the network with its re-tuned parameters ([`NETWORKS.md`](NETWORKS.md)).
+come from the network with its re-tuned parameters ([`NETWORKS.md`](../networks/NETWORKS.md)).
 
 **Compared with others.** The idea was reached independently by the author, and no network of this kind was found
 in another engine. What exists elsewhere is of a different nature. Choosing weights by piece count is common, but
 after the accumulator: Stockfish's layer stacks and the output buckets of many engines select the small output layers
-by piece count. The input buckets of the first layer are chosen by the king square, never by material. Stockfish 16.1
+by piece count. In the engines we checked, the input buckets of the first layer are chosen by the king square only,
+not by material; an external engine developer confirmed on 14 October 2026 that, as far as she knew, no other engine
+buckets the input layer by piece count. Stockfish 16.1
 switched between two whole networks by material imbalance, which routes between separate networks rather than between
 experts inside one layer. The academic work on phase-specific models uses separate full networks with AlphaZero-style
 MCTS ([arXiv 2401.16852](https://arxiv.org/abs/2401.16852);
 [Helfenstein et al.](https://ml-research.github.io/papers/helfenstein2024game.pdf)), not experts inside an
 efficiently updatable first layer of an alpha-beta engine. Mark Tang had tried an unpublished network of phase experts
-in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](NETWORKS.md)).
+in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](../networks/NETWORKS.md)).
 
-**Category.** New: experts by material band on the king-relative block of the first layer, one active per position,
-trained as a shared base plus per-band deltas, in a top engine and with a measured gain. To our knowledge Consilium is
-the first network of this architecture.
+**Category.** New: piece-count buckets on the input layer, that is experts by material band on the king-relative
+block of the first layer, on top of the king buckets, one active per position, in a top engine and with a measured
+gain. To our knowledge Triumviratus is the first engine to do this. Not new: hard routing by piece count as such
+(output buckets, layer stacks) and the shared-base training scheme (the nnue-pytorch factorizer).
 
 ## 2. The PassedPawns input block
 
@@ -168,7 +179,7 @@ on the assumption that the first layer can combine it with the other inputs. On 
 difference between Consilium's static evaluation and the engine's deep search, on 3,888 positions, found that the
 network still undervalues some passed pawns in endgames: those outside the enemy king's square and connected ones.
 Two blocks were written for this and grafted on the finished Consilium with the rest of the network frozen
-([`docs/moe_experimental_grafts.md`](docs/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)
+([`docs/moe_experimental_grafts.md`](../networks/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md)
 §37–38):
 
 - **`PassedRel`** adds, for each passed pawn, a second row with three relations: outside the enemy king's square,
@@ -242,7 +253,7 @@ is being tested again in that direction, against less reduction (`LmrScaleExp1=-
 
 Written on 8 October 2026, off by default, then tuned in an SPSA of 46 search parameters at 20+0.2. At hand-set
 values no term moves the result, because an ordering bonus acts together with the histories and the thresholds that
-separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
+separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
 these terms on, was checked against the defaults (+3.4 ± 3.9 over about 8,100 games) and baked on 9–10 October
 (§38); the terms are now active in games.
 
@@ -309,7 +320,7 @@ divided by phase.
   of the evaluation when a capture changes the expert. At fixed nodes +5.27 ± 7.86 (1,978), but the second
   evaluation costs 15 to 18% of the cycles per node: −24.23 ± 11.12 at 8+0.08 (1,034); a variant only at depth 3 or
   more (+3.9% of cycles) −3.06 ± 9.59 at 15+0.15 (1,248). It needs a network with experts. **New**, removed; the full
-  record is in [`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
+  record is in [`archive/EXPERT_BLEND_8.0.md`](../development/archive/EXPERT_BLEND_8.0.md).
 - **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** The continuation correction
   corrects the static evaluation with a table indexed by pairs of moves: the row is chosen by one of our earlier moves
   (two and four plies back), the cell by the opponent's last move, so each cell learns how far the evaluation is off
@@ -339,7 +350,7 @@ These entries take a known idea and change its form, its scale or its use. Those
   between two moves, even at long time controls. **+6.23 ± 6.75 at 40+0.4** (2,174), neutral at 16+0.16; after a
   surprise the engine spends 12% more time and searches 0.35-0.4 plies deeper. A factor on the predicted reply
   exists before: Caissa publishes it in both directions (0.915 on the predicted reply, 1.132 otherwise), and our own
-  6.0 and 7.0 used it as a declared port from Caissa ([`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md),
+  6.0 and 7.0 used it as a declared port from Caissa ([`archive/DEVELOPMENT_6.0.md`](../development/archive/DEVELOPMENT_6.0.md),
   "predicted-move factors"). The 8.0 form keeps only the surprise direction, applied on top of the time manager
   rewritten on 4 October, and the measured dependence on the time control is ours.
 - **Guard on LDSE (`LdseMax`).** At most one low-depth hash-move extension per line, from a measurement of the tree
@@ -451,9 +462,9 @@ code and measured one by one.
 What is ours in this area is listed in [section 7](#7-known-ideas-revisited-in-a-different-form): the refresh cache of
 the pawn blocks, the universal build from one unit per source file, the move-ordering rank by popcount, and the
 analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
-by line against every engine and are listed among the [open checks](#10-open-checks). The measurement method, with
+by line against every engine and are listed among the [open checks](#11-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
-[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §36.
+[`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md) §36.
 
 ## 9. Done elsewhere first
 
@@ -491,7 +502,35 @@ priority.
 Versions 1.x and 2.x were learning engines, built on the models of VICE and of BBC (the video series of Code Monkey
 King), and have no new entries.
 
-## 10. Open checks
+## 10. Analysis build (Position Solver)
+
+Techniques of [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver), the
+build for hard positions (October 2026). They act only in analysis, so they are kept apart from the game entries and
+from the counts of the summary. The measure here is the number of positions solved, on IQ4 (183 positions) and on the
+Arasan 2026 collection (200), at fixed nodes with one thread; details in
+[`DEVELOPMENT_8.0.md` §49](../development/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
+source of Crystal and ShashChess found no option like the first and the third entry; as above, this is to our
+knowledge.
+
+| entry | category | measured effect | status |
+|---|---|---|---|
+| Two-line search in analysis (`AnShadow`): the second best root move is always searched with a full window, as with MultiPV 2, while the interface sees only the lines it asks for | Revisited (MultiPV is standard; our form is a solving mode that does not depend on the interface's setting) | Arasan 157 → 170 at 1M nodes, 166 → 178 at 2M, 151 → 161 at 1 s; IQ4 level (158 → 157 at 1M, 161 → 163 at 4M) | default in the Position Solver |
+| Separate analysis settings chosen at compile time, with the per-expert pruning margins of the game build switched off | Revisited | IQ4 at 1M nodes: release 148, the same build with the game margins off 156 | the Position Solver |
+| Preference for the more direct win (`AnDirect`): when both exact lines win clearly (above +3), the direct one (check, capture, promotion, or a sacrifice: a quiet move that loses material by static exchange) is shown and played if the higher one is not direct and the gap is at most 4 pawns; the search tree is unchanged | New | same tree: IQ4 163 → 166 at 4M nodes (three solutions added, none lost), Arasan 178 unchanged; without the sacrifice in the definition, 164 (a quiet sacrifice was lost) | default in the Position Solver (v3) |
+| The second line paused in quiet positions (`AnShQuiet`): from root depth 10, when the two best moves are quiet and the score has stayed within 15 cp for three iterations, the search goes on with one line | New | eight collections at 1M nodes +20 (SBD, quiet key moves, 98 → 110); higher budgets +7 | default in the Position Solver (v4) |
+| Depth instead of pruning in analysis (`AnDeep` presets: wider futility margins and one ply less reduction from root depth 5) | Revisited, inspired by ShashChess's GoldDigger | +3 to +7 positions over three collections at 8M nodes (9 October); level with the alternatives on top of the two-line search | default in analysis mode |
+| GoldDigger on our search (`AnGold`) | Done elsewhere first (ShashChess) | +11 on IQ4 over the release tree, nothing over the Pos Solver tree | option, off |
+| No pruning along the previous principal line near the root (`AnCrystal`) | Done elsewhere first (Crystal) | within the noise | option, off |
+| King in danger and coming repetitions (`AnKingDanger`, `AnCycle`) | Done elsewhere first (Crystal) | IQ4 +1 / −7, Arasan −4 / +2 | options, off |
+| No move-count pruning near the root, captures without reduction, a cautious null move near the solution (`AnLmpNear`, `AnCaptLmr`, `AnNmpZug`) | Done elsewhere first (Crystal) | within ±3, or a loss on one collection | options, off; the null-move guard is in FUTURE_DIRECTIONS for a game test |
+| Our other attempts: the two runners-up at the root without reduction (`AnRootAlt`), no depth cut after a new best move near the root (`AnKeepDepth`), cheaper two-line searches (`ShadowFrom`, `ShadowRed`, `ShadowMargin`), three or four lines | New or revisited, not adopted | the cheaper forms gain up to 4 on IQ4 at low budgets and lose 5 to 7 on Arasan at higher ones; the others lose or are within the noise | closed |
+
+A diagnosis of the positions still unsolved (`tools/diag_fail.py`: a search of 64M nodes, the solution forced, and
+Stockfish 19 under the same conditions) found no error of the search. On Arasan most of them are solved with more
+nodes; on IQ4 most are positions won with several moves, where the key is the most direct one and Stockfish 19 chooses
+the same move as Triumviratus.
+
+## 11. Open checks
 
 1. **Consilium and recent engines.** No engine with input buckets by material was found, but the developer channels
    are not indexed. Every statement of priority here is meant to our knowledge; corrections are welcome.

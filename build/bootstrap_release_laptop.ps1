@@ -12,7 +12,7 @@
 #     .\bootstrap_release_laptop.ps1                    # la release ufficiale 8.0 (id name senza data)
 #     .\bootstrap_release_laptop.ps1 -Dated -Day 20261011   # una build datata (pre-release)
 #     .\bootstrap_release_laptop.ps1 -NoBuild           # solo download e controlli
-#  Risultato: <Dest>\out\Triumviratus_8.0_universal.exe (con -Dated: _<Day>_universal.exe), SHA256SUMS.txt, verifica.txt
+#  Risultato: <Dest>\out\Triumviratus_8.0_windows_universal.exe (con -Dated: _<Day>_universal.exe), SHA256SUMS.txt, verifica.txt
 #
 #  Sostituisce la versione della 7.0 (matrice di sei build separate): dalla 8.0 la
 #  release e' un solo file. La rete (170 MB) si scarica dal pre-release v8.0 e si
@@ -119,5 +119,5 @@ if (-not $Dated) { $b["Official"] = $true }
 
 Step "Fatto"
 Get-Content "$Dest\out\verifica.txt" | ForEach-Object { Write-Host "  $_" }
-$name = if ($Dated) { "Triumviratus_8.0_${Day}_universal.exe" } else { "Triumviratus_8.0_universal.exe" }
+$name = if ($Dated) { "Triumviratus_8.0_${Day}_universal.exe" } else { "Triumviratus_8.0_windows_universal.exe" }
 Write-Host "`n  $Dest\out\$name" -ForegroundColor Green

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../images/logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus 8.0 — development log
 
@@ -279,7 +279,15 @@ symmetric.
 After the speed work (sections 4–7) and the ablations (section 8), the third step of 8.0 is a new
 network: **Consilium**, the `legio-septima` architecture with the king-relative block split into four
 experts by game phase. Design, data, training and every intermediate measurement are in
-[NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
+[NETWORKS.md](../networks/NETWORKS.md#consilium--the-triumviratus-80-network).
+
+**What "mixture of experts" means in this log.** The four experts are four weight sets of the king-relative HalfKA
+block, one per material band (up to 9, 10–15, 16–23, 24 or more pieces), each with the usual 32 king buckets; the
+other input blocks are shared. The expert is chosen by a fixed rule, the piece count, not by a learned gate. Routing
+by piece count is standard after the accumulator (output buckets, layer stacks); what Consilium adds is the same
+routing on the input layer. The training scheme, a shared base plus a per-band delta starting at zero, is the
+nnue-pytorch factorizer applied to material bands. The comparison with other engines is in
+[NOVELTIES.md](../project/NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer).
 
 **Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
 release build.
@@ -1515,7 +1523,7 @@ the separate build of the starting source, in the middlegame and in endgames.
 
 ## 37. Experimental grafts on Consilium (9–10 October 2026)
 
-The residual analysis of 9 October ([FUTURE_DIRECTIONS.md](FUTURE_DIRECTIONS.md), P1) showed where the static
+The residual analysis of 9 October ([FUTURE_DIRECTIONS.md](../project/FUTURE_DIRECTIONS.md), P1) showed where the static
 evaluation of Consilium differs, in the same direction, from the engine's deep search: passed pawns in endgames
 (unstoppable and connected ones most of all), open files next to the own king, space, blocked pawns. Four small
 input blocks that depend only on pawns, kings and queens were written for those concepts (PassedRel, also called
@@ -1529,7 +1537,7 @@ check found and fixed one error before any game. The cost of PassedRel in the mi
 node in the first version to +1.8% (endgame figure still to be taken), about 0.08 plies at 8+0.08. With the first learning rate the block learned little and lost Elo
 (−16 ± 10 at 10+0.1); with a ten times higher learning rate its weights grew threefold and the loss disappeared
 (+1.2 ± 4.8 at fixed nodes on endgame openings, not settled). Details, costs and the full record:
-[docs/moe_experimental_grafts.md](docs/moe_experimental_grafts.md).
+[docs/moe_experimental_grafts.md](../networks/moe_experimental_grafts.md).
 
 **Outcome (10 October).** Only PassedRel showed a positive signal: +1.8 ± 4.1 over 2,484 games at 20+0.2 on endgame
 openings, with the same search depth as Consilium on both sockets; with the fixed-node result, about +1 to +2.5 Elo in
@@ -1553,7 +1561,7 @@ below). The mean of the last
 `OutpostOrder` 4179, `AttackOrder` 5807, `AttackOrderQ` 6371, `PassedPush` 3975, `PromoOrder` 2412,
 `BishopPairCapt` 601), and 39 pruning, extension and ordering levers moved by a few percent. Bench **269775**.
 
-**The causal reduction (`CausalRed`).** The author's idea of June ([NOVELTIES.md](NOVELTIES.md)): after a quiet
+**The causal reduction (`CausalRed`).** The author's idea of June ([NOVELTIES.md](../project/NOVELTIES.md)): after a quiet
 move fails low, the squares of the opponent's refutation (where the refuting piece starts, lands and what it attacks
 from there) mark the problem, and later quiet siblings that touch none of them are reduced by an extra fraction of a
 ply. Checks, the hash move and passed-pawn pushes are excluded; nothing is pruned. At 512 (half a ply), SPRT at
@@ -1746,7 +1754,7 @@ given.
 | `RepRootTwofold` | a return to the root position inside the tree counts as a draw | Stormphrax, Viridithas, PlentyChess, Integral (Reckless, Berserk, Coda and Stockfish do the opposite) |
 | `SingKeepCount` | after the singular search the node's move count is restored; it stayed modified in 54–62% of cases and the hash move's child read it in three history updates | Reckless |
 | `NmpHashUpper` | no null move when the hash holds a value below beta (upper or exact bound) | Stormphrax, Viridithas explicitly; several others through the hash-corrected evaluation |
-| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | Reckless (the rule used), Stormphrax, Berserk, Viridithas, Caissa, Coda |
+| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | idea from Reckless; the same rule in Stormphrax, Berserk, Viridithas, Caissa, Coda; our code (rewritten on 15 October with its own structure, identical results) |
 | `AspDecisive` | a fail-high of the aspiration window with a decisive score no longer reduces the depth, and opens beta | PlentyChess; Reckless and Viridithas in a similar form |
 
 The agent expected a clear signal, if any, only from the first three; the other three are worth less than one Elo
@@ -2209,7 +2217,7 @@ intended step, after 4,000 with two fifths. Fishtest reaches `c_end` at the last
 schedule of fishtest, with the learning rate scaled to keep the same step on the parameters. The first run with the
 larger step, on the 15 evaluation-correction weights, moved several of them clearly; its mean vector was then
 neutral at 8+0.08 (+0.68 ± 2.92 over 14,386 games) and nothing was baked. The vectors of the earlier runs are a rough
-tuning; the runs to repeat are listed in [`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md) §8.
+tuning; the runs to repeat are listed in [`FUTURE_DIRECTIONS.md`](../project/FUTURE_DIRECTIONS.md) §8.
 
 | measurement | condition | games | Elo | outcome |
 |---|---|---:|---:|---|
@@ -2224,7 +2232,7 @@ From now on each change runs alone until the SPRT decides.
 
 ### 48.2 The correction from the opponent's plan, closed
 
-`CorrContOppW` (the author's idea, [`NOVELTIES.md`](NOVELTIES.md)) was measured again at 8+0.08 with hyperthreading.
+`CorrContOppW` (the author's idea, [`NOVELTIES.md`](../project/NOVELTIES.md)) was measured again at 8+0.08 with hyperthreading.
 The two processor sockets of the test machine disagreed: +5.4 on socket 0 against −1.3 on socket 1 (−7.0 with fewer
 concurrent games), over 8,474 games in all (+1.23 ± 3.82). Socket 1 has two memory modules instead of four, so half
 the bandwidth; the depth per move read from the games showed the side with the term 0.013 plies shallower on socket 0
@@ -2266,6 +2274,76 @@ Tree-identical variants that were measured and not adopted were removed from the
 hybrid update for castling and promotions, the feature counters in registers, the removal of the last-evaluation
 terms, the 16-entry pawn-block cache and the lane-permuted bishop and rook attacks (Stockfish's development, measured
 twice within the noise). The old paths of the adopted speed changes went with them. Bench unchanged, 137419.
+
+## 49. An analysis build: Triumviratus 8.0 Position Solver (14–15 October 2026)
+
+Maurizio Platino measured the release on the IQ4 collection (183 positions, 1 second each, 1 thread, Hash 64 MB) and
+found 147 solutions, against 155 for the pre-release of 11 October and 142 for Stockfish 19. At fixed nodes the drop
+was reproduced (157 to 148) and traced to two tree changes made for games after 11 October: the per-expert margins
+(EXP1, the larger part) and LDSE switched off. With both restored the curve matches the 11 October one exactly.
+
+A collection of hard positions does not predict Elo, and the release is stronger in games, so the game build keeps its
+settings. The analysis settings live in a separate build, compiled with `-DTRIUMV_POS_SOLVER`
+(`build_universal.ps1 -PosSolver`): the defaults of a few parameters change through one selector (`PSV(game, solver)`
+in `search/01_params.inc`), analysis mode is always on, and the engine reports itself as "Triumviratus - 8.0 Pos
+Solver". The game build is unchanged (bench 137419).
+
+Measurements, at fixed nodes (repeatable) and at 1 second per position (Maurizio's conditions), on IQ4 and on the
+Arasan 2026 collection (200 positions):
+
+| | IQ4, 1 s | Arasan, 1 s | IQ4, 4M nodes | Arasan, 2M nodes |
+|---|---:|---:|---:|---:|
+| Stockfish 19 | 139 | 140 | | |
+| release 8.0, analysis mode | 145 | 137 | 153 | |
+| Pos Solver, tree of 11 October | 152–153 | 146–151 | 161 | 166 |
+| Pos Solver with the two-line search (v2) | 152 | 161 | 163 | 178 |
+| v3: with the more direct win | 155 | 160 | 166 | 178 |
+| **v4: the second line paused in quiet positions** | **153** | **157** | **166** | **180** |
+
+- **Two-line search** (`AnShadow`, default in the Pos Solver): the search always looks at the second best root move
+  with a full window, as MultiPV 2 does, and prints only the lines the interface asks for. It costs two to three plies
+  of average depth and gains about twelve positions on Arasan at every budget; on IQ4 it is level or slightly ahead.
+- Loosening pruning does not help at a fixed budget: thirteen single changes and one combination all solved the same
+  or fewer positions, because less pruning means less depth.
+- Components tried and left off: protection of the king zone and of repetition cycles, the two runners-up at the root
+  without reductions, no depth cut after a new best move near the root, and three ideas read in Crystal's search (no
+  move-count pruning near the root, captures without reductions, a null-move guard near the solution).
+- A display defect fixed for every build: with MultiPV 2 or more, a search stopped in the middle of an iteration could
+  return a best move different from the first line shown. The lines are now printed again at the stop, as they
+  already were with one line. Games use one line and are not affected.
+
+- **The more direct win** (`AnDirect`, default from v3): test collections give as key the most direct win, and in
+  most of the positions we still missed on IQ4 both Triumviratus and Stockfish 19 chose another winning move with a
+  slightly higher score. When both exact lines win clearly (above +3) and are within four pawns, the direct one (a
+  check, a capture, a promotion or a sacrifice) is shown and played if the other is not direct. The search tree is
+  unchanged, so the effect is exact: three positions gained on IQ4, none lost on either collection. Games do not use
+  it: a lower-scored move would cost Elo.
+
+- **The second line paused in quiet positions** (`AnShQuiet`, default from v4): on six further collections
+  (difficult, EET, SBD, ECM, WAC 2018, STS) the two-line search gained 41 positions in total but lost 10 on SBD,
+  whose keys are quiet moves that only show deep in the search. No static feature of the position separated the
+  two cases, so the rule uses what the search has seen: from root depth 10, with the two best moves both quiet and
+  the score within 15 cp for three iterations, the second line is paused for that iteration. On eight collections
+  at 1M nodes it gains 20 positions (SBD 98 to 110); at higher budgets 7 (IQ4 4M, Arasan 2M, SBD, difficult and
+  ECM at 4M). At 1 s the 1 s figures of v3 and v4 are within the run-to-run noise. A normal pruning preset in the
+  same quiet iterations (`AnQDeep`) and other thresholds did not add anything.
+
+Comparison with other engines (15 October): 2M nodes per position, one thread, Hash 64 MB, default settings, same
+machine; a position counts as solved when the returned move is the expected one. Crystal 9 and ShashChess 41.2 are
+the bmi2 builds of their official releases, GoldDigger is the ShashChess build for hard positions. Each engine counts
+nodes in its own way, so the comparison is at a similar amount of work, not at equal time.
+
+| | IQ4 (183) | Arasan 2026 (200) | SBD (134) | EET (100) | ECM (201) | WAC 2018 (201) | STS (1,188) | Total (2,207) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Stockfish 19 | 142 | 163 | 107 | 90 | 160 | 198 | 1,052 | 1,912 |
+| Crystal 9 | 159 | 138 | 103 | 86 | 165 | **200** | 1,028 | 1,879 |
+| ShashChess 41.2 | 155 | 160 | **108** | 89 | 157 | 196 | 1,048 | 1,913 |
+| ShashChess 41.2 GoldDigger | 151 | 165 | **108** | 92 | 150 | 199 | 1,056 | 1,921 |
+| release 8.0, analysis mode | 150 | 164 | 103 | **94** | 155 | **200** | 1,059 | 1,925 |
+| **Pos Solver v4** | **164** | **180** | **108** | **94** | **179** | **200** | **1,073** | **1,998** |
+
+The engine Maurizio compared with, Leptir TI MPV (165/183 in his test), chooses its root move at random among its best
+lines; our search is deterministic. The full record of this work is in the project's working notes.
 
 ## Appendix: every search idea tested since the restructured search
 
@@ -2334,7 +2412,7 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO / 8moves without adjudication | 2,134 / 5,276 | +0.7 ± 7.9 / +0.6 ± 3.5 | off |
 | Move count restored after the singular search (`SingKeepCount`, from Reckless) | 42 | 8+0.08 UHO | 7,020 | −0.6 ± 4.3 | off |
 | No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
-| **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
+| **Insufficient material after a capture** (`InsufMaterial`, idea from Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
 | **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |
 | SPSA EXP1 vector at mid-run (mean of iterations 2,682–2,781) | 43 | 10+0.1 UHO | 1,826 | +2.47 ± 8.55 | SPSA continues |

@@ -173,6 +173,44 @@ static void settle_lines(ThreadData &td, int from, int to) {
   std::stable_sort(td.root + from, td.root + to, line_before);
 }
 
+// AnDirect (Pos Solver, 15/10/2026): le raccolte di posizioni indicano come chiave la vittoria piu' diretta, e chi
+// analizza vuole vedere quella; noi (e SF19) scegliamo spesso una mossa tranquilla con un punteggio un po' piu' alto.
+// Con due linee esatte entrambe sopra DirectFrom e distanti al massimo DirectGap, se la seconda e' forzante (scacco,
+// cattura, promozione) e la prima no, si scambiano. Va chiamata con la scacchiera alla radice.
+// Mossa diretta alla radice (AnDirect, AnDirLine): scacco, cattura, promozione, o sacrificio (mossa tranquilla con
+// scambio statico negativo). Senza il sacrificio AnDirect perdeva IQ4 162 (chiave Bd5, scambiata con lo scacco Nf5+).
+static bool root_direct(ThreadData &td, MoveSafety &s, int m) {
+  return is_tactical(m) || checks_before(td, s, m) || !see_holds(td, m, 0);
+}
+
+// La prima linea e' tranquilla e nettamente vincente (soglia DirectFrom): le condizioni di AnDirect e AnDirLine.
+static bool root_quiet_win(ThreadData &td, MoveSafety &s) {
+  const RootLine &a = td.root[0];
+  return a.score != -infinity && !a.upper && !a.lower && !val_decided(a.score) &&
+         units_to_cp(a.score) >= DirectFrom && !root_direct(td, s, a.pv[0]);
+}
+
+// 15/10/2026 sera: restituisce true se ha scambiato; deepen rimette l'ordine prima dell'iterazione successiva, cosi'
+// l'albero resta quello di AnShadow e cambiano solo la linea mostrata e la bestmove.
+static bool an_direct(ThreadData &td, int lines) {
+  if (!(td.an_bits & AN_DIRECT) || lines < 2)
+    return false;
+  RootLine &a = td.root[0], &b = td.root[1];
+  if (a.score == -infinity || b.score == -infinity || a.upper || a.lower || b.upper || b.lower ||
+      val_decided(a.score) || val_decided(b.score))
+    return false;
+  const int ca = units_to_cp(a.score), cb = units_to_cp(b.score);
+  if (cb < DirectFrom || ca - cb > DirectGap)
+    return false;
+  MoveSafety s;
+  s.ready = false;
+  if (root_direct(td, s, b.pv[0]) && !root_direct(td, s, a.pv[0])) {
+    std::swap(a, b);
+    return true;
+  }
+  return false;
+}
+
 static void prepare_frames(ThreadData &td) {
   memset(td.frames, 0, sizeof(td.frames));
   for (int i = 0; i < (int)(sizeof(td.frames) / sizeof(td.frames[0])); i++) {
@@ -253,9 +291,9 @@ static void gd_iteration(ThreadData &td, const GdRoot &g, int score) {
 
 // Valori effettivi della modalita' analisi per l'iterazione corrente (dopo lt_update). In partita (an_bits = 0)
 // riproducono esattamente il calcolo di prima: deep_w dai parametri DeepKnee/DeepSpan, leve = Deep* x deep_w / 1024.
-static void an_iteration(ThreadData &td) {
+static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDeep, preset AnDeep 0 per l'iterazione
   const bool on = td.an_bits != 0;
-  int deep = on ? g_an_deep : 0;
+  int deep = on && !plain ? g_an_deep : 0;
   if (on && (td.an_bits & AN_SMP) && (td.thread_id & 1))   // AnSmp: i thread helper dispari col preset piu' largo
     deep = 3;
   const bool ext = on && (td.an_bits & AN_EXT);
@@ -303,14 +341,18 @@ static void deepen(ThreadData &td) {
   td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
   // Modalita' analisi: decisa una volta per ricerca (un setoption durante la ricerca vale dalla prossima).
-  const bool analyse = g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
+  // Pos Solver (TRIUMV_POS_SOLVER): sempre accesa, qualunque cosa mandi la GUI (utente 14/10/2026).
+  const bool analyse = PSV(false, true) || g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
   td.an_bits = analyse ? (g_an_bits | AN_ACTIVE) : 0;
   // Una riga per ricerca, solo dal thread principale e solo in analisi (in partita an_bits = 0: niente stampa), con
   // il preset in uso: chi analizza vede che la modalita' e' accesa e con quali componenti.
   if (main && (td.an_bits & AN_ACTIVE)) {
     static const struct { const char *name; int bit; } kAnNames[] = {
       {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
-      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
+      {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
+    {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}, {"AnDirLine", AN_DIRLINE}, {"AnShQuiet", AN_SHQUIET}, {"AnQDeep", AN_QDEEP}};
     printf("info string Analysis mode activated AnDeep=%d", g_an_deep);
     for (const auto &o : kAnNames)
       if (td.an_bits & o.bit)
@@ -336,7 +378,9 @@ static void deepen(ThreadData &td) {
     g_clock.iter_idx = 0;
     g_clock.best_changes = 0;
   }
-  const int lines = std::min(g_multipv, td.root_count);
+  // AnShadow (Pos Solver, 14/10/2026 notte): si cercano almeno 2 linee a finestra piena, se ne stampano g_multipv.
+  const int shown = std::min(g_multipv, td.root_count);
+  const int lines = std::min(std::max(g_multipv, (td.an_bits & AN_SHADOW) ? 2 : 1), td.root_count);
   int again = 0;
   double time_red = 1;
   int last_best_depth = 0, last_best_score = -infinity;
@@ -348,11 +392,28 @@ static void deepen(ThreadData &td) {
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
   int best = -infinity;
+  bool direct_swapped = false;
+  int quiet_hist[3] = {-infinity, -infinity, -infinity};   // AnShQuiet: punteggio delle ultime tre iterazioni
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
+    if (direct_swapped) {   // AnDirect: la ricerca riparte dall'ordine vero delle linee
+      std::swap(td.root[0], td.root[1]);
+      direct_swapped = false;
+    }
     lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
-    an_iteration(td);   // leve Deep* pesate (deep_w) e, in analisi, i componenti accesi
+    // Posizione tranquilla e stabile vista dalla ricerca (AnShQuiet, AnQDeep): da QuietFrom, punteggio entro QuietCp per
+    // tre iterazioni, prime due mosse non dirette.
+    bool quiet_now = false;
+    if ((td.an_bits & (AN_SHQUIET | AN_QDEEP)) && td.root_count >= 2 && td.root_depth > QuietFrom &&
+        quiet_hist[2] != -infinity && !val_decided(quiet_hist[0]) &&
+        std::abs(units_to_cp(quiet_hist[0] - quiet_hist[1])) <= QuietCp &&
+        std::abs(units_to_cp(quiet_hist[0] - quiet_hist[2])) <= QuietCp) {
+      MoveSafety s;
+      s.ready = false;
+      quiet_now = !root_direct(td, s, td.root[0].pv[0]) && !root_direct(td, s, td.root[1].pv[0]);
+    }
+    an_iteration(td, quiet_now && (td.an_bits & AN_QDEEP));   // leve Deep* pesate (deep_w) e i componenti accesi
     if (gold && td.root_depth > 1 && td.root[0].score > -infinity)
       gd_iteration(td, gd_facts, td.root[0].score);
     if (main)
@@ -367,8 +428,30 @@ static void deepen(ThreadData &td) {
     if (!g_clock.increase_depth)
       again++;
 
-    for (td.pv_idx = 0; td.pv_idx < lines; td.pv_idx++) {
+    // Varianti di AnShadow (ShadowFrom/ShadowMargin): in questa iterazione si cercano solo le linee mostrate.
+    int iter_lines = lines;
+    if (lines > shown &&
+        (td.root_depth < ShadowFrom ||
+         (ShadowMargin && td.root[shown].score != -infinity && td.root[0].score != -infinity &&
+          td.root[0].score - td.root[shown].score > ShadowMargin)))
+      iter_lines = shown;
+    // AnShQuiet: posizione tranquilla e stabile -> una linea sola in questa iterazione.
+    if ((td.an_bits & AN_SHQUIET) && quiet_now && iter_lines > shown)
+      iter_lines = shown;
+    for (td.pv_idx = 0; td.pv_idx < iter_lines; td.pv_idx++) {
       td.pv_last = td.root_count;
+      // AnDirLine: con la prima linea tranquilla e vincente, la linea nascosta di AnShadow cerca solo le mosse dirette,
+      // portate in testa al resto della lista (ordine relativo invariato).
+      if ((td.an_bits & AN_DIRLINE) && td.pv_idx == shown && td.pv_idx >= 1) {
+        MoveSafety s;
+        s.ready = false;
+        if (root_quiet_win(td, s)) {
+          RootLine *first = td.root + td.pv_idx, *last = td.root + td.root_count;
+          RootLine *mid = std::stable_partition(first, last, [&](const RootLine &rl) { return root_direct(td, s, rl.pv[0]); });
+          if (mid != first)   // senza mosse dirette la seconda linea resta quella normale
+            td.pv_last = (int)(mid - td.root);
+        }
+      }
       RootLine &cur = td.root[td.pv_idx];
       memcpy(td.last_pv, cur.prev_pv, sizeof(int) * cur.prev_pv_len);
       td.last_pv_len = cur.prev_pv_len;
@@ -387,7 +470,8 @@ static void deepen(ThreadData &td) {
 
       int failed_high = 0;
       for (;;) {
-        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4);
+        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4 -
+                                      (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: seconda linea piu' corta
         td.root_delta = beta - alpha;
         best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // modalita' analisi
                           : explore<false>(td, root, alpha, beta, depth, false, true);  // partita: termini costanti
@@ -395,7 +479,7 @@ static void deepen(ThreadData &td) {
         if (stop_threads.load(std::memory_order_relaxed))
           break;
         U64 total = 0;
-        if (main && lines == 1 && (best <= alpha || best >= beta)) {
+        if (main && shown == 1 && td.pv_idx == 0 && (best <= alpha || best >= beta)) {
           for (auto &t : thread_data) total += t.nodes;
           if (total > 10000000)
             report_lines(td, td.root_depth);
@@ -416,16 +500,41 @@ static void deepen(ThreadData &td) {
       }
 
       settle_lines(td, 0, td.pv_idx + 1);
+      if (td.pv_idx + 1 == iter_lines && !stop_threads.load(std::memory_order_relaxed))
+        direct_swapped = an_direct(td, iter_lines);   // AnDirect prima della stampa: la GUI vede la mossa diretta
       if (main && !stop_threads.load(std::memory_order_relaxed)) {
         U64 total = 0;
         for (auto &t : thread_data) total += t.nodes;
-        if (td.pv_idx + 1 == lines || total > 10000000)
+        if (td.pv_idx + 1 == iter_lines || total > 10000000)
           report_lines(td, td.root_depth);
       }
       if (stop_threads.load(std::memory_order_relaxed))
         break;
     }
+    // AnStopKeep (14/10/2026 notte, solo con piu' linee): fermata a meta' iterazione, le linee da pv_idx in giu' hanno
+    // punteggi di profondita' diverse; quella con un limite superiore fresco (fallimento basso non ancora risolto)
+    // torna al valore completo dell'iterazione prima invece di finire dietro a punteggi vecchi delle altre.
+    if ((td.an_bits & AN_STOPKEEP) && lines > 1 && stop_threads.load(std::memory_order_relaxed)) {
+      for (int i = td.pv_idx; i < td.root_count; i++) {
+        RootLine &rl = td.root[i];
+        if (rl.upper && rl.prev_score != -infinity && rl.prev_pv_len) {
+          rl.score = rl.uci_score = rl.prev_score;
+          memcpy(rl.pv, rl.prev_pv, sizeof(int) * rl.prev_pv_len);
+          rl.pv_len = rl.prev_pv_len;
+          rl.upper = rl.lower = false;
+        }
+      }
+      settle_lines(td, td.pv_idx, td.root_count);
+      settle_lines(td, 0, lines);
+    }
     td.pv_idx = 0;
+    if (!stop_threads.load(std::memory_order_relaxed) && td.root[0].score != -infinity) {   // AnShQuiet
+      quiet_hist[2] = quiet_hist[1];
+      quiet_hist[1] = quiet_hist[0];
+      quiet_hist[0] = td.root[0].score;
+    }
+    if (!direct_swapped)   // ricerca fermata a meta' iterazione: la regola vale anche per la linea ristampata
+      direct_swapped = an_direct(td, iter_lines);
 
     // Un matto gia' provato non si dimentica: se l'iterazione lo perde, si torna alla linea che lo aveva.
     RootLine &top = td.root[0];
@@ -463,7 +572,9 @@ static void deepen(ThreadData &td) {
     // finita. La bestmove poteva allora non essere la prima mossa dell'ultima pv stampata (fastchess: "Bestmove
     // does not match beginning of last PV", ~1 volta ogni 3 partite). Si ristampa la linea definitiva, dopo il
     // recupero del matto e della linea perduta.
-    if (main && stopped && td.completed_depth > 0 && lines == 1)
+    // 14/10/2026 notte: anche con MultiPV >= 2 (prima solo con una linea): la bestmove poteva non essere la linea 1
+    // mostrata (Arasan 36: linea 1 c5b6, bestmove f2g3). In partita MultiPV e' 1: nulla cambia.
+    if (main && stopped && td.completed_depth > 0)
       report_lines(td, td.root_depth);
 
     if (g_limits.mate && !stopped && val_mating(td.root[0].score) &&

@@ -1,18 +1,34 @@
 # Triumviratus — release history
 
 Archive of the releases and of the match results that documented them. The current and previous
-release are described in the [`README`](README.md); how each network was trained is in
-[`NETWORKS.md`](NETWORKS.md).
+release are described in the [`README`](../../README.md); how each network was trained is in
+[`NETWORKS.md`](../networks/NETWORKS.md).
 
 | Release | Network | Headline |
 |---|---|---|
-| **7.0** (current) | `legio-septima` | +21.34 Elo over 6.0 (25+0.25, release binaries) |
+| **8.0** (current) | `nn-consilium` | +128.0 Elo over 7.0 (5+0.05, 4,000 games); level with Stockfish 18 and 19 at 133+1 |
+| **8.0 Position Solver** | `nn-consilium` | analysis build for hard positions: IQ4 155/183 and Arasan 2026 160/200 at 1 s |
+| **7.0** | `legio-septima` | +21.34 Elo over 6.0 (25+0.25, release binaries) |
 | **6.0** | `nn-rubicon-alea-v3` | +52.98 Elo over 5.1 (40+0.4, SPRT passed) |
 | **5.1** | `nn-rubicon-alea-v1` | +64.7 Elo over 5.0 (official gate) |
 | **5.0** | `nn-rubicon-alea-v1` | first SFNNv13 (threats) net · ≈ +50 Elo over 4.2 |
 | **4.2** | `rubicon-v1` | first network trained by the author |
 
 ---
+
+## Triumviratus 8.0
+
+Released October 2026. **Consilium**, a mixture-of-experts network: the king-relative input block is split into four
+experts by material (input buckets by piece count), with the project's `PassedPawns` block alongside the threat and
+pawn-pair inputs. A restructured search on the algorithmic base of Stockfish 19, re-tuned on Consilium, with margins
+and corrections per network expert; new time management; faster code at an identical tree; Chess960; one executable
+for every x86-64 CPU with AVX2. Against 7.0: **+128.0 ± 5.6 Elo** at 5+0.05 (4,000 games) and +129.9 ± 15.7 at
+20+0.2 (400 games); against Stockfish 18 +4.6 ± 5.0 (600 games) and Stockfish 19 −4.3 ± 6.3 (240 games) at 133+1.
+Details in the [`README`](../../README.md), [`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md) and [`NOVELTIES.md`](NOVELTIES.md).
+
+**Triumviratus 8.0 Position Solver** (October 2026) is a separate build of the same engine for analysing hard
+positions: analysis mode always on, a two-line search and a preference for the most direct win
+([`DEVELOPMENT_8.0.md` §49](../development/DEVELOPMENT_8.0.md), [`NOVELTIES.md` §10](NOVELTIES.md)).
 
 ## Triumviratus 7.0
 
@@ -23,13 +39,13 @@ frozen predecessor, on `TRANN2` — Stockfish's SFNNv16 feature set plus the pro
 network, the correction-history block retuned at the time control the engine is played at,
 node-identical speed work with the tuning parameters compiled as constants in release builds (+5%
 NPS), and the displayed score recalibrated so that +1.00 means a 50% chance of winning. Full log:
-[`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md).
+[`archive/DEVELOPMENT_7.0.md`](../development/archive/DEVELOPMENT_7.0.md).
 
 ## Triumviratus 6.0
 
 **+52.98 ± 12.25 Elo over 5.1** (40+0.4, 760 games, SPRT `[0,5]` passed). The `TRANN1` network
 architecture, the `nn-rubicon-alea-v3` network trained for it, and TMv2 time management. Full log:
-[`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md).
+[`archive/DEVELOPMENT_6.0.md`](../development/archive/DEVELOPMENT_6.0.md).
 
 ## Triumviratus 5.1
 
@@ -124,7 +140,7 @@ Book: **UHO 2024** (`UHO_2024_8mvs_big_+080_+099.epd`).
 | 2026-07-06 | 10+0.15 | UHO_2024_8mvs_big_+095_+114.epd | 612 | 51.1% | **+7.95 ± 12.35** | 85.78% |
 
 <sub>At long TC (60+0.6, 2000 games) Triumviratus 5.1 and Pawnocchio 1.9.1 were essentially even —
-the small edge (LOS 75%) within noise. **6.0** turns that into a clear +42 (see [`README`](README.md)).</sub>
+the small edge (LOS 75%) within noise. **6.0** turns that into a clear +42 (see [`README`](../../README.md)).</sub>
 
 #### 5.1 vs external engines (2026-07-05)
 

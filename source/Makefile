@@ -200,6 +200,27 @@ ifneq (,$(filter android-dotprod,$(MAKECMDGOALS)))
   ARCH += -march=armv8.2-a+dotprod
 endif
 
+# ---- sse41 (15/10/2026): x86-64 senza AVX2 (CPU prima di Haswell, 2013): SSE4.1 + POPCNT, niente PEXT ------
+ifneq (,$(filter sse41,$(MAKECMDGOALS)))
+  DEFS := $(filter-out -DUSE_AVX2 -DUSE_PEXT,$(DEFS))
+  ARCH := -msse4.1 -mssse3 -msse2 -mpopcnt
+  EXE  := triumviratus_sse41
+endif
+
+# ---- macOS (15/10/2026, issue #4) ------------------------------------------
+#   make macos-arm CXX=clang++ NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
+#                                                           gli stessi percorsi della build android-dotprod
+#   make macos-x86 CXX=clang++ NET_NAME=nn-consilium.nnue   Mac Intel con AVX2 (Haswell, 2013, e successivi)
+# Compilati e verificati col bench dal workflow .github/workflows/macos.yml (macchine macOS di GitHub).
+ifneq (,$(filter macos-arm,$(MAKECMDGOALS)))
+  DEFS := -DNDEBUG $(EMBED_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8 -DUSE_NEON_DOTPROD
+  ARCH := -mcpu=apple-m1
+  EXE  := triumviratus_macos_arm
+endif
+ifneq (,$(filter macos-x86,$(MAKECMDGOALS)))
+  EXE  := triumviratus_macos_x86
+endif
+
 OPT      := -O3 -funroll-loops
 
 # ---- LTO / PGO (Linux, clang++ only) ----------------------------------------
@@ -252,6 +273,9 @@ profile: $(EXE)
 release: $(EXE)
 android: $(EXE)
 android-dotprod: $(EXE)
+macos-arm: $(EXE)
+macos-x86: $(EXE)
+sse41: $(EXE)
 
 $(EXE): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $@ $(LIBS)

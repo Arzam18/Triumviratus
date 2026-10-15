@@ -21,8 +21,8 @@
 // +3,59 +- 4,10 su 7.052. Valore 1 scelto perche' e' l'unico tetto che cambia l'albero in modo netto a profondita' fissa
 // (08/10: -6,6% nodi, -0,55 ply di seldepth; da 2 in su il tetto si raggiunge di rado). Bench 325747 (prima 460041).
 // Da verificare a TC lungo nell'A/B della release 20261011 contro la pubblica 20261010 (30 s / 20 s).
-// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (regola di Reckless
-// board.rs:242; anche Stormphrax, Berserk, Viridithas, Caissa, Coda; agente AE, DEVELOPMENT §42), opzione ritirata.
+// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (idea da Reckless,
+// regola anche in Stormphrax, Berserk, Viridithas, Caissa, Coda; codice nostro, riscritto il 15/10; agente AE, §42).
 // SPRT 8+0.08 sul libro dei finali endgame_12_18 senza aggiudicazione di patta, tm28, due tranche in pool (aeinsuf_eg_8
 // + aeinsuf_eg_8b): +1,13 +- 1,56 Elo su 17.162 partite (LLR +0,97; socket 0 +0,77, socket 1 +1,50). Prima tranche
 // +1,47 +- 2,39 su 7.000, poi l'utente: "altre 10000 e poi bake". A profondita' fissa l'albero non cresce (nodi -0,1%
@@ -119,6 +119,17 @@
 // della rete viene portata a queste unita' da EvalUnits (09_history.inc), cosi' i margini non dipendono dalla scala
 // della rete. Ogni parametro e' un'opzione UCI nelle build di sviluppo e una
 // costante nella build di release (TRIUMV_RELEASE), dove il compilatore la piega nel codice.
+
+// TRIUMV_POS_SOLVER (14/10/2026, utente: "una build solo di analisi, con la flag sappiamo che e' destinata a quello"):
+// eseguibile "Triumviratus - 8.0 Pos Solver" per le posizioni difficili. Modalita' analisi SEMPRE attiva (utente) e
+// albero della pre-release dell'11/10, che su IQ4 risolve di piu' (POS_SOLVER.md: 157 contro 148 a 1M nodi): margini
+// per esperto EXP1 a zero e LDSE accesa (LdseMargin 76). PSV(gioco, solver) sceglie il default; senza la flag il motore
+// e' quello di gioco, bench 137419 invariato.
+#ifdef TRIUMV_POS_SOLVER
+  #define PSV(game, solver) (solver)
+#else
+  #define PSV(game, solver) (game)
+#endif
 
 // ---------------------------------------------------------------------------
 // Tabella dei parametri: nome, default, minimo, massimo.
@@ -230,7 +241,19 @@
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
      senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
      Torna 0 (spenta); da riprovare da sola a 30 s. Prima: 76. */                                                      \
-  P(LdseMargin, 0, 0, 400)               /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
+  /* Ricerca a due linee (AnShadow, Pos Solver, 15/10/2026): varianti piu' economiche. ShadowFrom: la seconda   */\
+  /* linea solo da questa profondita' di radice; ShadowRed: la seconda linea N ply piu' corta; ShadowMargin: la   */\
+  /* seconda linea solo se il suo ultimo punteggio sta entro il margine (unita' interne, ~526 = 100 cp) dalla    */\
+  /* prima (0 = sempre). Default = AnShadow pieno; senza AnShadow nessuna delle tre conta.                     */\
+  P(ShadowFrom, 1, 1, 40)                                                                                 \
+  P(ShadowRed, 0, 0, 8)                                                                                   \
+  P(ShadowMargin, 0, 0, 4000)                                                                             \
+  /* AnDirect (15/10/2026): soglia di vittoria e distanza massima fra le due linee, in cp stampati.             */\
+  P(DirectFrom, 300, 0, 3000)                                                                             \
+  P(QuietFrom, 10, 1, 40)                                                                                 \
+  P(QuietCp, 15, 0, 200)                                                                                  \
+  P(DirectGap, 400, 0, 2000)                                                                              \
+  P(LdseMargin, PSV(0, 76), 0, 400)      /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
                                          /* 2 solo limite inferiore, 4 non da quiescenza                 */ \
@@ -397,18 +420,18 @@
      net_phase): si sommano al moltiplicatore della futility inversa (RfpExp, base RfpMultBase 50), al margine della  \
      futility delle quiete (FutExp) e alla riduzione LMR in 1024-esimi di ply (LmrExp). Tutte a 0 = albero invariato. \
      BAKE EXP1 12/10/2026 (vedi in testa): valori dello SPSA EXP1, [EXP1 0->nuovo]. */                               \
-  P(RfpExp0, 3, -40, 40)                 /* esperto 0: <= 9 pezzi  [EXP1 0->3] */                         \
-  P(RfpExp1, 1, -40, 40)                 /* esperto 1: 10-15 pezzi [EXP1 0->1] */                         \
-  P(RfpExp2, -3, -40, 40)                /* esperto 2: 16-23 pezzi [EXP1 0->-3] */                        \
-  P(RfpExp3, 3, -40, 40)                 /* esperto 3: >= 24 pezzi [EXP1 0->3] */                         \
-  P(FutExp0, -3, -200, 200)              /* [EXP1 0->-3] */                                               \
-  P(FutExp1, -14, -200, 200)             /* [EXP1 0->-14] */                                              \
-  P(FutExp2, -2, -200, 200)              /* [EXP1 0->-2] */                                               \
-  P(FutExp3, 8, -200, 200)               /* [EXP1 0->8] */                                                \
-  P(LmrExp0, -25, -1536, 1536)           /* [EXP1 0->-25] */                                              \
-  P(LmrExp1, 102, -1536, 1536)           /* [EXP1 0->102] */                                              \
-  P(LmrExp2, -6, -1536, 1536)            /* [EXP1 0->-6] */                                               \
-  P(LmrExp3, 101, -1536, 1536)           /* [EXP1 0->101] */                                              \
+  P(RfpExp0, PSV(3, 0), -40, 40)         /* esperto 0: <= 9 pezzi  [EXP1 0->3]; Pos Solver 0 */           \
+  P(RfpExp1, PSV(1, 0), -40, 40)         /* esperto 1: 10-15 pezzi [EXP1 0->1] */                         \
+  P(RfpExp2, PSV(-3, 0), -40, 40)        /* esperto 2: 16-23 pezzi [EXP1 0->-3] */                        \
+  P(RfpExp3, PSV(3, 0), -40, 40)         /* esperto 3: >= 24 pezzi [EXP1 0->3] */                         \
+  P(FutExp0, PSV(-3, 0), -200, 200)      /* [EXP1 0->-3] */                                               \
+  P(FutExp1, PSV(-14, 0), -200, 200)     /* [EXP1 0->-14] */                                              \
+  P(FutExp2, PSV(-2, 0), -200, 200)      /* [EXP1 0->-2] */                                               \
+  P(FutExp3, PSV(8, 0), -200, 200)       /* [EXP1 0->8] */                                                \
+  P(LmrExp0, PSV(-25, 0), -1536, 1536)   /* [EXP1 0->-25] */                                              \
+  P(LmrExp1, PSV(102, 0), -1536, 1536)   /* [EXP1 0->102] */                                              \
+  P(LmrExp2, PSV(-6, 0), -1536, 1536)    /* [EXP1 0->-6] */                                               \
+  P(LmrExp3, PSV(101, 0), -1536, 1536)   /* [EXP1 0->101] */                                              \
   /* 13/10/2026 (utente: "i margini si sommano, non dovrebbero sostituirli?"): LmrExp sposta solo il livello della    \
      riduzione; LmrScaleExp ne da' a ogni esperto anche la PENDENZA: scala la riduzione di base (tabella log x log,      \
      finestra, LmrBase) in 1024-esimi prima delle altre correzioni. 0 = albero invariato. -64/96/0/96 +1,11 +- 3,65 su  \
@@ -703,6 +726,32 @@ enum AnalysisBits {
   AN_CRYSTAL = 16,   // niente potature sulla linea principale precedente nei primi ply
   AN_HUNT = 32,      // hunt_mate da profondita' di radice 8 invece di 16
   AN_GOLD = 64,      // GoldDigger (ShashChess) sulla nostra ricerca
+  // Pos Solver (14/10/2026, idee di Crystal di Joseph Ellis, codice nostro; misure in POS_SOLVER.md):
+  AN_KDANGER = 128,  // re di chi muove in pericolo: niente potature prima delle mosse; re avversario in pericolo
+                     // vicino alla radice (ply <= 6): niente LMR (solo riduzioni negative)
+  AN_CYCLE = 256,    // ripetizione in arrivo: niente potature prima delle mosse e niente LMR (fortezze, perpetui)
+  // Pos Solver, secondo giro (14/10/2026 notte, nostre): MultiPV 2 a 1 s aveva dato +15 su Arasan (POS_SOLVER.md).
+  AN_SHADOW = 512,   // la ricerca cerca 2 linee a finestra piena (come MultiPV 2) ma ne stampa quante ne chiede la GUI
+  AN_ROOTALT = 1024, // radice: le due inseguitrici dell'iterazione precedente senza LMR positiva
+  AN_KEEPDEPTH = 2048, // nei nodi PV a ply <= kAnKeepPly niente "depth -= 3" dopo che alfa sale (le sorelle seguenti
+                       // restano alla profondita' piena: un sacrificio ordinato tardi non si cerca piu' corto)
+  // Idee di Crystal (Joseph Ellis), codice nostro:
+  AN_LMPNEAR = 4096,   // niente potatura per numero di mossa (quiete spente) nei nodi PV e a ply <= 2
+  AN_CAPTLMR = 8192,   // catture senza LMR positiva, salvo nei nodi cut il cui padre non era alla prima mossa
+  AN_NMPZUG = 16384,   // mossa nulla prudente: da profondita' di radice 11, per l'avversario della radice, solo con
+                       // piu' di 5 mosse (pseudo-legali) disponibili (zugzwang vicino alla soluzione)
+  AN_STOPKEEP = 32768, // MultiPV fermata a meta' iterazione: il limite superiore fresco di una linea che stava fallendo
+                       // bassa non la mette dietro ai punteggi vecchi delle altre (si torna al suo valore completo)
+  AN_DIRECT = 65536,   // fra due mosse nettamente vincenti (le due linee esatte di AnShadow), la forzante (scacco o
+                       // cattura) se la piu' alta e' tranquilla e distano al massimo DirectGap cp (15/10/2026)
+  AN_DIRLINE = 131072, // con la prima linea tranquilla e vincente (oltre DirectFrom), la seconda linea di AnShadow si
+                       // cerca solo fra le mosse dirette: AnDirect confronta la migliore tranquilla con la migliore
+                       // diretta, anche quando la diretta non e' la seconda per punteggio (15/10/2026)
+  AN_SHQUIET = 262144, // posizione "tranquilla" vista dalla ricerca: da QuietFrom, con le prime due mosse non dirette e
+                       // il punteggio stabile (entro QuietCp per tre iterazioni), la seconda linea di AnShadow si
+                       // sospende e la profondita' torna piena (SBD: le due linee costano ~10 posizioni) (15/10/2026)
+  AN_QDEEP = 524288,   // nelle stesse iterazioni "tranquille" di AnShQuiet, potatura normale (preset AnDeep 0) invece di
+                       // prune+lmr: altra profondita' dove la mossa giusta e' tranquilla (15/10/2026)
   AN_ACTIVE = 1 << 30
 };
 // Preset delle leve Deep* (una sola tabella: cambiare qui). DeepKnee 4 e DeepSpan 1: pesi pieni da profondita' 5.
@@ -719,6 +768,7 @@ static constexpr int kAnDeepKnee = 4, kAnDeepSpan = 1;
 static constexpr int kAnExt = 60, kAnSing = -30;   // AN_EXT
 static constexpr int kAnNmpVerify = 6;             // AN_NMPV
 static constexpr int kAnHuntFrom = 8;              // AN_HUNT
+static constexpr int kAnKeepPly = 2;               // AN_KEEPDEPTH
 // Default: prima TUTTO SPENTO (09/10/2026 mattina, il preset si componeva da setoption); dopo le misure qui sotto il
 // preset delle leve Deep* e' prune+lmr (kAnDefaultDeep 4) e i componenti An* restano spenti.
 // MISURE 09/10/2026 (banco: tools\solve_suite.py, nodi fissi 2.000.000, 1 thread, Hash 64; posizioni risolte a
@@ -742,7 +792,15 @@ static constexpr int kAnHuntFrom = 8;              // AN_HUNT
 // UCI_AnalyseMode e go infinite (AnalyseOnInfinite) usano entrambi prune+lmr; in partita an_bits = 0 e niente cambia.
 // Verifica: bench 430151 invariato; con UCI_AnalyseMode=true il bench da' 632173 (quello di prunelmr).
 static constexpr int kAnDefaultDeep = 4;
-static constexpr int kAnDefaultBits = 0;
+// Pos Solver (14/10/2026 notte): AnShadow di default (ricerca a due linee, stampa di quelle chieste dalla GUI). Misure
+// sul binario dev t80_ps4 (POS_SOLVER.md): Arasan 2026 157 -> 170 a 1M nodi, 166 -> 178 a 2M, 151 -> 158 a 1 s; IQ4
+// 158 -> 157 a 1M, 161 -> 163 a 4M, 153 -> 152 a 1 s. Nel motore di gioco resta tutto spento.
+// v3 (15/10/2026 notte): anche AnDirect (soglia 300 cp, distanza 400 cp, sacrifici compresi fra le mosse dirette).
+// Albero identico ad AnShadow; IQ4 4M 163 -> 166 (+34, +112, +178, nessuna persa), Arasan 2M 178 -> 178 identico;
+// distanze 600 e 800 uguali, soglia 200 perde Arasan 70.
+// v4 (15/10/2026): anche AnShQuiet (seconda linea sospesa nelle posizioni tranquille e stabili, QuietFrom 10, QuietCp 15).
+// 8 raccolte a 1M nodi +20 (SBD 98 -> 110); budget alti (IQ4 4M, Arasan 2M, SBD/difficili/ECM 4M) 664 -> 671.
+static constexpr int kAnDefaultBits = PSV(0, AN_SHADOW | AN_DIRECT | AN_SHQUIET);
 static bool g_analyse_mode     = false;   // UCI_AnalyseMode
 // AnalyseOnInfinite accesa di default (09/10/2026, utente: "go infinite deve lavorare come la modalita' che scegliamo"):
 // molte GUI e i programmi delle raccolte di test analizzano con `go infinite` senza impostare UCI_AnalyseMode. In partita
@@ -787,15 +845,24 @@ void print_search_options() {
 #endif
 }
 
-// Opzioni della modalita' analisi, elencate anche nella release: le combinazioni si compongono da setoption.
+// Opzioni della modalita' analisi: le combinazioni si compongono da setoption.
+// 14/10/2026 (utente: "nella release normale non voglio si vedano le opzioni An"): la release di gioco elenca solo
+// UCI_AnalyseMode, l'opzione standard che le GUI gestiscono da sole; AnalyseOnInfinite, AnDeep e i componenti An* si
+// vedono nelle build di sviluppo e nel Pos Solver. Nascoste non vuol dire spente: setoption le accetta ancora.
 void print_analysis_options() {
-  printf("option name UCI_AnalyseMode type check default false\n");
+  printf("option name UCI_AnalyseMode type check default %s\n", PSV(false, true) ? "true" : "false");
+#if defined(TRIUMV_RELEASE) && !defined(TRIUMV_POS_SOLVER)
+  return;
+#endif
   printf("option name AnalyseOnInfinite type check default true\n");
   // Componenti (agiscono solo con UCI_AnalyseMode, o con AnalyseOnInfinite e go infinite).
   printf("option name AnDeep type spin default %d min 0 max %d\n", kAnDefaultDeep, kAnDeepCount - 1);
   static const struct { const char *n; int bit; } an_opts[] = {
     {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
-    {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+    {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
+    {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
+    {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}, {"AnDirLine", AN_DIRLINE}, {"AnShQuiet", AN_SHQUIET}, {"AnQDeep", AN_QDEEP}};
   for (const auto &o : an_opts)
     printf("option name %s type check default %s\n", o.n, (kAnDefaultBits & o.bit) ? "true" : "false");
 }
@@ -823,7 +890,10 @@ bool set_search_param(const char* name, int value) {
   {
     static const struct { const char *n; int bit; } an_opts[] = {
       {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
-      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD}};
+      {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
+      {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
+    {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}, {"AnDirLine", AN_DIRLINE}, {"AnShQuiet", AN_SHQUIET}, {"AnQDeep", AN_QDEEP}};
     for (const auto &o : an_opts)
       if (!strcmp(name, o.n)) {
         g_an_bits = parse_bool_value(value) ? (g_an_bits | o.bit) : (g_an_bits & ~o.bit);
