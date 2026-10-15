@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../images/logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus: future directions
 
@@ -122,7 +122,7 @@ When a capture moves a position from one expert to the next, the evaluation can 
 also learn from the positions of the neighbouring band, with a lower weight, so that neighbouring experts agree near
 the boundary. The engine would not change at all. Earlier attempts to handle the boundary inside the search did not
 gain, and neither did averaging the two experts at evaluation time (+5 at fixed nodes, but 15 to 18% slower:
-[`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md)); this addresses it where it arises, in the network.
+[`archive/EXPERT_BLEND_8.0.md`](../development/archive/EXPERT_BLEND_8.0.md)); this addresses it where it arises, in the network.
 
 ## 5. Training on the positions we lose
 

@@ -2,12 +2,12 @@
 
 > **Archived on 28 September 2026.** This is the full record of the networks shipped from 4.2 to 7.0, as it stood
 > when the 8.0 network went into training. The current network and a short summary of these ones are in
-> [`NETWORKS.md`](../NETWORKS.md).
+> [`NETWORKS.md`](NETWORKS.md).
 
 Triumviratus ships its **own** NNUE network — weights trained by the project, **not** a Stockfish network.
 
 To be precise about provenance (and GPL-honest): the NNUE **evaluation code** and the base network **architecture**
-are Stockfish's (GPLv3 — see [`README`](../README.md) and [`COPYING`](../COPYING)); the official Stockfish **trainer**
+are Stockfish's (GPLv3 — see [`README`](../../README.md) and [`COPYING`](../../COPYING)); the official Stockfish **trainer**
 ([`nnue-pytorch`](https://github.com/official-stockfish/nnue-pytorch)) is used to train. The **training data is
 mostly public** — Leela Chess Zero `test79`/`test80` binpacks, plus Stockfish-generated packs in one early stage,
 plus a small slice of our own self-play. What is **ours** is the **network weights**: trained from scratch, with no
@@ -289,7 +289,7 @@ not defining `USE_AVX512`, so the earlier build was effectively AVX2 against a P
 The release binaries against each other — 7.0 with `legio-septima` against 6.0 with
 `rubicon-alea-v3`, AVX2 PGO on both sides, 1 thread, UHO 2024 — measure **+25.18 ± 4.28 Elo** at
 5+0.05 (9,000 games) and **+21.34 ± 6.66 Elo** at 25+0.25 (3,000 games); details in
-[`HISTORY.md`](../HISTORY.md).
+[`HISTORY.md`](../project/HISTORY.md).
 
 <sub>After release the network is treated as **saturated** for its size: no gain was detectable
 between stage-1 epochs 249 and 416, and the stage-3 tail measured zero, with validation loss never

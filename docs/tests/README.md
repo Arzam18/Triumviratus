@@ -20,7 +20,7 @@ from move 35 (8 moves within 10 cp), resignation at 600 cp for 4 moves on both s
 time, two by Triumviratus and one by Stockfish. ± is the 95% interval on the opening pairs (pentanomial).</sub>
 
 On balanced openings at CCRL Blitz time control the same two engines are level (+4.6 ± 5.0 over 600 games,
-[README](../README.md#strength)); the unbalanced book, where each side has to convert an advantage or hold a worse
+[README](../../README.md#strength)); the unbalanced book, where each side has to convert an advantage or hold a worse
 position, separates them.
 
 ## Maurizio Platino — 7.0 against recent engines
@@ -43,7 +43,7 @@ match has the crosstable only, without the games, hence no interval.</sub>
 
 **What it says.** 7.0 is ahead of Caissa 1.26 and 25–65 Elo behind the newest releases: Caissa 2.0,
 Coda 0.9.4, pawnocchio 3.0 and PlentyChess 8. These are the engines the 8.0 audit compares against
-([`DEVELOPMENT_8.0.md`](../DEVELOPMENT_8.0.md)). Bullet with an unbalanced book widens the gaps
+([`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md)). Bullet with an unbalanced book widens the gaps
 compared with a rating list, and the two August matches used a development build from a month
 before the release.
 
