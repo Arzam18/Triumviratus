@@ -3,6 +3,53 @@
 The work toward 8.1, on the `dev` branch. The record of 8.0 is in [`DEVELOPMENT_8.0.md`](docs/development/archive/DEVELOPMENT_8.0.md); the
 rules for contributions are in [`CONTRIBUTING.md`](docs/project/CONTRIBUTING.md).
 
+## Plan
+
+8.1 keeps the Consilium network of 8.0: all the work is on the engine side. The order follows one principle: the
+structure of the search first, then the tuning of its parameters, because a tuning made before a rewrite would no
+longer fit the rewritten code.
+
+**Measurement rules**, as in 8.0: one test at a time on the test machine; every search change by an SPRT run to a
+decision, with at least 20,000 games; a short time control first, then a long one for the changes that pass; small
+levers go to SPSA rather than to single SPRTs; speed only with hardware counters at an identical search tree, the
+engine pinned to one core.
+
+**In order:**
+
+1. **The base.** A non-regression SPRT of `dev` (pull request 6 and the prefetch limited to non-AVX-512 builds)
+   against 8.0; if it passes, `dev` is the base of 8.1. For the release build, an option to import a PGO profile
+   trained on another machine: Zen 4 trains variants 1 to 6 natively, an Intel processor with AVX-VNNI trains
+   variant 7. The gain of native profiles for `vnni512` and `avx512icl` is measured on Zen 4 first.
+2. **Where we lose.** A study of the games 8.0 loses against Stockfish 19 and Reckless (CCRL and TorsGUI games): the
+   phase of the game, which expert of the network misjudged the position, the time left; the use of time at the CCRL
+   controls (40/15 with increment) against Stockfish 19; scaling with 4 and 8 threads, which matters for the 4CPU
+   lists; the search in endgames and the use of tablebases. It runs on stored games and does not need the test
+   machine, so it starts at once. Its result says which search components to rewrite first.
+3. **A search of our own** ([future directions, section 11](docs/project/FUTURE_DIRECTIONS.md#11-a-search-shaped-by-the-network)).
+   An audit of the search component by component (the same as Stockfish 19, changed, or ours), then a rewrite of
+   one component at a time, designed for a network of experts, each with a non-regression SPRT at unchanged
+   parameters. The description of the search changes only when the facts do. If the release date matters more than
+   completeness, only the components that step 2 shows to be weakest are rewritten for 8.1.
+4. **Tuning with the corrected schedule** ([section 8](docs/project/FUTURE_DIRECTIONS.md#8-tuning-again-with-the-corrected-schedule)).
+   The six SPSA runs P1 to P6 on the final structure, without hyperthreading; each vector enters the engine only
+   through an SPRT against the release.
+5. **Release of 8.1.**
+
+**In parallel:**
+
+- **The open measurements of 8.0** ([sections 6, 7 and 12](docs/project/FUTURE_DIRECTIONS.md#7-open-engine-measurements)).
+  The time-management ones (time per expert, the graded surprise rule, the two defence rules) do not depend on the
+  search and run whenever the machine is free. The search ones (LDSE, reduction scale per expert, `DrawDefend`, the
+  null-move guard from the analysis build) are taken up inside step 3, with the rewrite of the component they touch.
+- **Speed.** A Tin Man continues his work (a legal generator with the AVX-512 compacted writing is the first
+  proposal); every pull request is measured on the Xeon, on Zen 4 and on an Intel processor with AVX-VNNI. Changes
+  at an identical tree do not touch the parameters, so they do not disturb steps 3 and 4.
+- **For users.** Playing strength levels (`UCI_LimitStrength`, `UCI_Elo`, calibrated in games,
+  [section 13](docs/project/FUTURE_DIRECTIONS.md#13-playing-strength-levels)) and Chess960 in the release build,
+  which today has it only in development builds; with it the engine can enter the CCRL FRC list.
+- **Machines.** The test machine also plays CCRL tournaments: an OpenBench instance with the testers' machines would
+  let SPRT and SPSA runs use them too.
+
 ## 1. Speed at an identical tree: the first external contribution (15 October 2026)
 
 Pull request 6, by **A Tin Man**, merged into `dev` on 15 October. Six changes, all keeping the search tree identical
