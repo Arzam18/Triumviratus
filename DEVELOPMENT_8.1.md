@@ -60,8 +60,18 @@ smaller than on the author's machines (+1.0% against +3.6% on Raptor Lake), prob
 already arranges the branches that the changes remove. On an Intel processor of the Raptor Lake family the
 universal executable picks the new AVX-VNNI variant, and the gain with release-style builds is +6.3%, against the
 author's +9.2% without PGO; the node counts of the bench are identical in that variant too. The AVX-VNNI variant of
-these builds is trained on the Xeon, which lacks AVX-VNNI, with AVX2 instructions; a profile trained on the
-processor itself is being measured. The change stays: it costs nothing on AVX-512 and helps the processors where it
+these builds is trained on the Xeon, which lacks AVX-VNNI, with AVX2 instructions. Trained on the Core 7 150U
+itself, with its own instructions (`build_universal.ps1 -Only 7`, the same deterministic training), the variant gains
+more:
+
+| Intel Core 7 150U, `bench 18`, 30 rounds | against base (`avx2`) |
+|---|---:|
+| universal executable, `avxvnni` trained on the Xeon | +5.51% [+4.06, +6.96] |
+| `avxvnni` alone, trained on the 150U | **+6.84%** [+6.02, +7.66] |
+
+A native profile adds about 1.3%, and the speed is steadier from round to round (lowest round 992,908 nodes per
+second against 835,503). The 8.1 release will therefore train the AVX-VNNI variant on a processor that has it and
+bring that profile into the universal build; the build script needs an option to import a profile trained elsewhere. The change stays: it costs nothing on AVX-512 and helps the processors where it
 acts.
 
 **Node counts.** The bench is identical, but in a workload of 30 positions searched one after another in the same
