@@ -94,7 +94,8 @@ Reckless 0.10.0-dev. Games and details: [`tests/`](tests/) and
 
 From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0):
 `Triumviratus_8.0_universal.exe`, one file for every x86-64 CPU with AVX2, with the network embedded. At start-up it
-picks the best of five builds for the CPU (AVX2 without PEXT, AVX2, AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine
+picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2,
+AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine
 name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
 `source/universal/build_universal.ps1 -Official`. The same release has builds for **Android** (arm64, with and
 without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network embedded.

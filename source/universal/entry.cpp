@@ -32,8 +32,10 @@ TV_DECLARE(2)
 TV_DECLARE(3)
 TV_DECLARE(4)
 TV_DECLARE(5)
+TV_DECLARE(6)
 
-static const char *const kNames[6] = {"", "avx2-nopext", "avx2", "avx512", "vnni512", "avx512icl"};
+// 6 sse41 (15/10/2026): SSE4.1 + POPCNT, per le CPU senza AVX2 (prima di Haswell, 2013); piu' lenta.
+static const char *const kNames[7] = {"", "avx2-nopext", "avx2", "avx512", "vnni512", "avx512icl", "sse41"};
 
 // Nome della variante scelta, letto dal motore per la riga "id name" (extern "C": stesso simbolo per tutte).
 extern "C" const char *g_triumv_isa = "";
@@ -52,17 +54,18 @@ static int best_variant() {
   const unsigned eax1 = (unsigned)r[0];
   const int family = ((eax1 >> 8) & 0xF) + (((eax1 >> 8) & 0xF) == 0xF ? ((eax1 >> 20) & 0xFF) : 0);
   const bool popcnt = ecx1 & (1u << 23), osxsave = ecx1 & (1u << 27), avx = ecx1 & (1u << 28),
-             fma = ecx1 & (1u << 12);
+             fma = ecx1 & (1u << 12), sse41 = ecx1 & (1u << 19);
+  const int fallback = sse41 && popcnt ? 6 : 0;   // senza AVX2: la variante sse41, se la CPU ha SSE4.1 e POPCNT
   if (!(popcnt && osxsave && avx && fma) || max_leaf < 7)
-    return 0;
+    return fallback;
   const unsigned long long xcr0 = _xgetbv(0);
   if ((xcr0 & 0x6) != 0x6)   // stato SSE e AVX salvato dal sistema operativo
-    return 0;
+    return fallback;
   __cpuidex(r, 7, 0);
   const unsigned ebx7 = (unsigned)r[1], ecx7 = (unsigned)r[2];
   const bool avx2 = ebx7 & (1u << 5), bmi1 = ebx7 & (1u << 3), bmi2 = ebx7 & (1u << 8);
   if (!(avx2 && bmi1))
-    return 0;
+    return fallback;
   const bool os_zmm = (xcr0 & 0xE0) == 0xE0;   // opmask e registri ZMM salvati dal sistema operativo
   const bool f = ebx7 & (1u << 16), dq = ebx7 & (1u << 17), bw = ebx7 & (1u << 30), vl = ebx7 & (1u << 31);
   const bool vbmi = ecx7 & (1u << 1), vbmi2 = ecx7 & (1u << 6), vnni = ecx7 & (1u << 11), bitalg = ecx7 & (1u << 12);
@@ -80,16 +83,15 @@ static int best_variant() {
 int main() {
   const int best = best_variant();
   if (!best) {
-    printf("Triumviratus 8.0 needs a CPU with AVX2, BMI1, FMA and POPCNT, and an operating system that saves the AVX "
-           "state.\n");
+    printf("Triumviratus 8.0 needs a CPU with SSE4.1 and POPCNT.\n");
     return 1;
   }
   int v = best;
   if (const char *force = getenv("TRIUMV_ISA")) {
-    for (int i = 1; i <= 5; i++)
+    for (int i = 1; i <= 6; i++)
       if (!strcmp(force, kNames[i])) {
-        // Una variante piu' bassa va sempre bene: ogni CPU con AVX-512 ha anche BMI2.
-        if (i <= best)
+        // Una variante piu' bassa va sempre bene: ogni CPU con AVX-512 ha anche BMI2, ogni CPU con AVX2 ha SSE4.1.
+        if (i == 6 || (best != 6 && i <= best))
           v = i;
         else
           fprintf(stderr, "TRIUMV_ISA=%s non supportata da questa CPU: uso %s\n", force, kNames[best]);
@@ -101,6 +103,7 @@ int main() {
   case 2: return run_v2();
   case 3: return run_v3();
   case 4: return run_v4();
+  case 6: return run_v6();
   default: return run_v5();
   }
 }
