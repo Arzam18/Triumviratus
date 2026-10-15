@@ -2275,7 +2275,7 @@ hybrid update for castling and promotions, the feature counters in registers, th
 terms, the 16-entry pawn-block cache and the lane-permuted bishop and rook attacks (Stockfish's development, measured
 twice within the noise). The old paths of the adopted speed changes went with them. Bench unchanged, 137419.
 
-## 49. An analysis build: Triumviratus 8.0 Pos Solver (14 October 2026)
+## 49. An analysis build: Triumviratus 8.0 Position Solver (14–15 October 2026)
 
 Maurizio Platino measured the release on the IQ4 collection (183 positions, 1 second each, 1 thread, Hash 64 MB) and
 found 147 solutions, against 155 for the pre-release of 11 October and 142 for Stockfish 19. At fixed nodes the drop
@@ -2296,7 +2296,8 @@ Arasan 2026 collection (200 positions):
 | Stockfish 19 | 139 | 140 | | |
 | release 8.0, analysis mode | 145 | 137 | 153 | |
 | Pos Solver, tree of 11 October | 152–153 | 146–151 | 161 | 166 |
-| **Pos Solver with the two-line search** | 152 | **161** | **163** | **178** |
+| Pos Solver with the two-line search (v2) | 152 | 161 | 163 | 178 |
+| **v3: with the more direct win** | **155** | **160** | **166** | **178** |
 
 - **Two-line search** (`AnShadow`, default in the Pos Solver): the search always looks at the second best root move
   with a full window, as MultiPV 2 does, and prints only the lines the interface asks for. It costs two to three plies
@@ -2309,6 +2310,13 @@ Arasan 2026 collection (200 positions):
 - A display defect fixed for every build: with MultiPV 2 or more, a search stopped in the middle of an iteration could
   return a best move different from the first line shown. The lines are now printed again at the stop, as they
   already were with one line. Games use one line and are not affected.
+
+- **The more direct win** (`AnDirect`, default from v3): test collections give as key the most direct win, and in
+  most of the positions we still missed on IQ4 both Triumviratus and Stockfish 19 chose another winning move with a
+  slightly higher score. When both exact lines win clearly (above +3) and are within four pawns, the direct one (a
+  check, a capture, a promotion or a sacrifice) is shown and played if the other is not direct. The search tree is
+  unchanged, so the effect is exact: three positions gained on IQ4, none lost on either collection. Games do not use
+  it: a lower-scored move would cost Elo.
 
 The engine Maurizio compared with, Leptir TI MPV (165/183 in his test), chooses its root move at random among its best
 lines; our search is deterministic. The full record of this work is in the project's working notes.

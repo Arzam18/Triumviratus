@@ -250,7 +250,7 @@
   P(ShadowMargin, 0, 0, 4000)                                                                             \
   /* AnDirect (15/10/2026): soglia di vittoria e distanza massima fra le due linee, in cp stampati.             */\
   P(DirectFrom, 300, 0, 3000)                                                                             \
-  P(DirectGap, 200, 0, 2000)                                                                              \
+  P(DirectGap, 400, 0, 2000)                                                                              \
   P(LdseMargin, PSV(0, 76), 0, 400)      /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
   P(LdseMode, 1, 0, 7)                   /* l'eval sta sotto alpha - m. Mode (era 0) bit: 1 solo nodi cut, */ \
@@ -785,7 +785,10 @@ static constexpr int kAnDefaultDeep = 4;
 // Pos Solver (14/10/2026 notte): AnShadow di default (ricerca a due linee, stampa di quelle chieste dalla GUI). Misure
 // sul binario dev t80_ps4 (POS_SOLVER.md): Arasan 2026 157 -> 170 a 1M nodi, 166 -> 178 a 2M, 151 -> 158 a 1 s; IQ4
 // 158 -> 157 a 1M, 161 -> 163 a 4M, 153 -> 152 a 1 s. Nel motore di gioco resta tutto spento.
-static constexpr int kAnDefaultBits = PSV(0, AN_SHADOW);
+// v3 (15/10/2026 notte): anche AnDirect (soglia 300 cp, distanza 400 cp, sacrifici compresi fra le mosse dirette).
+// Albero identico ad AnShadow; IQ4 4M 163 -> 166 (+34, +112, +178, nessuna persa), Arasan 2M 178 -> 178 identico;
+// distanze 600 e 800 uguali, soglia 200 perde Arasan 70.
+static constexpr int kAnDefaultBits = PSV(0, AN_SHADOW | AN_DIRECT);
 static bool g_analyse_mode     = false;   // UCI_AnalyseMode
 // AnalyseOnInfinite accesa di default (09/10/2026, utente: "go infinite deve lavorare come la modalita' che scegliamo"):
 // molte GUI e i programmi delle raccolte di test analizzano con `go infinite` senza impostare UCI_AnalyseMode. In partita

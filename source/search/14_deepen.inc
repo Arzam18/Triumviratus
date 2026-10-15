@@ -191,8 +191,10 @@ static bool an_direct(ThreadData &td, int lines) {
     return false;
   MoveSafety s;
   s.ready = false;
-  const auto forcing = [&](int m) { return is_tactical(m) || checks_before(td, s, m); };
-  if (forcing(b.pv[0]) && !forcing(a.pv[0])) {
+  // Diretta: scacco, cattura, promozione, o sacrificio (mossa tranquilla con scambio statico negativo). 15/10/2026
+  // notte: senza il sacrificio la regola perdeva IQ4 162 (chiave Bd5, alfiere in presa, scambiata con lo scacco Nf5+).
+  const auto direct = [&](int m) { return is_tactical(m) || checks_before(td, s, m) || !see_holds(td, m, 0); };
+  if (direct(b.pv[0]) && !direct(a.pv[0])) {
     std::swap(a, b);
     return true;
   }

@@ -98,9 +98,9 @@ picks the best of five builds for the CPU (AVX2 without PEXT, AVX2, AVX-512, AVX
 name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
 `source/universal/build_universal.ps1 -Official`.
 
-For the analysis of hard positions: [Triumviratus 8.0 Pos Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver),
-the same engine with search settings chosen for test positions (analysis mode always on, a two-line search). On the
-Arasan 2026 collection at 1 second per position it solves 161 of 200, against 137 for 8.0 and 140 for Stockfish 19
+For the analysis of hard positions: [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver),
+the same engine with search settings chosen for test positions (analysis mode always on, a two-line search, a preference for the most direct win). At 1 second per
+position it solves 155 of 183 on IQ4 and 160 of 200 on Arasan 2026, against 145 and 137 for 8.0 and 139 and 140 for Stockfish 19
 (details in [DEVELOPMENT_8.0.md §49](DEVELOPMENT_8.0.md)). For games, use 8.0.
 
 ## Rating lists

@@ -21,7 +21,7 @@ engines**
 [PassedPawns](#2-the-passedpawns-input-block) · [CorrPhase](#3-correction-history-per-expert-corrphase) ·
 [Move ordering](#4-move-ordering-with-chess-knowledge) · [Neurons](#5-the-first-layer-neuron-by-neuron-per-expert) ·
 [Other new ideas](#6-other-new-ideas-not-adopted) · [Revisited](#7-known-ideas-revisited-in-a-different-form) ·
-[Speed](#8-speed-work) · [Done elsewhere first](#9-done-elsewhere-first) · [Analysis build](#10-analysis-build-pos-solver) ·
+[Speed](#8-speed-work) · [Done elsewhere first](#9-done-elsewhere-first) · [Analysis build](#10-analysis-build-position-solver) ·
 [Open checks](#11-open-checks)
 
 </div>
@@ -54,7 +54,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 Of 54 entries, **11 are new**, **27 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
-experts of the network. The analysis build has its own section ([§10](#10-analysis-build-pos-solver)), outside these counts.
+experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
 
 | entry | category | version | measured effect | status |
 |---|---|---|---|---|
@@ -502,9 +502,9 @@ priority.
 Versions 1.x and 2.x were learning engines, built on the models of VICE and of BBC (the video series of Code Monkey
 King), and have no new entries.
 
-## 10. Analysis build (Pos Solver)
+## 10. Analysis build (Position Solver)
 
-Techniques of [Triumviratus 8.0 Pos Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver), the
+Techniques of [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver), the
 build for hard positions (October 2026). They act only in analysis, so they are kept apart from the game entries and
 from the counts of the summary. The measure here is the number of positions solved, on IQ4 (183 positions) and on the
 Arasan 2026 collection (200), at fixed nodes with one thread; details in
@@ -514,9 +514,9 @@ knowledge.
 
 | entry | category | measured effect | status |
 |---|---|---|---|
-| Two-line search in analysis (`AnShadow`): the second best root move is always searched with a full window, as with MultiPV 2, while the interface sees only the lines it asks for | Revisited (MultiPV is standard; our form is a solving mode that does not depend on the interface's setting) | Arasan 157 → 170 at 1M nodes, 166 → 178 at 2M, 151 → 161 at 1 s; IQ4 level (158 → 157 at 1M, 161 → 163 at 4M) | default in the Pos Solver |
-| Separate analysis settings chosen at compile time, with the per-expert pruning margins of the game build switched off | Revisited | IQ4 at 1M nodes: release 148, the same build with the game margins off 156 | the Pos Solver |
-| Preference for the more direct win (`AnDirect`): when both exact lines win clearly (above +3), the forcing one (check, capture, promotion) is shown and played if the higher one is quiet and the gap is at most 2 pawns; the search tree is unchanged | New | same tree: IQ4 163 → 164 (two captures found, one quiet sacrifice lost), Arasan unchanged | option, off |
+| Two-line search in analysis (`AnShadow`): the second best root move is always searched with a full window, as with MultiPV 2, while the interface sees only the lines it asks for | Revisited (MultiPV is standard; our form is a solving mode that does not depend on the interface's setting) | Arasan 157 → 170 at 1M nodes, 166 → 178 at 2M, 151 → 161 at 1 s; IQ4 level (158 → 157 at 1M, 161 → 163 at 4M) | default in the Position Solver |
+| Separate analysis settings chosen at compile time, with the per-expert pruning margins of the game build switched off | Revisited | IQ4 at 1M nodes: release 148, the same build with the game margins off 156 | the Position Solver |
+| Preference for the more direct win (`AnDirect`): when both exact lines win clearly (above +3), the direct one (check, capture, promotion, or a sacrifice: a quiet move that loses material by static exchange) is shown and played if the higher one is not direct and the gap is at most 4 pawns; the search tree is unchanged | New | same tree: IQ4 163 → 166 at 4M nodes (three solutions added, none lost), Arasan 178 unchanged; without the sacrifice in the definition, 164 (a quiet sacrifice was lost) | default in the Position Solver (v3) |
 | Depth instead of pruning in analysis (`AnDeep` presets: wider futility margins and one ply less reduction from root depth 5) | Revisited, inspired by ShashChess's GoldDigger | +3 to +7 positions over three collections at 8M nodes (9 October); level with the alternatives on top of the two-line search | default in analysis mode |
 | GoldDigger on our search (`AnGold`) | Done elsewhere first (ShashChess) | +11 on IQ4 over the release tree, nothing over the Pos Solver tree | option, off |
 | No pruning along the previous principal line near the root (`AnCrystal`) | Done elsewhere first (Crystal) | within the noise | option, off |
