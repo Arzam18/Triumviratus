@@ -612,7 +612,15 @@ static bool cpu_vendor_intel() {
   return false;
 #endif
 }
+// 15/10/2026: SPENTO nelle build AVX-512 (avx512, vnni512, avx512icl). Xeon Gold 6138 a due socket, variante avx512,
+// PGO, xperf a motore fissato, 4 giri: senza prefetch -0,40% cicli/nodo mediogioco e -0,72% finali rispetto alla PR
+// completa (rumore A/A 0,28% / 0,19%), salti mal predetti di nuovo al livello della base (DEVELOPMENT_8.1 §1). Resta
+// acceso dove e' stato misurato: Intel senza AVX-512 (12a-14a generazione) nelle build avx2, avx2-nopext, avxvnni.
+#if defined(USE_AVX512)
+static const bool g_next_prefetch = false;
+#else
 static const bool g_next_prefetch = cpu_vendor_intel();
+#endif
 
 static inline void queue_prefetch(const MoveQueue &q, int m) {
   if (g_next_prefetch)

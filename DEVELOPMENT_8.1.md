@@ -74,6 +74,24 @@ second against 835,503). The 8.1 release will therefore train the AVX-VNNI varia
 bring that profile into the universal build; the build script needs an option to import a profile trained elsewhere. The change stays: it costs nothing on AVX-512 and helps the processors where it
 acts.
 
+**Each change on its own, Xeon.** Five `avx512` builds with PGO from the same batch (base, the full pull request,
+and the pull request without one change each), xperf with the engine pinned, 4 rounds; cycles per node against the
+full pull request:
+
+| | middlegame | endgames |
+|---|---:|---:|
+| without the next-move prefetch | **−0.40%** | **−0.72%** |
+| with the old staged generator | +0.26% | −0.22% |
+| with the evaluation cache back | +0.19% | +0.32% |
+| noise (`base_copia` against base) | 0.28% | 0.19% |
+
+The prefetch costs on the dual-socket Xeon in both workloads, and without it the branch mispredictions return to the
+level of the base: it is now off in the AVX-512 builds (avx512, vnni512, avx512icl) and stays on where it was
+measured, on Intel processors without AVX-512. Removing the evaluation cache helps here too. The legal generator and
+the old one are level on AVX-512: the legal generator saves the legality tests, while the old one wrote the moves of a
+piece sixteen at a time with `vpcompressd`, which the legal generator does not do. A legal generator with that
+compacted writing might take both gains on AVX-512 processors; it is proposed to the author as a next step.
+
 **Node counts.** The bench is identical, but in a workload of 30 positions searched one after another in the same
 process, without `ucinewgame` in between, the pull request searches 12,008,338 nodes per round against 12,008,522,
 the same difference in every round. The likely cause is the removed evaluation cache: a hit stored with a different
