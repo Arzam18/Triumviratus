@@ -48,10 +48,10 @@ param(
     [int]$Only = 0,
     [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
     # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.0", -DTRIUMV_OFFICIAL) e file
-    # Triumviratus_8.0_universal.exe. Senza -Official resta la pre-release datata.
+    # Triumviratus_8.0_windows_universal.exe. Senza -Official resta la pre-release datata.
     [switch]$Official,
     # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
-    # dell'11/10), id name "Triumviratus - 8.0 Pos Solver", file Triumviratus_8.0_PosSolver_universal.exe. Il bench e'
+    # dell'11/10), id name "Triumviratus - 8.0 Pos Solver", file Triumviratus_8.0_PosSolver_windows_universal.exe. Il bench e'
     # quello della modalita' analisi: va passato con -ExpectedBench.
     [switch]$PosSolver
 )
@@ -322,7 +322,7 @@ if (-not $NoPgo) {
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
-$exe = if ($Official) { "$Out\Triumviratus_8.0_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
+$exe = if ($Official) { "$Out\Triumviratus_8.0_windows_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
 if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8\.0_', 'Triumviratus_8.0_PosSolver_' }
 if ($Only) {
     if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
