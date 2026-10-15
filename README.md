@@ -134,11 +134,6 @@ and 139 and 140 for Stockfish 19
 <sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
 other.</sub>
 
-## Contributing
-
-The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
-branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
-
 ## Credits
 
 ### Testers and contributors
@@ -191,6 +186,11 @@ Viridithas, and adopted by Stockfish in July 2026 as `PP_3Wide`; our implementat
 is his. The **`PassedPawns`** block (one input per passed pawn) is **an original feature of this project**.
 
 The open-source computer-chess community is what makes a project like this possible.
+
+## Contributing
+
+The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
+branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
 
 ## Earlier releases
 
