@@ -5,7 +5,8 @@ Two branches: **`main`** holds the released code (8.0), **`dev`** holds the work
 
 ## Code contributions
 
-1. Fork the repository and branch from `dev`. One change per pull request.
+1. Fork the repository and branch from `dev`. Changes that keep the search identical can go together in one pull
+   request, listed in its description; each change to the search goes in its own pull request.
 2. Build and run the bench (`source/Makefile`, then `bench` in the engine). Put the result in the last commit
    message as `Bench: <nodes>`. The check on the pull request builds the engine and compares the two numbers.
 3. Say which kind of change it is:
