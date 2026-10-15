@@ -141,6 +141,11 @@ other.</sub>
 
 ---
 
+## Contributing
+
+The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
+branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
+
 ## License
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
