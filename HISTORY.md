@@ -6,13 +6,29 @@ release are described in the [`README`](README.md); how each network was trained
 
 | Release | Network | Headline |
 |---|---|---|
-| **7.0** (current) | `legio-septima` | +21.34 Elo over 6.0 (25+0.25, release binaries) |
+| **8.0** (current) | `nn-consilium` | +128.0 Elo over 7.0 (5+0.05, 4,000 games); level with Stockfish 18 and 19 at 133+1 |
+| **8.0 Position Solver** | `nn-consilium` | analysis build for hard positions: IQ4 155/183 and Arasan 2026 160/200 at 1 s |
+| **7.0** | `legio-septima` | +21.34 Elo over 6.0 (25+0.25, release binaries) |
 | **6.0** | `nn-rubicon-alea-v3` | +52.98 Elo over 5.1 (40+0.4, SPRT passed) |
 | **5.1** | `nn-rubicon-alea-v1` | +64.7 Elo over 5.0 (official gate) |
 | **5.0** | `nn-rubicon-alea-v1` | first SFNNv13 (threats) net · ≈ +50 Elo over 4.2 |
 | **4.2** | `rubicon-v1` | first network trained by the author |
 
 ---
+
+## Triumviratus 8.0
+
+Released October 2026. **Consilium**, a mixture-of-experts network: the king-relative input block is split into four
+experts by material (input buckets by piece count), with the project's `PassedPawns` block alongside the threat and
+pawn-pair inputs. A restructured search on the algorithmic base of Stockfish 19, re-tuned on Consilium, with margins
+and corrections per network expert; new time management; faster code at an identical tree; Chess960; one executable
+for every x86-64 CPU with AVX2. Against 7.0: **+128.0 ± 5.6 Elo** at 5+0.05 (4,000 games) and +129.9 ± 15.7 at
+20+0.2 (400 games); against Stockfish 18 +4.6 ± 5.0 (600 games) and Stockfish 19 −4.3 ± 6.3 (240 games) at 133+1.
+Details in the [`README`](README.md), [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) and [`NOVELTIES.md`](NOVELTIES.md).
+
+**Triumviratus 8.0 Position Solver** (October 2026) is a separate build of the same engine for analysing hard
+positions: analysis mode always on, a two-line search and a preference for the most direct win
+([`DEVELOPMENT_8.0.md` §49](DEVELOPMENT_8.0.md), [`NOVELTIES.md` §10](NOVELTIES.md)).
 
 ## Triumviratus 7.0
 
