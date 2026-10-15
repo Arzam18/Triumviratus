@@ -174,6 +174,13 @@ led the author to the surprise rule of 8.0's time management. Many thanks to him
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included.
 
+### Code contributions
+
+**A Tin Man** sent the project's first code contribution (pull request 6, October 2026, for 8.1): a legal move
+generator ported from his own engine, Zoomini, with the move order of ours; an AVX-VNNI variant of the universal
+executable for Intel processors without AVX-512; the removal of the per-thread evaluation cache; and three smaller
+speed changes. The search tree is identical ([`DEVELOPMENT_8.1.md`](DEVELOPMENT_8.1.md), section 1).
+
 ### Code from other projects
 
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): the NNUE inference machinery in `nnue/`, ported from SFNNv16 and since extended for Triumviratus' own networks (the PassedPawns and PawnPair blocks, the four experts of Consilium, row permutation for cache locality, refresh caches, measured speed changes).
