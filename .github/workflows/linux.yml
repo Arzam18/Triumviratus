@@ -1,0 +1,78 @@
+# Linux builds of Triumviratus 8.0 (x86-64). Started by hand (Actions -> Linux builds -> Run workflow).
+# Each job downloads the network from the v8.0 release and builds with clang and PGO, with the same training as the
+# Windows release (source/universal/pgo_train_det.py on pgo_positions.epd, fixed nodes), statically linked so the
+# file runs on any distribution. The bench is checked on the runner (game build 137419, Position Solver 2911093);
+# a build whose instruction set the runner lacks is not run, and the log says so.
+name: Linux builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      pgo:
+        description: "Profile-guided optimisation"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: all, flag: avx2, flavour: game, bench: "137419", bin: triumviratus, out: Triumviratus_8.0_linux_avx2 }
+          - { target: nopext, flag: avx2, flavour: game, bench: "137419", bin: triumviratus, out: Triumviratus_8.0_linux_avx2-nopext }
+          - { target: avx512, flag: avx512bw, flavour: game, bench: "137419", bin: triumviratus, out: Triumviratus_8.0_linux_avx512 }
+          - { target: sse41, flag: sse4_1, flavour: game, bench: "137419", bin: triumviratus_sse41, out: Triumviratus_8.0_linux_sse41 }
+          - { target: all, flag: avx2, flavour: possolver, bench: "2911093", bin: triumviratus, out: Triumviratus_8.0_PosSolver_linux_avx2 }
+    env:
+      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue
+      BIN: source/${{ matrix.bin }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain and network
+        run: |
+          clang++ --version | head -1
+          PROFDATA=$(ls /usr/bin/llvm-profdata* 2>/dev/null | sort -V | tail -1); echo "PROFDATA=$PROFDATA" >> "$GITHUB_ENV"; echo "llvm-profdata: $PROFDATA"
+          grep -o -w -E 'avx2|bmi2|avx512bw|sse4_1' /proc/cpuinfo | sort -u | tr '\n' ' '; echo
+          curl -sSL -o source/nn-consilium.nnue https://github.com/Tors3/Triumviratus/releases/download/v8.0/nn-consilium.nnue
+      - name: Flags
+        run: |
+          EXTRA="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL -ffp-contract=off -static"   # as the Windows build: no fused multiply-add
+          if [ "${{ matrix.flavour }}" = "possolver" ]; then EXTRA="$EXTRA -DTRIUMV_POS_SOLVER"; fi
+          echo "EXTRA=$EXTRA" >> "$GITHUB_ENV"
+          if grep -q -w "${{ matrix.flag }}" /proc/cpuinfo; then echo "CANRUN=1" >> "$GITHUB_ENV"; else echo "CANRUN=0" >> "$GITHUB_ENV"; fi
+      - name: Instrumented build and training
+        if: ${{ inputs.pgo && env.CANRUN == '1' }}
+        run: |
+          $MK EXTRACXXFLAGS="$EXTRA -fprofile-generate -DCLANG_PGO_GEN"
+          mkdir -p prof
+          LLVM_PROFILE_FILE="$PWD/prof/p_%p.profraw" python3 source/universal/pgo_train_det.py "$PWD/$BIN" 0 \
+            source/universal/pgo_positions.epd 200 --workers 4
+          ls prof | wc -l
+          $PROFDATA merge -output=merged.profdata prof/*.profraw
+          make -C source clean >/dev/null && rm -f "$BIN"   # only clean: the next step builds with the profile
+      - name: Build
+        run: |
+          if [ -f merged.profdata ]; then
+            $MK EXTRACXXFLAGS="$EXTRA -fprofile-use=$PWD/merged.profdata -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled"
+          else
+            echo "no profile (PGO off, or the runner cannot run this instruction set)"
+            $MK EXTRACXXFLAGS="$EXTRA"
+          fi
+          cp "$BIN" ${{ matrix.out }}
+          file ${{ matrix.out }}
+      - name: Bench
+        if: ${{ env.CANRUN == '1' }}
+        run: |
+          printf 'bench\nquit\n' | ./${{ matrix.out }} > bench.txt 2>&1 || true
+          tail -5 bench.txt
+          printf 'uci\nquit\n' | ./${{ matrix.out }} | grep "^id name"
+          grep -q "Nodes searched *: *${{ matrix.bench }}$" bench.txt
+      - name: Not run on this machine
+        if: ${{ env.CANRUN != '1' }}
+        run: echo "::warning::${{ matrix.out }} built without PGO and not benched (the runner has no ${{ matrix.flag }})"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: ${{ matrix.out }}

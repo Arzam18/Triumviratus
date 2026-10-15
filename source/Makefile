@@ -200,6 +200,13 @@ ifneq (,$(filter android-dotprod,$(MAKECMDGOALS)))
   ARCH += -march=armv8.2-a+dotprod
 endif
 
+# ---- sse41 (15/10/2026): x86-64 senza AVX2 (CPU prima di Haswell, 2013): SSE4.1 + POPCNT, niente PEXT ------
+ifneq (,$(filter sse41,$(MAKECMDGOALS)))
+  DEFS := $(filter-out -DUSE_AVX2 -DUSE_PEXT,$(DEFS))
+  ARCH := -msse4.1 -mssse3 -msse2 -mpopcnt
+  EXE  := triumviratus_sse41
+endif
+
 # ---- macOS (15/10/2026, issue #4) ------------------------------------------
 #   make macos-arm CXX=clang++ NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
 #                                                           gli stessi percorsi della build android-dotprod
@@ -268,6 +275,7 @@ android: $(EXE)
 android-dotprod: $(EXE)
 macos-arm: $(EXE)
 macos-x86: $(EXE)
+sse41: $(EXE)
 
 $(EXE): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $@ $(LIBS)
