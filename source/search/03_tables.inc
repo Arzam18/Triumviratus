@@ -120,7 +120,6 @@ static void clock_memory_reset();
 void search_clear() {
   for (auto &td : thread_data) {
     thread_stats_reset(td);
-    memset(td.eval_cache, 0, sizeof(td.eval_cache));
   }
   shared_stats_reset();
   clock_memory_reset();

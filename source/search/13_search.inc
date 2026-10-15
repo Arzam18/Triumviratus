@@ -523,11 +523,12 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
     const int cut_depth = n.depth - (n.improving ? 5 : 3);
     int m;
     while ((m = queue_next(q)) != 0) {
-      if (m == n.excluded || !legal_before(td, s, m))
+      const bool gen_legal = queue_move_legal(q, m);
+      if (m == n.excluded || (!gen_legal && !legal_before(td, s, m)))
         continue;
       const bool gives = checks_before(td, s, m);
       UndoInfo u;
-      if (!step_in(td, f, m, u))
+      if (!step_in(td, f, m, u, gen_legal))
         continue;
       f[1].in_check = gives;
       int v = -quiesce(td, f + 1, -cut_beta, -cut_beta + 1, false);
@@ -725,7 +726,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int gd_style = AN ? td.gd_style : 0;   // AnGold: stile della radice (0 in partita)
 
   while ((m = queue_next(q)) != 0) {
-    if (m == n.excluded || !legal_before(td, s, m))
+    const bool gen_legal = queue_move_legal(q, m);
+    if (m == n.excluded || (!gen_legal && !legal_before(td, s, m)))
       continue;
     int root_rank = 0;   // posizione della mossa nella lista della radice (ordine dell'iterazione precedente)
     if (n.root) {
@@ -796,7 +798,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 
     const U64 nodes_before = td.nodes;
     UndoInfo u;
-    if (!step_in(td, f, m, u)) {
+    if (!step_in(td, f, m, u, gen_legal)) {
       f->move_count = --n.moves;
       continue;
     }

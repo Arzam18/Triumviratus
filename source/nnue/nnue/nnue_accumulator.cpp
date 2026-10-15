@@ -92,6 +92,32 @@ struct HkaRow {
     #define HKA_AT(r, k) ((r)[k])
 #endif
 
+// W1 (15/10/2026): una riga threat int8 (column, puntatore ai suoi 16 byte per registro) sommata o sottratta (op) ai
+// NumRegs registri int16 di un tile. Con TRIUMV_THR_ILV (simd.h) la riga e' a byte intercalati: un carico da 32 byte
+// per due registri, allargato sulle porte 0/1 (vpmaddubsw per i byte pari, vpsraw per i dispari).
+#ifdef TRIUMV_THR_ILV
+    #define THR_ROW_OP(op, a, column) \
+        do \
+        { \
+            static_assert(Tiling::NumRegs % 2 == 0); \
+            const __m256i* w2_  = reinterpret_cast<const __m256i*>(column); \
+            const __m256i  one_ = _mm256_set1_epi16(1); \
+            for (IndexType k = 0; k < Tiling::NumRegs; k += 2) \
+            { \
+                const __m256i w_ = _mm256_loadu_si256(w2_ + k / 2); \
+                a[k]             = op(a[k], _mm256_maddubs_epi16(one_, w_)); \
+                a[k + 1]         = op(a[k + 1], _mm256_srai_epi16(w_, 8)); \
+            } \
+        } while (0)
+#else
+    #define THR_ROW_OP(op, a, column) \
+        do \
+        { \
+            for (IndexType k = 0; k < Tiling::NumRegs; ++k) \
+                a[k] = op(a[k], vec_convert_8_16(column[k])); \
+        } while (0)
+#endif
+
 namespace {
 
 // 07/10/2026 (scacchiera unica v2): una transizione della catena e' una coppia (accumulatore, stato) per parte; lo
@@ -460,8 +486,7 @@ void apply_combined(Color                              perspective,
                 acc[k + 1] = vsubw_high_s8(acc[k + 1], column[k / 2]);
             }
     #else
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], vec_convert_8_16(column[k]));
+            THR_ROW_OP(vec_sub_16, acc, column);
     #endif
             if constexpr (WithPsqt)
             {
@@ -484,8 +509,7 @@ void apply_combined(Color                              perspective,
                 acc[k + 1] = vaddw_high_s8(acc[k + 1], column[k / 2]);
             }
     #else
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], vec_convert_8_16(column[k]));
+            THR_ROW_OP(vec_add_16, acc, column);
     #endif
             if constexpr (WithPsqt)
             {
@@ -1052,7 +1076,7 @@ void vg_check_acc(const char*               where,
     {
         const usize idx = usize(active[i]);
         for (IndexType j = 0; j < Dimensions; ++j)
-            acc[j] = i16(u16(acc[j]) + u16(i16(ft.threatWeights[idx * Dimensions + j])));
+            acc[j] = i16(u16(acc[j]) + u16(i16(ft.threatWeights[idx * Dimensions + FeatureTransformer::thr_byte(j)])));
         for (usize k = 0; k < PSQTBuckets; ++k)
             psqt[k] = i32(u32(psqt[k]) + u32(ft.threatPsqtWeights[idx * PSQTBuckets + k]));
     }
@@ -1303,8 +1327,7 @@ void update_accumulator_hybrid(Color                     perspective,
                 acc[k + 1] = vsubw_high_s8(acc[k + 1], column[k / 2]);
             }
     #else
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_sub_16(acc[k], vec_convert_8_16(column[k]));
+            THR_ROW_OP(vec_sub_16, acc, column);
     #endif
             if constexpr (WithPsqt)
             {
@@ -1325,8 +1348,7 @@ void update_accumulator_hybrid(Color                     perspective,
                 acc[k + 1] = vaddw_high_s8(acc[k + 1], column[k / 2]);
             }
     #else
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], vec_convert_8_16(column[k]));
+            THR_ROW_OP(vec_add_16, acc, column);
     #endif
             if constexpr (WithPsqt)
             {
@@ -1550,8 +1572,7 @@ void update_accumulator_refresh_cache(Color                     perspective,
                 acc[k + 1] = vaddw_high_s8(acc[k + 1], column[k / 2]);
             }
     #else
-            for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                acc[k] = vec_add_16(acc[k], vec_convert_8_16(column[k]));
+            THR_ROW_OP(vec_add_16, acc, column);
     #endif
             if constexpr (WithPsqt)
             {
@@ -1599,8 +1620,7 @@ void update_accumulator_refresh_cache(Color                     perspective,
                     pv[k + 1] = vaddw_high_s8(pv[k + 1], column[k / 2]);
                 }
     #else
-                for (IndexType k = 0; k < Tiling::NumRegs; ++k)
-                    pv[k] = vec_add_16(pv[k], vec_convert_8_16(column[k]));
+                THR_ROW_OP(vec_add_16, pv, column);
     #endif
                 if constexpr (WithPsqt)
                 {

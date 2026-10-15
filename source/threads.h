@@ -178,20 +178,14 @@ struct ThreadData {
     PieceToRow cont_corr[NO_PC + 1][64];
     int        tt_move_hist;
 
-    // Rete incrementale e cache della valutazione
+    // Rete incrementale
     void* nnpos = nullptr;
     NnStack* nnstack = nullptr;   // pila delle dirty dell'handle nnpos: la scrivono make e unmake (06_nndirty.inc)
-    static constexpr int EVAL_CACHE_BITS = 16;
-    static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
-    static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    // EVC8 ADOTTATA 14/10/2026 (xperf a macchina ferma, 3 giri: con ext-tsp -0,6% cicli mediogioco, 0 finali; albero
-    // identico; unico percorso dal 14/10/2026, la voce da 16 byte e' in _backup/Triumviratus_8.0_pre_pulizia_2026-10-14).
-    // EVC8 (14/10/2026, velocita' ad albero identico, idea 2 di AG2_VELOCITA_IDEE): una parola da 8 byte invece di 16 =
-    // 48 bit alti della chiave + 16 bit di valutazione. L'indice usa gia' i 16 bit bassi, quindi indice + 48 bit
-    // confrontano tutti i 64 bit della chiave: stessi hit. La tabella passa da 1 MB a 512 KB (la L2 di questo Xeon e'
-    // 1 MB). Le valutazioni fuori da int16 non si scrivono (hit perso, stesso valore ricalcolato: albero identico).
-    struct EvalCacheEntry { U64 word; };
-    EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
+    // E1 (15/10/2026, velocita' ad albero identico): TOLTA la cache delle valutazioni per thread (EVC8, 512 KB).
+    // Contatori: bench 20 2.519.149 consultazioni e 12 hit; una partita di 40 semimosse a 500k nodi (cache mai svuotata
+    // fra le mosse) 9.382.726 consultazioni e 62 hit, e una cache perfetta ne avrebbe presi solo lo 0,5% in piu'. Le
+    // posizioni gia' valutate le trova la TT, che tiene la valutazione (node_eval): la cache costava una lettura (spesso
+    // fuori dalla L2), una scrittura, due prefetch per mossa e 512 KB di L2 per thread.
 };
 
 // V1 (08/10/2026, velocita', albero identico): i ThreadData su large pages. Ognuno e' ~3 MB letti a caso a ogni

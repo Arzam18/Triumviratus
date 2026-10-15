@@ -189,15 +189,46 @@ class FeatureTransformer {
 
     }
 
+    // W1 (15/10/2026, simd.h): byte delle righe threat intercalati a blocchi di 32 (byte 2j = elemento j, byte 2j+1 =
+    // elemento 16+j), per allargarli a int16 con vpmaddubsw e vpsraw invece di vpmovsxbw. Si applica DOPO le altre
+    // permutazioni (e si toglie per prima): riordina solo i byte dentro un blocco di 32, che e' allineato al tile.
+    void interleave_threat_rows([[maybe_unused]] bool inverse) {
+#ifdef TRIUMV_THR_ILV
+        static_assert(HalfDimensions % 32 == 0);
+        auto*        p = reinterpret_cast<std::uint8_t*>(threatWeights.data());
+        std::uint8_t tmp[32];
+        for (usize b = 0; b < sizeof(threatWeights); b += 32)
+        {
+            for (int j = 0; j < 16; ++j)
+                if (!inverse)
+                    tmp[2 * j] = p[b + j], tmp[2 * j + 1] = p[b + 16 + j];
+                else
+                    tmp[j] = p[b + 2 * j], tmp[16 + j] = p[b + 2 * j + 1];
+            std::memcpy(p + b, tmp, 32);
+        }
+#endif
+    }
+
+    // Byte della riga threat in memoria per l'elemento j (letture scalari, verifiche).
+    static constexpr IndexType thr_byte(IndexType j) {
+#ifdef TRIUMV_THR_ILV
+        return (j & ~IndexType(31)) + 2 * (j & 15) + ((j >> 4) & 1);
+#else
+        return j;
+#endif
+    }
+
     void permute_weights() {
         permute<16>(biases, PackusEpi16Order);
         permute<16>(weights, PackusEpi16Order);
 
         permute<8>(threatWeights, PackusEpi16Order);  // copre anche il segmento pawn (folded)
         permute_rows(false);
+        interleave_threat_rows(false);
     }
 
     void unpermute_weights() {
+        interleave_threat_rows(true);
         permute<16>(biases, InversePackusEpi16Order);
         permute<16>(weights, InversePackusEpi16Order);
         permute<8>(threatWeights, InversePackusEpi16Order);

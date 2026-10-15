@@ -36,7 +36,7 @@ static inline int td_nn_eval(ThreadData &td) {
   return nn_pos_eval(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white, td.fifty);
 }
 
-// La rete smorza la valutazione col contatore delle 50 mosse: v * (199 - fifty) / 199. In TT e nella cache si
+// La rete smorza la valutazione col contatore delle 50 mosse: v * (199 - fifty) / 199. In TT si
 // tiene il valore SENZA smorzamento, cosi' vale per ogni trasposizione, e lo si rismorza alla lettura.
 // W1 (08/10/2026, velocita', stesso valore): il divisore 199 - fifty cambia a run time e la divisione era una idiv
 // (~26 cicli di latenza) a ogni valutazione fresca, due volte (cache delle valutazioni e hash). Ora moltiplica per il
@@ -68,7 +68,7 @@ static inline int eval_refade(int v, int fifty) {
 // (<= 9, 10-15, 16-23, >= 24). Serve a PhaseEdge* e CorrPhase.
 static inline int net_phase(int pieces) { return pieces <= 9 ? 0 : pieces <= 15 ? 1 : pieces <= 23 ? 2 : 3; }
 
-// Valutazione della rete (unita' della rete), con la cache per thread.
+// Valutazione della rete (unita' della rete).
 static inline int net_evaluate(ThreadData &td) {
   PROF_GUARD(prof_eval);
   if (g_eval_off) {
@@ -78,15 +78,7 @@ static inline int net_evaluate(ThreadData &td) {
       s += mat[pc] * (count_bits(td.bitboards[pc]) - count_bits(td.bitboards[pc + 6]));
     return td.side == white ? s : -s;
   }
-  ThreadData::EvalCacheEntry &ce = td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK];
-  constexpr U64 kHi = ~(U64)0xFFFF;   // EVC8 (threads.h): 48 bit alti della chiave + 16 bit di valutazione
-  if (((ce.word ^ td.hash_key) & kHi) == 0)
-    return eval_refade((int16_t)(uint16_t)ce.word, td.fifty);
-  const int v = td_nn_eval(td);
-  const int u = eval_unfade(v, td.fifty);
-  if (u >= INT16_MIN && u <= INT16_MAX)
-    ce.word = (td.hash_key & kHi) | (uint16_t)(int16_t)u;
-  return v;
+  return td_nn_eval(td);   // E1 (15/10/2026): niente cache per thread, vedi threads.h
 }
 
 // Valutazione nelle unita' dei margini della ricerca: x EvalUnits/1024, dentro la fascia delle tablebase.

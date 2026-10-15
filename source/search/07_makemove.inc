@@ -305,13 +305,9 @@ static inline U64 td_child_key_guess(const ThreadData &td, int move) {
     key ^= enpassant_keys[td.enpassant];
   return key;
 }
-// Le due linee che il figlio legge per prime: il bucket hash e la cache delle valutazioni (1 MB per thread).
-// 05/10/2026: il profilo attribuiva l'1,8% dei cicli alla riga della eval cache; PROVATO a toglierla: xperf 6 giri a
-// macchina quieta, 55,8 M nodi identici, cicli +0,89%, istruzioni +0,28%. Il prefetch serve: quei campioni erano la
-// traduzione dell'indirizzo del bucket hash (riga sopra) attribuita all'istruzione dopo. Resta.
-static inline void td_prefetch_child(const ThreadData &td, U64 key) {
+// La linea che il figlio legge per prima: il bucket hash (la cache delle valutazioni non c'e' piu', E1 in threads.h).
+static inline void td_prefetch_child(const ThreadData &, U64 key) {
   TT_PREFETCH(&hash_table[tt_base_index(key)]);
-  TT_PREFETCH(&td.eval_cache[key & ThreadData::EVAL_CACHE_MASK]);
 }
 
 // known_legal: la ricerca ha gia' deciso la legalita' (legal_before a re non sotto scacco, vedi step_in) e il test
@@ -489,10 +485,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   // La chiave della hash puo' portare la fascia delle 50 mosse (tt_key, HashFiftyStep): se differisce dalla stima si
   // richiama la riga giusta. A opzione spenta tt_key e' td.hash_key e il test e' quello di prima.
   const U64 tk = tt_key(td);
-  if (tk != pf_key) { // stima sbagliata (arrocco, promozione, e.p., fascia delle 50 mosse)
+  if (tk != pf_key)   // stima sbagliata (arrocco, promozione, e.p., fascia delle 50 mosse)
     TT_PREFETCH(&hash_table[tt_base_index(tk)]);
-    TT_PREFETCH(&td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK]);
-  }
 
   // ⛔ 04/10/2026 — PROVATO E TOLTO: prefetch qui, alla mossa, delle righe HalfKA che l'aggiornamento del figlio
   // usera' (pezzo che parte/arriva/catturato, due prospettive, fascia del figlio). xperf 6 giri, nodi identici:

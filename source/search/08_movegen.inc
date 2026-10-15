@@ -541,6 +541,41 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
   move_list->count = mg_cnt;
 }
 
+// GL (15/10/2026): generatore LEGALE (movegen_legal.h). Copre le tre forme che la ricerca chiede: tutte le mosse
+// (parate, radice, perft), le tattiche di fill_tactics e le quiete di fill_quiets. Le liste sono quelle di
+// td_generate_moves_side meno le mosse illegali, NELLO STESSO ORDINE (legal_emit_tv): albero identico, bench invariato
+// (137419). Il Chess960 e le forme che la ricerca non chiede (promozione a cavallo fra le tattiche) restano sul
+// generatore pseudo-legale di sempre.
+#include "../movegen_legal.h"
+
+// true: le liste di td_generate_moves contengono solo mosse legali (fuori dal Chess960), quindi la ricerca puo'
+// saltare legal_before e il test del re nella make per le mosse che non sono la mossa hash.
+static inline bool td_lists_legal() { return !g_chess960; }
+
+// Una fase della coda (tattiche, quiete, parate) con un solo legal_prepare per nodo: inchiodature, scacchi e maschere
+// si calcolano alla prima fase e la coda li tiene per le successive (MoveQueue::lgen).
+struct LegalNode {
+  legalgen::LegalInfo info;
+  bool                ready;
+};
+template <legalgen::Stage St>
+static inline int legal_generate_stage(ThreadData &td, LegalNode &z, int *out) {
+  PROF_GUARD(prof_mg);
+#ifdef TRIUMV_PROFILE
+  prof_n_mg++;
+#endif
+  legalgen::ListSink<St> sink(out);
+  if (td.side == white) {
+    if (!z.ready) legalgen::legal_prepare<white>(td, z.info);
+    legalgen::legal_emit_tv<white>(td, z.info, sink);
+  } else {
+    if (!z.ready) legalgen::legal_prepare<black>(td, z.info);
+    legalgen::legal_emit_tv<black>(td, z.info, sink);
+  }
+  z.ready = true;
+  return sink.n;
+}
+
 static void td_generate_moves(ThreadData &td, moves *move_list,
                               bool captures_only = false,
                               bool quiets_only   = false,
@@ -548,6 +583,24 @@ static void td_generate_moves(ThreadData &td, moves *move_list,
                               bool promo_quiet   = false,
                               bool promo_queen_only = false,
                               bool promo_knight = false) {
+  if (td_lists_legal() && !promo_knight) {
+    PROF_GUARD(prof_mg);
+#ifdef TRIUMV_PROFILE
+    prof_n_mg++;
+#endif
+    if (!captures_only && !quiets_only && !promo_queen_only) {
+      move_list->count = legalgen::generate_legal_tv<legalgen::ALL>(td, move_list->moves);
+      return;
+    }
+    if (captures_only && !quiets_only && promo_quiet && promo_queen_only) {
+      move_list->count = legalgen::generate_legal_tv<legalgen::TACTICS>(td, move_list->moves);
+      return;
+    }
+    if (quiets_only && !captures_only && !promo_queen_only) {
+      move_list->count = legalgen::generate_legal_tv<legalgen::QUIETS>(td, move_list->moves);
+      return;
+    }
+  }
   if (td.side == white)
     td_generate_moves_side<white>(td, move_list, captures_only, quiets_only, known_in_check,
                                   promo_quiet, promo_queen_only, promo_knight);

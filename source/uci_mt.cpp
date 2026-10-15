@@ -933,16 +933,14 @@ void uci_loop()
             {
                 s_loaded_net = resolved;
                 // Net swapped: EVERY cached eval derived from the old net is stale
-                // (same family as the finny g_net_gen bug, 2026-07-14). The eval
-                // cache has no generation tag, and the TT carries old-net static
-                // evals (ext eval16, consumed by g_tt_static_eval) plus scores
-                // searched under the old eval -> clear both. Rare, search-stopped
+                // (same family as the finny g_net_gen bug, 2026-07-14). The TT
+                // carries old-net static evals (ext eval16, consumed by
+                // g_tt_static_eval) plus scores searched under the old eval ->
+                // clear it. Rare, search-stopped
                 // operation; gates load the net once at startup (TT empty) so match
                 // runs pay nothing. NOT cleared: corr_hist (self-corrects, SF keeps
                 // it too). NB: "setoption EvalScale" mid-session has the same
                 // staleness family (diagnostic-only option, documented here).
-                for (size_t i = 0; i < thread_data.size(); ++i)
-                    memset(thread_data[i].eval_cache, 0, sizeof(thread_data[i].eval_cache));
                 clear_hash_table();
                 printf("info string EvalFile: loaded %s\n", resolved.c_str());
             }

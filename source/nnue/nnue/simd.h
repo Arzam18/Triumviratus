@@ -106,6 +106,18 @@ using vec_uint_t = __m256i;
     #define vec_load(a) _mm256_load_si256(a)
     #define vec_store(a, b) _mm256_store_si256(a, b)
     #define vec_convert_8_16(a) _mm256_cvtepi8_epi16(a)
+    // W1 (15/10/2026): righe threat int8 a byte INTERCALATI (nnue_feature_transformer.h, interleave_threat_rows).
+    // In ogni blocco di 32 byte il byte 2j e' l'elemento j e il byte 2j+1 l'elemento 16+j: un solo carico da 32 byte
+    // si allarga in due vettori int16 con vpmaddubsw (byte pari, moltiplicati per 1 e 0) e vpsraw 8 (byte dispari),
+    // che girano sulle porte 0/1. vpmovsxbw (vec_convert_8_16) ha un solo uop di mescolamento, sulla porta 5, che
+    // nelle righe threat era il collo di bottiglia. Stessi valori int16, stesse somme: risultato identico.
+    // Misure (nodi identici): i9-14900KF +1,09%, Ryzen 7 2700X (Zen+, build avx2-nopext) +4,49%, Ryzen 7 5700 (Zen 3,
+    // build avx2) -2,15% [-3,50, -0,82]. Quindi solo nelle build che servono le CPU dove rende: senza PEXT (Zen 1, Zen+,
+    // Zen 2) e AVX-VNNI (Intel da Alder Lake). La build avx2, che il binario universale da' a Zen 3 e agli Intel fino
+    // alla 10a generazione, resta al percorso di sempre.
+    #if !defined(USE_PEXT) || defined(USE_AVXVNNI)
+        #define TRIUMV_THR_ILV
+    #endif
     #define vec_add_16(a, b) _mm256_add_epi16(a, b)
     #define vec_sub_16(a, b) _mm256_sub_epi16(a, b)
     #define vec_mulhi_16(a, b) _mm256_mulhi_epi16(a, b)
@@ -487,7 +499,12 @@ fused(const typename VecWrapper::type& in, const T& operand, const Ts&... operan
 
 [[maybe_unused]] static void m256_add_dpbusd_epi32(__m256i& acc, __m256i a, __m256i b) {
 
-    #if defined(USE_VNNI)
+    // V1 (15/10/2026): AVX-VNNI (Alder Lake e successivi, senza AVX-512), forma VEX della stessa istruzione. Risultato
+    // identico alla coppia maddubs/madd: gli ingressi u8 della rete valgono al piu' 127 (FT e ClippedReLU), quindi
+    // maddubs non satura mai e le somme intere sono le stesse.
+    #if defined(USE_AVXVNNI)
+    acc = _mm256_dpbusd_avx_epi32(acc, a, b);
+    #elif defined(USE_VNNI)
     acc = _mm256_dpbusd_epi32(acc, a, b);
     #else
     __m256i product0 = _mm256_maddubs_epi16(a, b);

@@ -48,14 +48,63 @@ static void tdp_check_keys(ThreadData &td) {
     tdp_key_mism++;
   }
 }
+// GL (15/10/2026): a ogni nodo il generatore legale (movegen_legal.h) deve dare esattamente le mosse del generatore di
+// sempre che la make accetta, per tutte le mosse e per le due fasi della coda (tattiche e quiete), sotto scacco e no.
+static U64 tdp_legal_mism = 0;
+static void tdp_old_legal(ThreadData &td, moves *out, bool captures_only, bool quiets_only, bool promo_quiet,
+                          bool promo_queen_only) {
+  moves ml[1];
+  if (td.side == white)
+    td_generate_moves_side<white>(td, ml, captures_only, quiets_only, -1, promo_quiet, promo_queen_only, false);
+  else
+    td_generate_moves_side<black>(td, ml, captures_only, quiets_only, -1, promo_quiet, promo_queen_only, false);
+  out->count = 0;
+  for (int i = 0; i < ml->count; i++) {
+    UndoInfo u;
+    td.ply++;
+    td.repetition_table[++td.repetition_index] = td.hash_key;
+    if (td_make_move(td, ml->moves[i], u)) {
+      out->moves[out->count++] = ml->moves[i];
+      td_unmake_move(td, ml->moves[i], u);
+    }
+    td.ply--;
+    td.repetition_index--;
+  }
+}
+static void tdp_check_legal(ThreadData &td) {
+  if (!td_lists_legal())
+    return;
+  static const struct { bool c, q, pq, pqo; const char *name; } shapes[3] = {
+      {false, false, false, false, "all"}, {true, false, true, true, "tactics"}, {false, true, false, false, "quiets"}};
+  for (const auto &s : shapes) {
+    moves want[1], got[1];
+    tdp_old_legal(td, want, s.c, s.q, s.pq, s.pqo);
+    td_generate_moves(td, got, s.c, s.q, -1, s.pq, s.pqo);
+    std::sort(want->moves, want->moves + want->count);
+    std::sort(got->moves, got->moves + got->count);
+    if (want->count != got->count || !std::equal(want->moves, want->moves + want->count, got->moves)) {
+      if (tdp_legal_mism < 5)
+        printf("info string LEGAL MOVEGEN MISMATCH (%s): %d moves, expected %d\n", s.name, got->count, want->count);
+      tdp_legal_mism++;
+    }
+  }
+}
 static U64 tdp_rec(ThreadData &td, int depth, const moves *parent) {
   moves ml[1];
   td_generate_moves(td, ml);
+  // La pseudo-legalita' delle mosse del padre si controlla contro la lista pseudo-legale di sempre.
+  tdp_check_legal(td);
+  moves pl_list[1];
+  if (td.side == white)
+    td_generate_moves_side<white>(td, pl_list, false, false, -1, false, false, false);
+  else
+    td_generate_moves_side<black>(td, pl_list, false, false, -1, false, false, false);
+  const moves *gen = td_lists_legal() ? pl_list : ml;
   if (parent) {  // mosse del padre (come killer/TT move da un'altra posizione): pseudo-legale solo se generata qui
     for (int i = 0; i < parent->count; i++) {
       const int m = parent->moves[i];
       bool in_list = false;
-      for (int j = 0; j < ml->count; j++) if (ml->moves[j] == m) { in_list = true; break; }
+      for (int j = 0; j < gen->count; j++) if (gen->moves[j] == m) { in_list = true; break; }
       const bool pl = td_is_pseudo_legal(td, m);
       if (pl && !in_list) { if (tdp_pl_fp < 5) printf("info string PSEUDO-LEGAL FALSE POSITIVE move=%d\n", m); tdp_pl_fp++; }
       if (!pl && in_list) tdp_pl_fn++;
@@ -83,6 +132,8 @@ void td_perft_driver(int depth) {
   nn_root_sync(td);
   tdp_key_mism = tdp_pl_fp = tdp_pl_fn = tdp_nodes_checked = 0;
   tdp_check_keys(td);
+  tdp_legal_mism = 0;
+  tdp_check_legal(td);
   // perft vero: conta le foglie a profondita' depth (tdp_rec conta le foglie quando depth==0)
   U64 leaves = 0;
   moves ml[1];
@@ -103,6 +154,9 @@ void td_perft_driver(int depth) {
   printf("tdperft %d Nodes: %llu keymism %llu plfp %llu plfn %llu checked %llu\n", depth,
          (unsigned long long)leaves, (unsigned long long)tdp_key_mism, (unsigned long long)tdp_pl_fp,
          (unsigned long long)tdp_pl_fn, (unsigned long long)tdp_nodes_checked);
+  fflush(stdout);
+  printf("tdperft legal movegen: %s, mismatches %llu\n", td_lists_legal() ? "on" : "off (Chess960)",
+         (unsigned long long)tdp_legal_mism);
   fflush(stdout);
 }
 
