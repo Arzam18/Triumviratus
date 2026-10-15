@@ -4,7 +4,7 @@ Triumviratus ships its **own** NNUE network — weights trained by the project, 
 
 To be precise about provenance (and GPL-honest):
 - The NNUE **evaluation code** and the base network **architecture** are Stockfish's (GPLv3 — see
-  [`README`](README.md) and [`COPYING`](COPYING)).
+  [`README`](../../README.md) and [`COPYING`](../../COPYING)).
 - The official Stockfish **trainer** ([`nnue-pytorch`](https://github.com/official-stockfish/nnue-pytorch)) is used
   to train, with our own feature blocks added.
 - The **training data is public** — Leela Chess Zero and Stockfish self-play binpacks, re-labelled by the community.
@@ -22,7 +22,7 @@ repository **[Triumviratus-Networks](https://github.com/Tors3/Triumviratus-Netwo
 ## Earlier networks, in brief
 
 The full record of each one — data, recipe, epoch-by-epoch measurements — is in
-[`archive/NETWORKS_4.2-7.0.md`](archive/NETWORKS_4.2-7.0.md).
+[`archive/NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md).
 
 | Network | Release | Architecture | How it was made | Result |
 |---|---|---|---|---|
@@ -64,7 +64,7 @@ step if the Consilium gains little.</sub>
 
 ### The idea: a mixture of experts on the king-relative block
 
-![TRANN3 architecture: Consilium](docs/TRANN3_architecture_moe.svg)
+![TRANN3 architecture: Consilium](TRANN3_architecture_moe.svg)
 
 The `HalfKAv2_hm` block gets **four weight sets**, one per material phase, chosen by the number of pieces on the
 board. Only one set is active per position, so evaluation costs almost the same as a single block. The network gets
@@ -364,7 +364,7 @@ most engines shared a core (and its caches) with another, and the MoE, whose fir
 
 A third came the next night: the two Xeons are two NUMA nodes, one of them had no memory of its own, and engines
 moved between sockets. With memory on both CPUs and every fastchess pinned to one socket, 76 games at a time give the
-same result as 38. Details in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §9.
+same result as 38. Details in [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §9.
 
 **Choosing the final network**, MoE against MoE on the same engine, same scale on both sides: F4's
 average-and-permute against the end of F3 (epoch 79), 8+0.08, **+19.3 ± 13.9** over 686 games. The eval scale
@@ -384,7 +384,7 @@ starting point by +8.6 ± 11.5 over 928 games) and baked into the code. Against 
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), 76 games at a time pinned to the two sockets, LOS 100%. This number
 includes 8.0's speed work and ablations (+11.7 ± 4.6 at 60+0.6 on the old network, see
-[`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md)), so the network with its SPSA accounts for roughly +15 of it.
+[`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md)), so the network with its SPSA accounts for roughly +15 of it.
 
 ---
 

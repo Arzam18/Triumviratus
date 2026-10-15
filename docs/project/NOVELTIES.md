@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="../images/logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus: what is new
 
@@ -46,8 +46,8 @@ Each entry is in one of three categories:
   the source is named. The category describes public priority, not where our idea came from.
 
 Measurements are Elo differences from SPRT or fixed-games runs on the project's test machine, with the 95% error
-margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md),
-[`NETWORKS.md`](NETWORKS.md) and the [`archive`](archive) of earlier versions.
+margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md),
+[`NETWORKS.md`](../networks/NETWORKS.md) and the [`archive`](../development/archive) of earlier versions.
 
 ## Summary
 
@@ -136,7 +136,7 @@ what is new is the routing key on the input layer, as the next paragraphs explai
 
 **Measured.** Trained on 28-29 September 2026 (374 epochs of pre-training and two fine-tunes, about 472 billion
 positions). Version 8.0 against the 7.0 release: **+27.3 ± 8.3 Elo** at 15+0.15 on 2,000 games, of which about +15
-come from the network with its re-tuned parameters ([`NETWORKS.md`](NETWORKS.md)).
+come from the network with its re-tuned parameters ([`NETWORKS.md`](../networks/NETWORKS.md)).
 
 **Compared with others.** The idea was reached independently by the author, and no network of this kind was found
 in another engine. What exists elsewhere is of a different nature. Choosing weights by piece count is common, but
@@ -149,7 +149,7 @@ experts inside one layer. The academic work on phase-specific models uses separa
 MCTS ([arXiv 2401.16852](https://arxiv.org/abs/2401.16852);
 [Helfenstein et al.](https://ml-research.github.io/papers/helfenstein2024game.pdf)), not experts inside an
 efficiently updatable first layer of an alpha-beta engine. Mark Tang had tried an unpublished network of phase experts
-in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](NETWORKS.md)).
+in early 2026 that ran faster but did not play stronger (independent work, see [`NETWORKS.md`](../networks/NETWORKS.md)).
 
 **Category.** New: piece-count buckets on the input layer, that is experts by material band on the king-relative
 block of the first layer, on top of the king buckets, one active per position, in a top engine and with a measured
@@ -179,7 +179,7 @@ on the assumption that the first layer can combine it with the other inputs. On 
 difference between Consilium's static evaluation and the engine's deep search, on 3,888 positions, found that the
 network still undervalues some passed pawns in endgames: those outside the enemy king's square and connected ones.
 Two blocks were written for this and grafted on the finished Consilium with the rest of the network frozen
-([`docs/moe_experimental_grafts.md`](docs/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md)
+([`docs/moe_experimental_grafts.md`](../networks/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md)
 §37–38):
 
 - **`PassedRel`** adds, for each passed pawn, a second row with three relations: outside the enemy king's square,
@@ -253,7 +253,7 @@ is being tested again in that direction, against less reduction (`LmrScaleExp1=-
 
 Written on 8 October 2026, off by default, then tuned in an SPSA of 46 search parameters at 20+0.2. At hand-set
 values no term moves the result, because an ordering bonus acts together with the histories and the thresholds that
-separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
+separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
 these terms on, was checked against the defaults (+3.4 ± 3.9 over about 8,100 games) and baked on 9–10 October
 (§38); the terms are now active in games.
 
@@ -320,7 +320,7 @@ divided by phase.
   of the evaluation when a capture changes the expert. At fixed nodes +5.27 ± 7.86 (1,978), but the second
   evaluation costs 15 to 18% of the cycles per node: −24.23 ± 11.12 at 8+0.08 (1,034); a variant only at depth 3 or
   more (+3.9% of cycles) −3.06 ± 9.59 at 15+0.15 (1,248). It needs a network with experts. **New**, removed; the full
-  record is in [`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
+  record is in [`archive/EXPERT_BLEND_8.0.md`](../development/archive/EXPERT_BLEND_8.0.md).
 - **Correction from the opponent's plan (`CorrContOppW`), 8.0, the author's idea.** The continuation correction
   corrects the static evaluation with a table indexed by pairs of moves: the row is chosen by one of our earlier moves
   (two and four plies back), the cell by the opponent's last move, so each cell learns how far the evaluation is off
@@ -350,7 +350,7 @@ These entries take a known idea and change its form, its scale or its use. Those
   between two moves, even at long time controls. **+6.23 ± 6.75 at 40+0.4** (2,174), neutral at 16+0.16; after a
   surprise the engine spends 12% more time and searches 0.35-0.4 plies deeper. A factor on the predicted reply
   exists before: Caissa publishes it in both directions (0.915 on the predicted reply, 1.132 otherwise), and our own
-  6.0 and 7.0 used it as a declared port from Caissa ([`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md),
+  6.0 and 7.0 used it as a declared port from Caissa ([`archive/DEVELOPMENT_6.0.md`](../development/archive/DEVELOPMENT_6.0.md),
   "predicted-move factors"). The 8.0 form keeps only the surprise direction, applied on top of the time manager
   rewritten on 4 October, and the measured dependence on the time control is ours.
 - **Guard on LDSE (`LdseMax`).** At most one low-depth hash-move extension per line, from a measurement of the tree
@@ -464,7 +464,7 @@ the pawn blocks, the universal build from one unit per source file, the move-ord
 analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
 by line against every engine and are listed among the [open checks](#11-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
-[`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §36.
+[`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §36.
 
 ## 9. Done elsewhere first
 
@@ -508,7 +508,7 @@ Techniques of [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumv
 build for hard positions (October 2026). They act only in analysis, so they are kept apart from the game entries and
 from the counts of the summary. The measure here is the number of positions solved, on IQ4 (183 positions) and on the
 Arasan 2026 collection (200), at fixed nodes with one thread; details in
-[`DEVELOPMENT_8.0.md` §49](archive/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
+[`DEVELOPMENT_8.0.md` §49](../development/archive/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
 source of Crystal and ShashChess found no option like the first and the third entry; as above, this is to our
 knowledge.
 

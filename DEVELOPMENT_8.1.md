@@ -1,7 +1,7 @@
 # Triumviratus 8.1: development log
 
-The work toward 8.1, on the `dev` branch. The record of 8.0 is in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md); the
-rules for contributions are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+The work toward 8.1, on the `dev` branch. The record of 8.0 is in [`DEVELOPMENT_8.0.md`](docs/development/archive/DEVELOPMENT_8.0.md); the
+rules for contributions are in [`CONTRIBUTING.md`](docs/project/CONTRIBUTING.md).
 
 ## 1. Speed at an identical tree: the first external contribution (15 October 2026)
 
@@ -54,7 +54,7 @@ processor; mean of the per-round ratios with its 95% interval:
 | Intel Core 7 150U (Raptor Lake, laptop) | `avxvnni` (base: `avx2`) | 30 | **+6.34%** [+3.76, +8.92] | +0.82% [−2.26, +3.89] |
 
 On processors with AVX-512 only changes 1 to 3 act, and the result is level or slightly positive: the AVX-512 build
-already wrote the generated moves with `vpcompressd` (−1.5% of cycles, [8.0 log §20](archive/DEVELOPMENT_8.0.md)), so
+already wrote the generated moves with `vpcompressd` (−1.5% of cycles, [8.0 log §20](docs/development/archive/DEVELOPMENT_8.0.md)), so
 the legal generator saves instructions there but adds branch mispredictions. On the AVX2 path the gain is real but
 smaller than on the author's machines (+1.0% against +3.6% on Raptor Lake), probably because the profile-guided build
 already arranges the branches that the changes remove. On an Intel processor of the Raptor Lake family the

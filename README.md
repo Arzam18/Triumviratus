@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="Triumviratus" width="200">
+<img src="docs/images/logo.png" alt="Triumviratus" width="200">
 
 # Triumviratus
 
@@ -24,8 +24,8 @@
 <div align="center">
 
 [8.0](#triumviratus-80) · [Strength](#strength) · [Download](#download) · [Rating lists](#rating-lists) ·
-[Earlier releases](#earlier-releases) · [What is new](NOVELTIES.md) · [Dev log](DEVELOPMENT_8.1.md) ·
-[Networks](NETWORKS.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) ·
+[Earlier releases](#earlier-releases) · [What is new](docs/project/NOVELTIES.md) · [Dev log](DEVELOPMENT_8.1.md) ·
+[Networks](docs/networks/NETWORKS.md) · [Future directions](docs/project/FUTURE_DIRECTIONS.md) · [Tests](docs/tests/) · [History](docs/project/HISTORY.md) ·
 [License](#license) · [Credits](#credits)
 
 </div>
@@ -46,15 +46,15 @@ the mixture-of-experts models of language AI.
 > accumulator (chosen by piece count). What is new in Consilium is not the routing itself but where piece count is
 > used: on the input layer, which holds almost all the weights, rather than only in the small layers after it.
 
-<p align="center"><img src="docs/consilium_architecture.svg" alt="Consilium architecture: four HalfKA experts by material band, two 1024 accumulators, eight layer stacks chosen by piece count" width="100%"></p>
+<p align="center"><img src="docs/networks/consilium_architecture.svg" alt="Consilium architecture: four HalfKA experts by material band, two 1024 accumulators, eight layer stacks chosen by piece count" width="100%"></p>
 
-[How it was built](NETWORKS.md#consilium--the-triumviratus-80-network) ·
-[why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
+[How it was built](docs/networks/NETWORKS.md#consilium--the-triumviratus-80-network) ·
+[why it is new](docs/project/NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
 <details>
 <summary><b>What else is new in 8.0</b></summary>
 
-[`NOVELTIES.md`](NOVELTIES.md) compares each technique with the published work of other engines.
+[`NOVELTIES.md`](docs/project/NOVELTIES.md) compares each technique with the published work of other engines.
 
 - **`PassedPawns`**, an input block of our own for passed pawns;
 - **corrections per network expert** (`CorrPhase`) and **search margins per expert**;
@@ -79,7 +79,7 @@ The release 8.0, 1 thread per engine:
 | **Stockfish 18** | 600 (final) | 133+1 (CCRL Blitz), TopGM openings | +20 =568 −12 | **+4.6 ± 5.0** |
 | **Stockfish 18** | 2,000 (final) | 40+0.4, UHO 2024 | +530 =1082 −388 | **+24.7 ± 7.2** |
 
-<sub>The Stockfish 18 matches and 7.0 at 5+0.05 are final (games of the UHO match in [`tests/games`](tests/games)); the other matches are still running and will be completed after the release. All results are counted on complete opening pairs only. ± is the 95% interval on
+<sub>The Stockfish 18 matches and 7.0 at 5+0.05 are final (games of the UHO match in [`docs/tests/games`](docs/tests/games)); the other matches are still running and will be completed after the release. All results are counted on complete opening pairs only. ± is the 95% interval on
 the opening pairs (pentanomial); against Stockfish 19 almost every pair is drawn, which makes the interval small.</sub>
 
 <details>
@@ -95,7 +95,7 @@ the opening pairs (pentanomial); against Stockfish 19 almost every pair is drawn
 
 Other engines: Andres (EveAnn)'s gauntlet of the 11 October pre-release scored **62.8%, +91.2 ± 9.4** against fifteen
 engines (1,500 games); Maurizio Platino measured **+94 ± 16** against Stormphrax 8.0.0 and **+25.5 ± 14.6** against
-Reckless 0.10.0-dev. Games and details: [`tests/`](tests/) and
+Reckless 0.10.0-dev. Games and details: [`docs/tests/`](docs/tests/) and
 [Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing).
 
 ## Rating lists
@@ -136,7 +136,7 @@ For the analysis of hard positions: [Triumviratus 8.0 Position Solver](https://g
 the same engine with search settings chosen for test positions (analysis mode always on, a two-line search that pauses in quiet positions, a preference for the most
 direct win). At 1 second per position it solves 153 of 183 on IQ4 and 157 of 200 on Arasan 2026, against 145 and 137 for 8.0
 and 139 and 140 for Stockfish 19
-(details in [DEVELOPMENT_8.0.md §49](archive/DEVELOPMENT_8.0.md)). For games, use 8.0.
+(details in [DEVELOPMENT_8.0.md §49](docs/development/archive/DEVELOPMENT_8.0.md)). For games, use 8.0.
 
 ## Credits
 
@@ -150,7 +150,7 @@ his work.
 **A Tin Man** sent the project's first external code contribution: speed at an identical search tree, with a
 legal move generator ported from his own engine, Zoomini, and an AVX-VNNI variant of the universal executable
 (+6% to +9% on the Intel Raptor Lake processors measured), merged into the `dev` branch for 8.1. Details in
-[Contributions](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md#contributions).
+[Contributions](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md#contributions).
 
 **Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
 extensively, in matches against Stockfish and other engines and on tactical test suites such as IQ4, and his reports
@@ -175,7 +175,7 @@ included.
 Ideas for search, move ordering, time management and pruning were studied from these engines and, where adopted,
 re-tuned on the project's own network:
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the algorithmic base of the October 2026 search ([`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md), section 17).
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the algorithmic base of the October 2026 search ([`DEVELOPMENT_8.0.md`](docs/development/archive/DEVELOPMENT_8.0.md), section 17).
 - **[Reckless](https://github.com/codedeliveryservice/Reckless)**: quiet move-ordering terms, TT prefetch, capture ordering.
 - **[Caissa](https://github.com/Witek902/Caissa)**: node-count move cache, quiescence capture history, moves-left time curve.
 - **[Alexandria](https://github.com/PGG106/Alexandria)**: the multiplicative time-management factors.
@@ -194,7 +194,7 @@ The open-source computer-chess community is what makes a project like this possi
 ## Contributing
 
 The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
-branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
+branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md).
 
 ## Earlier releases
 
@@ -202,10 +202,10 @@ branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/T
 <summary>7.0, 6.0 and older versions</summary>
 
 - **7.0** (tag `v7.0`): the network `legio-septima`, the first trained from scratch with all its blocks, including
-  `PassedPawns`; +21.3 ± 6.7 over 6.0 at 25+0.25. [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
+  `PassedPawns`; +21.3 ± 6.7 over 6.0 at 25+0.25. [`DEVELOPMENT_7.0.md`](docs/development/archive/DEVELOPMENT_7.0.md)
 - **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; +53.0 ± 12.3 over
-  5.1 at 40+0.4. [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
-- Older versions: [`HISTORY.md`](HISTORY.md).
+  5.1 at 40+0.4. [`DEVELOPMENT_6.0.md`](docs/development/archive/DEVELOPMENT_6.0.md)
+- Older versions: [`HISTORY.md`](docs/project/HISTORY.md).
 
 </details>
 
@@ -218,7 +218,7 @@ branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/T
 
 > **GPLv3**, see [`COPYING`](COPYING). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved in every file that contains its code.
 >
-> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
+> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](docs/networks/NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](docs/project/NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
 >
 > **What comes from Stockfish.** The **NNUE inference code** started from Stockfish's SFNNv16 machinery in `nnue/`. For Consilium the part that runs at every node has been largely rewritten (accumulators, feature blocks, the link with the search); the forward pass (layers, SIMD) and the net loading are still Stockfish's, and a line-by-line count gives about 60–70% of the inference lines in common with Stockfish ([`source/nnue/README.md`](source/nnue/README.md)). The **search** was restructured in October 2026: its structures were already in the engine, accumulated since version 5.0, and they were reorganised on the **algorithmic base of Stockfish 19's search**, then re-tuned by SPSA on Consilium and extended with the project's own techniques. The search code is written in the project's own structure and names. The `PawnPair` input block implements a feature designed by Jonathan Hallström for Pawnocchio, also used by Stormphrax, Viridithas and Stockfish; the implementation and the weights are ours (see [Credits](#credits)).
 

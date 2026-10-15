@@ -30,14 +30,14 @@ post in the project's Discord. A useful report gives:
 - the opening book and the number of games, or the test suite;
 - the result, and the PGN file or the list of failed positions when possible.
 
-Results from testers are published in [`tests/`](tests/README.md) with their names, only with their agreement.
+Results from testers are published in [`tests/`](../tests/README.md) with their names, only with their agreement.
 
 ## Contributions
 
-Merged contributions, newest first. Measurements and details are in [`DEVELOPMENT_8.1.md`](DEVELOPMENT_8.1.md).
+Merged contributions, newest first. Measurements and details are in [`DEVELOPMENT_8.1.md`](../../DEVELOPMENT_8.1.md).
 
 - **A Tin Man**, pull request 6 (15 October 2026), speed at an identical search tree: a legal move generator ported
   from his own engine, Zoomini, with the move order of ours; an AVX-VNNI variant of the universal executable for Intel
   processors without AVX-512; the removal of the per-thread evaluation cache; a prefetch of the next move's hash entry
   on Intel processors; and two smaller vector changes (rank counting in AVX2, threat rows without `vpmovsxbw`).
-  ([section 1](DEVELOPMENT_8.1.md#1-speed-at-an-identical-tree-the-first-external-contribution-15-october-2026))
+  ([section 1](../../DEVELOPMENT_8.1.md#1-speed-at-an-identical-tree-the-first-external-contribution-15-october-2026))
