@@ -78,13 +78,16 @@ The release 8.0, 1 thread per engine:
 <sub>The Stockfish 18 matches and 7.0 at 5+0.05 are final (games of the UHO match in [`tests/games`](tests/games)); the other matches are still running and will be completed after the release. All results are counted on complete opening pairs only. ± is the 95% interval on
 the opening pairs (pentanomial); against Stockfish 19 almost every pair is drawn, which makes the interval small.</sub>
 
-**Test suites:**
+<details>
+<summary><b>Test suites</b></summary>
 
 | suite | tester | result |
 |---|---|---|
 | IQ4 (183 positions, 1 s, 1 thread) | Maurizio Platino | **155 / 183**, second of six; Stockfish 19 142 |
 | IQ4 (183 positions, 1 s) | Mark Tang | 145 / 183, highest among the engines tested |
 | ENET 2026 (110 positions) | Maurizio Platino | 89 / 110; Stockfish 19 91 |
+
+</details>
 
 Other engines: Andres (EveAnn)'s gauntlet of the 11 October pre-release scored **62.8%, +91.2 ± 9.4** against fifteen
 engines (1,500 games); Maurizio Platino measured **+94 ± 16** against Stormphrax 8.0.0 and **+25.5 ± 14.6** against
@@ -131,40 +134,10 @@ and 139 and 140 for Stockfish 19
 <sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
 other.</sub>
 
-## Earlier releases
-
-<details>
-<summary>7.0, 6.0 and older versions</summary>
-
-- **7.0** (tag `v7.0`): the network `legio-septima`, the first trained from scratch with all its blocks, including
-  `PassedPawns`; +21.3 ± 6.7 over 6.0 at 25+0.25. [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
-- **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; +53.0 ± 12.3 over
-  5.1 at 40+0.4. [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
-- Older versions: [`HISTORY.md`](HISTORY.md).
-
-</details>
-
----
-
 ## Contributing
 
 The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
 branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
-
-## License
-
-[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
-
-<details>
-<summary>GPLv3: what is the project's own and what comes from Stockfish</summary>
-
-> **GPLv3**, see [`COPYING`](COPYING). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved in every file that contains its code.
->
-> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
->
-> **What comes from Stockfish.** The **NNUE inference code** started from Stockfish's SFNNv16 machinery in `nnue/`. For Consilium the part that runs at every node has been largely rewritten (accumulators, feature blocks, the link with the search); the forward pass (layers, SIMD) and the net loading are still Stockfish's, and a line-by-line count gives about 60–70% of the inference lines in common with Stockfish ([`source/nnue/README.md`](source/nnue/README.md)). The **search** was restructured in October 2026: its structures were already in the engine, accumulated since version 5.0, and they were reorganised on the **algorithmic base of Stockfish 19's search**, then re-tuned by SPSA on Consilium and extended with the project's own techniques. The search code is written in the project's own structure and names. The `PawnPair` input block implements a feature designed by Jonathan Hallström for Pawnocchio, also used by Stormphrax, Viridithas and Stockfish; the implementation and the weights are ours (see [Credits](#credits)).
-
-</details>
 
 ## Credits
 
@@ -212,5 +185,35 @@ Viridithas, and adopted by Stockfish in July 2026 as `PP_3Wide`; our implementat
 is his. The **`PassedPawns`** block (one input per passed pawn) is **an original feature of this project**.
 
 The open-source computer-chess community is what makes a project like this possible.
+
+## Earlier releases
+
+<details>
+<summary>7.0, 6.0 and older versions</summary>
+
+- **7.0** (tag `v7.0`): the network `legio-septima`, the first trained from scratch with all its blocks, including
+  `PassedPawns`; +21.3 ± 6.7 over 6.0 at 25+0.25. [`archive/DEVELOPMENT_7.0.md`](archive/DEVELOPMENT_7.0.md)
+- **6.0**: the `TRANN1` architecture, the `nn-rubicon-alea-v3` network and TMv2 time management; +53.0 ± 12.3 over
+  5.1 at 40+0.4. [`archive/DEVELOPMENT_6.0.md`](archive/DEVELOPMENT_6.0.md)
+- Older versions: [`HISTORY.md`](HISTORY.md).
+
+</details>
+
+## License
+
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
+
+<details>
+<summary>GPLv3: what is the project's own and what comes from Stockfish</summary>
+
+> **GPLv3**, see [`COPYING`](COPYING). Because the engine incorporates Stockfish's GPL code, **the whole project is distributed under GPLv3**, with Stockfish's copyright notices preserved in every file that contains its code.
+>
+> **What is the project's own.** The network: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher ([`NETWORKS.md`](NETWORKS.md)). The `PassedPawns` input block, an original feature. The time manager and its rules (the surprise rule, less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other techniques listed as new in [`NOVELTIES.md`](NOVELTIES.md). The board, move generation, data structures and the link between search and network. The measurement method: every search change by SPRT, every speed change by hardware counters at an identical search tree, with the numbers published.
+>
+> **What comes from Stockfish.** The **NNUE inference code** started from Stockfish's SFNNv16 machinery in `nnue/`. For Consilium the part that runs at every node has been largely rewritten (accumulators, feature blocks, the link with the search); the forward pass (layers, SIMD) and the net loading are still Stockfish's, and a line-by-line count gives about 60–70% of the inference lines in common with Stockfish ([`source/nnue/README.md`](source/nnue/README.md)). The **search** was restructured in October 2026: its structures were already in the engine, accumulated since version 5.0, and they were reorganised on the **algorithmic base of Stockfish 19's search**, then re-tuned by SPSA on Consilium and extended with the project's own techniques. The search code is written in the project's own structure and names. The `PawnPair` input block implements a feature designed by Jonathan Hallström for Pawnocchio, also used by Stormphrax, Viridithas and Stockfish; the implementation and the weights are ours (see [Credits](#credits)).
+
+</details>
+
+---
 
 <sub>Developed openly and with significant AI assistance.</sub>
