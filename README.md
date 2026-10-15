@@ -150,7 +150,7 @@ his work.
 **A Tin Man** sent the project's first external code contribution: speed at an identical search tree, with a
 legal move generator ported from his own engine, Zoomini, and an AVX-VNNI variant of the universal executable
 (+6% to +9% on the Intel Raptor Lake processors measured), merged into the `dev` branch for 8.1. Details in
-[Contributions](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md#contributions).
+[Contributions](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md#contributions).
 
 **Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
 extensively, in matches against Stockfish and other engines and on tactical test suites such as IQ4, and his reports
@@ -194,7 +194,7 @@ The open-source computer-chess community is what makes a project like this possi
 ## Contributing
 
 The released code is on `main`; the work toward 8.1 is on the [`dev`](https://github.com/Tors3/Triumviratus/tree/dev)
-branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/CONTRIBUTING.md).
+branch. How to send code or test results: [CONTRIBUTING.md](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md).
 
 ## Earlier releases
 
