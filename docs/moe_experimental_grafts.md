@@ -1,6 +1,6 @@
 # Experimental grafts on Consilium (9–10 October 2026)
 
-A sub-chapter of the [8.0 development log](../DEVELOPMENT_8.0.md#37-experimental-grafts-on-consilium-910-october-2026).
+A sub-chapter of the [8.0 development log](../archive/DEVELOPMENT_8.0.md#37-experimental-grafts-on-consilium-910-october-2026).
 It records two nights of work on small input blocks added to the finished network: where they came from, how they
 were trained, how they were put into the engine and made cheap, and what they did in games. **Outcome (10 October):**
 only PassedRel showed a positive signal and stays in the engine; KingFiles, Space, LockedPawns and the reduced forms
@@ -242,7 +242,7 @@ are queued on the training machine.
 
 The study of section 7 produced PassedState (PassedPawns v3), a block that replaces the PassedPawns rows with one row
 per passed pawn in one of 100 states. Its engine implementation, the index check against the trainer, the three
-training runs and their results are in [DEVELOPMENT_8.0.md, section 38](../DEVELOPMENT_8.0.md); the training material
+training runs and their results are in [DEVELOPMENT_8.0.md, section 38](../archive/DEVELOPMENT_8.0.md); the training material
 is in `04_consilium/graft_passedstate` of the training repository. In short: −2.1 ± 3.7 Elo at fixed nodes with the
 block trained alone, +3.3 ± 5.0 once the layers after the accumulator were unfrozen, an engine cost of about 2.0% /
 2.5% of cycles per node (middlegame / endgames), and +2.9 ± 3.7 at 25+0.25 on endgame openings.
@@ -251,4 +251,4 @@ block trained alone, +3.3 ± 5.0 once the layers after the accumulator were unfr
 the candidates lost: PassedState with the retrained layers −4.8 ± 11.9 at 20+0.2, PassedState alone −16.5 at fixed
 nodes, PassedRel −2.9 ± 7.5 over 2,034 games, worse on the socket with less memory bandwidth. No block enters 8.0 and
 the graft code was removed from the engine; it is archived in the training repository
-(`04_consilium/graft_engine_storico`), see [DEVELOPMENT_8.0.md, section 38](../DEVELOPMENT_8.0.md).
+(`04_consilium/graft_engine_storico`), see [DEVELOPMENT_8.0.md, section 38](../archive/DEVELOPMENT_8.0.md).

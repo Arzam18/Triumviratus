@@ -24,7 +24,7 @@
 <div align="center">
 
 [8.0](#triumviratus-80) · [Strength](#strength) · [Download](#download) · [Rating lists](#rating-lists) ·
-[Earlier releases](#earlier-releases) · [What is new](NOVELTIES.md) · [Dev log](DEVELOPMENT_8.0.md) ·
+[Earlier releases](#earlier-releases) · [What is new](NOVELTIES.md) · [Dev log](DEVELOPMENT_8.1.md) ·
 [Networks](NETWORKS.md) · [Future directions](FUTURE_DIRECTIONS.md) · [Tests](tests/) · [History](HISTORY.md) ·
 [License](#license) · [Credits](#credits)
 
@@ -105,7 +105,7 @@ For the analysis of hard positions: [Triumviratus 8.0 Position Solver](https://g
 the same engine with search settings chosen for test positions (analysis mode always on, a two-line search that pauses in quiet positions, a preference for the most
 direct win). At 1 second per position it solves 153 of 183 on IQ4 and 157 of 200 on Arasan 2026, against 145 and 137 for 8.0
 and 139 and 140 for Stockfish 19
-(details in [DEVELOPMENT_8.0.md §49](DEVELOPMENT_8.0.md)). For games, use 8.0.
+(details in [DEVELOPMENT_8.0.md §49](archive/DEVELOPMENT_8.0.md)). For games, use 8.0.
 
 ## Rating lists
 
@@ -176,10 +176,8 @@ included.
 
 ### Code contributions
 
-**A Tin Man** sent the project's first code contribution (pull request 6, October 2026, for 8.1): a legal move
-generator ported from his own engine, Zoomini, with the move order of ours; an AVX-VNNI variant of the universal
-executable for Intel processors without AVX-512; the removal of the per-thread evaluation cache; and three smaller
-speed changes. The search tree is identical ([`DEVELOPMENT_8.1.md`](DEVELOPMENT_8.1.md), section 1).
+**A Tin Man**: speed at an identical search tree, the first external contribution (pull request 6, for 8.1). Details
+in [Contributions](CONTRIBUTING.md#contributions).
 
 ### Code from other projects
 
@@ -192,7 +190,7 @@ speed changes. The search tree is identical ([`DEVELOPMENT_8.1.md`](DEVELOPMENT_
 Ideas for search, move ordering, time management and pruning were studied from these engines and, where adopted,
 re-tuned on the project's own network:
 
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the algorithmic base of the October 2026 search ([`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md), section 17).
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**: the algorithmic base of the October 2026 search ([`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md), section 17).
 - **[Reckless](https://github.com/codedeliveryservice/Reckless)**: quiet move-ordering terms, TT prefetch, capture ordering.
 - **[Caissa](https://github.com/Witek902/Caissa)**: node-count move cache, quiescence capture history, moves-left time curve.
 - **[Alexandria](https://github.com/PGG106/Alexandria)**: the multiplicative time-management factors.

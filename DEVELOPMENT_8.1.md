@@ -1,6 +1,6 @@
 # Triumviratus 8.1: development log
 
-The work toward 8.1, on the `dev` branch. The record of 8.0 is in [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md); the
+The work toward 8.1, on the `dev` branch. The record of 8.0 is in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md); the
 rules for contributions are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## 1. Speed at an identical tree: the first external contribution (15 October 2026)

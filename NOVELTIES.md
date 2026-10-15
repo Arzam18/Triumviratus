@@ -46,7 +46,7 @@ Each entry is in one of three categories:
   the source is named. The category describes public priority, not where our idea came from.
 
 Measurements are Elo differences from SPRT or fixed-games runs on the project's test machine, with the 95% error
-margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md),
+margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md),
 [`NETWORKS.md`](NETWORKS.md) and the [`archive`](archive) of earlier versions.
 
 ## Summary
@@ -179,7 +179,7 @@ on the assumption that the first layer can combine it with the other inputs. On 
 difference between Consilium's static evaluation and the engine's deep search, on 3,888 positions, found that the
 network still undervalues some passed pawns in endgames: those outside the enemy king's square and connected ones.
 Two blocks were written for this and grafted on the finished Consilium with the rest of the network frozen
-([`docs/moe_experimental_grafts.md`](docs/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)
+([`docs/moe_experimental_grafts.md`](docs/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md)
 §37–38):
 
 - **`PassedRel`** adds, for each passed pawn, a second row with three relations: outside the enemy king's square,
@@ -253,7 +253,7 @@ is being tested again in that direction, against less reduction (`LmrScaleExp1=-
 
 Written on 8 October 2026, off by default, then tuned in an SPSA of 46 search parameters at 20+0.2. At hand-set
 values no term moves the result, because an ordering bonus acts together with the histories and the thresholds that
-separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
+separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
 these terms on, was checked against the defaults (+3.4 ± 3.9 over about 8,100 games) and baked on 9–10 October
 (§38); the terms are now active in games.
 
@@ -464,7 +464,7 @@ the pawn blocks, the universal build from one unit per source file, the move-ord
 analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
 by line against every engine and are listed among the [open checks](#11-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
-[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §36.
+[`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §36.
 
 ## 9. Done elsewhere first
 
@@ -508,7 +508,7 @@ Techniques of [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumv
 build for hard positions (October 2026). They act only in analysis, so they are kept apart from the game entries and
 from the counts of the summary. The measure here is the number of positions solved, on IQ4 (183 positions) and on the
 Arasan 2026 collection (200), at fixed nodes with one thread; details in
-[`DEVELOPMENT_8.0.md` §49](DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
+[`DEVELOPMENT_8.0.md` §49](archive/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
 source of Crystal and ShashChess found no option like the first and the third entry; as above, this is to our
 knowledge.
 

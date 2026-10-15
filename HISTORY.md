@@ -24,11 +24,11 @@ pawn-pair inputs. A restructured search on the algorithmic base of Stockfish 19,
 and corrections per network expert; new time management; faster code at an identical tree; Chess960; one executable
 for every x86-64 CPU with AVX2. Against 7.0: **+128.0 ± 5.6 Elo** at 5+0.05 (4,000 games) and +129.9 ± 15.7 at
 20+0.2 (400 games); against Stockfish 18 +4.6 ± 5.0 (600 games) and Stockfish 19 −4.3 ± 6.3 (240 games) at 133+1.
-Details in the [`README`](README.md), [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) and [`NOVELTIES.md`](NOVELTIES.md).
+Details in the [`README`](README.md), [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) and [`NOVELTIES.md`](NOVELTIES.md).
 
 **Triumviratus 8.0 Position Solver** (October 2026) is a separate build of the same engine for analysing hard
 positions: analysis mode always on, a two-line search and a preference for the most direct win
-([`DEVELOPMENT_8.0.md` §49](DEVELOPMENT_8.0.md), [`NOVELTIES.md` §10](NOVELTIES.md)).
+([`DEVELOPMENT_8.0.md` §49](archive/DEVELOPMENT_8.0.md), [`NOVELTIES.md` §10](NOVELTIES.md)).
 
 ## Triumviratus 7.0
 

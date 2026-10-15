@@ -45,7 +45,7 @@
 [Cycle test](#41-the-cycle-test-of-stockfish-19-and-a-fifty-move-threshold-of-ours-10-october-2026) ·
 [Edge cases from other engines](#42-edge-cases-handled-by-other-engines-10-october-2026) ·
 [Toward the release](#48-toward-the-release-a-defect-in-the-spsa-tool-the-opponents-plan-closed-three-small-speed-gains-ldse-off-1314-october-2026) ·
-[All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](archive/DEVELOPMENT_7.0.md)
+[All ideas tested](#appendix-every-search-idea-tested-since-the-restructured-search) · [7.0 log](DEVELOPMENT_7.0.md)
 
 </div>
 
@@ -279,7 +279,7 @@ symmetric.
 After the speed work (sections 4–7) and the ablations (section 8), the third step of 8.0 is a new
 network: **Consilium**, the `legio-septima` architecture with the king-relative block split into four
 experts by game phase. Design, data, training and every intermediate measurement are in
-[NETWORKS.md](NETWORKS.md#consilium--the-triumviratus-80-network).
+[NETWORKS.md](../NETWORKS.md#consilium--the-triumviratus-80-network).
 
 **What "mixture of experts" means in this log.** The four experts are four weight sets of the king-relative HalfKA
 block, one per material band (up to 9, 10–15, 16–23, 24 or more pieces), each with the usual 32 king buckets; the
@@ -287,7 +287,7 @@ other input blocks are shared. The expert is chosen by a fixed rule, the piece c
 by piece count is standard after the accumulator (output buckets, layer stacks); what Consilium adds is the same
 routing on the input layer. The training scheme, a shared base plus a per-band delta starting at zero, is the
 nnue-pytorch factorizer applied to material bands. The comparison with other engines is in
-[NOVELTIES.md](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer).
+[NOVELTIES.md](../NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer).
 
 **Release result** (30 September 2026): final network, network-dependent SPSA baked into the code,
 release build.
@@ -1523,7 +1523,7 @@ the separate build of the starting source, in the middlegame and in endgames.
 
 ## 37. Experimental grafts on Consilium (9–10 October 2026)
 
-The residual analysis of 9 October ([FUTURE_DIRECTIONS.md](FUTURE_DIRECTIONS.md), P1) showed where the static
+The residual analysis of 9 October ([FUTURE_DIRECTIONS.md](../FUTURE_DIRECTIONS.md), P1) showed where the static
 evaluation of Consilium differs, in the same direction, from the engine's deep search: passed pawns in endgames
 (unstoppable and connected ones most of all), open files next to the own king, space, blocked pawns. Four small
 input blocks that depend only on pawns, kings and queens were written for those concepts (PassedRel, also called
@@ -1537,7 +1537,7 @@ check found and fixed one error before any game. The cost of PassedRel in the mi
 node in the first version to +1.8% (endgame figure still to be taken), about 0.08 plies at 8+0.08. With the first learning rate the block learned little and lost Elo
 (−16 ± 10 at 10+0.1); with a ten times higher learning rate its weights grew threefold and the loss disappeared
 (+1.2 ± 4.8 at fixed nodes on endgame openings, not settled). Details, costs and the full record:
-[docs/moe_experimental_grafts.md](docs/moe_experimental_grafts.md).
+[docs/moe_experimental_grafts.md](../docs/moe_experimental_grafts.md).
 
 **Outcome (10 October).** Only PassedRel showed a positive signal: +1.8 ± 4.1 over 2,484 games at 20+0.2 on endgame
 openings, with the same search depth as Consilium on both sockets; with the fixed-node result, about +1 to +2.5 Elo in
@@ -1561,7 +1561,7 @@ below). The mean of the last
 `OutpostOrder` 4179, `AttackOrder` 5807, `AttackOrderQ` 6371, `PassedPush` 3975, `PromoOrder` 2412,
 `BishopPairCapt` 601), and 39 pruning, extension and ordering levers moved by a few percent. Bench **269775**.
 
-**The causal reduction (`CausalRed`).** The author's idea of June ([NOVELTIES.md](NOVELTIES.md)): after a quiet
+**The causal reduction (`CausalRed`).** The author's idea of June ([NOVELTIES.md](../NOVELTIES.md)): after a quiet
 move fails low, the squares of the opponent's refutation (where the refuting piece starts, lands and what it attacks
 from there) mark the problem, and later quiet siblings that touch none of them are reduced by an extra fraction of a
 ply. Checks, the hash move and passed-pawn pushes are excluded; nothing is pruned. At 512 (half a ply), SPRT at
@@ -1874,7 +1874,7 @@ boundary was measured for quality and cost. At 60,000 nodes per move, where spee
 in endgames**, and at 8+0.08 it lost **−24.23 ± 11.12 over 1,034 games**. An analysis of the cost (agent Z2) gave
 cheaper variants; the best, blending only at depth 3 or more, costs +3.9%, and at 15+0.15 it scored **−3.06 ± 9.59 over
 1,248 games**. The option and all its variants were removed. The full record, with the variants and the reasons, is in
-[`archive/EXPERT_BLEND_8.0.md`](archive/EXPERT_BLEND_8.0.md).
+[`archive/EXPERT_BLEND_8.0.md`](EXPERT_BLEND_8.0.md).
 
 **The residual concepts, closed.** The residual study of 9 October (idea P1 of `FUTURE_DIRECTIONS.md`) found concepts
 that the network underestimates: a passed pawn that the enemy king cannot catch, open files next to a king, space, and
@@ -2217,7 +2217,7 @@ intended step, after 4,000 with two fifths. Fishtest reaches `c_end` at the last
 schedule of fishtest, with the learning rate scaled to keep the same step on the parameters. The first run with the
 larger step, on the 15 evaluation-correction weights, moved several of them clearly; its mean vector was then
 neutral at 8+0.08 (+0.68 ± 2.92 over 14,386 games) and nothing was baked. The vectors of the earlier runs are a rough
-tuning; the runs to repeat are listed in [`FUTURE_DIRECTIONS.md`](FUTURE_DIRECTIONS.md) §8.
+tuning; the runs to repeat are listed in [`FUTURE_DIRECTIONS.md`](../FUTURE_DIRECTIONS.md) §8.
 
 | measurement | condition | games | Elo | outcome |
 |---|---|---:|---:|---|
@@ -2232,7 +2232,7 @@ From now on each change runs alone until the SPRT decides.
 
 ### 48.2 The correction from the opponent's plan, closed
 
-`CorrContOppW` (the author's idea, [`NOVELTIES.md`](NOVELTIES.md)) was measured again at 8+0.08 with hyperthreading.
+`CorrContOppW` (the author's idea, [`NOVELTIES.md`](../NOVELTIES.md)) was measured again at 8+0.08 with hyperthreading.
 The two processor sockets of the test machine disagreed: +5.4 on socket 0 against −1.3 on socket 1 (−7.0 with fewer
 concurrent games), over 8,474 games in all (+1.23 ± 3.82). Socket 1 has two memory modules instead of four, so half
 the bandwidth; the depth per move read from the games showed the side with the term 0.013 plies shallower on socket 0

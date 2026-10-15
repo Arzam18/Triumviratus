@@ -364,7 +364,7 @@ most engines shared a core (and its caches) with another, and the MoE, whose fir
 
 A third came the next night: the two Xeons are two NUMA nodes, one of them had no memory of its own, and engines
 moved between sockets. With memory on both CPUs and every fastchess pinned to one socket, 76 games at a time give the
-same result as 38. Details in [`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md) §9.
+same result as 38. Details in [`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md) §9.
 
 **Choosing the final network**, MoE against MoE on the same engine, same scale on both sides: F4's
 average-and-permute against the end of F3 (epoch 79), 8+0.08, **+19.3 ± 13.9** over 686 games. The eval scale
@@ -384,7 +384,7 @@ starting point by +8.6 ± 11.5 over 928 games) and baked into the code. Against 
 
 1 thread, 64 MB hash, UHO 2024 (+0.85/+0.94), 76 games at a time pinned to the two sockets, LOS 100%. This number
 includes 8.0's speed work and ablations (+11.7 ± 4.6 at 60+0.6 on the old network, see
-[`DEVELOPMENT_8.0.md`](DEVELOPMENT_8.0.md)), so the network with its SPSA accounts for roughly +15 of it.
+[`DEVELOPMENT_8.0.md`](archive/DEVELOPMENT_8.0.md)), so the network with its SPSA accounts for roughly +15 of it.
 
 ---
 
