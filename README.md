@@ -148,7 +148,7 @@ the cloud GPUs on which the networks are trained, Consilium included. Triumvirat
 his work.
 
 **A Tin Man** sent the project's first external code contribution: speed at an identical search tree, with a
-legal move generator ported from his own engine, Zoomini, and an AVX-VNNI variant of the universal executable
+legal move generator ported from his own engine, [Zoomies](https://github.com/CodeAdopter/Zoomies), and an AVX-VNNI variant of the universal executable
 (+6% to +9% on the Intel Raptor Lake processors measured), merged into the `dev` branch for 8.1. Details in
 [Contributions](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md#contributions).
 
