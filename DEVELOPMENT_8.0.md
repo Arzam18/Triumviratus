@@ -2328,6 +2328,20 @@ Arasan 2026 collection (200 positions):
   ECM at 4M). At 1 s the 1 s figures of v3 and v4 are within the run-to-run noise. A normal pruning preset in the
   same quiet iterations (`AnQDeep`) and other thresholds did not add anything.
 
+Comparison with other engines (15 October): 2M nodes per position, one thread, Hash 64 MB, default settings, same
+machine; a position counts as solved when the returned move is the expected one. Crystal 9 and ShashChess 41.2 are
+the bmi2 builds of their official releases, GoldDigger is the ShashChess build for hard positions. Each engine counts
+nodes in its own way, so the comparison is at a similar amount of work, not at equal time.
+
+| | IQ4 (183) | Arasan 2026 (200) | SBD (134) | EET (100) | ECM (201) | WAC 2018 (201) | STS (1,188) | Total (2,207) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Stockfish 19 | 142 | 163 | 107 | 90 | 160 | 198 | 1,052 | 1,912 |
+| Crystal 9 | 159 | 138 | 103 | 86 | 165 | **200** | 1,028 | 1,879 |
+| ShashChess 41.2 | 155 | 160 | **108** | 89 | 157 | 196 | 1,048 | 1,913 |
+| ShashChess 41.2 GoldDigger | 151 | 165 | **108** | 92 | 150 | 199 | 1,056 | 1,921 |
+| release 8.0, analysis mode | 150 | 164 | 103 | **94** | 155 | **200** | 1,059 | 1,925 |
+| **Pos Solver v4** | **164** | **180** | **108** | **94** | **179** | **200** | **1,073** | **1,998** |
+
 The engine Maurizio compared with, Leptir TI MPV (165/183 in his test), chooses its root move at random among its best
 lines; our search is deterministic. The full record of this work is in the project's working notes.
 
