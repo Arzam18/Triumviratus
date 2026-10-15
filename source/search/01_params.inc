@@ -250,6 +250,8 @@
   P(ShadowMargin, 0, 0, 4000)                                                                             \
   /* AnDirect (15/10/2026): soglia di vittoria e distanza massima fra le due linee, in cp stampati.             */\
   P(DirectFrom, 300, 0, 3000)                                                                             \
+  P(QuietFrom, 10, 1, 40)                                                                                 \
+  P(QuietCp, 15, 0, 200)                                                                                  \
   P(DirectGap, 400, 0, 2000)                                                                              \
   P(LdseMargin, PSV(0, 76), 0, 400)      /* BAKE LDSE 05/10/2026 (era 0, vedi in testa): a profondita' <= */ \
   P(LdseDepth, 7, 1, 12)                 /* LdseDepth la mossa hash con limite inferiore si estende se    */ \
@@ -742,6 +744,14 @@ enum AnalysisBits {
                        // bassa non la mette dietro ai punteggi vecchi delle altre (si torna al suo valore completo)
   AN_DIRECT = 65536,   // fra due mosse nettamente vincenti (le due linee esatte di AnShadow), la forzante (scacco o
                        // cattura) se la piu' alta e' tranquilla e distano al massimo DirectGap cp (15/10/2026)
+  AN_DIRLINE = 131072, // con la prima linea tranquilla e vincente (oltre DirectFrom), la seconda linea di AnShadow si
+                       // cerca solo fra le mosse dirette: AnDirect confronta la migliore tranquilla con la migliore
+                       // diretta, anche quando la diretta non e' la seconda per punteggio (15/10/2026)
+  AN_SHQUIET = 262144, // posizione "tranquilla" vista dalla ricerca: da QuietFrom, con le prime due mosse non dirette e
+                       // il punteggio stabile (entro QuietCp per tre iterazioni), la seconda linea di AnShadow si
+                       // sospende e la profondita' torna piena (SBD: le due linee costano ~10 posizioni) (15/10/2026)
+  AN_QDEEP = 524288,   // nelle stesse iterazioni "tranquille" di AnShQuiet, potatura normale (preset AnDeep 0) invece di
+                       // prune+lmr: altra profondita' dove la mossa giusta e' tranquilla (15/10/2026)
   AN_ACTIVE = 1 << 30
 };
 // Preset delle leve Deep* (una sola tabella: cambiare qui). DeepKnee 4 e DeepSpan 1: pesi pieni da profondita' 5.
@@ -788,7 +798,9 @@ static constexpr int kAnDefaultDeep = 4;
 // v3 (15/10/2026 notte): anche AnDirect (soglia 300 cp, distanza 400 cp, sacrifici compresi fra le mosse dirette).
 // Albero identico ad AnShadow; IQ4 4M 163 -> 166 (+34, +112, +178, nessuna persa), Arasan 2M 178 -> 178 identico;
 // distanze 600 e 800 uguali, soglia 200 perde Arasan 70.
-static constexpr int kAnDefaultBits = PSV(0, AN_SHADOW | AN_DIRECT);
+// v4 (15/10/2026): anche AnShQuiet (seconda linea sospesa nelle posizioni tranquille e stabili, QuietFrom 10, QuietCp 15).
+// 8 raccolte a 1M nodi +20 (SBD 98 -> 110); budget alti (IQ4 4M, Arasan 2M, SBD/difficili/ECM 4M) 664 -> 671.
+static constexpr int kAnDefaultBits = PSV(0, AN_SHADOW | AN_DIRECT | AN_SHQUIET);
 static bool g_analyse_mode     = false;   // UCI_AnalyseMode
 // AnalyseOnInfinite accesa di default (09/10/2026, utente: "go infinite deve lavorare come la modalita' che scegliamo"):
 // molte GUI e i programmi delle raccolte di test analizzano con `go infinite` senza impostare UCI_AnalyseMode. In partita
@@ -850,7 +862,7 @@ void print_analysis_options() {
     {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
     {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
     {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
-    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}};
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}, {"AnDirLine", AN_DIRLINE}, {"AnShQuiet", AN_SHQUIET}, {"AnQDeep", AN_QDEEP}};
   for (const auto &o : an_opts)
     printf("option name %s type check default %s\n", o.n, (kAnDefaultBits & o.bit) ? "true" : "false");
 }
@@ -881,7 +893,7 @@ bool set_search_param(const char* name, int value) {
       {"AnCrystal", AN_CRYSTAL}, {"AnHunt", AN_HUNT}, {"AnGold", AN_GOLD},
       {"AnKingDanger", AN_KDANGER}, {"AnCycle", AN_CYCLE},
     {"AnShadow", AN_SHADOW}, {"AnRootAlt", AN_ROOTALT}, {"AnKeepDepth", AN_KEEPDEPTH},
-    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}};
+    {"AnLmpNear", AN_LMPNEAR}, {"AnCaptLmr", AN_CAPTLMR}, {"AnNmpZug", AN_NMPZUG}, {"AnStopKeep", AN_STOPKEEP}, {"AnDirect", AN_DIRECT}, {"AnDirLine", AN_DIRLINE}, {"AnShQuiet", AN_SHQUIET}, {"AnQDeep", AN_QDEEP}};
     for (const auto &o : an_opts)
       if (!strcmp(name, o.n)) {
         g_an_bits = parse_bool_value(value) ? (g_an_bits | o.bit) : (g_an_bits & ~o.bit);

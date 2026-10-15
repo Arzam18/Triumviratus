@@ -2,7 +2,7 @@
 # Each job downloads the network from the v8.0 release and builds with Apple clang and PGO, with the same training
 # as the Windows release (source/universal/pgo_train_det.py on pgo_positions.epd, fixed nodes): instrumented build,
 # training, llvm-profdata merge, optimised build. The bench is then checked on the Mac itself (game build 137419,
-# Position Solver 2989507) and the executable is uploaded as an artifact.
+# Position Solver 2911093) and the executable is uploaded as an artifact.
 name: macOS builds
 
 on:
@@ -23,9 +23,9 @@ jobs:
       matrix:
         include:
           - { runner: macos-14, target: macos-arm, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_arm }
-          - { runner: macos-14, target: macos-arm, flavour: possolver, bench: "2989507", out: Triumviratus_8.0_PosSolver_macos_arm }
+          - { runner: macos-14, target: macos-arm, flavour: possolver, bench: "2911093", out: Triumviratus_8.0_PosSolver_macos_arm }
           - { runner: intel, target: macos-x86, flavour: game, bench: "137419", out: Triumviratus_8.0_macos_x86 }
-          - { runner: intel, target: macos-x86, flavour: possolver, bench: "2989507", out: Triumviratus_8.0_PosSolver_macos_x86 }
+          - { runner: intel, target: macos-x86, flavour: possolver, bench: "2911093", out: Triumviratus_8.0_PosSolver_macos_x86 }
     runs-on: ${{ matrix.runner == 'intel' && inputs.intel_runner || matrix.runner }}
     env:
       MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue

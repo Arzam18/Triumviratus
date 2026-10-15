@@ -2297,7 +2297,8 @@ Arasan 2026 collection (200 positions):
 | release 8.0, analysis mode | 145 | 137 | 153 | |
 | Pos Solver, tree of 11 October | 152–153 | 146–151 | 161 | 166 |
 | Pos Solver with the two-line search (v2) | 152 | 161 | 163 | 178 |
-| **v3: with the more direct win** | **155** | **160** | **166** | **178** |
+| v3: with the more direct win | 155 | 160 | 166 | 178 |
+| **v4: the second line paused in quiet positions** | **153** | **157** | **166** | **180** |
 
 - **Two-line search** (`AnShadow`, default in the Pos Solver): the search always looks at the second best root move
   with a full window, as MultiPV 2 does, and prints only the lines the interface asks for. It costs two to three plies
@@ -2317,6 +2318,15 @@ Arasan 2026 collection (200 positions):
   check, a capture, a promotion or a sacrifice) is shown and played if the other is not direct. The search tree is
   unchanged, so the effect is exact: three positions gained on IQ4, none lost on either collection. Games do not use
   it: a lower-scored move would cost Elo.
+
+- **The second line paused in quiet positions** (`AnShQuiet`, default from v4): on six further collections
+  (difficult, EET, SBD, ECM, WAC 2018, STS) the two-line search gained 41 positions in total but lost 10 on SBD,
+  whose keys are quiet moves that only show deep in the search. No static feature of the position separated the
+  two cases, so the rule uses what the search has seen: from root depth 10, with the two best moves both quiet and
+  the score within 15 cp for three iterations, the second line is paused for that iteration. On eight collections
+  at 1M nodes it gains 20 positions (SBD 98 to 110); at higher budgets 7 (IQ4 4M, Arasan 2M, SBD, difficult and
+  ECM at 4M). At 1 s the 1 s figures of v3 and v4 are within the run-to-run noise. A normal pruning preset in the
+  same quiet iterations (`AnQDeep`) and other thresholds did not add anything.
 
 The engine Maurizio compared with, Leptir TI MPV (165/183 in his test), chooses its root move at random among its best
 lines; our search is deterministic. The full record of this work is in the project's working notes.
