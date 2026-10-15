@@ -51,13 +51,18 @@ processor; mean of the per-round ratios with its 95% interval:
 | Xeon Gold 6138 | `avx512` | 30 | +0.32% [−0.92, +1.57] | −0.95% [−3.45, +1.56] |
 | Xeon Gold 6138 | `avx2` (forced, `TRIUMV_ISA=avx2`) | 20 | **+1.03%** [+0.19, +1.86] | −0.32% [−1.11, +0.46] |
 | Zen 4 laptop | `vnni512` | 30 | +0.81% [−0.82, +2.44] | −0.88% [−2.38, +0.62] |
+| Intel Core 7 150U (Raptor Lake, laptop) | `avxvnni` (base: `avx2`) | 30 | **+6.34%** [+3.76, +8.92] | +0.82% [−2.26, +3.89] |
 
 On processors with AVX-512 only changes 1 to 3 act, and the result is level or slightly positive: the AVX-512 build
 already wrote the generated moves with `vpcompressd` (−1.5% of cycles, [8.0 log §20](archive/DEVELOPMENT_8.0.md)), so
 the legal generator saves instructions there but adds branch mispredictions. On the AVX2 path the gain is real but
 smaller than on the author's machines (+1.0% against +3.6% on Raptor Lake), probably because the profile-guided build
-already arranges the branches that the changes remove. The AVX-VNNI variant, the largest gain, cannot run on these
-machines. The change stays: it costs nothing on AVX-512 and helps the processors where it acts.
+already arranges the branches that the changes remove. On an Intel processor of the Raptor Lake family the
+universal executable picks the new AVX-VNNI variant, and the gain with release-style builds is +6.3%, against the
+author's +9.2% without PGO; the node counts of the bench are identical in that variant too. The AVX-VNNI variant of
+these builds is trained on the Xeon, which lacks AVX-VNNI, with AVX2 instructions; a profile trained on the
+processor itself is being measured. The change stays: it costs nothing on AVX-512 and helps the processors where it
+acts.
 
 **Node counts.** The bench is identical, but in a workload of 30 positions searched one after another in the same
 process, without `ucinewgame` in between, the pull request searches 12,008,338 nodes per round against 12,008,522,
