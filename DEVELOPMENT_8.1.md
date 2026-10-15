@@ -30,6 +30,38 @@ that was true of an older design, which stored evaluations together with the opt
 | AMD Ryzen 7 5700 (Zen 3) | `avx2` | +5.00% [+3.29, +6.75] |
 | AMD Ryzen 7 2700X (Zen+) | `avx2-nopext` | +3.23% [+2.66, +3.80] |
 
-**Measurements on the project's machines**, profile-guided universal builds of the same batch (before and after the
-pull request), hardware counters with the engine pinned to one processor: Xeon Gold 6138 (`avx512` variant) and
-Zen 4 (`vnni512`). Results to follow.
+**Measurements on the project's machines.** Two profile-guided universal executables of the same batch (clang-cl,
+deterministic PGO training), built from `dev` before the pull request (47ea7b9) and after the merge (a2e06ed); bench
+137419 in every variant the build machine can run. A third engine, `base_copia`, is the same file as the first under
+another name: its difference from `base` is the noise of the measurement.
+
+Hardware counters (xperf), Xeon Gold 6138, `avx512` variant, engine pinned to one processor, 30 positions at 400,000
+nodes, 4 rounds in alternating order:
+
+| | cycles/node, middlegame | cycles/node, endgames | instructions/node | branch mispredictions/node |
+|---|---:|---:|---:|---:|
+| pull request against base | +0.36% | +0.40% | −0.54% / −0.81% | +2.2% / +1.9% |
+| noise (`base_copia` against base) | +0.14% | +0.45% | +0.03% / −0.02% | +0.05% / +0.03% |
+
+Raw speed, `bench 18` (2,840,711 nodes) repeated with the three engines in rotating order, engine pinned to one
+processor; mean of the per-round ratios with its 95% interval:
+
+| machine | variant | rounds | pull request against base | noise |
+|---|---|---:|---:|---:|
+| Xeon Gold 6138 | `avx512` | 30 | +0.32% [−0.92, +1.57] | −0.95% [−3.45, +1.56] |
+| Xeon Gold 6138 | `avx2` (forced, `TRIUMV_ISA=avx2`) | 20 | **+1.03%** [+0.19, +1.86] | −0.32% [−1.11, +0.46] |
+| Zen 4 laptop | `vnni512` | 30 | +0.81% [−0.82, +2.44] | −0.88% [−2.38, +0.62] |
+
+On processors with AVX-512 only changes 1 to 3 act, and the result is level or slightly positive: the AVX-512 build
+already wrote the generated moves with `vpcompressd` (−1.5% of cycles, [8.0 log §20](archive/DEVELOPMENT_8.0.md)), so
+the legal generator saves instructions there but adds branch mispredictions. On the AVX2 path the gain is real but
+smaller than on the author's machines (+1.0% against +3.6% on Raptor Lake), probably because the profile-guided build
+already arranges the branches that the changes remove. The AVX-VNNI variant, the largest gain, cannot run on these
+machines. The change stays: it costs nothing on AVX-512 and helps the processors where it acts.
+
+**Node counts.** The bench is identical, but in a workload of 30 positions searched one after another in the same
+process, without `ucinewgame` in between, the pull request searches 12,008,338 nodes per round against 12,008,522,
+the same difference in every round. The likely cause is the removed evaluation cache: a hit stored with a different
+fifty-move count returned a value that could differ by rounding from a fresh evaluation, so the old tree depended on
+what the cache held. The difference is 15 nodes in a million and does not matter for strength; the tree is identical
+when the cache is cold, as in the bench.
