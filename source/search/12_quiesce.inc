@@ -361,29 +361,32 @@ static inline bool drawn_here(ThreadData &td, bool in_check) {
   return drawn_here_slow(td, in_check);
 }
 
-// InsufMaterial (10/10/2026, agente AE): nessuno dei due lati puo' forzare il matto. La regola e' quella di Reckless
-// (board.rs:242-267): niente pedoni, torri, donne e (1) al piu' tre pezzi (KvK, KNvK, KBvK), oppure (2) quattro pezzi
-// con un minore per parte e nessun re in un angolo (con un re nell'angolo esistono matti, anche se non forzati), oppure
-// (3) due alfieri dalla stessa parte sullo stesso colore di case. KNNvK, KBNvK (vince) e KBBvK di colori diversi no.
-// Stormphrax (position.cpp:621-668), Berserk (board.c:537), Viridithas (evaluation.rs:122), Caissa (Search.cpp:1163,
-// solo dopo una cattura, come qui) e Coda (search.rs:5065) hanno regole simili. La rete da' a queste posizioni
-// 3-15 cp (KNvK +11, KBvK +12): la regola non corregge una valutazione sbagliata ma chiude il nodo con una patta esatta.
+// InsufMaterial (10/10/2026; riscritta il 15/10/2026): nessuno dei due lati puo' forzare il matto. Solo re e pezzi
+// minori: con al piu' un minore e' patta (KvK, KNvK, KBvK); con un minore per parte e' patta se nessun re e' in un
+// angolo (con un re nell'angolo esistono matti, anche se non forzati); con due minori dalla stessa parte e' patta solo
+// se sono due alfieri sullo stesso colore di case (KNNvK e KBBvK di colori diversi no, KBNvK vince). L'idea di
+// chiudere cosi' il nodo viene da Reckless; la stessa regola e' in Stormphrax, Berserk, Viridithas, Caissa (solo dopo
+// una cattura, come qui) e Coda. Il codice e' nostro: conta i minori per parte invece dei pezzi in totale. La rete da'
+// a queste posizioni 3-15 cp (KNvK +11, KBvK +12): la regola non corregge una valutazione sbagliata ma chiude il nodo
+// con una patta esatta.
 static inline bool insufficient_material(const ThreadData &td) {
   if (td.bitboards[P] | td.bitboards[p] | td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q])
     return false;
-  const int pieces = count_bits(td.occupancies[both]);
-  if (pieces < 4)
+  const U64 white_minors = td.bitboards[N] | td.bitboards[B], black_minors = td.bitboards[n] | td.bitboards[b];
+  const int nw = count_bits(white_minors), nb = count_bits(black_minors);
+  if (nw + nb <= 1)
     return true;
-  if (pieces > 4)
+  if (nw + nb > 2)
     return false;
-  constexpr U64 corners = (1ULL << 0) | (1ULL << 7) | (1ULL << 56) | (1ULL << 63);
-  if ((td.bitboards[N] | td.bitboards[B]) && (td.bitboards[n] | td.bitboards[b]))
+  if (nw == 1) {   // un minore per parte
+    constexpr U64 corners = (1ULL << 0) | (1ULL << 7) | (1ULL << 56) | (1ULL << 63);
     return !((td.bitboards[K] | td.bitboards[k]) & corners);
-  if (td.bitboards[N] | td.bitboards[n])
+  }
+  const U64 pair = nw ? white_minors : black_minors;   // i due minori della stessa parte
+  if (pair & (td.bitboards[N] | td.bitboards[n]))
     return false;
   constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // un colore della scacchiera (a8 = 0): basta che sia una scacchiera
-  const U64 bishops = td.bitboards[B] | td.bitboards[b];
-  return !(bishops & light) || !(bishops & ~light);
+  return !(pair & light) || !(pair & ~light);
 }
 
 static bool has_legal_move(ThreadData &td) {

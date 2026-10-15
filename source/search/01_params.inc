@@ -21,8 +21,8 @@
 // +3,59 +- 4,10 su 7.052. Valore 1 scelto perche' e' l'unico tetto che cambia l'albero in modo netto a profondita' fissa
 // (08/10: -6,6% nodi, -0,55 ply di seldepth; da 2 in su il tetto si raggiunge di rado). Bench 325747 (prima 460041).
 // Da verificare a TC lungo nell'A/B della release 20261011 contro la pubblica 20261010 (30 s / 20 s).
-// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (regola di Reckless
-// board.rs:242; anche Stormphrax, Berserk, Viridithas, Caissa, Coda; agente AE, DEVELOPMENT §42), opzione ritirata.
+// BAKE INSUFMATERIAL (11/10/2026 notte, utente): patta per materiale insufficiente dopo una cattura (idea da Reckless,
+// regola anche in Stormphrax, Berserk, Viridithas, Caissa, Coda; codice nostro, riscritto il 15/10; agente AE, §42).
 // SPRT 8+0.08 sul libro dei finali endgame_12_18 senza aggiudicazione di patta, tm28, due tranche in pool (aeinsuf_eg_8
 // + aeinsuf_eg_8b): +1,13 +- 1,56 Elo su 17.162 partite (LLR +0,97; socket 0 +0,77, socket 1 +1,50). Prima tranche
 // +1,47 +- 2,39 su 7.000, poi l'utente: "altre 10000 e poi bake". A profondita' fissa l'albero non cresce (nodi -0,1%

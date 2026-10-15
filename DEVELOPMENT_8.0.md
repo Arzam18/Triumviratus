@@ -1754,7 +1754,7 @@ given.
 | `RepRootTwofold` | a return to the root position inside the tree counts as a draw | Stormphrax, Viridithas, PlentyChess, Integral (Reckless, Berserk, Coda and Stockfish do the opposite) |
 | `SingKeepCount` | after the singular search the node's move count is restored; it stayed modified in 54–62% of cases and the hash move's child read it in three history updates | Reckless |
 | `NmpHashUpper` | no null move when the hash holds a value below beta (upper or exact bound) | Stormphrax, Viridithas explicitly; several others through the hash-corrected evaluation |
-| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | Reckless (the rule used), Stormphrax, Berserk, Viridithas, Caissa, Coda |
+| `InsufMaterial` | after a capture, positions without mating material (KvK, KNvK, KBvK, one minor each with no king in a corner, two bishops on the same colour) end as a draw | idea from Reckless; the same rule in Stormphrax, Berserk, Viridithas, Caissa, Coda; our code (rewritten on 15 October with its own structure, identical results) |
 | `AspDecisive` | a fail-high of the aspiration window with a decisive score no longer reduces the depth, and opens beta | PlentyChess; Reckless and Viridithas in a similar form |
 
 The agent expected a clear signal, if any, only from the first three; the other three are worth less than one Elo
@@ -2388,7 +2388,7 @@ the same binary, with its 95% interval; "lean" means stopped early while positiv
 | A return to the root position counts as a draw (`RepRootTwofold`) | 42 | 8+0.08 UHO / 8moves without adjudication | 2,134 / 5,276 | +0.7 ± 7.9 / +0.6 ± 3.5 | off |
 | Move count restored after the singular search (`SingKeepCount`, from Reckless) | 42 | 8+0.08 UHO | 7,020 | −0.6 ± 4.3 | off |
 | No null move when the hash holds a value below beta (`NmpHashUpper`) | 42 | 8+0.08 UHO | 7,060 | +0.2 ± 4.2 | off |
-| **Insufficient material after a capture** (`InsufMaterial`, rule of Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
+| **Insufficient material after a capture** (`InsufMaterial`, idea from Reckless) | 42 | 8+0.08 endgames, no adjudication | 17,162 | **+1.13 ± 1.56** | **baked** |
 | Decisive aspiration fail-high (`AspDecisive`, from PlentyChess) | 42 | 8+0.08 UHO | 7,064 | +0.7 ± 4.2 | off |
 | **Cap of one extension from a negative reduction per line** (`NegExtMax=1`) | 33, 42 | 12+0.12 UHO | 11,384 | **+3.88 ± 3.26** | **baked** |
 | SPSA EXP1 vector at mid-run (mean of iterations 2,682–2,781) | 43 | 10+0.1 UHO | 1,826 | +2.47 ± 8.55 | SPSA continues |
