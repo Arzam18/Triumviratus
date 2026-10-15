@@ -1,8 +1,27 @@
 # Tests
 
-Results from outside the project's own SPRT pipeline: matches and test suites run by other testers.
+Results from outside the project's own SPRT pipeline: the project's own matches against other engines, and matches
+and test suites run by other testers.
 For Maurizio Platino's matches, the complete game records (PGN) and the GUI crosstables are in
 **[Tors3/Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing)**.
+
+## The project's own matches — 8.0 against Stockfish 18
+
+The release 8.0 against Stockfish 18 with an unbalanced book, played on the project's test machine (2× Xeon Gold
+6138) in TorsGUI. All 2,000 games are in [`games/Triumviratus_8.0_vs_Stockfish_18_UHO_40+0.4.zip`](games/Triumviratus_8.0_vs_Stockfish_18_UHO_40+0.4.zip).
+
+| Date | Opponent | Games | +W =D −L (Triumviratus) | Score | Pairs (0, ½, 1, 1½, 2) | Elo (Triumviratus) |
+|---|---|---:|---|---:|---|---:|
+| 2026-10-14/15 | **Stockfish 18** | 2,000 | +530 =1,082 −388 | **53.6%** | 1, 152, 554, 290, 3 | **+24.7 ± 7.2** |
+
+<sub>40 s + 0.4 s per game · 1 thread and 256 MB hash per engine · ponder off · Syzygy tablebases · openings
+`UHO_2024_8mvs_+085_+094` (Stefan Pohl, SPCC), 1,000 openings each played with both colours · draw adjudication
+from move 35 (8 moves within 10 cp), resignation at 600 cp for 4 moves on both sides. Three games were lost on
+time, two by Triumviratus and one by Stockfish. ± is the 95% interval on the opening pairs (pentanomial).</sub>
+
+On balanced openings at CCRL Blitz time control the same two engines are level (+4.6 ± 5.0 over 600 games,
+[README](../README.md#strength)); the unbalanced book, where each side has to convert an advantage or hold a worse
+position, separates them.
 
 ## Maurizio Platino — 7.0 against recent engines
 
