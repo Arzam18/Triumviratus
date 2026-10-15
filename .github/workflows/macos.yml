@@ -36,7 +36,7 @@ jobs:
         run: curl -sSL -o source/nn-consilium.nnue https://github.com/Tors3/Triumviratus/releases/download/v8.0/nn-consilium.nnue
       - name: Flags
         run: |
-          EXTRA="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL"
+          EXTRA="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL -ffp-contract=off"   # as the Windows build: no fused multiply-add, same bench
           if [ "${{ matrix.flavour }}" = "possolver" ]; then EXTRA="$EXTRA -DTRIUMV_POS_SOLVER"; fi
           echo "EXTRA=$EXTRA" >> "$GITHUB_ENV"
       - name: Instrumented build and training
