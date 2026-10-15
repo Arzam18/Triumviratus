@@ -51,8 +51,10 @@ the mixture-of-experts models of language AI.
 [How it was built](NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
-What else is new in 8.0 ([`NOVELTIES.md`](NOVELTIES.md) compares each technique with the published work of other
-engines):
+<details>
+<summary><b>What else is new in 8.0</b></summary>
+
+[`NOVELTIES.md`](NOVELTIES.md) compares each technique with the published work of other engines.
 
 - **`PassedPawns`**, an input block of our own for passed pawns;
 - **corrections per network expert** (`CorrPhase`) and **search margins per expert**;
@@ -61,7 +63,9 @@ engines):
   when behind on the clock, rules for defending;
 - a **restructured search**, re-tuned by SPSA on Consilium, with the **causal reduction** of quiet moves;
 - faster code at an identical search tree, buffered UCI I/O and a high-resolution clock;
-- **Chess960** support, and **one executable for every x86-64 CPU** with AVX2.
+- **Chess960** support, and **one executable for every x86-64 CPU**, from SSE4.1 to AVX-512.
+
+</details>
 
 ## Strength
 
@@ -94,22 +98,6 @@ engines (1,500 games); Maurizio Platino measured **+94 ± 16** against Stormphra
 Reckless 0.10.0-dev. Games and details: [`tests/`](tests/) and
 [Triumviratus-Testing](https://github.com/Tors3/Triumviratus-Testing).
 
-## Download
-
-From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0):
-`Triumviratus_8.0_windows_universal.exe`, one file for every x86-64 CPU with SSE4.1, with the network embedded. At start-up it
-picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2,
-AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine
-name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
-`source/universal/build_universal.ps1 -Official`. The same release has builds for **Android** (arm64, with and
-without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network embedded.
-
-For the analysis of hard positions: [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver),
-the same engine with search settings chosen for test positions (analysis mode always on, a two-line search that pauses in quiet positions, a preference for the most
-direct win). At 1 second per position it solves 153 of 183 on IQ4 and 157 of 200 on Arasan 2026, against 145 and 137 for 8.0
-and 139 and 140 for Stockfish 19
-(details in [DEVELOPMENT_8.0.md §49](DEVELOPMENT_8.0.md)). For games, use 8.0.
-
 ## Rating lists
 
 8.0 has not been listed yet.
@@ -133,6 +121,22 @@ and 139 and 140 for Stockfish 19
 
 <sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
 other.</sub>
+
+## Download
+
+From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0):
+`Triumviratus_8.0_windows_universal.exe`, one file for every x86-64 CPU with SSE4.1, with the network embedded. At start-up it
+picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2,
+AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine
+name is `Triumviratus - 8.0`. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
+`source/universal/build_universal.ps1 -Official`. The same release has builds for **Android** (arm64, with and
+without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network embedded.
+
+For the analysis of hard positions: [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver),
+the same engine with search settings chosen for test positions (analysis mode always on, a two-line search that pauses in quiet positions, a preference for the most
+direct win). At 1 second per position it solves 153 of 183 on IQ4 and 157 of 200 on Arasan 2026, against 145 and 137 for 8.0
+and 139 and 140 for Stockfish 19
+(details in [DEVELOPMENT_8.0.md §49](DEVELOPMENT_8.0.md)). For games, use 8.0.
 
 ## Credits
 
