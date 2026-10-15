@@ -20,15 +20,14 @@ engine pinned to one core.
    against 8.0; if it passes, `dev` is the base of 8.1. For the release build, an option to import a PGO profile
    trained on another machine: Zen 4 trains variants 1 to 6 natively, an Intel processor with AVX-VNNI trains
    variant 7. The gain of native profiles for `vnni512` and `avx512icl` is measured on Zen 4 first.
-2. **Where we lose.** A study of the games 8.0 loses against Stockfish 19 and Reckless (CCRL and TorsGUI games): the
+2. **Where we lose.** A study of the games 8.0 loses against the strongest engines (CCRL and TorsGUI games): the
    phase of the game, which expert of the network misjudged the position, the time left; the use of time at the CCRL
-   controls (40/15 with increment) against Stockfish 19; scaling with 4 and 8 threads, which matters for the 4CPU
+   controls (40/15 with increment); scaling with 4 and 8 threads, which matters for the 4CPU
    lists; the search in endgames and the use of tablebases. It runs on stored games and does not need the test
    machine, so it starts at once. Its result says which search components to rewrite first.
 3. **A search of our own** ([future directions, section 11](docs/project/FUTURE_DIRECTIONS.md#11-a-search-shaped-by-the-network)).
-   An audit of the search component by component (the same as Stockfish 19, changed, or ours), then a rewrite of
-   one component at a time, designed for a network of experts, each with a non-regression SPRT at unchanged
-   parameters. The description of the search changes only when the facts do. If the release date matters more than
+   A rewrite of the search one component at a time, designed for a network of experts, each with a non-regression
+   SPRT at unchanged parameters. If the release date matters more than
    completeness, only the components that step 2 shows to be weakest are rewritten for 8.1. Four stages, in this
    order, because each one feeds the next:
    1. **histories and move ordering**: a history of quiet moves indexed by the threat context of the move, in a form
