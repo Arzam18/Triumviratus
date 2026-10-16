@@ -44,10 +44,11 @@ ordinary move number by one weight per expert (`LmrRankMix0` to `LmrRankMix3`, 1
 **Untuned**, starting values set by hand (scale 4000, mix one half for every expert), on top of the factored history
 of block 1, without hyperthreading at 8+0.08: **−0.70 ± 5.73 over 3,478 games**, level.
 
-**Tuning, coarse.** An SPSA run on the five parameters (8+0.08, 8 games per iteration) is in progress. After 300
-iterations the mix of the endgame expert (nine pieces or fewer) falls steadily from 512 toward 430: with few quiet
-moves and close ordering scores, the distance says less than the move number. The other parameters have not moved yet.
-This run is a coarse pass: the final tuning of the block will use a longer time control and 16 games per iteration,
-since effects of one or two Elo on the reductions are below what an 8-game iteration at 8 seconds can resolve.
+**Tuning, coarse.** An SPSA run on the five parameters (8+0.08, 8 games per iteration). After 300 iterations the mix
+of the endgame expert (nine pieces or fewer) fell steadily from 512 toward 430: with few quiet moves and close
+ordering scores, the distance says less than the move number. With the coarse vector the package lost
+**−4.34 ± 5.67 over 3,602 games** (8+0.08, no hyperthreading), so the vector was set aside.
 
-Status: first piece in test. The node group, the new base and the threat balance follow.
+Status: off. `LmrRank` adds a signal without replacing any inherited formula, so it waits for the rewrite of this
+block, where it is tuned again with the other terms at a longer time control and 16 games per iteration: effects of
+one or two Elo on the reductions are below what an 8-game iteration at 8 seconds can resolve.

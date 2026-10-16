@@ -388,7 +388,7 @@ static void deepen(ThreadData &td) {
 
   fill_with(&td.low_ply_hist[0][0], (size_t)LOW_PLY_SIZE * QH_SIZE, LowPlyFill);
   for (int c = 0; c < 2; c++)
-    for (int i = 0; i < QH_SIZE; i++)
+    for (int i = 0; i < QH_CTX_SIZE; i++)
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
   int best = -infinity;

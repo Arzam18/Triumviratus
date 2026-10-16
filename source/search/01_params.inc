@@ -177,11 +177,46 @@
   P(MalusMul, 853, 300, 2000)                                                                             \
   P(MalusSub, 235, 0, 800)                                                                                \
   P(MalusMax, 2156, 800, 5000)                                                                            \
-  P(QuietBonusScale, 860, 400, 1600)     /* /1024 */                                                      \
-  P(QuietMalusScale, 1043, 400, 2000)                                                                     \
-  P(QuietMalusDecay, 921, 600, 1024)                                                                      \
-  P(CaptBonusScale, 1368, 500, 2500)                                                                      \
-  P(CaptMalusScale, 1270, 500, 2500)                                                                      \
+  /* HistLearn (blocco 1 della 8.1, 16/10/2026 sera, nostra): quanto imparano le storie, PER ESPERTO (n.expert,  */ \
+  /* net_phase 0-3), /1024: premio alla quieta migliore (HlQBonus), malus alle quiete provate prima (HlQMalus) e  */ \
+  /* il suo calo mossa dopo mossa (HlQDecay), premio e malus delle catture (HlCBonus, HlCMalus). Sostituiscono le  */ \
+  /* cinque scale uniche QuietBonusScale 860, QuietMalusScale 1043, QuietMalusDecay 921, CaptBonusScale 1368,      */ \
+  /* CaptMalusScale 1270 (tolte): i default sono quei valori, quindi l'albero e' identico (verifica del bench).   */ \
+  P(HlQBonus0, 860, 300, 2000)  P(HlQBonus1, 860, 300, 2000)  P(HlQBonus2, 860, 300, 2000)  P(HlQBonus3, 860, 300, 2000)  \
+  P(HlQMalus0, 1043, 300, 2500) P(HlQMalus1, 1043, 300, 2500) P(HlQMalus2, 1043, 300, 2500) P(HlQMalus3, 1043, 300, 2500) \
+  P(HlQDecay0, 921, 600, 1024)  P(HlQDecay1, 921, 600, 1024)  P(HlQDecay2, 921, 600, 1024)  P(HlQDecay3, 921, 600, 1024)  \
+  P(HlCBonus0, 1368, 400, 3000) P(HlCBonus1, 1368, 400, 3000) P(HlCBonus2, 1368, 400, 3000) P(HlCBonus3, 1368, 400, 3000) \
+  P(HlCMalus0, 1270, 400, 3000) P(HlCMalus1, 1270, 400, 3000) P(HlCMalus2, 1270, 400, 3000) P(HlCMalus3, 1270, 400, 3000) \
+  /* Scrittura delle storie in forma nostra (blocco 1 della 8.1, 16/10/2026 sera, 09_history.inc), per esperto.    */ \
+  /* Tutti i default riproducono esattamente le formule di prima (albero identico, verifica del bench).           */ \
+  /* HlGrav/HlCGrav: gravita' della saturazione delle storie delle quiete (principale, primi ply, pawn, seguiti) e */ \
+  /* delle catture, /1024 (piu' bassa = la voce si avvicina di piu' al limite). HlAux: scala per esperto degli    */ \
+  /* aggiornamenti di primi ply, pawn history e seguiti. HlFNear/HlFFar: seguiti a distanza 1-2 e 3-6. HlDepthQ:  */ \
+  /* termine quadratico della quantita' per profondita' (q*d*d/64, 0 = lineare). HlEval: storia dalla differenza  */ \
+  /* di valutazione. HtCapt/HtVict: storia delle catture e valore della vittima nel punteggio delle tattiche      */ \
+  /* (/1024, prima 1 e 7). HeMain/HeCont: storia e cont1 nell'ordine delle parate (/1024).                        */ \
+  P(HlGrav0, 1024, 768, 1536)   P(HlGrav1, 1024, 768, 1536)   P(HlGrav2, 1024, 768, 1536)   P(HlGrav3, 1024, 768, 1536)   \
+  P(HlCGrav0, 1024, 768, 1536)  P(HlCGrav1, 1024, 768, 1536)  P(HlCGrav2, 1024, 768, 1536)  P(HlCGrav3, 1024, 768, 1536)  \
+  P(HlAux0, 1024, 256, 2048)    P(HlAux1, 1024, 256, 2048)    P(HlAux2, 1024, 256, 2048)    P(HlAux3, 1024, 256, 2048)    \
+  P(HlFNear0, 1024, 256, 2048)  P(HlFNear1, 1024, 256, 2048)  P(HlFNear2, 1024, 256, 2048)  P(HlFNear3, 1024, 256, 2048)  \
+  P(HlFFar0, 1024, 256, 2048)   P(HlFFar1, 1024, 256, 2048)   P(HlFFar2, 1024, 256, 2048)   P(HlFFar3, 1024, 256, 2048)   \
+  P(HlDepthQ0, 0, -64, 64)      P(HlDepthQ1, 0, -64, 64)      P(HlDepthQ2, 0, -64, 64)      P(HlDepthQ3, 0, -64, 64)      \
+  P(HlEval0, 1024, 0, 2048)     P(HlEval1, 1024, 0, 2048)     P(HlEval2, 1024, 0, 2048)     P(HlEval3, 1024, 0, 2048)     \
+  P(HtCapt0, 1024, 256, 2048)   P(HtCapt1, 1024, 256, 2048)   P(HtCapt2, 1024, 256, 2048)   P(HtCapt3, 1024, 256, 2048)   \
+  P(HtVict0, 7168, 3584, 10752) P(HtVict1, 7168, 3584, 10752) P(HtVict2, 7168, 3584, 10752) P(HtVict3, 7168, 3584, 10752) \
+  P(HeMain0, 1024, 256, 2048)   P(HeMain1, 1024, 256, 2048)   P(HeMain2, 1024, 256, 2048)   P(HeMain3, 1024, 256, 2048)   \
+  P(HeCont0, 1024, 0, 2048)     P(HeCont1, 1024, 0, 2048)     P(HeCont2, 1024, 0, 2048)     P(HeCont3, 1024, 0, 2048)     \
+  /* 17/10/2026: EvPen = scala per esperto delle PENALITA' dell'aggiornamento dalla differenza di valutazione (la  */ \
+  /* mossa avversaria che ci ha portati qui ci ha migliorato la posizione), /1024 sopra HlEval; 1024 = come prima.  */ \
+  P(EvPen0, 1024, 256, 2048)    P(EvPen1, 1024, 256, 2048)    P(EvPen2, 1024, 256, 2048)    P(EvPen3, 1024, 256, 2048)    \
+  /* 17/10/2026: CorrGrav/TtmGrav: gravita' della saturazione delle storie di correzione e della storia della     */ \
+  /* mossa hash (tt_move_hist), /1024; con 1024 l'aggiornamento di prima (stat_push, tolto).                      */ \
+  P(CorrGrav0, 1024, 768, 1536) P(CorrGrav1, 1024, 768, 1536) P(CorrGrav2, 1024, 768, 1536) P(CorrGrav3, 1024, 768, 1536) \
+  /* 17/10/2026: CorrGain = peso della correzione nella valutazione, per esperto, /1024 (1024 = come prima).       */ \
+  /* CorrDepthQ = termine quadratico della profondita' nel premio delle correzioni, d + q x d x d / 64 (0 = lineare). */ \
+  P(CorrGain0, 1024, 256, 2048) P(CorrGain1, 1024, 256, 2048) P(CorrGain2, 1024, 256, 2048) P(CorrGain3, 1024, 256, 2048) \
+  P(CorrDepthQ0, 0, -64, 64)    P(CorrDepthQ1, 0, -64, 64)    P(CorrDepthQ2, 0, -64, 64)    P(CorrDepthQ3, 0, -64, 64)    \
+  P(TtmGrav0, 1024, 768, 1536)  P(TtmGrav1, 1024, 768, 1536)  P(TtmGrav2, 1024, 768, 1536)  P(TtmGrav3, 1024, 768, 1536)  \
   P(PrevContMalus, 713, 0, 1500)                                                                          \
   P(LowPlyScale, 712, 0, 1500)                                                                            \
   P(ContUpdScale, 874, 300, 1500)                                                                         \
@@ -190,11 +225,73 @@
   P(EvalDiffMul, 11, 0, 40)               /* history della mossa precedente dalla differenza di eval */   \
   P(EvalDiffPawnMul, 13, 0, 40)                                                                           \
   /* ordinamento */                                                                                       \
-  P(GoodQuietLimit, -15563, -30000, 0)                                                                    \
-  P(QuietSortDepthMul, 3223, 1000, 8000)                                                                  \
-  P(CheckOrderBonus, 13323, 0, 40000)                                                                     \
-  P(ThreatOrderMul, 20, 0, 60)                                                                            \
-  P(GoodCaptSeeDiv, 19, 4, 64)                                                                            \
+  /* Stadi della coda delle mosse, forma nostra (blocco 1 della 8.1, 17/10/2026, 11_queue.inc), per esperto. Al  */ \
+  /* posto di GoodCaptSeeDiv (19), GoodQuietLimit (-15563) e QuietSortDepthMul (3223), TOLTI; i default danno lo  */ \
+  /* stesso albero. StGood: quanto il punteggio di una tattica allenta la SEE che la rende "buona", soglia =       */ \
+  /* -punteggio x StGood / 19456 (1024 = -punteggio/19 di prima, stesso troncamento). StQuiet: confine fra quiete */ \
+  /* buone (prima delle tattiche perdenti) e cattive. StSort: le quiete con punteggio >= -StSort x profondita'    */ \
+  /* si ordinano, le altre escono nell'ordine di generazione.                                                    */ \
+  P(StGood0, 1024, 256, 3072)   P(StGood1, 1024, 256, 3072)   P(StGood2, 1024, 256, 3072)   P(StGood3, 1024, 256, 3072)   \
+  P(StQuiet0, -15563, -30000, 0) P(StQuiet1, -15563, -30000, 0) P(StQuiet2, -15563, -30000, 0) P(StQuiet3, -15563, -30000, 0) \
+  P(StSort0, 3223, 1000, 8000)  P(StSort1, 3223, 1000, 8000)  P(StSort2, 3223, 1000, 8000)  P(StSort3, 3223, 1000, 8000)  \
+  /* Scacchi nell'ordine delle quiete, forma nostra (blocco 1 della 8.1, 17/10/2026, 11_queue.inc), per esperto. Al */ \
+  /* posto di CheckOrderBonus (13323, TOLTO) e della soglia fissa -75: ChkBonus = premio allo scacco diretto,       */ \
+  /* ChkSee = perdita di scambio ammessa sulla casa d'arrivo (default = i valori di prima, albero identico).        */ \
+  /* ChkDisc (NOSTRA, 0 = spenta): premio alla quieta che scopre uno scacco (pezzo in LmpChkCtx::disc che esce     */ \
+  /* dalla linea del re). Tecnica nuova: SPRT a parte prima di metterla in NOVELTIES.                              */ \
+  P(ChkBonus0, 13323, 0, 40000) P(ChkBonus1, 13323, 0, 40000) P(ChkBonus2, 13323, 0, 40000) P(ChkBonus3, 13323, 0, 40000) \
+  P(ChkSee0, -75, -400, 100)    P(ChkSee1, -75, -400, 100)    P(ChkSee2, -75, -400, 100)    P(ChkSee3, -75, -400, 100)    \
+  P(ChkDisc0, 0, 0, 40000)      P(ChkDisc1, 0, 0, 40000)      P(ChkDisc2, 0, 0, 40000)      P(ChkDisc3, 0, 0, 40000)      \
+  /* Minacce nell'ordine delle quiete, forma nostra (blocco 1 della 8.1, 17/10/2026, 11_queue.inc), per esperto, in */ \
+  /* punti per unita' di materiale del pezzo che muove. Al posto di ThreatOrderMul (20, TOLTO; T1 lo portava a 25):  */ \
+  /* ThrEsc = il pezzo lascia una casa attaccata da un pezzo avversario di valore minore, ThrEnt = ci entra (prima  */ \
+  /* un peso solo per i due casi; default = 20, albero identico). ThrSafe (NOSTRA, 0 = spenta): in piu', quando il  */ \
+  /* pezzo minacciato va su una casa che nessun pezzo avversario attacca. Tecnica nuova: SPRT a parte prima di      */ \
+  /* metterla in NOVELTIES.                                                                                         */ \
+  P(ThrEsc0, 20, 0, 60)  P(ThrEsc1, 20, 0, 60)  P(ThrEsc2, 20, 0, 60)  P(ThrEsc3, 20, 0, 60)              \
+  P(ThrEnt0, 20, 0, 60)  P(ThrEnt1, 20, 0, 60)  P(ThrEnt2, 20, 0, 60)  P(ThrEnt3, 20, 0, 60)              \
+  P(ThrSafe0, 0, 0, 60)  P(ThrSafe1, 0, 0, 60)  P(ThrSafe2, 0, 0, 60)  P(ThrSafe3, 0, 0, 60)              \
+  /* LpDecay (17/10/2026, forma nostra, 11_queue.inc): decrescita per esperto del peso della storia dei primi ply  */ \
+  /* nell'ordine, 8 x voce x 1024 / (1024 + ply x LpDecay); 1024 = 8 x voce / (1 + ply), la forma fissa di prima    */ \
+  /* (albero identico), 0 = stesso peso a ogni ply. Massimo 3072: oltre, il reciproco a 40 bit non e' piu' esatto.  */ \
+  P(LpDecay0, 1024, 0, 3072) P(LpDecay1, 1024, 0, 3072) P(LpDecay2, 1024, 0, 3072) P(LpDecay3, 1024, 0, 3072) \
+  /* ThreatHist (tappa 1 della 8.1, 16/10/2026): storia delle quiete per contesto di minaccia (09_history.inc).  */ \
+  /* 0 = spenta (albero invariato), 1 = nostra (attacco di un pezzo di valore minore), 2 = qualunque attacco.   */ \
+  /* 3 = come 1, fattorizzata: tabella piatta sempre aggiornata + correzione per contesto, solo nell'ordinamento. */ \
+  /* 17/10/2026: forme 1 e 2 TOLTE; 1-3 = forma fattorizzata (si usa 3, come negli SPSA e negli SPRT).        */ \
+  P(ThreatHist, 0, 0, 3)                                                                                  \
+  P(ThreatCtxW, 1024, 0, 3072)           /* ThreatHist 3: peso della correzione per contesto nell'ordinamento, /1024 */ \
+  P(ThreatCtxUpd, 1024, 0, 3072)         /* ThreatHist 3: scala dell'aggiornamento della correzione, /1024 */ \
+  /* ThreatBal (tappa 1b della 8.1, 16/10/2026, nostra): bilancio di minaccia della quieta nell'ordinamento al posto  */ \
+  /* di ThreatOrderMul + AttackOrder + AttackOrderQ (11_queue.inc). 0 = spento (albero invariato). Peso per esperto */ \
+  /* (net_phase 0-3, come ThreatOrderMul: punti per unita' di materiale) e quota del valore del bersaglio, /1024.   */ \
+  P(ThreatBal, 0, 0, 1)                                                                                   \
+  P(ThreatBalW0, 20, 0, 60)                                                                               \
+  P(ThreatBalW1, 20, 0, 60)                                                                               \
+  P(ThreatBalW2, 20, 0, 60)                                                                               \
+  P(ThreatBalW3, 20, 0, 60)                                                                               \
+  P(ThreatBalGain, 256, 0, 1024)                                                                          \
+  /* LmrRank (blocco 2 della 8.1, 16/10/2026, nostra): per le quiete ordinate, il numero della mossa della riduzione */ \
+  /* di base mescolato con un numero "effettivo" dal distacco del suo punteggio d'ordinamento dalla quieta migliore */ \
+  /* del nodo (13_search.inc). 0 = spento (albero invariato). Scala: punti di distacco per una mossa in piu';      */ \
+  /* miscela per esperto, /1024 (0 = solo il numero d'ordine, 1024 = solo il numero effettivo).                    */ \
+  /* HistMix (blocco 1 della 8.1, 16/10/2026, nostra): le storie nel punteggio delle quiete pesate PER ESPERTO      */ \
+  /* (net_phase 0-3, come i margini), /1024: principale (oggi x2), pawn history (x2), seguiti vicini cont1+cont2   */ \
+  /* (x1), lontani cont3+cont4+cont6 (x1), primi ply (x1), piu' l'accordo fra cont1 e cont2 (0 = nessuno). I        */ \
+  /* default sono i pesi di prima (albero identico, bench 137419 verificato): opzione HistMix e formula vecchia   */ \
+  /* TOLTE il 16/10/2026 sera (utente); la formula per esperto e' l'unica (11_queue.inc).                         */ \
+  P(HmMain0, 2048, 0, 6144) P(HmMain1, 2048, 0, 6144) P(HmMain2, 2048, 0, 6144) P(HmMain3, 2048, 0, 6144) \
+  P(HmPawn0, 2048, 0, 6144) P(HmPawn1, 2048, 0, 6144) P(HmPawn2, 2048, 0, 6144) P(HmPawn3, 2048, 0, 6144) \
+  P(HmNear0, 1024, 0, 3072) P(HmNear1, 1024, 0, 3072) P(HmNear2, 1024, 0, 3072) P(HmNear3, 1024, 0, 3072) \
+  P(HmFar0, 1024, 0, 3072)  P(HmFar1, 1024, 0, 3072)  P(HmFar2, 1024, 0, 3072)  P(HmFar3, 1024, 0, 3072)  \
+  P(HmLow0, 1024, 0, 3072)  P(HmLow1, 1024, 0, 3072)  P(HmLow2, 1024, 0, 3072)  P(HmLow3, 1024, 0, 3072)  \
+  P(HmAgree0, 0, -1024, 1024) P(HmAgree1, 0, -1024, 1024) P(HmAgree2, 0, -1024, 1024) P(HmAgree3, 0, -1024, 1024) \
+  P(LmrRank, 0, 0, 1)                                                                                     \
+  P(LmrRankScale, 4000, 500, 20000)                                                                       \
+  P(LmrRankMix0, 512, 0, 1024)                                                                            \
+  P(LmrRankMix1, 512, 0, 1024)                                                                            \
+  P(LmrRankMix2, 512, 0, 1024)                                                                            \
+  P(LmrRankMix3, 512, 0, 1024)                                                                            \
   /* potatura prima del ciclo mosse */                                                                    \
   P(RazorMul, 452, 100, 1200)                                                                             \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
@@ -523,7 +620,7 @@
      search_attribution.py: 74 su 87 costanti >= 100). Default = valore di prima: albero identico, bench invariato.   \
      Nella release sono constexpr come gli altri parametri; nel dev le due tabelle di reciproci (HistDiv*,            \
      LmrAllDivBase) si ricalcolano a ogni setoption (param_tables_refresh, 13_search.inc). Servono agli SPSA.        \
-     Limiti delle statistiche (09_history.inc, stat_push) */                                                     \
+     Limiti delle statistiche (09_history.inc, hist_learn) */                                                    \
   P(HistLimQuiet, 7183, 2000, 20000)     /* storie delle quiete (butterfly, low ply, per esperto)          */ \
   P(HistLimCapt, 10692, 3000, 30000)     /* storia delle catture                                           */ \
   P(HistLimFollow, 30000, 8000, 32000)   /* storie di continuazione (int16: al piu' 32767)                 */ \
@@ -541,7 +638,11 @@
   P(ContAgree4, 119, 40, 200)                                                                              \
   P(ContAgree5, 126, 40, 200)                                                                              \
   P(ContAgree6, 121, 40, 200)                                                                              \
-  P(ContNearBonus, 73, 0, 300)           /* bonus fisso alle distanze 1 */                                \
+  /* 17/10/2026, forma nostra (blocco 1): ContNear = premio fisso al seguito a distanza 1, per esperto (prima        */ \
+  /* ContNearBonus 73, TOLTO); ContChk = quante distanze si aggiornano quando il nodo e' sotto scacco, per esperto   */ \
+  /* (prima 2 fisso). Default = valori di prima, albero identico.                                                 */ \
+  P(ContNear0, 73, 0, 300)  P(ContNear1, 73, 0, 300)  P(ContNear2, 73, 0, 300)  P(ContNear3, 73, 0, 300)       \
+  P(ContChk0, 2, 1, 6)      P(ContChk1, 2, 1, 6)      P(ContChk2, 2, 1, 6)      P(ContChk3, 2, 1, 6)           \
   /* taglio dalla hash (13_search.inc, hash_cutoff) */                                                         \
   P(HashCutQuietMul, 112, 0, 400)        /* bonus alla mossa hash quieta: min(Mul*depth, Max) */          \
   P(HashCutQuietMax, 695, 0, 2500)                                                                         \
@@ -585,7 +686,12 @@
   P(PriorContW, 263, 0, 1500)            /* /16384 */                                                     \
   P(PriorQuietW, 215, 0, 1500)           /* /32768 */                                                     \
   P(PriorPawnW, 324, 0, 1500)            /* /8192 */                                                      \
-  P(PriorCaptBonus, 892, 0, 3000)        /* storia della cattura avversaria che ci ha portati qui          */ \
+  /* 17/10/2026, forma nostra (blocco 1), per esperto: PrLate = soglia della mossa tardiva nella scala del premio   */ \
+  /* alla mossa precedente (prima 9 fisso); PrGain = guadagno sulla scala, /1024; PrCapt = premio alla cattura      */ \
+  /* avversaria che ci ha portati qui (prima PriorCaptBonus 892, TOLTO). Default = valori di prima.                 */ \
+  P(PrLate0, 9, 2, 30)     P(PrLate1, 9, 2, 30)     P(PrLate2, 9, 2, 30)     P(PrLate3, 9, 2, 30)                 \
+  P(PrGain0, 1024, 256, 2048) P(PrGain1, 1024, 256, 2048) P(PrGain2, 1024, 256, 2048) P(PrGain3, 1024, 256, 2048) \
+  P(PrCapt0, 892, 0, 3000) P(PrCapt1, 892, 0, 3000) P(PrCapt2, 892, 0, 3000) P(PrCapt3, 892, 0, 3000)             \
   P(CorrLearnW, 1061, 0, 3000)           /* /1024: peso dell'aggiornamento delle correzioni a fine nodo    */ \
   /* potatura per storia delle quiete: divisore per profondita' 1..16 (13_search.inc, prune_quiet)      */      \
   P(HistDiv1, 3637, 500, 8000)                                                                             \

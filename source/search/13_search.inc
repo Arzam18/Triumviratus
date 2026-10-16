@@ -29,6 +29,8 @@ struct NodeState {
   int  prior_red;
   HashView h;
   int  quiets[TRACKED], n_quiets;
+  unsigned char quiet_ctx[TRACKED];   // ThreatHist: contesto di minaccia di ciascuna quieta provata
+  int  best_ctx;                  // ThreatHist: contesto della mossa migliore (0 se tattica)
   int  tacts[TRACKED], n_tacts;
   U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
   int  expert;                   // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
@@ -247,28 +249,36 @@ static void poll_limits(ThreadData &td) {
 static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
   PROF_GUARD(prof_hist);
   const int bm = n.best_move;
-  int bonus = std::min(BonusMul * n.depth - BonusSub, BonusMax) + (bm == n.h.move ? BonusTTMove : 0) +
+  int bonus = hist_amount(n.expert, n.depth, BonusMul, BonusSub, BonusMax) + (bm == n.h.move ? BonusTTMove : 0) +
               f[-1].stat_score / BonusPrevStatDiv;
-  const int malus = std::min(MalusMul * n.depth - MalusSub, MalusMax);
+  const int malus = hist_amount(n.expert, n.depth, MalusMul, MalusSub, MalusMax);
   if (!n.pv)
     bonus += (int)((long long)bonus * (n.n_quiets + n.n_tacts) / 256);
 
+  // HistLearn (blocco 1 della 8.1, 16/10/2026 sera, nostra; 01_params.inc): le scale dell'apprendimento sono quelle
+  // dell'esperto del nodo. Nei finali una quieta che taglia fra poche alternative informa piu' che in apertura fra
+  // quaranta: premio, malus e calo del malus si tarano per fase. Ai default sono i valori unici di prima.
+  const int qb = by_expert(n.expert, HlQBonus0, HlQBonus1, HlQBonus2, HlQBonus3);
+  const int qm = by_expert(n.expert, HlQMalus0, HlQMalus1, HlQMalus2, HlQMalus3);
+  const int qd = by_expert(n.expert, HlQDecay0, HlQDecay1, HlQDecay2, HlQDecay3);
+  const int cb = by_expert(n.expert, HlCBonus0, HlCBonus1, HlCBonus2, HlCBonus3);
+  const int cm = by_expert(n.expert, HlCMalus0, HlCMalus1, HlCMalus2, HlCMalus3);
   if (!is_tactical(bm)) {
-    learn_quiet(td, f, bm, bonus * QuietBonusScale / 1024);
-    int m = malus * QuietMalusScale / 1024;
+    learn_quiet(td, f, bm, bonus * qb / 1024, n.best_ctx, n.expert);
+    int m = malus * qm / 1024;
     for (int i = 0; i < n.n_quiets; i++) {
-      m = m * QuietMalusDecay / 1024;
-      learn_quiet(td, f, n.quiets[i], -m);
+      m = m * qd / 1024;
+      learn_quiet(td, f, n.quiets[i], -m, n.quiet_ctx[i], n.expert);
     }
   } else
-    learn_capture(td, bm, bonus * CaptBonusScale / 1024);
+    learn_capture(td, bm, bonus * cb / 1024, n.expert);
 
   // La mossa che ha portato qui, se quieta e cercata subito (prima mossa, o seconda dopo la mossa hash), era debole.
   if (n.prev_to >= 0 && f[-1].move_count == 1 + (f[-1].tt_hit ? 1 : 0) && !n.prior_capture)
-    learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -malus * PrevContMalus / 1024);
+    learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -malus * PrevContMalus / 1024, n.expert);
 
   for (int i = 0; i < n.n_tacts; i++)
-    learn_capture(td, n.tacts[i], -malus * CaptMalusScale / 1024);
+    learn_capture(td, n.tacts[i], -malus * cm / 1024, n.expert);
 }
 
 // --------------------------------------------------------------------------
@@ -347,9 +357,10 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (bound_covers(h.bound, high) && (n.cut == high || n.depth > 4)) {
     if (h.move && high) {
       if (!n.tact_hash)
-        learn_quiet(td, f, h.move, std::min(HashCutQuietMul * n.depth, HashCutQuietMax));
+        learn_quiet(td, f, h.move, hist_amount(n.expert, n.depth, HashCutQuietMul, 0, HashCutQuietMax),
+                    quiet_ctx_slow(td, h.move), n.expert);
       if (n.prev_to >= 0 && f[-1].move_count < 5 && !n.prior_capture)
-        learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -HashCutPrevMalus);
+        learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -HashCutPrevMalus, n.expert);
     }
     if (td.fifty >= 96)
       return NO_VALUE;
@@ -454,10 +465,16 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (move_ok(f[-1].move) && !f[-1].in_check && !n.prior_capture) {
     const int diff = std::clamp(-(f[-1].static_eval + f->static_eval), -EvalDiffLo, EvalDiffHi) + EvalDiffOfs;
     const int pm = f[-1].move;
-    stat_push(td.quiet_hist[us ^ 1][quiet_key(pm)], diff * EvalDiffMul, LIM_QUIET);
+    // Forma nostra (blocco 1): peso per esperto HlEval e gravita' dell'esperto; ai default e' l'aggiornamento di prima.
+    // 17/10/2026: premio e penalita' con pesi separati (EvPen scala le penalita', diff < 0; 1024 = stesso peso, come
+    // prima: ev * 1024 / 1024 = ev).
+    int ev = by_exp4(n.expert, HlEval0, HlEval1, HlEval2, HlEval3);
+    if (diff < 0)
+      ev = ev * by_exp4(n.expert, EvPen0, EvPen1, EvPen2, EvPen3) / 1024;
+    qh_push(td, us ^ 1, quiet_key(pm), f[-1].hctx, diff * EvalDiffMul * ev / 1024, hist_grav(n.expert));
     const int pc_now = td.piece_on[n.prev_to];
     if (!n.h.hit && pc_now % 6 != P && !get_move_promoted(pm))
-      stat_push(pawn_row(td)[pc_now][n.prev_to], diff * EvalDiffPawnMul, LIM_PAWN);
+      hist_learn(pawn_row(td)[pc_now][n.prev_to], diff * EvalDiffPawnMul * ev / 1024, LIM_PAWN, hist_grav(n.expert));
   }
 
   // Valutazione molto sotto alpha: basta la quiescenza.
@@ -552,7 +569,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 // Potatura di una mossa prima di giocarla. true = salta la mossa.
 template <bool AN>
 static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, int m, bool tact, bool gives,
-                      int r) {
+                      int r, int ctx) {
   const int us = td.side;
   if (n.root || val_lost(n.best) || (AN && n.crystal))   // n.crystal: solo AnCrystal
     return false;
@@ -593,7 +610,7 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   int hist = (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
   if (hist < -QuietHistPrune * n.depth)
     return true;
-  hist += QuietMainHistMul * td.quiet_hist[us][quiet_key(m)] / 32;
+  hist += QuietMainHistMul * qh_main(td, us, quiet_key(m), ctx) / 32;
   assert(std::abs(hist) < (1 << 27));
   {
     const unsigned long long mag = (unsigned long long)(hist < 0 ? -hist : hist);
@@ -668,10 +685,10 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
     return 1 + (v < s_beta - dbl) + (v < s_beta - tpl);
   }
   if (v >= n.beta && !val_decided(v)) {
-    stat_push(td.tt_move_hist, -SingFhTtBase - SingFhTtDepth * n.depth, LIM_TTMOVE);
+    hist_learn(td.tt_move_hist, -SingFhTtBase - SingFhTtDepth * n.depth, LIM_TTMOVE, ttm_grav(n.expert));
     if (!n.in_check && v > f->static_eval) {
       const int bonus = std::clamp((v - f->static_eval) * s_depth * CorrSingMul / 1024, -LIM_CORR / 4, LIM_CORR / 4);
-      corr_learn(td, f, bonus);
+      corr_learn(td, f, bonus, n.expert);
     }
     *cutoff = v;
     return 0;
@@ -721,6 +738,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   q.checks = &s.checks;
   int value = n.best, m;
   int red_window = -1, red_window_term = 0;   // vedi base_reduction
+  int first_quiet_no = 0;                     // LmrRank: numero della prima quieta ordinata del nodo
   // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
   const int gd_style = AN ? td.gd_style : 0;   // AnGold: stile della radice (0 in partita)
@@ -738,7 +756,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         continue;
     }
     f->move_count = ++n.moves;
-    // "info currmove" alla radice (come la 7.0 e SF19: solo thread principale, solo dopo 3 s): le GUI mostrano la
+    // "info currmove" alla radice (come la 7.0 e gli SF vecchi: solo thread principale, solo dopo 3 s; SF19 usa invece
+    // 10 milioni di nodi del thread principale, NODES_LIMIT_OUTPUT, corretto il 16/10/2026): le GUI mostrano la
     // mossa in esame. Persa con la riscrittura del 04/10, segnalata da Maurizio Platino il 12/10/2026 (Fritz 18).
     // Il tempo la tiene fuori da bench e partite brevi; a radice il ciclo gira poche volte, costo nullo.
     if (n.root && td.thread_id == 0 && get_time_ms() - g_limits.start_ms > 3000) {
@@ -756,7 +775,21 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       red_window = n.beta - n.alpha;
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
     }
-    int r = base_reduction(td, n.improving, n.depth, n.moves, red_window_term);
+    // LmrRank (blocco 2 della 8.1, 16/10/2026, nostra; docs/development/8.1/SEARCH_2_REDUCTIONS.md nel repo): per una
+    // quieta della lista ordinata, la riduzione di base non legge solo il suo numero d'ordine. Il numero "effettivo"
+    // e' il numero della prima quieta del nodo piu' una mossa ogni LmrRankScale punti di distacco dal punteggio della
+    // quieta migliore: la decima mossa con un punteggio vicino alla prima non e' la decima di una coda di mosse
+    // cattive, e nella coda non ordinata (sotto il limite di fill_quiets) il distacco vale piu' dell'ordine di
+    // generazione. I due numeri si mescolano con un peso per esperto (LmrRankMix0-3). Spenta: n.moves, come prima.
+    int red_move_no = n.moves;
+    if (LmrRank && q.rank_ok) {
+      if (!first_quiet_no)
+        first_quiet_no = n.moves;
+      const int eff = first_quiet_no + std::max(0, q.quiet_top - q.last_score) / LmrRankScale;
+      const int mix = by_expert(n.expert, LmrRankMix0, LmrRankMix1, LmrRankMix2, LmrRankMix3);
+      red_move_no = std::clamp((n.moves * (1024 - mix) + eff * mix) / 1024, 1, 255);
+    }
+    int r = base_reduction(td, n.improving, n.depth, red_move_no, red_window_term);
     if (gd_style)   // AnGold: riduzione di base al 97% in attacco, al 103% in manovra
       r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
     // LmrScaleExp (13/10/2026, spenta): pendenza della riduzione per esperto (LmrExp ne sposta solo il livello).
@@ -767,7 +800,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
-    if (!passer && skip_move<AN>(td, f, n, q, m, tact, gives, r))
+    const int ctx = tact ? 0 : quiet_ctx(q, m);   // ThreatHist: 0 se spenta
+    if (!passer && skip_move<AN>(td, f, n, q, m, tact, gives, r, ctx))
       continue;
 
     int cut_value = NO_VALUE;
@@ -803,6 +837,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       continue;
     }
     f[1].in_check = gives;
+    f->hctx = (unsigned char)ctx;
     if (CausalRed)
       f[1].refute = 0;
     new_depth += ext;
@@ -828,7 +863,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
     }
     else
-      f->stat_score = (StatQuietW * td.quiet_hist[us][quiet_key(m)] + StatCont1W * (*f[-1].cont_hist)[pc][to] +
+      f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
                        StatCont2W * (*f[-2].cont_hist)[pc][to]) / 1024;
     r -= f->stat_score * LmrStatDiv / 4096;
     if (!tact && !val_decided(n.alpha))
@@ -883,7 +918,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
           value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
-        learn_followups(f, pc, to, FollowFhBonus);
+        learn_followups(f, pc, to, FollowFhBonus, n.expert);
       }
     } else if (!n.pv || n.moves > 1) {
       if (!n.h.move)
@@ -911,6 +946,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       n.best = value;
       if (value + nudge > n.alpha) {
         n.best_move = m;
+        n.best_ctx = ctx;
         if (n.pv)
           pv_extend(td, m);
         if (value >= n.beta) {
@@ -927,7 +963,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     if (m != n.best_move && n.moves <= TRACKED) {
       if (tact) n.tacts[n.n_tacts++] = m;
-      else      n.quiets[n.n_quiets++] = m;
+      else {
+        n.quiet_ctx[n.n_quiets] = (unsigned char)ctx;
+        n.quiets[n.n_quiets++] = m;
+      }
     }
   }
   return NO_VALUE;
@@ -955,22 +994,27 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   else if (n.best_move) {
     reward_best(td, f, n);
     if (!n.pv)
-      stat_push(td.tt_move_hist, n.best_move == n.h.move ? TtMoveHistGood : -TtMoveHistBad, LIM_TTMOVE);
+      hist_learn(td.tt_move_hist, n.best_move == n.h.move ? TtMoveHistGood : -TtMoveHistBad, LIM_TTMOVE,
+                 ttm_grav(n.expert));
   } else if (!n.prior_capture && n.prev_to >= 0) {
     // Nessuna mossa ha superato alpha: la mossa avversaria che ci ha portati qui era buona.
+    // Forma nostra (17/10/2026): soglia della mossa tardiva (PrLate, prima 9) e guadagno sulla scala (PrGain, /1024)
+    // per esperto; ai default l'albero e' quello di prima (scale * 1024 / 1024 = scale).
+    const int late_n = by_exp4(n.expert, PrLate0, PrLate1, PrLate2, PrLate3);
     int scale = -PriorScaleBase - f[-1].stat_score / PriorScaleStatDiv +
-                std::min(PriorScaleDepthMul * n.depth, PriorScaleDepthMax) + PriorScaleLate * (f[-1].move_count > 9) +
+                std::min(PriorScaleDepthMul * n.depth, PriorScaleDepthMax) + PriorScaleLate * (f[-1].move_count > late_n) +
                 PriorScaleEval * (!n.in_check && n.best <= f->static_eval - PriorScaleEvalMargin) +
                 PriorScaleOppEval * (!f[-1].in_check && n.best <= -f[-1].static_eval - PriorScaleOppMargin);
-    scale = std::max(scale, 0);
-    const int bonus = std::min(PriorBonusDepthMul * n.depth - PriorBonusSub, PriorBonusMax) * scale;
+    scale = std::max(scale, 0) * by_exp4(n.expert, PrGain0, PrGain1, PrGain2, PrGain3) / 1024;
+    const int bonus = hist_amount(n.expert, n.depth, PriorBonusDepthMul, PriorBonusSub, PriorBonusMax) * scale;
     const int prev_pc = td.piece_on[n.prev_to];
-    learn_followups(f - 1, prev_pc, n.prev_to, bonus * PriorContW / 16384);
-    stat_push(td.quiet_hist[us ^ 1][quiet_key(f[-1].move)], bonus * PriorQuietW / 32768, LIM_QUIET);
+    learn_followups(f - 1, prev_pc, n.prev_to, bonus * PriorContW / 16384, n.expert);
+    qh_push(td, us ^ 1, quiet_key(f[-1].move), f[-1].hctx, bonus * PriorQuietW / 32768, hist_grav(n.expert));
     if (prev_pc % 6 != P && !get_move_promoted(f[-1].move))
-      stat_push(pawn_row(td)[prev_pc][n.prev_to], bonus * PriorPawnW / 8192, LIM_PAWN);
+      hist_learn(pawn_row(td)[prev_pc][n.prev_to], bonus * PriorPawnW / 8192, LIM_PAWN, hist_grav(n.expert));
   } else if (n.prior_capture && n.prev_to >= 0) {
-    stat_push(td.capt_hist[td.piece_on[n.prev_to]][n.prev_to][f[-1].captured % 6], PriorCaptBonus, LIM_CAPT);
+    hist_learn(td.capt_hist[td.piece_on[n.prev_to]][n.prev_to][f[-1].captured % 6],
+               by_exp4(n.expert, PrCapt0, PrCapt1, PrCapt2, PrCapt3), LIM_CAPT, hist_cgrav(n.expert));
   }
 
   if (n.pv)
@@ -1000,9 +1044,12 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
 #endif
   if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && dir_ok && learn_ok) {
-    const int bonus = std::clamp((n.best - f->static_eval) * n.depth * (n.best_move ? CorrBonusHi : CorrBonusLo) / 128,
-                                 -CorrBonusMaxLo, CorrBonusMaxHi);
-    corr_learn(td, f, CorrLearnW * bonus / 1024);
+    // Forma nostra (17/10/2026): la profondita' entra come d + q x d x d / 64 con q per esperto (CorrDepthQ, 0 = la
+    // forma lineare di prima: x x 64d x k / (128 x 64) tronca come x x d x k / 128).
+    const long long dq = 64LL * n.depth + (long long)by_exp4(n.expert, CorrDepthQ0, CorrDepthQ1, CorrDepthQ2, CorrDepthQ3) * n.depth * n.depth;
+    const int bonus = (int)std::clamp((long long)(n.best - f->static_eval) * dq * (n.best_move ? CorrBonusHi : CorrBonusLo) / 8192,
+                                      (long long)-CorrBonusMaxLo, (long long)CorrBonusMaxHi);
+    corr_learn(td, f, CorrLearnW * bonus / 1024, n.expert);
   }
   return n.best;
 }
@@ -1026,6 +1073,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.hunt_mate = td.root_depth >= (AN ? td.hunt_from : 16) && std::abs(td.root[td.pv_idx].score) >= 2000;
   n.best = -infinity;
   n.best_move = 0;
+  n.best_ctx = 0;
   n.moves = 0;
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;

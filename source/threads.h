@@ -25,6 +25,10 @@ struct NnStack;   // pila delle dirty della rete (nn_dirty.h)
 
 // Dimensioni delle tabelle di history.
 constexpr int QH_SIZE       = 64 * 64 * 5;   // indice della mossa: da | a<<6 | tipo di promozione<<12
+// Tappa 1 della 8.1 (16/10/2026, ThreatHist): la storia delle quiete ha in piu' tre tabelle da 64*64, le correzioni
+// per contesto di minaccia 1..3 della forma fattorizzata (qh_order/qh_push in 09_history.inc); la tabella piatta resta
+// all'indice di sempre.
+constexpr int QH_CTX_SIZE   = QH_SIZE + 3 * 64 * 64;
 constexpr int LOW_PLY_SIZE  = 5;             // ply vicini alla radice con la history dedicata
 constexpr int NO_PC         = 12;            // "nessun pezzo": blocco sentinella delle continuation
 constexpr int CAPT_NONE     = 6;             // tipo catturato per le promozioni senza cattura e l'e.p.
@@ -54,6 +58,7 @@ struct NodeFrame {
     unsigned char negext;         // la mossa in ricerca da questo frame e' estesa da una riduzione negativa (NegExtMax)
     unsigned char negext_path;    // estensioni da riduzione negativa lungo la linea fino a questo nodo
     int  refute;                  // CausalRed: mossa che ha dato il taglio beta in questo nodo (0 = nessuna)
+    unsigned char hctx;           // ThreatHist: contesto di minaccia della mossa fatta a questo ply (0 = nessuno)
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
@@ -172,7 +177,7 @@ struct ThreadData {
     int best_reply;
 
     // History di questo thread (le continuation, pawn e correction sono condivise: vedi 09_history.inc)
-    int16_t    quiet_hist[2][QH_SIZE];
+    int16_t    quiet_hist[2][QH_CTX_SIZE];
     int16_t    low_ply_hist[LOW_PLY_SIZE][QH_SIZE];
     int16_t    capt_hist[12][64][7];
     PieceToRow cont_corr[NO_PC + 1][64];

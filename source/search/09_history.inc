@@ -117,16 +117,9 @@ static inline int units_to_cp(int v) {
 // Valore di un tipo di pezzo nelle unita' dei margini (indice: P..K, poi "nessuno").
 static const int unit_value[7] = {208, 781, 825, 1276, 2538, 0, 0};
 
-// Spinge una statistica verso il bonus: piu' la voce e' gia' vicina al limite, meno si muove.
-static inline void stat_push(int16_t &e, int bonus, int limit) {
-  const int b = std::clamp(bonus, -limit, limit);
-  const int v = e;
-  e = (int16_t)(v + b - v * (b < 0 ? -b : b) / limit);
-}
-static inline void stat_push(int &e, int bonus, int limit) {
-  const int b = std::clamp(bonus, -limit, limit);
-  e += b - e * (b < 0 ? -b : b) / limit;
-}
+// 17/10/2026: stat_push (l'aggiornamento saturante di prima, forma di Stockfish 19) e' TOLTO. Ogni statistica,
+// correzioni e storia della mossa hash comprese, passa da hist_learn (sotto), che con gravita' 1024 da' lo stesso
+// risultato intero.
 
 // 12/10/2026 sera: i tre limiti sono parametri (HistLim*, 01_params.inc); nella release restano costanti.
 #ifdef TRIUMV_RELEASE
@@ -168,36 +161,145 @@ static inline PieceToRow &pawn_row(const ThreadData &td) {
   return g_stats.pawn_rows[td.pawn_key & g_stats.pawn_mask];
 }
 
+// ============================================================================
+// SCRITTURA DELLE STORIE, FORMA NOSTRA (blocco 1 della 8.1, 16/10/2026 sera)
+// Ogni aggiornamento di una storia passa da qui, con i parametri dell'esperto della rete per il materiale del nodo
+// (net_phase). Origine dichiarata: la saturazione verso un limite e la quantita' lineare nella profondita' sono idee
+// note (storie delle mosse, base algoritmica di Stockfish 19); qui sono generalizzate (gravita', termine quadratico,
+// pesi per esperto) e i valori di partenza riproducono esattamente le formule di prima, quindi l'albero e' identico
+// finche' la taratura non li sposta. I parametri sono in 01_params.inc (Hl*, Ht*, He*).
+// ============================================================================
+static inline int by_exp4(int e, int v0, int v1, int v2, int v3) { return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3; }
+static inline int hist_grav(int e)   { return by_exp4(e, HlGrav0, HlGrav1, HlGrav2, HlGrav3); }
+static inline int hist_cgrav(int e)  { return by_exp4(e, HlCGrav0, HlCGrav1, HlCGrav2, HlCGrav3); }
+static inline int corr_grav(int e)   { return by_exp4(e, CorrGrav0, CorrGrav1, CorrGrav2, CorrGrav3); }
+static inline int ttm_grav(int e)    { return by_exp4(e, TtmGrav0, TtmGrav1, TtmGrav2, TtmGrav3); }
+
+// Una voce si muove verso il premio e rallenta avvicinandosi al limite: e += b - G/1024 * e*|b|/limite. Con G = 1024
+// e' l'aggiornamento di prima (stesso troncamento intero: e*|b|*1024 / (limite*1024) = e*|b| / limite); con G piu'
+// bassa la voce ricorda di piu', con G piu' alta dimentica prima. Il tetto int16 non scatta mai con G = 1024.
+static inline void hist_learn(int16_t &e, int bonus, int limit, int grav) {
+  const int b = std::clamp(bonus, -limit, limit);
+  const int v = e;
+  const long long pull = (long long)v * (b < 0 ? -b : b) * grav / ((long long)limit * 1024);
+  e = (int16_t)std::clamp((long long)v + b - pull, -32767LL, 32767LL);
+}
+// Stessa regola per una statistica int (tt_move_hist).
+static inline void hist_learn(int &e, int bonus, int limit, int grav) {
+  const int b = std::clamp(bonus, -limit, limit);
+  const long long pull = (long long)e * (b < 0 ? -b : b) * grav / ((long long)limit * 1024);
+  e = (int)((long long)e + b - pull);
+}
+
+// Quantita' di un premio o di un malus alla profondita' d: mul*d - sub + q*d*d/64, al piu' cap, con q per esperto
+// (HlDepthQ, 0 = la forma lineare di prima). Una funzione per tutte le quantita' delle storie.
+static inline int hist_amount(int e, int depth, int mul, int sub, int cap) {
+  const int q = by_exp4(e, HlDepthQ0, HlDepthQ1, HlDepthQ2, HlDepthQ3);
+  return std::min(mul * depth - sub + q * depth * depth / 64, cap);
+}
+
 // Statistiche di seguito: la mossa (pc, to) dopo le mosse fatte 1..6 ply prima. Pesi per distanza e un fattore
-// che cresce con il numero di distanze che gia' la premiano.
-static void learn_followups(NodeFrame *f, int pc, int to, int bonus) {
+// che cresce con il numero di distanze che gia' la premiano (valori nostri, SPSA RW1); per esperto, un peso per i
+// seguiti vicini (1-2) e uno per i lontani (3-6), il premio fisso alla distanza 1 (ContNear), quante distanze si
+// aggiornano sotto scacco (ContChk) e la gravita' delle quiete. Ai default (73, 2) l'albero e' quello di prima.
+static void learn_followups(NodeFrame *f, int pc, int to, int bonus, int ex) {
   const int dist_weight[7] = {0, ContDist1, ContDist2, ContDist3, ContDist4, ContDist5, ContDist6};
   const int agree_mul[7] = {ContAgree0, ContAgree1, ContAgree2, ContAgree3, ContAgree4, ContAgree5, ContAgree6};
+  const int grav = hist_grav(ex);
+  const int w_near = by_exp4(ex, HlFNear0, HlFNear1, HlFNear2, HlFNear3);
+  const int w_far = by_exp4(ex, HlFFar0, HlFFar1, HlFFar2, HlFFar3);
+  const int near_bonus = by_exp4(ex, ContNear0, ContNear1, ContNear2, ContNear3);
+  const int last_d = f->in_check ? by_exp4(ex, ContChk0, ContChk1, ContChk2, ContChk3) : 6;
   int agreeing = 0;
-  for (int d = 1; d <= 6; d++) {
-    if (f->in_check && d > 2)
-      break;
+  for (int d = 1; d <= last_d; d++) {
     if (!move_ok(f[-d].move))
       continue;
-    int16_t &e = (*f[-d].cont_hist)[pc][to];
-    if (e > 0)
+    int16_t &cell = (*f[-d].cont_hist)[pc][to];
+    if (cell > 0)
       agreeing++;
-    stat_push(e, bonus * dist_weight[d] * agree_mul[agreeing] / 65536 + (d < 2 ? ContNearBonus : 0), LIM_FOLLOW);
+    const int wb = bonus * dist_weight[d] * agree_mul[agreeing] / 65536;
+    hist_learn(cell, wb * (d <= 2 ? w_near : w_far) / 1024 + (d < 2 ? near_bonus : 0), LIM_FOLLOW, grav);
   }
 }
 
-static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus) {
-  const int key = quiet_key(m);
-  stat_push(td.quiet_hist[td.side][key], bonus, LIM_QUIET);
-  if (f->ply < LOW_PLY_SIZE)
-    stat_push(td.low_ply_hist[f->ply][key], bonus * LowPlyScale / 1024, LIM_QUIET);
-  learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024);
-  stat_push(pawn_row(td)[move_piece(m)][move_to(m)],
-            bonus * (bonus > -4 ? PawnBonusScale : PawnMalusScale) / 1024, LIM_PAWN);
+// ============================================================================
+// STORIA DELLE QUIETE PER CONTESTO DI MINACCIA (ThreatHist, tappa 1 della 8.1, 16/10/2026, nostra)
+// La stessa mossa vale cose diverse se il pezzo sta scappando da una minaccia o se va su una casa minacciata. Il
+// contesto ha due bit: 1 = la casa di partenza e' minacciata, 2 = lo e' la casa d'arrivo. "Minacciata" vuol dire
+// attaccata da un pezzo avversario di valore minore, l'attacco che costa materiale anche se la casa e' difesa: per il
+// pedone un pedone, per cavallo e alfiere un pedone, per la torre un pezzo minore o un pedone, per la donna anche una
+// torre; il re non ha contesto. Le promozioni restano senza contesto. Le mappe sono quelle che score_quiets calcola
+// gia' per l'ordinamento (MoveQueue::menace); per una mossa sola (la mossa hash, le parate) si interroga la casa.
+// Origine dichiarata: indicizzare la storia delle quiete per minaccia e' un'idea nota (altri motori, per esempio
+// Ethereal); nostri il contesto "pezzo di valore minore", la forma fattorizzata e i pesi.
+// ============================================================================
+// Storia FATTORIZZATA (16/10/2026, dopo H0 della forma a tabelle separate a 8+0.08 e la parita' a 15+0.15). Analisi
+// di quella forma: (a) il suo contesto e' la stessa mappa lesser[] che l'ordinamento usa gia' nel termine fisso
+// ThreatOrderMul, quindi aggiungeva poco; (b) divideva gli aggiornamenti di una mossa fra quattro tabelle, e le tre
+// dei contesti, rare, imparavano da pochi esempi mentre la piatta perdeva proprio quelli; (c) entrava anche in
+// stat_score della LMR e nella potatura per storia, tarate sulla tabella piatta. Qui la tabella piatta (indice key)
+// riceve sempre ogni aggiornamento; le tre tabelle dei contesti imparano solo lo scarto della mossa in quel contesto.
+// L'ordinamento legge la somma (qh_order); LMR e potatura leggono solo la piatta (qh_main), con i loro parametri
+// invariati. ThreatCtxW (peso della correzione nell'ordinamento) e ThreatCtxUpd (scala del suo aggiornamento), /1024.
+// 17/10/2026: TOLTE le forme 1 (tabelle separate, H0) e 2 (qualunque attacco, per confronto). ThreatHist 0 = nessun
+// contesto (ctx sempre 0: solo la tabella piatta, l'albero di prima, bench 137419); 1-3 = la forma fattorizzata
+// (3 resta il valore usato da SPSA e SPRT; bench 270429 identico a prima della pulizia).
+static inline int qh_order(const ThreadData &td, int side, int key, int ctx) {
+  const int16_t *h = td.quiet_hist[side];
+  return h[key] + (ctx ? h[QH_SIZE + ((ctx - 1) << 12) + key] * ThreatCtxW / 1024 : 0);
+}
+static inline int qh_main(const ThreadData &td, int side, int key, int) {
+  return td.quiet_hist[side][key];
+}
+static inline void qh_push(ThreadData &td, int side, int key, int ctx, int bonus, int grav) {
+  int16_t *h = td.quiet_hist[side];
+  hist_learn(h[key], bonus, LIM_QUIET, grav);
+  if (ctx)
+    hist_learn(h[QH_SIZE + ((ctx - 1) << 12) + key], bonus * ThreatCtxUpd / 1024, LIM_QUIET, grav);
 }
 
-static inline void learn_capture(ThreadData &td, int m, int bonus) {
-  stat_push(td.capt_hist[move_piece(m)][move_to(m)][victim_kind(td, m)], bonus, LIM_CAPT);
+// Pezzi avversari che minacciano la casa sq per un nostro pezzo di tipo pt (stessa definizione delle mappe di
+// score_quiets, con l'occupazione del nodo).
+static inline bool square_menaced(const ThreadData &td, int sq, int pt) {
+  const int us = td.side, eoff = us == white ? 6 : 0;
+  const U64 occ = td.occupancies[both];
+  const U64 ep = td.bitboards[P + eoff], en = td.bitboards[N + eoff], eb = td.bitboards[B + eoff],
+            er = td.bitboards[R + eoff];
+  if (pawn_attacks[us][sq] & ep)
+    return true;
+  if (pt <= B)
+    return false;
+  if ((knight_attacks[sq] & en) || (get_bishop_attacks(sq, occ) & eb))
+    return true;
+  return pt == Q && (get_rook_attacks(sq, occ) & er);
+}
+
+// Contesto di una mossa quieta interrogando le due case (la mossa hash prima delle mappe, le parate dallo scacco).
+static inline int quiet_ctx_slow(const ThreadData &td, int m) {
+  if (!ThreatHist || get_move_promoted(m))
+    return 0;
+  const int pt = kPieceKind[move_piece(m)];
+  if (pt == K)
+    return 0;
+  return (int)square_menaced(td, move_from(m), pt) | (int)square_menaced(td, move_to(m), pt) << 1;
+}
+
+// Una quieta impara in tutte le sue storie: principale (con la correzione di ThreatHist), primi ply, seguiti e pawn
+// history; ex = esperto del nodo. HlAux scala per esperto gli aggiornamenti di primi ply, seguiti e pawn history.
+static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus, int ctx, int ex) {
+  const int key = quiet_key(m);
+  const int grav = hist_grav(ex);
+  const int aux = by_exp4(ex, HlAux0, HlAux1, HlAux2, HlAux3);
+  qh_push(td, td.side, key, ctx, bonus, grav);
+  if (f->ply < LOW_PLY_SIZE)
+    hist_learn(td.low_ply_hist[f->ply][key], bonus * LowPlyScale / 1024 * aux / 1024, LIM_QUIET, grav);
+  learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024 * aux / 1024, ex);
+  hist_learn(pawn_row(td)[move_piece(m)][move_to(m)],
+             bonus * (bonus > -4 ? PawnBonusScale : PawnMalusScale) / 1024 * aux / 1024, LIM_PAWN, grav);
+}
+
+static inline void learn_capture(ThreadData &td, int m, int bonus, int ex) {
+  hist_learn(td.capt_hist[move_piece(m)][move_to(m)][victim_kind(td, m)], bonus, LIM_CAPT, hist_cgrav(ex));
 }
 
 // ============================================================================
@@ -260,7 +362,11 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
     if (CorrContOppW)
       cont += CorrContOppW * (*f[-3].cont_corr)[pc][to];
   }
-  return CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
+  // 17/10/2026, forma nostra: quanto pesa la correzione nella valutazione, per esperto (CorrGain, /1024; 1024 =
+  // come prima, s * 1024 / 1024 = s). Le tabelle sono gia' separate per fascia (CorrPhase); il peso era uno solo.
+  const int s = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
+  const int ex = net_phase(count_bits(td.occupancies[both]));
+  return (int)((long long)s * by_exp4(ex, CorrGain0, CorrGain1, CorrGain2, CorrGain3) / 1024);
 }
 
 // CorrExpertW (06/10/2026, rapporto N_CORREZIONI 4.8): una tabella dei pedoni per esperto della rete che si somma
@@ -286,25 +392,28 @@ static inline int corrected_eval(int v, int signal) {
   return std::clamp(v + signal / 131072, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
-static void corr_learn(ThreadData &td, NodeFrame *f, int bonus) {
+// 17/10/2026: aggiornamento delle correzioni con hist_learn e la gravita' dell'esperto del nodo (CorrGrav, 1024 =
+// stat_push di prima, albero identico).
+static void corr_learn(ThreadData &td, NodeFrame *f, int bonus, int ex) {
   PROF_GUARD(prof_corr);
   const int us = td.side;
+  const int g = corr_grav(ex);
   const U64 phk = corr_phase_key(td);
   const U64 fk = corr_fifty_key(td);
-  stat_push(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus * CorrPawnUpd / 128, LIM_CORR);
-  stat_push(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR);
-  stat_push(corr_slot(td.np_key[white] ^ fk, us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR);
-  stat_push(corr_slot(td.np_key[black] ^ fk, us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR);
+  hist_learn(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus * CorrPawnUpd / 128, LIM_CORR, g);
+  hist_learn(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR, g);
+  hist_learn(corr_slot(td.np_key[white] ^ fk, us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR, g);
+  hist_learn(corr_slot(td.np_key[black] ^ fk, us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR, g);
   const int prev = f[-1].move;
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];
-    stat_push((*f[-2].cont_corr)[pc][to], bonus * CorrCont2Upd / 128, LIM_CORR);
-    stat_push((*f[-4].cont_corr)[pc][to], bonus * CorrCont4Upd / 128, LIM_CORR);
+    hist_learn((*f[-2].cont_corr)[pc][to], bonus * CorrCont2Upd / 128, LIM_CORR, g);
+    hist_learn((*f[-4].cont_corr)[pc][to], bonus * CorrCont4Upd / 128, LIM_CORR, g);
     if (CorrCont6W)
-      stat_push((*f[-6].cont_corr)[pc][to], bonus * CorrCont6Upd / 128, LIM_CORR);
+      hist_learn((*f[-6].cont_corr)[pc][to], bonus * CorrCont6Upd / 128, LIM_CORR, g);
     if (CorrContOppW)
-      stat_push((*f[-3].cont_corr)[pc][to], bonus * CorrContOppUpd / 128, LIM_CORR);
+      hist_learn((*f[-3].cont_corr)[pc][to], bonus * CorrContOppUpd / 128, LIM_CORR, g);
   }
   if (CorrExpertW)
-    stat_push(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR);
+    hist_learn(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR, g);
 }

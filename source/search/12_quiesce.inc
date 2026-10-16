@@ -273,6 +273,7 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, boo
   }
   td.nodes++;
   f->move = m;
+  f->hctx = 0;   // ThreatHist: il ciclo delle mosse della ricerca lo riscrive per le sue quiete
   f->captured = u.captured_piece;
   f->cont_hist = &g_stats.follow[f->in_check][is_tactical(m)][move_piece(m)][move_to(m)];
   f->cont_corr = &td.cont_corr[move_piece(m)][move_to(m)];
@@ -322,6 +323,7 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.plies_from_null = 0;
   // La rete non registra nulla: i pezzi non si muovono, e gli accumulatori non dipendono dal lato al tratto.
   f->move = NULL_MOVE;
+  f->hctx = 0;
   f->captured = -1;
   f->cont_hist = &g_stats.follow[0][0][NO_PC][0];
   f->cont_corr = &td.cont_corr[NO_PC][0];

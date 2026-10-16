@@ -107,7 +107,7 @@ static void shared_stats_reset() {
 }
 
 static void thread_stats_reset(ThreadData &td) {
-  fill_with(&td.quiet_hist[0][0], (size_t)2 * QH_SIZE, -5);
+  fill_with(&td.quiet_hist[0][0], (size_t)2 * QH_CTX_SIZE, -5);
   fill_with(&td.low_ply_hist[0][0], (size_t)LOW_PLY_SIZE * QH_SIZE, 0);
   fill_with(&td.capt_hist[0][0][0], (size_t)12 * 64 * 7, -742);
   fill_with(&td.cont_corr[0][0], (size_t)(NO_PC + 1) * 64, 5);
