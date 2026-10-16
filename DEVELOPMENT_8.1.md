@@ -54,6 +54,14 @@ engine pinned to one core.
 - **Speed.** A Tin Man continues his work (a legal generator with the AVX-512 compacted writing is the first
   proposal); every pull request is measured on the Xeon, on Zen 4 and on an Intel processor with AVX-VNNI. Changes
   at an identical tree do not touch the parameters, so they do not disturb steps 3 and 4.
+- **The move generator and the search.** The legal generator gives the exact number of legal moves at every node at
+  no cost. Known search ideas built on that count are tested inside the stages of step 3 that they touch: reductions
+  and late-move pruning scaled by the legal count (stages 2 and 3); an extension when only one move is legal, with no
+  singular verification search in that case, and no check extension when the evasions are many (stage 4); a
+  null-move guard when few moves are legal; mate and stalemate recognised in quiescence; an instant move with a
+  single legal reply (time management). If they gain, the legal generator is used on every build and the search
+  builds on the count. If they do not, both generators stay and each variant of the universal executable uses the
+  faster one: the two give the same moves in the same order, so the bench is the same on every build.
 - **For users.** Playing strength levels (`UCI_LimitStrength`, `UCI_Elo`, calibrated in games,
   [section 13](docs/project/FUTURE_DIRECTIONS.md#13-playing-strength-levels)) and Chess960 in the release build,
   which today has it only in development builds; with it the engine can enter the CCRL FRC list.
@@ -147,7 +155,8 @@ level of the base: it is now off in the AVX-512 builds (avx512, vnni512, avx512i
 measured, on Intel processors without AVX-512. Removing the evaluation cache helps here too. The legal generator and
 the old one are level on AVX-512: the legal generator saves the legality tests, while the old one wrote the moves of a
 piece sixteen at a time with `vpcompressd`, which the legal generator does not do. A legal generator with that
-compacted writing might take both gains on AVX-512 processors; it is proposed to the author as a next step.
+compacted writing might take both gains on AVX-512 processors; it is proposed to the author as a next step. Which
+generator each build uses in the end depends on the search ideas built on the legal move count (see the plan).
 
 **Node counts.** The bench is identical, but in a workload of 30 positions searched one after another in the same
 process, without `ucinewgame` in between, the pull request searches 12,008,338 nodes per round against 12,008,522,
