@@ -166,6 +166,7 @@ included.
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): the NNUE inference machinery in `nnue/`, ported from SFNNv16 and since extended for Triumviratus' own networks (the PassedPawns and PawnPair blocks, the four experts of Consilium, row permutation for cache locality, refresh caches, measured speed changes).
 - **[BBC](https://github.com/maksimKorzh/chess_programming)** by Maksim Korzh: the original bitboard and magic-number move generator, the project's 2024 foundation, since rewritten and extended.
 - **[Fathom](https://github.com/jdart1/Fathom)** (MIT): Syzygy tablebase probing.
+- **[Zoomies](https://github.com/CodeAdopter/Zoomies)** by A Tin Man (MIT, © 2026 Angelo Wolff) and **[Surge](https://github.com/nkarve/surge)** (MIT, © 2020 DiehardTheTryhard), from which the Zoomies generator descends: the legal move generator in `source/movegen_legal.h`.
 
 </details>
 

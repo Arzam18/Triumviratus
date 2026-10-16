@@ -85,7 +85,7 @@ Pull request 6, by **A Tin Man**, merged into `dev` on 15 October. Six changes, 
 
 | # | change | where it acts |
 |---|---|---|
-| 1 | **Legal move generator** (`source/movegen_legal.h`), ported from the author's engine [Zoomies](https://github.com/CodeAdopter/Zoomies) and written to give the moves in exactly the order of our generator. Generated moves skip the legality test before the move and the king test of the make; the hash move keeps the old checks; Chess960 keeps the staged generator. `tdperft` compares the two generators at every node | every build |
+| 1 | **Legal move generator** (`source/movegen_legal.h`), ported from the author's engine [Zoomies](https://github.com/CodeAdopter/Zoomies) (MIT; its generator descends from [Surge](https://github.com/nkarve/surge), MIT) and written to give the moves in exactly the order of our generator. Generated moves skip the legality test before the move and the king test of the make; the hash move keeps the old checks; Chess960 keeps the staged generator. `tdperft` compares the two generators at every node | every build |
 | 2 | **Per-thread evaluation cache removed**: 12 hits in 2.5 million lookups at bench depth 20, 62 in 9.4 million over a 40-ply game. The transposition table already stores the evaluation | every build |
 | 3 | **Prefetch of the hash entry of the next move's child**, decided at start-up from the processor vendor: on for Intel, off for AMD, where it loses | Intel |
 | 4 | AVX2 rank counting of the move ordering in full groups of 8, as the AVX-512 path already did | AVX2 builds |
