@@ -9,6 +9,10 @@ rules for contributions are in [`CONTRIBUTING.md`](docs/project/CONTRIBUTING.md)
 structure of the search first, then the tuning of its parameters, because a tuning made before a rewrite would no
 longer fit the rewritten code.
 
+**Goal.** 8.1 shares no line of code with Stockfish, with no loss of strength. The search and the inference of the
+network are rewritten block by block; every block passes a non-regression SPRT before the old code is removed. Known
+ideas stay, credited in the documents; the code and its formulas are our own.
+
 **Measurement rules**, as in 8.0: one test at a time on the test machine; every search change by an SPRT run to a
 decision, with at least 20,000 games; a short time control first, then a long one for the changes that pass; small
 levers go to SPSA rather than to single SPRTs; speed only with hardware counters at an identical search tree, the
@@ -27,9 +31,7 @@ engine pinned to one core.
    machine, so it starts at once. Its result says which search components to rewrite first.
 3. **A search of our own** ([future directions, section 11](docs/project/FUTURE_DIRECTIONS.md#11-a-search-shaped-by-the-network)).
    A rewrite of the search one component at a time, designed for a network of experts, each with a non-regression
-   SPRT at unchanged parameters. If the release date matters more than
-   completeness, only the components that step 2 shows to be weakest are rewritten for 8.1. Four stages, in this
-   order, because each one feeds the next:
+   SPRT at unchanged parameters. Six blocks; the first four in this order, because each one feeds the next:
    1. **histories and move ordering**: a history of quiet moves indexed by the threat context of the move, in a form
       of our own built on the value of the attacking pieces, and the ordering rethought around it
       ([block 1](docs/development/8.1/SEARCH_1_ORDERING.md));
@@ -38,7 +40,12 @@ engine pinned to one core.
    3. **pruning**: reverse futility, null move, futility, ProbCut and losing captures, with per-expert margins where
       they pay ([block 3](docs/development/8.1/SEARCH_3_PRUNING.md));
    4. **extensions**: singular extension, the low-depth hash-move extension and internal reduction in one design
-      ([block 4](docs/development/8.1/SEARCH_4_EXTENSIONS.md)).
+      ([block 4](docs/development/8.1/SEARCH_4_EXTENSIONS.md));
+   5. **the core of the search**: quiescence, the use of the transposition table, iterative deepening with aspiration
+      windows, and the threads ([block 5](docs/development/8.1/SEARCH_5_CORE.md));
+   6. **the inference of the network**: the forward pass, the SIMD layers and the loading of the network, rewritten to
+      give bit-identical evaluations, so that strength is unchanged by construction and only speed is measured
+      ([block 6](docs/development/8.1/NNUE_INFERENCE.md)).
 
    Each stage: a written design, code behind an option (off, the tree is unchanged), a non-regression SPRT, then the
    old code is removed. Each block has its own document with the design, the tests and their results. Time management
