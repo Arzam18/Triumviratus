@@ -235,8 +235,18 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
         occupied ^= (td.side == white) ? (1ULL << (to + 8)) : (1ULL << (to - 8));
     }
 
+    // Promotion gain (17/10/2026, review by Bastiii; SPRT on endgames, option SeePromo baked and retired): a promotion
+    // gains (promoted piece - pawn) and the piece the opponent may recapture on 'to' is the promoted one. Before, the
+    // search never sent promotions here (SEE = 0) and the move counted as a pawn move.
+    int promo_gain = 0;
+    if (get_move_promoted(move)) {
+        const int promoted = get_move_promoted(move);
+        promo_gain = see_piece_values[promoted] - see_piece_values[piece];
+        piece = promoted;
+    }
+
     // Bilancio se lo scambio si ferma subito dopo la nostra mossa.
-    int swap = ((captured != -1) ? see_piece_values[captured] : 0) - threshold;
+    int swap = ((captured != -1) ? see_piece_values[captured] : 0) + promo_gain - threshold;
     if (swap < 0) return 0;      // nemmeno incassando la vittima si arriva alla soglia
     // L'avversario ricattura il nostro pezzo: se restiamo comunque sopra, deciso.
     swap = see_piece_values[piece] - swap;
@@ -290,9 +300,14 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
             if ((swap = see_piece_values[t] - swap) < res) break;
             const U64 bb = stm_att & td.bitboards[base + t];
             occupied ^= (bb & (0 - bb));
-            const SliderPair sp = get_slider_pair(to, occupied);
-            attackers |= (pair_bishop(sp) & diag_sliders & diag_mask[t])
-                       | (pair_rook(sp)   & orth_sliders & orth_mask[t]);
+            // Skipping the slider lookup when a knight recaptures (17/10/2026, review by Bastiii: a knight opens no
+            // line) was measured with xperf on the Xeon: +0.2% instructions, cycles within noise. Not adopted: the
+            // loop stays branch-free (W2).
+            {
+                const SliderPair sp = get_slider_pair(to, occupied);
+                attackers |= (pair_bishop(sp) & diag_sliders & diag_mask[t])
+                           | (pair_rook(sp)   & orth_sliders & orth_mask[t]);
+            }
             continue;
         }
 

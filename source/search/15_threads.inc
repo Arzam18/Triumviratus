@@ -171,12 +171,12 @@ static void thread_main(int id) {
   deepen(thread_data[id]);
 }
 
-// Scelta del thread che da' la bestmove (blocco 5 della 8.1, forma nostra, 17/10/2026). Ogni thread porta alla
-// propria mossa un sostegno: (punteggio - minimo fra i thread + SmpVoteBase) x SmpVoteScore / 1024, piu'
-// SmpVoteDepth per ogni ply completato. Il sostegno di una mossa e' la somma dei thread che la scelgono, calcolata una
-// volta per mossa. Un risultato deciso e completo (matto o tablebase, senza limite) prevale; a parita' di sostegno
-// vince la linea piu' lunga. Il voto pesato fra thread e' un'idea comune della Lazy SMP; ai default (14, 1024, 0) la
-// scelta e' quella di prima.
+// Choice of the thread that gives the bestmove (block 5 of 8.1). Each thread gives its own move a share:
+//   (score - lowest score among the threads + SmpVoteBase) x SmpVoteScore / 1024 + SmpVoteDepth x completed depth.
+// The support of a move is the sum of the shares of the threads that chose it, computed once per move. A decided and
+// complete result (mate or tablebase score, without a bound) wins; equal support goes to the longer line.
+// Origin: a weighted vote among threads is a common lazy-SMP idea. Ours: the additive depth term and the parameters.
+// Defaults (14, 1024, 0) give the old choice. Code map: docs/conceptual_maps/BLOCK_5_CODE_MAP.md.
 static ThreadData *pick_thread() {
   ThreadData *best = &thread_data[0];
   if (num_threads == 1)

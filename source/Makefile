@@ -51,7 +51,9 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # incbin (un file omonimo accanto all'exe la sovrascrive; EvalFile carica
 # qualsiasi path). Senza file -> NNUE_EMBEDDING_OFF come prima (es. bundle
 # sorgenti-only per le VM). NB: il nome deve restare allineato a evaluate.h.
-NET_NAME := nn-legio-septima.nnue
+# 17/10/2026 (review by Bastiii): the 8.0 network, aligned with EvalFileDefaultName in nnue/evaluate.h (it still named
+# the 7.0 network, so Linux builds missed the file at the build root and turned embedding off).
+NET_NAME ?= nn-consilium.nnue
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
   $(info [i] $(NET_NAME) trovata: rete EMBEDDATA nel binario)
@@ -261,6 +263,13 @@ endif
 ifeq (use,$(PGO_PHASE))
   OPT  += -flto=thin -fprofile-use=$(PROFDIR)/merged.profdata -mtune=native \
           -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled
+endif
+# CODEGEN=1 (17/10/2026, review by Bastiii): the two code-generation flags of the Windows build
+# (Triumviratus_8.0.vcxproj): no cmov-to-branch conversion (-0.15% / -0.29% cycles) and block placement from the PGO
+# profile (ext-tsp, -0.6% middlegame cycles). With ThinLTO the code is generated at link time, so they go to the linker
+# through lld. Opt-in until tried on a Linux machine; same moves either way.
+ifeq ($(CODEGEN),1)
+  OPT += -fuse-ld=lld -Wl,-mllvm,-x86-cmov-converter=false -Wl,-mllvm,-enable-ext-tsp-block-placement=true
 endif
 
 # EXTRACXXFLAGS: flag/define extra dalla riga di comando, es.

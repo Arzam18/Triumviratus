@@ -194,13 +194,20 @@ A first check, with only the expert of the opening tuned (coarse pass, 22 levers
 against the engine before the rewrite (10+0.1, hyperthreading, one socket). The rewritten block holds its strength
 before most of its tuning.
 
+After the coarse pass of all four experts (expert 3 from rows 452 to 542 of its run, experts 2, 1 and 0 from the mean
+of their last 80 iterations, after 751, 860 and 844 iterations): **+0.92 ± 4.96 over 4,926 games** against the engine
+before the rewrite (10+0.1, both sockets). At this pace the non-regression test would need about 32,000 games, so it
+was stopped and kept as a measurement: the block, in its new form and with its first values, plays at the level of
+the old one, and a loss larger than about 4 Elo is excluded. The test that closes the block comes after the fine
+pass.
+
 ## 1.7 The tuning queue
 
 | # | Run | Levers | Status |
 |---|---|---|---|
 | 1 | coarse pass, expert 3 (24 pieces or more) | 22 | done, 568 iterations |
-| 2 | coarse pass, experts 2, 1 and 0, three runs side by side on one socket | 23 each | running since 17 October |
-| 3 | SPRT of the block after the coarse pass, against the engine before the rewrite | | after 2 |
+| 2 | coarse pass, experts 2, 1 and 0, three runs side by side on one socket | 23 each | done, 751, 860 and 844 iterations |
+| 3 | SPRT of the block after the coarse pass, against the engine before the rewrite | | stopped as a measurement, +0.92 ± 4.96 over 4,926 games |
 | 4 | threat context: `ThreatCtxW` and `ThreatCtxUpd`, with the leaving and entering weights of the four experts, 16 games per iteration | 10 | after 3 |
 | 5 | fine pass, expert 3: the levers added after its coarse pass (`LpDecay`, `ChkBonus`, `ChkSee`, `StGood`, `StQuiet`, `StSort`, `CorrGrav`, `TtmGrav`, `ContNear`, `ContChk`, `EvPen`, `PrGain`, `PrLate`, `PrCapt`, `CorrGain`, `CorrDepthQ`), open trends | 16 or more | after 4 |
 | 6 | fine pass, experts 2, 1 and 0: the same levers except the two gravities they already had, open trends | 14 or more each | after 5 |

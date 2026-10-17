@@ -654,7 +654,10 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
     // La catena degli accumulatori e' quella della ricerca, con le dirty gia' scritte dalla make; la posizione si
     // legge dalla nostra scacchiera.
     auto [psqt, positional] = NET_REF.evaluate(board, *p->accStack, *p->caches);
-    int  inc                = nn_scale(board, psqt, positional, rule50, &p->last,
+    // 17/10/2026 (review by Bastiii): no NnLast here. Its three values (two 64-bit products and divisions plus three
+    // stores per evaluation) were read only by EvalTTWrite and EvalCacheOptSplit, which are gone: nn_last_* and
+    // tt_cache_eval have no callers. Same value returned, identical tree.
+    int  inc                = nn_scale(board, psqt, positional, rule50, nullptr,
                                        g_opt_per_thread ? p->opt : nullptr);
 
     if (g_verify) {

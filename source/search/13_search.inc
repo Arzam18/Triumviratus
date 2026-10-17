@@ -255,9 +255,9 @@ static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (!n.pv)
     bonus += (int)((long long)bonus * (n.n_quiets + n.n_tacts) / 256);
 
-  // HistLearn (blocco 1 della 8.1, 16/10/2026 sera, nostra; 01_params.inc): le scale dell'apprendimento sono quelle
-  // dell'esperto del nodo. Nei finali una quieta che taglia fra poche alternative informa piu' che in apertura fra
-  // quaranta: premio, malus e calo del malus si tarano per fase. Ai default sono i valori unici di prima.
+  // E. How much the histories learn (HistLearn, block 1): reward, penalty and penalty decay of quiet moves, reward and
+  //    penalty of captures, per expert. In an endgame a quiet move that cuts among few alternatives says more than one
+  //    among forty in the opening. Defaults = the old single scales.
   const int qb = by_expert(n.expert, HlQBonus0, HlQBonus1, HlQBonus2, HlQBonus3);
   const int qm = by_expert(n.expert, HlQMalus0, HlQMalus1, HlQMalus2, HlQMalus3);
   const int qd = by_expert(n.expert, HlQDecay0, HlQDecay1, HlQDecay2, HlQDecay3);
@@ -461,13 +461,12 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
 template <bool AN>
 static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
-  // La differenza di valutazione col ply precedente insegna qualcosa sulla mossa che ci ha portati qui.
+  // G. The change of the evaluation since the previous ply teaches something about the move that led here.
   if (move_ok(f[-1].move) && !f[-1].in_check && !n.prior_capture) {
     const int diff = std::clamp(-(f[-1].static_eval + f->static_eval), -EvalDiffLo, EvalDiffHi) + EvalDiffOfs;
     const int pm = f[-1].move;
-    // Forma nostra (blocco 1): peso per esperto HlEval e gravita' dell'esperto; ai default e' l'aggiornamento di prima.
-    // 17/10/2026: premio e penalita' con pesi separati (EvPen scala le penalita', diff < 0; 1024 = stesso peso, come
-    // prima: ev * 1024 / 1024 = ev).
+    // Weight per expert (HlEval) and gravity of the expert; EvPen scales the penalties (diff < 0) apart from the
+    // rewards (1024 = one weight for both, as before: ev * 1024 / 1024 = ev).
     int ev = by_exp4(n.expert, HlEval0, HlEval1, HlEval2, HlEval3);
     if (diff < 0)
       ev = ev * by_exp4(n.expert, EvPen0, EvPen1, EvPen2, EvPen3) / 1024;
@@ -997,9 +996,9 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
       hist_learn(td.tt_move_hist, n.best_move == n.h.move ? TtMoveHistGood : -TtMoveHistBad, LIM_TTMOVE,
                  ttm_grav(n.expert));
   } else if (!n.prior_capture && n.prev_to >= 0) {
-    // Nessuna mossa ha superato alpha: la mossa avversaria che ci ha portati qui era buona.
-    // Forma nostra (17/10/2026): soglia della mossa tardiva (PrLate, prima 9) e guadagno sulla scala (PrGain, /1024)
-    // per esperto; ai default l'albero e' quello di prima (scale * 1024 / 1024 = scale).
+    // H. No move raised alpha: the opponent's move that led here was good. Per expert: the move number from which the
+    //    previous move counts as late (PrLate, was 9) and a gain on the scale (PrGain, /1024). Defaults give the old
+    //    tree (scale * 1024 / 1024 = scale).
     const int late_n = by_exp4(n.expert, PrLate0, PrLate1, PrLate2, PrLate3);
     int scale = -PriorScaleBase - f[-1].stat_score / PriorScaleStatDiv +
                 std::min(PriorScaleDepthMul * n.depth, PriorScaleDepthMax) + PriorScaleLate * (f[-1].move_count > late_n) +
@@ -1044,8 +1043,8 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
 #endif
   if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && dir_ok && learn_ok) {
-    // Forma nostra (17/10/2026): la profondita' entra come d + q x d x d / 64 con q per esperto (CorrDepthQ, 0 = la
-    // forma lineare di prima: x x 64d x k / (128 x 64) tronca come x x d x k / 128).
+    // I. Reward of the correction tables: depth enters as d + q*d*d/64, q per expert (CorrDepthQ; 0 = the old linear
+    //    form: x * 64d * k / (128 * 64) truncates like x * d * k / 128).
     const long long dq = 64LL * n.depth + (long long)by_exp4(n.expert, CorrDepthQ0, CorrDepthQ1, CorrDepthQ2, CorrDepthQ3) * n.depth * n.depth;
     const int bonus = (int)std::clamp((long long)(n.best - f->static_eval) * dq * (n.best_move ? CorrBonusHi : CorrBonusLo) / 8192,
                                       (long long)-CorrBonusMaxLo, (long long)CorrBonusMaxHi);

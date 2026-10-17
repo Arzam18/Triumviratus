@@ -117,9 +117,9 @@ static inline int units_to_cp(int v) {
 // Valore di un tipo di pezzo nelle unita' dei margini (indice: P..K, poi "nessuno").
 static const int unit_value[7] = {208, 781, 825, 1276, 2538, 0, 0};
 
-// 17/10/2026: stat_push (l'aggiornamento saturante di prima, forma di Stockfish 19) e' TOLTO. Ogni statistica,
-// correzioni e storia della mossa hash comprese, passa da hist_learn (sotto), che con gravita' 1024 da' lo stesso
-// risultato intero.
+// Every statistic of the engine (move histories, correction histories, hash-move history) is updated by
+// hist_learn, below. The former update (stat_push, in the inherited form) was removed on 17/10/2026: hist_learn with
+// gravity 1024 gives the same integer result.
 
 // 12/10/2026 sera: i tre limiti sono parametri (HistLim*, 01_params.inc); nella release restano costanti.
 #ifdef TRIUMV_RELEASE
@@ -162,12 +162,13 @@ static inline PieceToRow &pawn_row(const ThreadData &td) {
 }
 
 // ============================================================================
-// SCRITTURA DELLE STORIE, FORMA NOSTRA (blocco 1 della 8.1, 16/10/2026 sera)
-// Ogni aggiornamento di una storia passa da qui, con i parametri dell'esperto della rete per il materiale del nodo
-// (net_phase). Origine dichiarata: la saturazione verso un limite e la quantita' lineare nella profondita' sono idee
-// note (storie delle mosse, base algoritmica di Stockfish 19); qui sono generalizzate (gravita', termine quadratico,
-// pesi per esperto) e i valori di partenza riproducono esattamente le formule di prima, quindi l'albero e' identico
-// finche' la taratura non li sposta. I parametri sono in 01_params.inc (Hl*, Ht*, He*).
+// WRITING THE STATISTICS (block 1 of 8.1)
+// Every update of a statistic goes through the functions below, with the parameters of the network expert chosen by
+// the material of the node (net_phase: 0 = 9 pieces or fewer, 1 = 10-15, 2 = 16-23, 3 = 24 or more).
+// Origin: the saturating update and an amount linear in depth are known ideas (move histories, part of the
+// algorithmic base of Stockfish 19). Our form: a gravity per expert, a quadratic term in depth, weights per expert.
+// At the starting values every formula gives the old integer result, so the tree is identical until tuning moves
+// them (bench 137419). Parameters: 01_params.inc, sub-blocks E, F, G of docs/development/8.1/SEARCH_1_ORDERING.md.
 // ============================================================================
 static inline int by_exp4(int e, int v0, int v1, int v2, int v3) { return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3; }
 static inline int hist_grav(int e)   { return by_exp4(e, HlGrav0, HlGrav1, HlGrav2, HlGrav3); }
@@ -175,33 +176,36 @@ static inline int hist_cgrav(int e)  { return by_exp4(e, HlCGrav0, HlCGrav1, HlC
 static inline int corr_grav(int e)   { return by_exp4(e, CorrGrav0, CorrGrav1, CorrGrav2, CorrGrav3); }
 static inline int ttm_grav(int e)    { return by_exp4(e, TtmGrav0, TtmGrav1, TtmGrav2, TtmGrav3); }
 
-// Una voce si muove verso il premio e rallenta avvicinandosi al limite: e += b - G/1024 * e*|b|/limite. Con G = 1024
-// e' l'aggiornamento di prima (stesso troncamento intero: e*|b|*1024 / (limite*1024) = e*|b| / limite); con G piu'
-// bassa la voce ricorda di piu', con G piu' alta dimentica prima. Il tetto int16 non scatta mai con G = 1024.
+// Saturating update: an entry moves toward the reward b and slows near the limit L,
+//   e += b - G/1024 * e*|b|/L
+// G = 1024 is the old update with the same truncation (e*|b|*1024 / (L*1024) = e*|b| / L). Lower G: the entry gets
+// closer to the limit (keeps more); higher G: it forgets sooner. The int16 clamp never acts at G = 1024.
 static inline void hist_learn(int16_t &e, int bonus, int limit, int grav) {
   const int b = std::clamp(bonus, -limit, limit);
   const int v = e;
   const long long pull = (long long)v * (b < 0 ? -b : b) * grav / ((long long)limit * 1024);
   e = (int16_t)std::clamp((long long)v + b - pull, -32767LL, 32767LL);
 }
-// Stessa regola per una statistica int (tt_move_hist).
+// Same rule for an int statistic (tt_move_hist).
 static inline void hist_learn(int &e, int bonus, int limit, int grav) {
   const int b = std::clamp(bonus, -limit, limit);
   const long long pull = (long long)e * (b < 0 ? -b : b) * grav / ((long long)limit * 1024);
   e = (int)((long long)e + b - pull);
 }
 
-// Quantita' di un premio o di un malus alla profondita' d: mul*d - sub + q*d*d/64, al piu' cap, con q per esperto
-// (HlDepthQ, 0 = la forma lineare di prima). Una funzione per tutte le quantita' delle storie.
+// Amount of a reward or penalty at depth d: min(mul*d - sub + q*d*d/64, cap), q per expert (HlDepthQ; 0 = the old
+// linear form). Every reward and penalty by depth comes from here.
 static inline int hist_amount(int e, int depth, int mul, int sub, int cap) {
   const int q = by_exp4(e, HlDepthQ0, HlDepthQ1, HlDepthQ2, HlDepthQ3);
   return std::min(mul * depth - sub + q * depth * depth / 64, cap);
 }
 
-// Statistiche di seguito: la mossa (pc, to) dopo le mosse fatte 1..6 ply prima. Pesi per distanza e un fattore
-// che cresce con il numero di distanze che gia' la premiano (valori nostri, SPSA RW1); per esperto, un peso per i
-// seguiti vicini (1-2) e uno per i lontani (3-6), il premio fisso alla distanza 1 (ContNear), quante distanze si
-// aggiornano sotto scacco (ContChk) e la gravita' delle quiete. Ai default (73, 2) l'albero e' quello di prima.
+// Continuation histories: the move (pc, to) after the moves made 1..6 plies back.
+// - weight per distance (ContDist*) and a factor that grows with the number of distances already rewarding the move
+//   (ContAgree*): values of ours from the 8.0 tuning (RW1);
+// - per expert: near (1-2) and far (3-6) weights, the fixed reward at distance 1 (ContNear), how many distances are
+//   updated when the node is in check (ContChk), the gravity of the quiet histories.
+// Defaults (ContNear 73, ContChk 2) give the old tree.
 static void learn_followups(NodeFrame *f, int pc, int to, int bonus, int ex) {
   const int dist_weight[7] = {0, ContDist1, ContDist2, ContDist3, ContDist4, ContDist5, ContDist6};
   const int agree_mul[7] = {ContAgree0, ContAgree1, ContAgree2, ContAgree3, ContAgree4, ContAgree5, ContAgree6};
@@ -223,27 +227,26 @@ static void learn_followups(NodeFrame *f, int pc, int to, int bonus, int ex) {
 }
 
 // ============================================================================
-// STORIA DELLE QUIETE PER CONTESTO DI MINACCIA (ThreatHist, tappa 1 della 8.1, 16/10/2026, nostra)
-// La stessa mossa vale cose diverse se il pezzo sta scappando da una minaccia o se va su una casa minacciata. Il
-// contesto ha due bit: 1 = la casa di partenza e' minacciata, 2 = lo e' la casa d'arrivo. "Minacciata" vuol dire
-// attaccata da un pezzo avversario di valore minore, l'attacco che costa materiale anche se la casa e' difesa: per il
-// pedone un pedone, per cavallo e alfiere un pedone, per la torre un pezzo minore o un pedone, per la donna anche una
-// torre; il re non ha contesto. Le promozioni restano senza contesto. Le mappe sono quelle che score_quiets calcola
-// gia' per l'ordinamento (MoveQueue::menace); per una mossa sola (la mossa hash, le parate) si interroga la casa.
-// Origine dichiarata: indicizzare la storia delle quiete per minaccia e' un'idea nota (altri motori, per esempio
-// Ethereal); nostri il contesto "pezzo di valore minore", la forma fattorizzata e i pesi.
-// ============================================================================
-// Storia FATTORIZZATA (16/10/2026, dopo H0 della forma a tabelle separate a 8+0.08 e la parita' a 15+0.15). Analisi
-// di quella forma: (a) il suo contesto e' la stessa mappa lesser[] che l'ordinamento usa gia' nel termine fisso
-// ThreatOrderMul, quindi aggiungeva poco; (b) divideva gli aggiornamenti di una mossa fra quattro tabelle, e le tre
-// dei contesti, rare, imparavano da pochi esempi mentre la piatta perdeva proprio quelli; (c) entrava anche in
-// stat_score della LMR e nella potatura per storia, tarate sulla tabella piatta. Qui la tabella piatta (indice key)
-// riceve sempre ogni aggiornamento; le tre tabelle dei contesti imparano solo lo scarto della mossa in quel contesto.
-// L'ordinamento legge la somma (qh_order); LMR e potatura leggono solo la piatta (qh_main), con i loro parametri
-// invariati. ThreatCtxW (peso della correzione nell'ordinamento) e ThreatCtxUpd (scala del suo aggiornamento), /1024.
-// 17/10/2026: TOLTE le forme 1 (tabelle separate, H0) e 2 (qualunque attacco, per confronto). ThreatHist 0 = nessun
-// contesto (ctx sempre 0: solo la tabella piatta, l'albero di prima, bench 137419); 1-3 = la forma fattorizzata
-// (3 resta il valore usato da SPSA e SPRT; bench 270429 identico a prima della pulizia).
+// QUIET HISTORY BY THREAT CONTEXT (ThreatHist, block 1 of 8.1)
+// The same quiet move means different things when the piece escapes a threat or walks into one. Context, two bits:
+// 1 = the from-square is threatened, 2 = the to-square is. Threatened = attacked by an enemy piece of lower value
+// (the attack that costs material even on a defended square): for a pawn a pawn, for a knight or bishop a pawn, for a
+// rook a minor piece or a pawn, for a queen also a rook. The king and promotions have no context. The maps are the
+// ones score_quiets already builds (MoveQueue::menace); a single move (hash move, evasions) asks the squares.
+// Origin: indexing the quiet history by threats is a known idea (other engines, e.g. Ethereal). Ours: the
+// lower-value context, the factored form and the weights.
+//
+// Factored form: the flat table (index key) receives every update; three correction tables, one per context, learn
+// only how the move does in that context against its flat history. The ordering reads the sum (qh_order); the
+// reductions and the history pruning read the flat table only (qh_main), so their parameters keep their meaning.
+// ThreatCtxW = weight of the correction in the ordering, ThreatCtxUpd = scale of its update (/1024).
+// ThreatHist 0 = no context (ctx is always 0: flat table only, bench 137419); 1-3 = factored form (3 is used by the
+// tuning runs and tests, bench 270429).
+//
+// History: 16/10/2026, the earlier form with separate tables per context lost (H0, -3.32 +- 1.93 over 33,510 games at
+// 8+0.08): its context repeated the lesser[] map of the fixed threat term, it split the updates of a move over four
+// tables, and it also entered the reductions and the history pruning. Factored form after a short SPSA: -0.89 +- 4.25
+// over 6,626 games. The separate-table forms (1, and 2 = any attacker) were removed on 17/10/2026.
 static inline int qh_order(const ThreadData &td, int side, int key, int ctx) {
   const int16_t *h = td.quiet_hist[side];
   return h[key] + (ctx ? h[QH_SIZE + ((ctx - 1) << 12) + key] * ThreatCtxW / 1024 : 0);
@@ -258,8 +261,7 @@ static inline void qh_push(ThreadData &td, int side, int key, int ctx, int bonus
     hist_learn(h[QH_SIZE + ((ctx - 1) << 12) + key], bonus * ThreatCtxUpd / 1024, LIM_QUIET, grav);
 }
 
-// Pezzi avversari che minacciano la casa sq per un nostro pezzo di tipo pt (stessa definizione delle mappe di
-// score_quiets, con l'occupazione del nodo).
+// Is square sq threatened for our piece of type pt? Same definition as the maps of score_quiets, node occupancy.
 static inline bool square_menaced(const ThreadData &td, int sq, int pt) {
   const int us = td.side, eoff = us == white ? 6 : 0;
   const U64 occ = td.occupancies[both];
@@ -274,7 +276,7 @@ static inline bool square_menaced(const ThreadData &td, int sq, int pt) {
   return pt == Q && (get_rook_attacks(sq, occ) & er);
 }
 
-// Contesto di una mossa quieta interrogando le due case (la mossa hash prima delle mappe, le parate dallo scacco).
+// Threat context of one quiet move from its two squares (hash move before the maps exist, evasions).
 static inline int quiet_ctx_slow(const ThreadData &td, int m) {
   if (!ThreatHist || get_move_promoted(m))
     return 0;
@@ -284,8 +286,8 @@ static inline int quiet_ctx_slow(const ThreadData &td, int m) {
   return (int)square_menaced(td, move_from(m), pt) | (int)square_menaced(td, move_to(m), pt) << 1;
 }
 
-// Una quieta impara in tutte le sue storie: principale (con la correzione di ThreatHist), primi ply, seguiti e pawn
-// history; ex = esperto del nodo. HlAux scala per esperto gli aggiornamenti di primi ply, seguiti e pawn history.
+// A quiet move learns in all its histories: main (with its threat-context correction), first plies, continuations,
+// pawn structure. ex = expert of the node; HlAux scales the three auxiliary updates per expert.
 static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus, int ctx, int ex) {
   const int key = quiet_key(m);
   const int grav = hist_grav(ex);
@@ -303,9 +305,11 @@ static inline void learn_capture(ThreadData &td, int m, int bonus, int ex) {
 }
 
 // ============================================================================
-// CORREZIONE DELLA VALUTAZIONE STATICA
-// Si impara la differenza fra il valore cercato e la valutazione statica, per chiavi di struttura (pedoni, pezzi
-// minori, non-pedoni di ciascun colore) e per la coppia di mosse che porta al nodo.
+// CORRECTION OF THE STATIC EVALUATION (sub-block I of block 1)
+// The tables learn the difference between the searched value and the static evaluation, by structure keys (pawns,
+// minor pieces, non-pawns of each colour), by the pair of moves that led to the node, and optionally by expert.
+// Ours in 8.1: the weight of the correction per expert (CorrGain), a quadratic depth term in its reward (CorrDepthQ,
+// 13_search.inc) and the gravity per expert of the update (CorrGrav).
 // ============================================================================
 
 static inline CorrSlot &corr_slot(U64 key, int side_to_move) {
@@ -362,8 +366,8 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
     if (CorrContOppW)
       cont += CorrContOppW * (*f[-3].cont_corr)[pc][to];
   }
-  // 17/10/2026, forma nostra: quanto pesa la correzione nella valutazione, per esperto (CorrGain, /1024; 1024 =
-  // come prima, s * 1024 / 1024 = s). Le tabelle sono gia' separate per fascia (CorrPhase); il peso era uno solo.
+  // Weight of the correction per expert (CorrGain, /1024; 1024 = old value, s*1024/1024 = s). The tables were already
+  // separate by expert band (CorrPhase); the weight was one for all.
   const int s = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
   const int ex = net_phase(count_bits(td.occupancies[both]));
   return (int)((long long)s * by_exp4(ex, CorrGain0, CorrGain1, CorrGain2, CorrGain3) / 1024);
@@ -392,8 +396,8 @@ static inline int corrected_eval(int v, int signal) {
   return std::clamp(v + signal / 131072, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
-// 17/10/2026: aggiornamento delle correzioni con hist_learn e la gravita' dell'esperto del nodo (CorrGrav, 1024 =
-// stat_push di prima, albero identico).
+// Update of the correction tables through hist_learn with the gravity of the node's expert (CorrGrav; 1024 = the old
+// update, identical tree).
 static void corr_learn(ThreadData &td, NodeFrame *f, int bonus, int ex) {
   PROF_GUARD(prof_corr);
   const int us = td.side;

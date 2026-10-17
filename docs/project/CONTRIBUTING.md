@@ -36,6 +36,12 @@ Results from testers are published in [`tests/`](../tests/README.md) with their 
 
 Merged contributions, newest first. Measurements and details are in [`DEVELOPMENT_8.1.md`](../../DEVELOPMENT_8.1.md).
 
+- **Bastiii**, code review of the 8.1 development branch (17 October 2026): a race between threads in the
+  transposition table store (the entry is checked again before its move and evaluation are reused), a dead write of
+  the network-scale cache in the evaluation, the `hashfull` count limited to the current search, the network name in
+  the `Makefile` and an optional set of linker flags, the default of `gen_cooc_perm.py`, and a static exchange
+  evaluation that counts the gain of a promotion (adopted after an SPRT on endgames, +1.78 ± 1.76 over 14,874 games). All at an identical search tree except the
+  promotion gain; a second suggestion on the exchange evaluation was measured with hardware counters and showed no gain.
 - **A Tin Man**, pull request 6 (15 October 2026), speed at an identical search tree: a legal move generator ported
   from his own engine, [Zoomies](https://github.com/CodeAdopter/Zoomies), with the move order of ours; an AVX-VNNI variant of the universal executable for Intel
   processors without AVX-512; the removal of the per-thread evaluation cache; a prefetch of the next move's hash entry

@@ -391,8 +391,10 @@ static void deepen(ThreadData &td) {
     for (int i = 0; i < QH_CTX_SIZE; i++)
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
-  // SmpSkew (blocco 5, spenta a 0): i thread helper dispari partono SmpSkew ply piu' avanti, cosi' i thread chiudono le
-  // iterazioni in momenti diversi e la tabella condivisa riceve profondita' diverse. Il thread 0 non cambia mai.
+  // SmpSkew (block 5; off at 0): the odd helper threads start SmpSkew plies ahead, so the threads finish their
+  // iterations at different times and the shared table receives a wider mix of depths (a known lazy-SMP variant).
+  // Thread 0 never changes. Test 17/10/2026, with SmpVoteDepth, 4 threads 2+0.05: +1.72 +- 4.61 over 5,648 games; off,
+  // queued for the end of 8.1.
   if (SmpSkew && (td.thread_id & 1))
     td.root_depth = SmpSkew;
 
@@ -462,7 +464,8 @@ static void deepen(ThreadData &td) {
       td.last_pv_len = cur.prev_pv_len;
       td.sel_depth = 0;
 
-      // Finestre sfasate fra i thread (blocco 5, forma nostra): (id % SmpAspCycle) x SmpAspStep; ai default id % 8.
+      // Aspiration window (block 5): AspBase + an offset per thread, (id % SmpAspCycle) x SmpAspStep (default id % 8),
+      // + the spread of the root scores. The offset makes the threads fail high and low at different moments.
       int delta = AspBase + td.thread_id % SmpAspCycle * SmpAspStep + (int)(std::llabs(cur.mean_sq) / AspMeanSqDiv);
       if (td.gd_style == 2)   // AnGold: finestra piu' stretta in equilibrio, piu' larga in attacco
         delta = std::max(6, delta * 9 / 10);
@@ -476,7 +479,7 @@ static void deepen(ThreadData &td) {
 
       int failed_high = 0;
       for (;;) {
-        // Forma nostra (blocco 5): AspFhRed ply per ogni fallimento alto di fila (prima 1).
+        // AspFhRed plies off for each fail high in a row (was 1).
         const int depth = std::max(1, td.root_depth - failed_high * AspFhRed - 3 * (again + 1) / 4 -
                                       (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: seconda linea piu' corta
         td.root_delta = beta - alpha;
@@ -491,8 +494,8 @@ static void deepen(ThreadData &td) {
           if (total > 10000000)
             report_lines(td, td.root_depth);
         }
-        // Forma nostra (blocco 5): allargamento separato per i due fallimenti (AspGrowLo, AspGrowHi; prima un solo
-        // AspGrow) e, dopo un fallimento basso, beta che tiene AspLoKeep/1024 della finestra (0 = beta ad alpha).
+        // Outside the window: separate growth after a fail low and a fail high (AspGrowLo, AspGrowHi; one AspGrow served
+        // both), and after a fail low beta keeps AspLoKeep/1024 of the window (ours, off; 0 = beta falls to alpha).
         int grow;
         if (best <= alpha) {
           beta = alpha + (int)((long long)(beta - alpha) * AspLoKeep / 1024);

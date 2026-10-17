@@ -152,6 +152,11 @@ legal move generator ported from his own engine, [Zoomies](https://github.com/Co
 (+6% to +9% on the Intel Raptor Lake processors measured), merged into the `dev` branch for 8.1. Details in
 [Contributions](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md#contributions).
 
+**Bastiii** reviewed the code of the 8.1 development branch and found a race between threads in the transposition
+table, dead work in the evaluation and a static exchange evaluation that ignored the gain of a promotion; the fixes
+are in the `dev` branch. Details in
+[Contributions](https://github.com/Tors3/Triumviratus/blob/dev/docs/project/CONTRIBUTING.md#contributions).
+
 **Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
 extensively, in matches against Stockfish and other engines and on tactical test suites such as IQ4, and his reports
 shaped the release. His remark that Stoofvlees answers very quickly between two moves started the line of thought that

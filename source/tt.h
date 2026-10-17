@@ -244,8 +244,10 @@ inline int hashfull() {
     U64 n = hash_entries < 1000 ? hash_entries : 1000;
     if (n == 0) return 0;
     int used = 0;
+    // 17/10/2026 (review by Bastiii): only entries written in the current search count, so the GUI sees the pressure
+    // of this search; before, entries kept from earlier moves counted too. Output only: the search does not read it.
     for (U64 i = 0; i < n; i++)
-        if (hash_table[i].data != 0) used++;
+        if (hash_table[i].data != 0 && unpack_age(hash_table[i].data) == current_age) used++;
     return (int)((U64)used * 1000 / n);
 }
 
@@ -469,6 +471,10 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
 #endif
         const U64 old_data = entry->data;
         const U64 old_w    = entry->kw ^ old_data;
+        // 17/10/2026 (review by Bastiii): with more threads another store can rewrite this way between the scan above
+        // and these two reads, and then old_w is garbage. The words are used only if they still carry our tag;
+        // otherwise the entry is simply overwritten below. With one thread the tag always matches: identical tree.
+        if (((old_w >> 16) != tag)) goto write_entry;
         if (g_tt_move_keep && move == 0) move = unpack_move(old_data);
         if (ev16 == 0) ev16 = (int)(old_w & 0xFFFF);   // conserva l'eval se lo store non ne porta
         // TTKeepMargin (studio finali 26/09/2026, docs/audit_8.0/H_FINALI.md). Nei finali, a profondita' >= 12,
@@ -506,6 +512,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         if (entry != tt_victim(hash_key)) { printf("info string TTSTORE: vittima diversa\n"); fflush(stdout); abort(); }
 #endif
     }
+write_entry:
     const U64 new_data = pack_tt_data(move, score, depth, flag, current_age, pv ? 1 : 0);
     const U64 w = (tt_tag(hash_key) << 16) | (U64)ev16;
     entry->data = new_data;

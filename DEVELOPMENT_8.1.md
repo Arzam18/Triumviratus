@@ -178,3 +178,26 @@ the same difference in every round. The likely cause is the removed evaluation c
 fifty-move count returned a value that could differ by rounding from a fresh evaluation, so the old tree depended on
 what the cache held. The difference is 15 nodes in a million and does not matter for strength; the tree is identical
 when the cache is cold, as in the bench.
+
+## 2. Code review by Bastiii (17 October 2026)
+
+**Bastiii** read the development branch and sent a list of findings. Each one was checked against the code; the ones
+that hold are in `dev`.
+
+| finding | change | tree |
+|---|---|---|
+| A race in the transposition table: with several threads, another store can rewrite a way between the scan and the two reads of `store_tt`, and the old move and evaluation are then taken from a different position | the words are reused only if they still carry the tag of the position; otherwise the entry is overwritten (`tt.h`) | identical |
+| Dead work in the evaluation: the network-scale cache (`NnLast`, two 64-bit products and divisions and three stores per evaluation) had no readers left | `nn_pos_eval` no longer writes it (`nnue_bridge.cpp`) | identical |
+| `hashfull` counted entries kept from earlier searches | only entries of the current search count; output only | identical |
+| The `Makefile` still named the 7.0 network, so Linux builds missed the embedded file | `NET_NAME ?= nn-consilium.nnue`; `CODEGEN=1` adds the two code-generation flags of the Windows build through `lld`, opt-in until tried on Linux | identical |
+| `gen_cooc_perm.py` defaulted to a co-occurrence sample too small for the network | default `--cooc-n 8192` | tools only |
+| The static exchange evaluation ignored the gain of a promotion, and the search never sent promotions to it | promotions go to the exchange evaluation, which adds the promotion gain and values the piece on the target square as the promoted one (`see.cpp`, `see_holds`) | changes the tree |
+
+**Speed.** xperf on the Xeon, engine pinned, 4 rounds, against a copy of the base (noise of the copy against the base:
+0.50% middlegame, 0.31% endgames): the fixes cost 0.0% cycles per node in the middlegame and +0.4% in endgames, inside
+the noise. A second suggestion, skipping the slider lookup when a knight recaptures in the exchange loop, adds 0.2% to
+0.3% instructions with no measurable saving in cycles; the loop stays without that branch.
+
+**The promotion gain in the exchange evaluation.** SPRT on endgame positions (12 to 18 pieces) without draw
+adjudication, 8+0.08, both sockets, against the same build without it: **+1.78 ± 1.76 Elo over 14,874 games** (LLR +2.63 for non-regression on [−3, 0]; stopped just short of the +2.94 bound to free the machine, with the lower end of the interval above zero). It is kept: the new bench is
+**126352**.
