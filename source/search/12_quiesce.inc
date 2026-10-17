@@ -1,6 +1,6 @@
-// search/12_quiesce.inc -- Strumenti dei nodi (tabella hash, legalita', scacco, passi avanti e indietro) e
-// ricerca di quiescenza.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/12_quiesce.inc -- Node tools (hash table in the units of the search, legality, check, stepping into a child
+// and back) and the quiescence search (block 5 of 8.1, in our form since 17/10/2026).
+// Part of threads.cpp: NOT a translation unit of its own.
 
 // ============================================================================
 // TABELLA HASH: lettura e scrittura nelle unita' e nelle convenzioni della ricerca
@@ -437,16 +437,60 @@ static inline void pv_extend(ThreadData &td, int m) {
 }
 
 // ============================================================================
-// QUIESCENZA
+// QUIESCENCE (block 5 in our form, 17/10/2026)
+// A node of the quiescence search has four parts:
+//   1. early exits: draws (repetition ahead, fifty moves, insufficient material) and the hash;
+//   2. the stand: out of check, the corrected evaluation is a value the side to move can claim without moving;
+//   3. the walk: tactical moves (all evasions when in check); qs_worth decides for each one whether it is searched,
+//      and may raise the node's value with what a skipped move was certainly worth;
+//   4. the close: mate or stalemate when nothing was played, the value pulled toward beta, the hash entry.
+// Levers (01_params.inc): QsFut0-3, QsSee0-3, QsGate, QsVictimW, QsSeeFutW, QsFhMix, QsStandMix. At their
+// defaults the tree is the one of the 8.0 quiescence, whose logic came from the algorithmic base of SF19.
 // ============================================================================
 
-// QCHK (AnQsChecks, modalita' analisi, 09/10/2026, idea nostra): primo ply della quiescenza chiamato dalla ricerca
-// principale. Dopo le tattiche si provano anche le mosse quiete che danno scacco con SEE >= 0; il figlio (sotto
-// scacco) e' una quiescenza normale. QCHK = false e' la quiescenza di sempre, identica.
+// What the walk knows about the node.
+struct QsWalk {
+  int ex;         // expert of the node (piece count band of the network)
+  int fut_base;   // stand + futility margin of the expert; -infinity in check (nothing is pruned on value)
+  int prev_to;    // target square of the previous move: a recapture there is never pruned on value
+};
+
+// Pull a value that lies above beta toward beta by a mix weight (/1024); 1024 keeps the value.
+static inline int qs_pull(int value, int beta, int mix) { return (mix * value + (1024 - mix) * beta) / 1024; }
+
+// Is move m worth a search? 'seen' counts the legal moves met so far, m included. A skipped plain capture can still
+// raise 'best' to the value it was sure to reach. While the side to move is being mated, every move is searched.
+static inline bool qs_worth(ThreadData &td, const QsWalk &w, int m, bool gives, int seen, int alpha, int &best) {
+  if (val_lost(best))
+    return true;
+  // A plain capture: no check, no promotion, not a recapture, and a futility base that is a real value.
+  const bool plain = !gives && move_to(m) != w.prev_to && !get_move_promoted(m) && !val_lost(w.fut_base);
+  if (plain) {
+    if (seen > QsGate)
+      return false;
+    const int fut = w.fut_base + unit_value[victim_kind(td, m)] * QsVictimW / 1024;
+    if (fut <= alpha) {   // even winning the victim for free leaves the node under alpha
+      best = std::max(best, fut);
+      return false;
+    }
+    if (!see_holds(td, m, (alpha - w.fut_base) * QsSeeFutW / 1024)) {   // the exchange cannot close the gap
+      best = std::max(best, std::min(alpha, w.fut_base));
+      return false;
+    }
+  }
+  if (!is_tactical(m))   // quiet evasions are searched only while being mated (above)
+    return false;
+  return see_holds(td, m, -by_exp4(w.ex, QsSee0, QsSee1, QsSee2, QsSee3));
+}
+
+// QCHK (AnQsChecks, analysis mode, 09/10/2026, our idea): at the first quiescence ply called by the main search, quiet
+// moves that give check with SEE >= 0 are tried after the tactical ones; the child (in check) is a normal quiescence.
+// QCHK = false is the plain quiescence.
 template <bool QCHK = false>
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
+  // ---- 1. Early exits -------------------------------------------------------
   td.pv_length[td.ply] = td.ply;
-  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
+  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // a repetition is in reach: the draw is a floor
     alpha = draw_score(td);
     if (alpha >= beta)
       return alpha;
@@ -454,14 +498,11 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (pv && td.sel_depth < td.ply + 1)
     td.sel_depth = td.ply + 1;
   const bool in_check = f->in_check;
-
   if (td.ply >= max_ply)
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
     return contempt(td);
-  // BAKE INSUFMATERIAL (11/10/2026, vedi 01_params.inc): il materiale cambia solo con una cattura, quindi si
-  // controlla solo dopo una cattura.
-  if (f[-1].captured >= 0 && insufficient_material(td))
+  if (f[-1].captured >= 0 && insufficient_material(td))   // material changes only with a capture
     return contempt(td);
 
   HashView h;
@@ -471,84 +512,67 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (!pv && h.depth >= hd_qs() && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
     return h.value;
 
-  int best, fut_base, eval_raw = tt_eval_none;
+  // ---- 2. The stand ---------------------------------------------------------
+  QsWalk w;
+  w.ex = net_phase(count_bits(td.occupancies[both]));
+  int best, eval_raw = tt_eval_none;
   if (in_check) {
-    best = fut_base = -infinity;
+    best = w.fut_base = -infinity;
   } else {
     const int signal = corr_signal(td, f);
     const int plain = node_eval(td, h, eval_raw);
     f->static_eval = best = corrected_eval(plain, signal + corr_signal_extra(td));
+    // A hash bound on the right side is a better estimate than the evaluation.
     if (h.hit && val_known(h.value) && !val_decided(h.value) && bound_covers(h.bound, h.value > best))
       best = h.value;
-    if (best >= beta) {
+    if (best >= beta) {   // standing still is already enough
       if (!val_decided(best))
-        best = (QsFhMix * best + (1024 - QsFhMix) * beta) / 1024;
+        best = qs_pull(best, beta, QsFhMix);
       if (!h.hit)
         hash_write(td, VAL_NONE, false, BOUND_LOW, HD_EVAL, 0, eval_raw);
       return best;
     }
-    if (best > alpha)
-      alpha = best;
-    fut_base = f->static_eval + QsFutMargin;
+    alpha = std::max(alpha, best);
+    w.fut_base = f->static_eval + by_exp4(w.ex, QsFut0, QsFut1, QsFut2, QsFut3);
   }
 
-  const int prev = f[-1].move;
-  const int prev_to = move_ok(prev) ? move_to(prev) : -1;
+  // ---- 3. The walk ----------------------------------------------------------
+  w.prev_to = move_ok(f[-1].move) ? move_to(f[-1].move) : -1;
   MoveQueue q;
   queue_start(q, td, f, h.move, 0, in_check ? QK_EVADE : QK_QUIESCE);
   MoveSafety safety;
   safety.ready = false;
-  int best_move = 0, count = 0, m;
+  int best_move = 0, seen = 0, m;
   while ((m = queue_next(q)) != 0) {
     const bool gen_legal = queue_move_legal(q, m);
     if (!gen_legal && !legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
-    const bool tact = is_tactical(m);
-    count++;
-
-    if (!val_lost(best)) {
-      if (!gives && move_to(m) != prev_to && !val_lost(fut_base) && !get_move_promoted(m)) {
-        if (count > 2)
-          continue;
-        const int fut = fut_base + unit_value[victim_kind(td, m)];
-        if (fut <= alpha) {
-          best = std::max(best, fut);
-          continue;
-        }
-        if (!see_holds(td, m, alpha - fut_base)) {
-          best = std::max(best, std::min(alpha, fut_base));
-          continue;
-        }
-      }
-      if (!tact)
-        continue;
-      if (!see_holds(td, m, -QsSeeMargin))
-        continue;
-    }
+    if (!qs_worth(td, w, m, gives, ++seen, alpha, best))
+      continue;
 
     UndoInfo u;
-    if (!step_in(td, f, m, u, gen_legal)) {
-      count--;
+    if (!step_in(td, f, m, u, gen_legal)) {   // illegal after all: it does not count as seen
+      seen--;
       continue;
     }
     f[1].in_check = gives;
     const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
     step_out(td, m, u);
 
-    if (value > best) {
-      best = value;
-      if (value > alpha) {
-        best_move = m;
-        if (pv)
-          pv_extend(td, m);
-        if (value < beta)
-          alpha = value;
-        else
-          break;
-      }
-    }
+    if (value <= best)
+      continue;
+    best = value;
+    if (value <= alpha)
+      continue;
+    best_move = m;
+    if (pv)
+      pv_extend(td, m);
+    if (value >= beta)
+      break;
+    alpha = value;
   }
+  int count = seen;
 
   if constexpr (QCHK) {
     if (!in_check && best < beta) {
@@ -583,11 +607,13 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     }
   }
 
+  // ---- 4. The close ---------------------------------------------------------
   if (!count) {
     if (in_check)
       return mated_at(td.ply);
-    // Nessuna cattura: se oltre al re restano solo pedoni bloccati e l'ultima mossa ha catturato un pezzo
-    // (non un pedone), controlla lo stallo (la quiescenza non vede le mosse quiete).
+    // Nothing was played and quiet moves are not generated here, so a stalemate can hide behind the stand. It is
+    // looked for only when it is possible at all: besides the king, only blocked pawns, and the last move took a
+    // piece (not a pawn).
     const int us = td.side, off = us == white ? 0 : 6;
     const U64 pawns = td.bitboards[P + off];
     const U64 pushes = us == white ? pawns >> 8 : pawns << 8;
@@ -596,9 +622,8 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     if (!(pushes & ~td.occupancies[both]) && !non_pawn && took_piece && !has_legal_move(td))
       best = contempt(td);
   }
-
   if (!val_decided(best) && best > beta)
-    best = (QsStandMix * best + (1024 - QsStandMix) * beta) / 1024;
+    best = qs_pull(best, beta, QsStandMix);
   hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, hd_qs(), best_move, eval_raw);
   return best;
 }

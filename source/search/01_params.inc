@@ -397,9 +397,17 @@
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
   P(DeeperMargin, 51, 0, 200)                                                                             \
   P(ShallowerMargin, 8, 0, 60)                                                                            \
-  /* quiescenza */                                                                                        \
-  P(QsFutMargin, 312, 100, 600)                                                                           \
-  P(QsSeeMargin, 74, 0, 300)                                                                              \
+  /* Quiescence, block 5 in our form (17/10/2026; 12_quiesce.inc). Defaults = the old tree.                   */ \
+  /*  QsFut   margin over the stand for a capture to be worth searching, per expert (was 312 for all)          */ \
+  /*  QsSee   exchange loss a capture may accept, per expert (was 74 for all)                                  */ \
+  /*  QsGate  plain captures searched before the futility gate closes (was 2)                                  */ \
+  /*  QsVictimW weight of the victim's value in the futility estimate, /1024                                   */ \
+  /*  QsSeeFutW weight of the gap (alpha - futility base) in the exchange test of a plain capture, /1024       */ \
+  P(QsFut0, 312, 100, 600)  P(QsFut1, 312, 100, 600)  P(QsFut2, 312, 100, 600)  P(QsFut3, 312, 100, 600)       \
+  P(QsSee0, 74, 0, 300)     P(QsSee1, 74, 0, 300)     P(QsSee2, 74, 0, 300)     P(QsSee3, 74, 0, 300)          \
+  P(QsGate, 2, 0, 8)                                                                                      \
+  P(QsVictimW, 1024, 512, 1536)                                                                           \
+  P(QsSeeFutW, 1024, 512, 1536)                                                                           \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
   P(CorrMinorW, 10827, 0, 40000)                                                                          \
@@ -651,10 +659,23 @@
   /*    ContChk how many continuations are updated when the node is in check (was 2).                            */ \
   P(ContNear0, 73, 0, 300)  P(ContNear1, 73, 0, 300)  P(ContNear2, 73, 0, 300)  P(ContNear3, 73, 0, 300)       \
   P(ContChk0, 2, 1, 6)      P(ContChk1, 2, 1, 6)      P(ContChk2, 2, 1, 6)      P(ContChk3, 2, 1, 6)           \
-  /* taglio dalla hash (13_search.inc, hash_cutoff) */                                                         \
-  P(HashCutQuietMul, 112, 0, 400)        /* bonus alla mossa hash quieta: min(Mul*depth, Max) */          \
+  /* Cutoff from the hash, block 5 in our form (17/10/2026; 13_search.inc, hash_cutoff). Defaults = old tree.  */ \
+  /*  HashCutQuiet* reward to a quiet hash move, min(Mul*depth, Max); HashCutPrevMalus penalty to the previous  */ \
+  /*  move when it came early, before move HashPrevLate (was 5).                                               */ \
+  /*  HashLowSlack  plies of depth an upper bound may lack and still cut (was 1)                               */ \
+  /*  HashAnyNode   depth above which an entry cuts whatever the node type expects (was 4)                    */ \
+  /*  HashVerify    depth from which the child of the hash move must confirm the cutoff (was 7)               */ \
+  /*  HashWeaken    depth above which an entry that contradicts the window loses a ply (was 5)                */ \
+  /*  HashFiftyGuard fifty-move count from which no cutoff is taken (was 96)                                  */ \
+  P(HashCutQuietMul, 112, 0, 400)                                                                          \
   P(HashCutQuietMax, 695, 0, 2500)                                                                         \
-  P(HashCutPrevMalus, 2210, 0, 6000)     /* malus alla mossa avversaria precedente, se uscita presto */     \
+  P(HashCutPrevMalus, 2210, 0, 6000)                                                                       \
+  P(HashPrevLate, 5, 1, 12)                                                                                \
+  P(HashLowSlack, 1, 0, 3)                                                                                 \
+  P(HashAnyNode, 4, 1, 10)                                                                                 \
+  P(HashVerify, 7, 3, 16)                                                                                  \
+  P(HashWeaken, 5, 1, 12)                                                                                  \
+  P(HashFiftyGuard, 96, 80, 100)                                                                           \
   /* prima delle mosse (13_search.inc) */                                                                    \
   P(PriorRedEvalSum, 166, 0, 500)        /* depth-- dopo una riduzione forte se le due eval sommano oltre */ \
   P(EvalDiffLo, 189, 0, 600)             /* clamp(-(eval prec + eval), -Lo, Hi) + Ofs: storia della mossa  */ \
@@ -718,9 +739,10 @@
   P(HistDiv14, 2991, 500, 8000)                                                                            \
   P(HistDiv15, 3090, 500, 8000)                                                                            \
   P(HistDiv16, 3542, 500, 8000)                                                                            \
-  /* quiescenza (12_quiesce.inc): valore restituito sopra beta = (Mix*best + (1024-Mix)*beta)/1024        */      \
-  P(QsFhMix, 441, 0, 1024)               /* taglio di una mossa                                            */ \
-  P(QsStandMix, 462, 0, 1024)            /* taglio della valutazione statica                               */ \
+  /* Quiescence (12_quiesce.inc): a value above beta is pulled toward it, (Mix*best + (1024-Mix)*beta)/1024.   */ \
+  /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
+  P(QsFhMix, 441, 0, 1024)                                                                                 \
+  P(QsStandMix, 462, 0, 1024)                                                                              \
   /* tra un'iterazione e l'altra (14_deepen.inc) */                                                          \
   P(LowPlyFill, 102, -500, 500)          /* valore iniziale della storia dei primi ply a ogni ricerca       */ \
   P(QuietHistDecay, 729, 0, 1024)        /* /1024: storie delle quiete conservate fra le mosse              */ \

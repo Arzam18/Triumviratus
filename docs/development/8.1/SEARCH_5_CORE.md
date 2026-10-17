@@ -53,7 +53,7 @@ register of novelties. How the code works is in the [block 5 code map](../../con
 
 No game lost on time. The terms do no harm, and a gain, if there is one, is small at this time control; the test
 was stopped before a decision. The rewrite of the threads stays, with the old behaviour at the defaults, and the two
-terms stay off: they are tested again at the end of the 8.1 queue, at 8 seconds and at 8 threads (section 5.5).
+terms stay off: they are tested again at the end of the 8.1 queue, at 8 seconds and at 8 threads (section 5.7).
 
 Status: threads rewritten; new terms off, queued.
 
@@ -70,7 +70,48 @@ takes plies off the next search. Rewritten at an identical tree:
 | `AspFhRed` | plies taken off for each fail high in a row | 1 | split |
 | `AspLoKeep` | after a fail low, the upper bound keeps this share of the window instead of falling to the lower bound | 0 (/1024) | new, off |
 
-## 5.5 Tests and tuning of block 5
+## 5.5 Quiescence (rewritten, 17 October 2026)
+
+At the end of the main search, the quiescence search plays only tactical moves until the position is quiet. A node
+now has four parts in our own order: early exits (draws and the hash), the stand (out of check, the corrected
+evaluation is a value the side to move can claim without moving), the walk over the tactical moves, and the close
+(mate, a stalemate check, the value pulled toward beta, the hash entry). The decision on each move is one function
+of its own: a plain capture (no check, no promotion, not a recapture on the square of the previous move) is dropped
+when the gate of plain captures is closed, when even winning the victim for free leaves the node under alpha, or when
+the exchange cannot close the gap to alpha; a dropped capture can still raise the node's value to what it was sure to
+reach. Any capture must then pass an exchange test with a margin. At the starting values the tree is identical.
+
+| Parameter | What it does | Start | Change |
+|---|---|---:|---|
+| `QsFut0`-`QsFut3` | margin over the stand for a capture to be worth searching | 312 each | split by expert |
+| `QsSee0`-`QsSee3` | exchange loss a capture may accept | 74 each | split by expert |
+| `QsGate` | plain captures searched before the gate closes | 2 | was a fixed number |
+| `QsVictimW` | weight of the victim's value in the futility estimate | 1024 (/1024) | formula |
+| `QsSeeFutW` | weight of the gap to alpha in the exchange test of a plain capture | 1024 (/1024) | formula |
+| `QsFhMix`, `QsStandMix` | how far a value above beta is pulled toward beta, when the stand fails high and when the node closes | 441, 462 (/1024) | already tuned in 8.0 |
+
+## 5.6 Cutoff from the transposition table (rewritten, 17 October 2026)
+
+An entry ends a node when it is deep enough and its bound settles the comparison with beta. The cutoff is now six
+steps in our own order: the depth test, the node-type test, the learning on a quiet hash move, the guards (the
+fifty-move rule and, at depth, the agreement of the child of the hash move, now a function of its own), the value
+returned, and the weakening of a deep entry whose bound contradicts the window. Every fixed number became a lever:
+
+| Parameter | What it does | Start | Change |
+|---|---|---:|---|
+| `HashLowSlack` | plies of depth an upper bound may lack and still cut | 1 | was a fixed number |
+| `HashAnyNode` | depth above which an entry cuts whatever the node type expects | 4 | was a fixed number |
+| `HashVerify` | depth from which the child of the hash move must agree with the cutoff | 7 | was a fixed number |
+| `HashWeaken` | depth above which an entry against the window loses a ply | 5 | was a fixed number |
+| `HashFiftyGuard` | fifty-move count from which no cutoff is taken | 96 | was a fixed number |
+| `HashPrevLate` | the previous move is penalized only if it came before this move number | 5 | was a fixed number |
+| `HashCutQuietMul`, `HashCutQuietMax`, `HashCutPrevMalus` | reward to a quiet hash move, penalty to the previous move | 112, 695, 2210 | already tuned in 8.0 |
+| `HashDamp` | a lower bound that cuts is pulled toward beta (ours, after an idea seen in Coda) | 41 | already tuned in 8.0 |
+
+The table itself (layout, replacement, prefetch, the fix of a race between threads from Bastiii's review) was
+already our own.
+
+## 5.7 Tests and tuning of block 5
 
 The rewrite keeps the old behaviour at the starting values, so it needs no test of its own. Every new lever does:
 
@@ -85,4 +126,7 @@ The rewrite keeps the old behaviour at the starting values, so it needs no test 
 | `SmpSkew`, `SmpVoteDepth` | threads | first test level (+1.72 ± 4.61, 5,648 games, 4 threads, 2+0.05); again at the end of the queue, 8 s and 8 threads | if it passes, with `SmpVoteBase`, `SmpVoteScore`, `SmpAspStep` |
 | `AspLoKeep` | aspiration | at the end of the queue | if it passes, with `AspGrowLo`, `AspGrowHi`, `AspFhRed`, possibly per expert |
 
-Quiescence and the use of the transposition table follow, rewritten at an identical tree.
+**SPSA of quiescence and hash cutoff.** One run with the 23 levers of sections 5.5 and 5.6, starting from their
+current values, after the fine pass of block 1. Quiescence and the cutoff act in every phase of the game, so only
+the two margins that most depend on the material are split by expert; the run uses the general opening book. Then a
+non-regression SPRT of the block against the engine before the rewrite.

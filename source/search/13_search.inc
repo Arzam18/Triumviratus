@@ -330,8 +330,19 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   return NO_VALUE;
 }
 
-// Taglio dalla hash. Ritorna un valore se si taglia.
-// Valore restituito da un taglio della hash. HashDamp (nostra, da Coda): un limite inferiore viene spinto verso beta.
+// --------------------------------------------------------------------------
+// CUTOFF FROM THE HASH (block 5 in our form, 17/10/2026)
+// An entry ends the node when it is deep enough and its bound settles the comparison with beta. In order:
+//   1. depth: an upper bound (value <= beta) may lack HashLowSlack plies; any other entry must be deeper than the node;
+//   2. node type: an entry cuts on the side the node expects (cut node and fail high, or the reverse), and on both
+//      sides above depth HashAnyNode;
+//   3. learning: a quiet hash move that fails high is rewarded, the previous move is penalized if it came early;
+//   4. guards: no cutoff close to the fifty-move rule (HashFiftyGuard); from depth HashVerify the child of the hash
+//      move, if it is in the table, must agree with the cutoff;
+//   5. the returned value: a lower bound is pulled toward beta (HashDamp, ours after an idea seen in Coda);
+//   6. an entry deep enough whose bound contradicts the window loses a ply above depth HashWeaken.
+// Defaults = the 8.0 tree, whose cutoff came from the algorithmic base of SF19.
+// --------------------------------------------------------------------------
 static inline int hash_cut_value(const NodeState &n) {
   const int v = n.h.value;
   if (HashDamp && n.h.bound == BOUND_LOW && v >= n.beta && !val_decided(v))
@@ -339,61 +350,60 @@ static inline int hash_cut_value(const NodeState &n) {
   return v;
 }
 
+// Does the child of the hash move, when the table knows it, confirm the side of beta the entry claims?
+static bool hash_child_agrees(ThreadData &td, const NodeState &n) {
+  const HashView &h = n.h;
+  MoveSafety s;
+  s.ready = false;
+  if (!legal_before(td, s, h.move))
+    return true;
+  UndoInfo u;
+  td.repetition_table[++td.repetition_index] = td.hash_key;
+  td.ply++;
+  bool agrees = true;
+  if (td_make_move(td, h.move, u)) {
+    int cm, cv, cd, cf, ce;
+    bool cp;
+    const bool known = probe_tt(tt_key(td), cm, cv, cd, cf, ce, cp) && cf != BOUND_NIL;
+    const int child = known ? from_hash_value(cv, td.ply, td.fifty) : VAL_NONE;
+    td_unmake_move(td, h.move, u);
+    agrees = !val_known(child) || (h.value >= n.beta) == (-child >= n.beta);
+  }
+  td.ply--;
+  td.repetition_index--;
+  return agrees;
+}
+
 static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   const HashView &h = n.h;
-  const int need = n.depth - (h.value <= n.beta ? 1 : 0);
-  const bool enough = h.depth > need;
-  // HashNearMiss (Coda: entry un ply piu' corta che taglia oltre un margine) TOLTA il 05/10/2026: -6,7 +- 10,6 su
-  // 1.142 partite a 20+0.2 nella versione migliore (solo verso il basso, nodi non-cut); STATO_PROGETTO.md §3.
-  // RIMESSA SPENTA il 12/10/2026 per il ripescaggio dopo il fix di I/O e orologio (allora socket 0 0,0, socket 1
-  // -15,6). Versione migliore del 05/10, ricostruita: un ply sotto il necessario per quel lato (h.depth == need),
-  // solo limite superiore sotto alpha di un margine, solo fuori dai nodi cut. 0 = spenta, albero invariato.
-  if (HashNearMiss && !enough && !n.pv && !n.cut && !n.excluded && h.depth == need && td.fifty < 90 &&
+  const int need = n.depth - (h.value <= n.beta ? HashLowSlack : 0);
+  const bool deep = h.depth > need;
+  // HashNearMiss (an entry one ply short that cuts beyond a margin, seen in Coda): off. Removed on 05/10/2026 (-6.7 +-
+  // 10.6 over 1,142 games at 20+0.2) and put back off on 12/10 for a second look; 0 = old tree.
+  if (HashNearMiss && !deep && !n.pv && !n.cut && !n.excluded && h.depth == need && td.fifty < 90 &&
       h.bound == BOUND_UP && val_known(h.value) && !val_decided(h.value) && h.value + HashNearMiss <= n.alpha)
     return h.value + HashNearMiss;
-  if (n.pv || n.excluded || !enough || !val_known(h.value))
+  if (n.pv || n.excluded || !deep || !val_known(h.value))
     return NO_VALUE;
   const bool high = h.value >= n.beta;
-  if (bound_covers(h.bound, high) && (n.cut == high || n.depth > 4)) {
-    if (h.move && high) {
-      if (!n.tact_hash)
-        learn_quiet(td, f, h.move, hist_amount(n.expert, n.depth, HashCutQuietMul, 0, HashCutQuietMax),
-                    quiet_ctx_slow(td, h.move), n.expert);
-      if (n.prev_to >= 0 && f[-1].move_count < 5 && !n.prior_capture)
-        learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -HashCutPrevMalus, n.expert);
-    }
-    if (td.fifty >= 96)
-      return NO_VALUE;
-    // In profondita' si controlla che il figlio della mossa hash confermi lo stesso esito.
-    if (n.depth >= 7 && h.move && td_is_pseudo_legal(td, h.move) && !val_decided(h.value)) {
-      MoveSafety s;
-      s.ready = false;
-      if (legal_before(td, s, h.move)) {
-        UndoInfo u;
-        td.repetition_table[++td.repetition_index] = td.hash_key;
-        td.ply++;
-        if (td_make_move(td, h.move, u)) {
-          int cm, cv, cd, cf, ce;
-          bool cp;
-          const bool hit = probe_tt(tt_key(td), cm, cv, cd, cf, ce, cp) || cf == BOUND_NIL;
-          const int child = hit && cf != BOUND_NIL ? from_hash_value(cv, td.ply, td.fifty) : VAL_NONE;
-          td_unmake_move(td, h.move, u);
-          td.ply--;
-          td.repetition_index--;
-          if (!val_known(child) || (h.value >= n.beta) == (-child >= n.beta))
-            return hash_cut_value(n);
-          return NO_VALUE;
-        }
-        td.ply--;
-        td.repetition_index--;
-      }
-    }
-    return hash_cut_value(n);
+  if (!bound_covers(h.bound, high) || (n.cut != high && n.depth <= HashAnyNode)) {
+    if (h.bound == (high ? BOUND_UP : BOUND_LOW) && n.depth > HashWeaken)   // a deep bound against the window
+      hash_soften(tt_key(td));
+    return NO_VALUE;
   }
-  // Nessun taglio pur con un limite profondo che contraddice la finestra: l'entry vale meno.
-  if (h.bound != BOUND_EXACT && h.bound == (high ? BOUND_UP : BOUND_LOW) && n.depth > 5)
-    hash_soften(tt_key(td));
-  return NO_VALUE;
+  if (h.move && high) {
+    if (!n.tact_hash)
+      learn_quiet(td, f, h.move, hist_amount(n.expert, n.depth, HashCutQuietMul, 0, HashCutQuietMax),
+                  quiet_ctx_slow(td, h.move), n.expert);
+    if (n.prev_to >= 0 && f[-1].move_count < HashPrevLate && !n.prior_capture)
+      learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -HashCutPrevMalus, n.expert);
+  }
+  if (td.fifty >= HashFiftyGuard)
+    return NO_VALUE;
+  if (n.depth >= HashVerify && h.move && td_is_pseudo_legal(td, h.move) && !val_decided(h.value) &&
+      !hash_child_agrees(td, n))
+    return NO_VALUE;
+  return hash_cut_value(n);
 }
 
 // Tablebase nei nodi interni.

@@ -1,12 +1,14 @@
-# Block 5 code map: threads
+# Block 5 code map: threads, quiescence, hash cutoff
 
-How the parallel search of Triumviratus 8.1 works in the code: how a search starts and ends, what each thread does,
-what the threads share, and how the move is chosen at the end. The design and the tests are in the
+How the core of the search of Triumviratus 8.1 works in the code: how a search starts and ends, what each thread
+does, what the threads share, how the move is chosen at the end (sections 1-4), the quiescence search (section 5) and
+the cutoff from the transposition table (section 6). The design and the tests are in the
 [block 5 document](../development/8.1/SEARCH_5_CORE.md).
 
 Files: [`source/search/15_threads.inc`](../../source/search/15_threads.inc) (start, stop, vote, bestmove),
-[`14_deepen.inc`](../../source/search/14_deepen.inc) (iterative deepening of each thread), parameters in
-[`01_params.inc`](../../source/search/01_params.inc).
+[`14_deepen.inc`](../../source/search/14_deepen.inc) (iterative deepening of each thread),
+[`12_quiesce.inc`](../../source/search/12_quiesce.inc) (quiescence), [`13_search.inc`](../../source/search/13_search.inc)
+(hash cutoff), parameters in [`01_params.inc`](../../source/search/01_params.inc).
 
 ## 1. A search from `go` to `bestmove`
 
@@ -87,7 +89,49 @@ order of preference, thread by thread:
 At the starting values the behaviour is the one before the rewrite. With one thread nothing of this section acts:
 the bench is identical (137419).
 
-## 5. The rest of block 5
+## 5. Quiescence (`12_quiesce.inc`, `quiesce`)
 
-The aspiration windows are rewritten (section 2). Quiescence search (`12_quiesce.inc`) and the use of the
-transposition table (`13_search.inc`) are rewritten next, at an identical tree; this map grows with them.
+```mermaid
+flowchart TD
+  IN["quiesce(alpha, beta)"] --> EX{"1. early exits<br/>repetition ahead, max ply,<br/>fifty moves, insufficient material,<br/>hash entry that settles beta"}
+  EX -->|exit| RET["return"]
+  EX --> CHK{"in check?"}
+  CHK -->|yes| WALK
+  CHK -->|no| ST["2. the stand<br/>corrected evaluation (or a hash bound on the right side)"]
+  ST -->|"stand >= beta"| PULL1["qs_pull(stand, beta, QsFhMix)<br/>return"]
+  ST --> FB["alpha = max(alpha, stand)<br/>futility base = eval + QsFut[expert]"]
+  FB --> WALK["3. the walk: tactical moves<br/>(all evasions in check)"]
+  WALK --> W{"qs_worth"}
+  W -->|skip| WALK
+  W -->|search| REC["step_in, -quiesce(child), step_out<br/>update best, alpha; beta cut ends the walk"]
+  REC --> WALK
+  WALK -->|no more moves| CL["4. the close<br/>mate if in check and nothing played;<br/>stalemate check when possible;<br/>qs_pull(best, beta, QsStandMix); hash entry"]
+```
+
+```text
+qs_worth(move)                                                       (12_quiesce.inc)
+├─ being mated → search everything
+├─ plain capture (no check, no promotion, not a recapture, futility base known):
+│    ├─ more than QsGate moves seen        → skip
+│    ├─ base + victim × QsVictimW/1024 <= alpha → skip, best = max(best, that value)
+│    └─ SEE < (alpha − base) × QsSeeFutW/1024  → skip, best = max(best, min(alpha, base))
+├─ quiet move (an evasion)                 → skip
+└─ search only if SEE >= −QsSee[expert]
+```
+
+## 6. Cutoff from the transposition table (`13_search.inc`, `hash_cutoff`)
+
+```text
+hash_cutoff(node)
+1. deep enough?   entry depth > node depth − (value <= beta ? HashLowSlack : 0)        else no cutoff
+   (HashNearMiss, off: an entry one ply short below alpha by a margin)
+2. node type      bound settles beta, and (node expects that side or depth > HashAnyNode)
+                  otherwise: a deep bound against the window loses a ply if depth > HashWeaken → no cutoff
+3. learning       quiet hash move failing high: reward min(HashCutQuietMul × depth, HashCutQuietMax)
+                  previous move, if it came before move HashPrevLate: penalty HashCutPrevMalus
+4. guards         fifty-move count >= HashFiftyGuard → no cutoff
+                  depth >= HashVerify: hash_child_agrees (the child's entry must agree on the side of beta)
+5. value          lower bound pulled toward beta: (HashDamp × v + 10 × beta) / (HashDamp + 10)
+```
+
+At the starting values both parts give the tree before the rewrite (bench 126352).
