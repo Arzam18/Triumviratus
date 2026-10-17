@@ -51,11 +51,9 @@ engine pinned to one core.
    old code is removed. Each block has its own document with the design, the tests and their results. Time management
    runs as a fifth line in parallel ([time management](docs/development/8.1/TIME_MANAGEMENT.md)).
 
-   **New levers at the end.** The rewrites add some levers that are new and start off: in block 1 the agreement
-   term, the discovered-check bonus and the safe-escape bonus; in block 5 the staggered helper threads, the depth
-   term of the thread vote and the share of the window kept after a fail low. They do not enter the tuning of their
-   block. Each gets its own SPRT at the end of the queue, after all the blocks, at a longer time control (8 seconds;
-   8 threads for the parallel search), and only the ones that pass are tuned and switched on.
+   **New levers.** The levers a rewrite adds start off and are tested at the end of the queue. Each block document
+   lists its own, with their tests: [block 1, section 1.7](docs/development/8.1/SEARCH_1_ORDERING.md#17-the-tuning-queue),
+   [block 5, section 5.5](docs/development/8.1/SEARCH_5_CORE.md#55-tests-and-tuning-of-block-5).
 4. **Tuning with the corrected schedule** ([section 8](docs/project/FUTURE_DIRECTIONS.md#8-tuning-again-with-the-corrected-schedule)).
    The six SPSA runs P1 to P6 on the final structure, without hyperthreading; each vector enters the engine only
    through an SPRT against the release.
