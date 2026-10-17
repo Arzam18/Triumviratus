@@ -391,6 +391,11 @@ static void deepen(ThreadData &td) {
     for (int i = 0; i < QH_CTX_SIZE; i++)
       td.quiet_hist[c][i] = (int16_t)(td.quiet_hist[c][i] * QuietHistDecay / 1024);
 
+  // SmpSkew (blocco 5, spenta a 0): i thread helper dispari partono SmpSkew ply piu' avanti, cosi' i thread chiudono le
+  // iterazioni in momenti diversi e la tabella condivisa riceve profondita' diverse. Il thread 0 non cambia mai.
+  if (SmpSkew && (td.thread_id & 1))
+    td.root_depth = SmpSkew;
+
   int best = -infinity;
   bool direct_swapped = false;
   int quiet_hist[3] = {-infinity, -infinity, -infinity};   // AnShQuiet: punteggio delle ultime tre iterazioni
@@ -457,7 +462,8 @@ static void deepen(ThreadData &td) {
       td.last_pv_len = cur.prev_pv_len;
       td.sel_depth = 0;
 
-      int delta = AspBase + td.thread_id % 8 + (int)(std::llabs(cur.mean_sq) / AspMeanSqDiv);
+      // Finestre sfasate fra i thread (blocco 5, forma nostra): (id % SmpAspCycle) x SmpAspStep; ai default id % 8.
+      int delta = AspBase + td.thread_id % SmpAspCycle * SmpAspStep + (int)(std::llabs(cur.mean_sq) / AspMeanSqDiv);
       if (td.gd_style == 2)   // AnGold: finestra piu' stretta in equilibrio, piu' larga in attacco
         delta = std::max(6, delta * 9 / 10);
       else if (td.gd_style == 1 || td.gd_style == 4)
@@ -470,7 +476,8 @@ static void deepen(ThreadData &td) {
 
       int failed_high = 0;
       for (;;) {
-        const int depth = std::max(1, td.root_depth - failed_high - 3 * (again + 1) / 4 -
+        // Forma nostra (blocco 5): AspFhRed ply per ogni fallimento alto di fila (prima 1).
+        const int depth = std::max(1, td.root_depth - failed_high * AspFhRed - 3 * (again + 1) / 4 -
                                       (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: seconda linea piu' corta
         td.root_delta = beta - alpha;
         best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // modalita' analisi
@@ -484,19 +491,24 @@ static void deepen(ThreadData &td) {
           if (total > 10000000)
             report_lines(td, td.root_depth);
         }
+        // Forma nostra (blocco 5): allargamento separato per i due fallimenti (AspGrowLo, AspGrowHi; prima un solo
+        // AspGrow) e, dopo un fallimento basso, beta che tiene AspLoKeep/1024 della finestra (0 = beta ad alpha).
+        int grow;
         if (best <= alpha) {
-          beta = alpha;
+          beta = alpha + (int)((long long)(beta - alpha) * AspLoKeep / 1024);
           alpha = std::max(best - delta, -infinity);
           failed_high = 0;
+          grow = AspGrowLo;
           if (main)
             g_stop_at_ponderhit.store(false, std::memory_order_relaxed);
         } else if (best >= beta) {
           alpha = std::max(beta - delta, alpha);
           beta = std::min(best + delta, (int)infinity);
           failed_high++;
+          grow = AspGrowHi;
         } else
           break;
-        delta += AspGrow * delta / 128;
+        delta += grow * delta / 128;
       }
 
       settle_lines(td, 0, td.pv_idx + 1);

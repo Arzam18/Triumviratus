@@ -171,33 +171,43 @@ static void thread_main(int id) {
   deepen(thread_data[id]);
 }
 
-// Voto fra i thread: ogni thread vota la propria mossa con un peso che cresce col suo score; un risultato deciso
-// e completo (matto o tablebase) prevale.
+// Scelta del thread che da' la bestmove (blocco 5 della 8.1, forma nostra, 17/10/2026). Ogni thread porta alla
+// propria mossa un sostegno: (punteggio - minimo fra i thread + SmpVoteBase) x SmpVoteScore / 1024, piu'
+// SmpVoteDepth per ogni ply completato. Il sostegno di una mossa e' la somma dei thread che la scelgono, calcolata una
+// volta per mossa. Un risultato deciso e completo (matto o tablebase, senza limite) prevale; a parita' di sostegno
+// vince la linea piu' lunga. Il voto pesato fra thread e' un'idea comune della Lazy SMP; ai default (14, 1024, 0) la
+// scelta e' quella di prima.
 static ThreadData *pick_thread() {
   ThreadData *best = &thread_data[0];
   if (num_threads == 1)
     return best;
+  const int nt = (int)thread_data.size();
   int floor_score = infinity;
   for (auto &t : thread_data)
     floor_score = std::min(floor_score, t.root[0].score);
-  auto votes = [&](int move) {
-    long long v = 0;
-    for (auto &t : thread_data)
-      if (t.root[0].pv[0] == move)
-        v += t.root[0].score - floor_score + 14;
-    return v;
-  };
-  for (auto &t : thread_data) {
-    const RootLine &b = best->root[0], &c = t.root[0];
+  std::vector<long long> share(nt), support(nt, 0);
+  for (int i = 0; i < nt; i++) {
+    const ThreadData &t = thread_data[i];
+    share[i] = (long long)(t.root[0].score - floor_score + SmpVoteBase) * SmpVoteScore / 1024 +
+               (long long)SmpVoteDepth * t.completed_depth;
+  }
+  for (int i = 0; i < nt; i++)
+    for (int j = 0; j < nt; j++)
+      if (thread_data[j].root[0].pv[0] == thread_data[i].root[0].pv[0])
+        support[i] += share[j];
+  int bi = 0;
+  for (int i = 0; i < nt; i++) {
+    const RootLine &b = thread_data[bi].root[0], &c = thread_data[i].root[0];
     const bool b_dec = b.score != -infinity && val_decided(b.score) && !b.lower && !b.upper;
     const bool c_dec = c.score != -infinity && val_decided(c.score) && !c.lower && !c.upper;
     if (b_dec) {
       if (c_dec && std::abs(c.score) > std::abs(b.score))
-        best = &t;
-    } else if (c_dec || (!val_lost(c.score) && (votes(c.pv[0]) > votes(b.pv[0]) ||
-                                                (votes(c.pv[0]) == votes(b.pv[0]) && c.pv_len > b.pv_len))))
-      best = &t;
+        bi = i;
+    } else if (c_dec || (!val_lost(c.score) && (support[i] > support[bi] ||
+                                                (support[i] == support[bi] && c.pv_len > b.pv_len))))
+      bi = i;
   }
+  best = &thread_data[bi];
   return best;
 }
 

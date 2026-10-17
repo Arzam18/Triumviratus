@@ -167,7 +167,27 @@
   /* finestre di aspirazione */                                                                           \
   P(AspBase, 6, 1, 40)                                                                                    \
   P(AspMeanSqDiv, 10193, 1000, 40000)                                                                     \
-  P(AspGrow, 51, 10, 128)                /* /128 */                                                       \
+  /* Finestre d'aspirazione, forma nostra (blocco 5 della 8.1, 17/10/2026, 14_deepen.inc). Al posto di AspGrow    */ \
+  /* (51, TOLTO): AspGrowLo / AspGrowHi = allargamento di delta (/128) dopo un fallimento basso / alto. AspFhRed = */ \
+  /* ply tolti alla ricerca per ogni fallimento alto di fila (prima 1). AspLoKeep (NOSTRA, 0 = spenta): dopo un    */ \
+  /* fallimento basso beta tiene AspLoKeep/1024 della finestra invece di scendere ad alpha. Default = di prima.     */ \
+  /* Leve nuove: SPRT prima di accenderle, SPSA (eventualmente per esperto) nel passaggio di taratura.            */ \
+  P(AspGrowLo, 51, 10, 128)                                                                               \
+  P(AspGrowHi, 51, 10, 128)                                                                               \
+  P(AspFhRed, 1, 0, 3)                                                                                    \
+  P(AspLoKeep, 0, 0, 1024)                                                                                \
+  /* Ricerca a piu' thread, forma nostra (blocco 5 della 8.1, 17/10/2026, 15_threads.inc e 14_deepen.inc). Voto  */ \
+  /* finale: sostegno di una mossa = somma sui thread che la scelgono di (punteggio - minimo + SmpVoteBase) x     */ \
+  /* SmpVoteScore / 1024 + SmpVoteDepth x profondita' completata (prima: peso fisso punteggio - minimo + 14).     */ \
+  /* Finestre d'aspirazione sfasate per thread: (id % SmpAspCycle) x SmpAspStep (prima id % 8). SmpSkew: i thread  */ \
+  /* helper dispari partono SmpSkew ply piu' avanti (variante nota della Lazy SMP; 0 = spenta, SPRT a 4 thread    */ \
+  /* prima di accenderla). Default = comportamento di prima.                                                      */ \
+  P(SmpVoteBase, 14, 0, 200)                                                                              \
+  P(SmpVoteScore, 1024, 0, 4096)                                                                          \
+  P(SmpVoteDepth, 0, 0, 400)                                                                              \
+  P(SmpAspCycle, 8, 1, 16)                                                                                \
+  P(SmpAspStep, 1, 0, 8)                                                                                  \
+  P(SmpSkew, 0, 0, 3)                                                                                     \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \

@@ -204,7 +204,7 @@ before most of its tuning.
 | 4 | threat context: `ThreatCtxW` and `ThreatCtxUpd`, with the leaving and entering weights of the four experts, 16 games per iteration | 10 | after 3 |
 | 5 | fine pass, expert 3: the levers added after its coarse pass (`LpDecay`, `ChkBonus`, `ChkSee`, `ChkDisc`, `ThrSafe`, `StGood`, `StQuiet`, `StSort`, `CorrGrav`, `TtmGrav`, `ContNear`, `ContChk`, `EvPen`, `PrGain`, `PrLate`, `PrCapt`, `CorrGain`, `CorrDepthQ`), open trends | 18 or more | after 4 |
 | 6 | fine pass, experts 2, 1 and 0: the same levers except the two gravities they already had, open trends | 16 or more each | after 5 |
-| 7 | SPRTs of the techniques of our own on their own (agreement term, discovered-check bonus, safe-escape bonus), before they enter the register of novelties | | after 6 |
+| 7 | SPRTs of the techniques of our own on their own (agreement term, discovered-check bonus, safe-escape bonus), before they enter the register of novelties | | at the end of the 8.1 queue, at 8 s |
 | 8 | final non-regression SPRT of block 1; if it holds, the block is ours and closed | | after 7 |
 
 **After block 1.** Blocks 2 to 5 follow the same path: rewrite at an identical tree, a coarse pass for each of the
