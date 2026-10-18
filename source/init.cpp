@@ -5,7 +5,7 @@
 #include "search.h"
 #include "tt.h"
 #include "magic.h"
-#include "evaluation.h"
+#include "sliders.h"
 
 char ascii_pieces[13] = "PNBRQKpnbrqk";
 
@@ -167,10 +167,9 @@ int pv_table[max_ply][max_ply];
 int follow_pv, score_pv;
 
 
-int nnue_pieces[12] = { 6, 5, 4, 3, 2, 1, 12, 11, 10, 9, 8, 7 };
-
 void init_bitboards()
 {
+    sliders::init();   // sliding attacks from the bit geometry (sliders.h)
     init_leapers_attacks();
     init_sliders_attacks(bishop);
     init_sliders_attacks(rook);

@@ -208,11 +208,15 @@ pass.
 | 1 | coarse pass, expert 3 (24 pieces or more) | 22 | done, 568 iterations |
 | 2 | coarse pass, experts 2, 1 and 0, three runs side by side on one socket | 23 each | done, 751, 860 and 844 iterations |
 | 3 | SPRT of the block after the coarse pass, against the engine before the rewrite | | stopped as a measurement, +0.92 ± 4.96 over 4,926 games |
-| 4 | threat context: `ThreatCtxW` and `ThreatCtxUpd`, with the leaving and entering weights of the four experts, 16 games per iteration | 10 | after 3 |
-| 5 | fine pass, expert 3: the levers added after its coarse pass (`LpDecay`, `ChkBonus`, `ChkSee`, `StGood`, `StQuiet`, `StSort`, `CorrGrav`, `TtmGrav`, `ContNear`, `ContChk`, `EvPen`, `PrGain`, `PrLate`, `PrCapt`, `CorrGain`, `CorrDepthQ`), open trends | 16 or more | after 4 |
-| 6 | fine pass, experts 2, 1 and 0: the same levers except the two gravities they already had, open trends | 14 or more each | after 5 |
-| 7 | SPRTs of the techniques of our own on their own (agreement term, discovered-check bonus, safe-escape bonus), before they enter the register of novelties | | at the end of the 8.1 queue, at 8 s |
-| 8 | final non-regression SPRT of block 1; if it holds, the block is ours and closed | | after 7 |
+| 4 | threat context: `ThreatCtxW` and `ThreatCtxUpd`, with the leaving and entering weights of the four experts, 8+0.08 | 10 | done, 481 iterations, no clear trend; the mean of the last 150 kept |
+| 5 | fine pass, expert 2: its 23 coarse levers from the coarse values with half the step, plus the 14 levers added after the coarse pass | 37 | done, 684 iterations; mean of the last 150 |
+| 6 | SPRT of the tuning so far (rows 4 and 5 plus the coarse vectors of experts 3, 1, 0) against the engine before the tuning | | stopped as a measurement, +4.79 ± 6.61 over 2,754 games |
+| 7 | short pass, experts 1 and 0, then expert 3 (for expert 3 also its two gravities), each starting from the latest vectors of the others, on both sockets; their purpose is values of our own for every lever of the block | 37 each | expert 1 done (463 iterations, mean of the last 50 adopted; four levers were still moving, so it is checked again in row 8 and in the long retuning); expert 0 running; expert 3 next |
+| 7b | the tuned values against the old ones without hyperthreading: level at 8+0.08 (16.9 plies, +0.55 ± 6.52 over 2,546 games); with hyperthreading the shallower socket had gained a few points. The runs of block 1 used full hyperthreading (about 15.5 plies), so a retuning at a longer search comes later, in the joint run before the release | | measured; same test at 4+0.04 without hyperthreading to separate depth from hyperthreading |
+| 8 | closing non-regression SPRT of block 1 with all the fine vectors; if it holds, the block is ours and closed | | after 7 |
+| 9 | SPRTs of the techniques of our own on their own (agreement term, discovered-check bonus, safe-escape bonus), before they enter the register of novelties | | at the end of the 8.1 queue, at 8 s |
+| 9b | the block 1 runs repeated with the corrected protocol and long runs (up to about 8,000 iterations per expert; 8 to 15 levers per run, safe ranges, schedule length equal to the iterations played, no hyperthreading, a gradient test halfway): the first runs had a schedule built for 3,000 iterations and stopped early, so a few levers (`CorrDepthQ`, `CorrGain`) moved away from a broken test point rather than toward a better value | 8 to 15 each | at the end of the 8.1 queue, after the rewrite |
+| 10 | before the 8.1 release, when every block is closed: one joint SPSA on a selected set of levers of all the blocks (the ones whose runs kept moving, and the ones that act on the same nodes across blocks), at the release time control and without hyperthreading | about 40 to 60 | at the end, step 4 of the plan |
 
 **New levers of block 1**: the agreement term (`HmAgree`), the discovered-check bonus (`ChkDisc`) and the
 safe-escape bonus (`ThrSafe`). The last two start off and stay out of the tuning of the block; the agreement term

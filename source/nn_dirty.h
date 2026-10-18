@@ -3,11 +3,11 @@
 // Una sola numerazione: case del MOTORE (a8 = 0 .. h1 = 63, 64 = nessuna casa) e codici del motore (0..11 = P N B R Q K
 // p n b r q k). La make scrive qui il pezzo mosso (NnDirtyPiece), su una pila con uno stato per mossa (NnStack); i
 // pedoni toccati (NnDirtyPawns) e le tuple di minaccia che cambiano (NnDirtyThreats) li aggiunge il motore prima di una
-// valutazione (search/06_nndirty.inc, nn_dirty_catch_up). La rete (nnue/) le legge cosi' come sono. Le tabelle degli
-// indici delle feature lavorano direttamente in questa numerazione (vedi nnue/nnue/features/*.h): nessuna conversione
+// valutazione (search/06_nndirty.inc, nn_dirty_catch_up). La rete (consilium/) le legge cosi' come sono. Le tabelle degli
+// indici delle feature lavorano direttamente in questa numerazione (consilium/cn.cpp): nessuna conversione
 // a runtime.
 //
-// Il file e' incluso dal motore (threads.cpp, attraverso nnue_bridge.h) e dalla rete (nnue/types.h): solo tipi semplici,
+// Il file e' incluso dal motore (threads.cpp, attraverso consilium_bridge.h) e dalla rete (consilium/cn.h): solo tipi semplici,
 // nessun tipo ne' macro dell'uno o dell'altra. Lo stesso layout in ogni unita' di compilazione: nessun campo dipende
 // da macro.
 

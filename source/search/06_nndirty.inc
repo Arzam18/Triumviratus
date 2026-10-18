@@ -6,7 +6,7 @@
 // pezzo mosso (NnDirtyPiece), nella numerazione del motore; la unmake lo toglie. Pedoni toccati (NnDirtyPawns) e tuple
 // di minaccia che cambiano (NnDirtyThreats) si calcolano solo quando si arriva a una valutazione (nn_dirty_catch_up),
 // per gli stati che ne mancano: molti nodi finiscono prima di valutare (tagli della TT, scacco, potature) e non le
-// pagano. La rete legge le dirty cosi' come sono e aggiorna gli accumulatori (nnue/nnue/nnue_accumulator.cpp); non ha
+// pagano. La rete legge le dirty cosi' come sono e aggiorna gli accumulatori (consilium/cn.cpp); non ha
 // una scacchiera sua.
 //
 // Il recupero ricava la scacchiera prima della prima mossa in sospeso da quella del thread, disfacendo le mosse in
@@ -370,7 +370,7 @@ static inline void nn_mb_redo(int *mb, const NnDirtyPiece &dp) {
   if (dp.add_sq != NN_SQ_NONE) mb[dp.add_sq] = dp.add_pc;
 }
 
-// Passati del colore c: stessa funzione di PassedPawns::passers (nnue/nnue/features/passed_pawns.cpp, che la rete non
+// Passati del colore c: stessa regola della funzione passers della rete (consilium/cn.cpp, che la rete non
 // puo' esportare qui: motore e rete non condividono intestazioni). Un pedone e' passato se non cade nell'"ombra" (case
 // strettamente dietro, viste da c) dei pedoni avversari allargati alle colonne vicine, ne' in quella dei propri sulla
 // stessa colonna. Nella nostra numerazione il bianco avanza verso gli indici piu' bassi: la sua ombra sale di indice.

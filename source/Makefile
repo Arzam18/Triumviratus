@@ -26,19 +26,12 @@ CXX ?= g++
 CC  ?= gcc
 EXE ?= triumviratus
 
-# TRANN1 NNUE (nnue/), SFNNv13-derived + PawnPair/PassedPawns. We compile ONLY the subset
-# the NNUE eval needs (mirror of the Windows vcxproj). Dal 07/10/2026 (scacchiera unica v2) la
-# rete non ha una scacchiera sua: legge quella del motore e le dirty le scrive la make
-# (search/06_nndirty.inc); position_min.cpp e la Position sono stati tolti. Explicit list (no
-# wildcard) so that nnue/ files outside the eval (tune/score/ucioption) never sneak in.
-V13 := nnue
+# Sources: every .cpp of the root (engine, sliders.cpp, large_pages.cpp, consilium_bridge.cpp) plus the network module
+# consilium/cn.cpp. The network reads the engine's board, and the make writes the per-move changes
+# (search/06_nndirty.inc). Block 6 of 8.1 (18/10/2026) replaced the previous inference, block 7 the last files of
+# nnue/ (sliding attacks, large pages and their helpers): that folder no longer exists.
 CPP_SRCS := $(filter-out nnt.cpp,$(wildcard *.cpp)) \
-            $(V13)/bitboard.cpp $(V13)/attacks.cpp \
-            $(V13)/misc.cpp $(V13)/memory.cpp \
-            $(V13)/nnue/network.cpp $(V13)/nnue/nnue_accumulator.cpp \
-            $(V13)/nnue/features/feat_perm.cpp \
-            $(V13)/nnue/features/full_threats.cpp $(V13)/nnue/features/half_ka_v2_hm.cpp \
-            $(V13)/nnue/features/pawn_pair.cpp $(V13)/nnue/features/passed_pawns.cpp
+            consilium/cn.cpp
 C_SRCS   := fathom/tbprobe.c
 
 OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
@@ -46,13 +39,13 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # Define replicati dalla build MSVC Release (USE_POPCNT su GCC = __builtin_popcountll
 # = hardware, risultato identico). TRIUMV5_THREATS_INCR = accumulatore-threats
 # incrementale (default, come la build Windows).
-# EMBEDDING (2026-07-13): se il net di default (EvalFileDefaultName, vedi
-# nnue/evaluate.h) e' presente alla build-root, viene EMBEDDATA nel binario via
-# incbin (un file omonimo accanto all'exe la sovrascrive; EvalFile carica
+# EMBEDDING (2026-07-13): se il net di default (EvalFileDefaultName, in
+# consilium_bridge.cpp) e' presente alla build-root, viene EMBEDDATA nel binario via
+# incbin/ (un file omonimo accanto all'exe la sovrascrive; EvalFile carica
 # qualsiasi path). Senza file -> NNUE_EMBEDDING_OFF come prima (es. bundle
-# sorgenti-only per le VM). NB: il nome deve restare allineato a evaluate.h.
-# 17/10/2026 (review by Bastiii): the 8.0 network, aligned with EvalFileDefaultName in nnue/evaluate.h (it still named
-# the 7.0 network, so Linux builds missed the file at the build root and turned embedding off).
+# sorgenti-only per le VM). NB: il nome deve restare allineato a EvalFileDefaultName.
+# 17/10/2026 (review by Bastiii): the 8.0 network, aligned with EvalFileDefaultName (it still named the 7.0 network,
+# so Linux builds missed the file at the build root and turned embedding off).
 NET_NAME ?= nn-consilium.nnue
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
@@ -95,7 +88,8 @@ ARCH := -mavx2 -mbmi2 -mfma -mpopcnt -msse4.1 -mssse3 -msse2
 #    Si costruisce ma non c'e' motivo di pubblicarlo.
 ifneq (,$(filter avx512 vnni512 avx512icl,$(MAKECMDGOALS)))
   DEFS += -DUSE_AVX512
-  ARCH += -mavx512f -mavx512bw -mavx512dq -mavx512vl
+  # CD (block 7 of 8.1): vplzcntq of the slider kernel (sliders.h); every AVX-512 processor has it.
+  ARCH += -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl
 endif
 ifneq (,$(filter vnni512 avx512icl,$(MAKECMDGOALS)))
   DEFS += -DUSE_VNNI
@@ -115,8 +109,8 @@ ifeq (avx512icl,$(filter avx512icl,$(MAKECMDGOALS)))
 endif
 
 # `make nopext` (equivalente: NOPEXT=1, che propaga anche ai target PGO ricorsivi):
-# toglie USE_PEXT/-mbmi2 -> magic.cpp usa il fallback fancy-magics e nnue/attacks.h
-# il percorso DUAL_HYPERBOLA_QUINT (AVX2). Stessi attacchi = node-identical: la firma
+# toglie USE_PEXT/-mbmi2 -> le tabelle di magic.cpp usano i fancy magics; il ramo AVX2 (sliders.h) non usa
+# tabelle e non cambia. Stessi attacchi = node-identical: la firma
 # bench NON deve cambiare. Obbligatoria su AMD Zen1/Zen2 (pext microcodato).
 ifneq (,$(filter nopext,$(MAKECMDGOALS))$(NOPEXT))
   DEFS := $(filter-out -DUSE_PEXT,$(DEFS))
@@ -178,8 +172,8 @@ endif
 #   make clean && make android NDK=/path/android-ndk-r27          # arm64-v8a (ogni 64bit)
 #   make clean && make android-dotprod NDK=/path/android-ndk-r27  # armv8.2+dotprod (2018+, NNUE piu' veloce)
 # Niente USE_PEXT -> magic.cpp usa il fallback fancy-magics BBC (gia' nel codice,
-# costanti precalcolate in init.cpp) e nnue/ i suoi magics SF; i path NEON del
-# vendored (USE_NEON / USE_NEON_DOTPROD, convenzione SF) sono gia' presenti.
+# costanti precalcolate in init.cpp); i percorsi NEON del modulo della rete (USE_NEON / USE_NEON_DOTPROD) sono
+# gia' presenti.
 # Su Windows lancialo da Git Bash/MSYS2 (i compiler NDK hanno wrapper .cmd).
 # Uso: binario + .nnue accanto, in Termux o GUI Android (DroidFish etc.).
 LIBS := -lpthread -lm

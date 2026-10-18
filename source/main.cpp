@@ -8,7 +8,7 @@
 #include "tt.h"
 #include "uci.h"
 #include "threads.h"
-#include "nnue_bridge.h"
+#include "consilium_bridge.h"
 
 // Syzygy tablebase probing (Fathom)
 #include "syzygy.h"
@@ -37,7 +37,7 @@
 // id/option/uciok: banner o info string PRIMA di "id name" possono corrompere il
 // modo in cui una GUI severa (ChessBase/Fritz) registra le opzioni del motore
 // (es. poi non gli invia mai SyzygyPath -> tablebase mai usate). Gli umani in
-// terminale vedono comunque banner + info. Letto da main e da nnue_bridge.
+// terminale vedono comunque banner + info. Letto da main e da consilium_bridge.
 bool g_startup_quiet = false;
 #ifdef TRIUMV_VID
 extern "C" const char *g_triumv_isa;   // binario universale: nome della variante scelta (universal/entry.cpp)
@@ -168,18 +168,18 @@ int main()
     // Initialize hash table with default 64 MB (silent)
     init_hash_table(64);
 
-    // Evaluation = the TRANN3 NNUE, Consilium (FullThreats + HalfKAv2_hm with four phase
-    // experts + PawnPair + PassedPawns, L1=1024; see nnue/ + nnue_bridge).
+    // Evaluation = the Consilium network (threats + piece-square with four phase
+    // experts + pawn pairs + passed pawns, L1=1024; module consilium/, link consilium_bridge).
     // We init the shared substrate (bitboard + slider-magic attack tables) and load the
     // network. Resolve relative to the exe so the engine works from ANY working directory;
     // a missing net fails loudly. Override at runtime via the UCI "EvalFile" option.
-    nn_init_tables();   // bitboards + Attacks::init (substrate for the NNUE feature extraction)
+    nn_init_tables();   // feature index tables of the network
     // Own-lineage net, dev and release builds alike (2026-07-05: dev builds used to default to
     // a Stockfish reference net here, which silently made a dev-build bench/SPRT run on
     // different weights than a release build unless EvalFile was set explicitly -> never
     // again; both build kinds load our own net by default now).
     // TRANN3 (4 blocchi: threats+halfka+pawnpair+passedpawns). UNA sola fonte di verita'
-    // per il nome (EvalFileDefaultName in nnue/evaluate.h), esposta via bridge: una stringa
+    // per il nome (EvalFileDefaultName in consilium_bridge.cpp), esposta via bridge: una stringa
     // duplicata qui e' gia' costata un quasi-incidente (release che spediva lo zerograft).
     const char* netName = nn_default_net_name();
     std::string netPath = resolve_net_path(netName);

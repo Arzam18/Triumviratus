@@ -173,13 +173,7 @@ extern U64 side_key;
 #define mate_score 30000
 #endif
 
-// Large-page allocator (SF, nnue/memory.cpp). Forward-declared here to avoid
-// pulling windows.h into tt.h (incluso da 5 TU). usize == std::size_t (misc.h).
-namespace Triumviratus {
-void* aligned_large_pages_alloc(std::size_t size);
-void  aligned_large_pages_free(void* mem);
-bool  has_large_pages();
-}
+#include "large_pages.h"   // large_pages_alloc / free / available (no windows.h in this header)
 
 // TT16: la tabella e' un array di tt_bucket (alignas(64)): l'operatore new allineato del
 // C++17 garantisce l'allineamento anche sul ripiego heap. hash_table resta un tt_entry*.
@@ -191,7 +185,7 @@ inline void init_hash_table(int mb) {
     if (buckets == 0) buckets = 1;
 
     if (hash_table) {
-        if (tt_on_large_pages) Triumviratus::aligned_large_pages_free(hash_table);
+        if (tt_on_large_pages) large_pages_free(hash_table);
         else                   delete[] reinterpret_cast<tt_bucket*>(hash_table);
         hash_table = nullptr;
     }
@@ -199,7 +193,7 @@ inline void init_hash_table(int mb) {
     const U64 bytes = buckets * sizeof(tt_bucket);
     tt_bucket* tab = nullptr;
     if (g_large_pages) {
-        tab = static_cast<tt_bucket*>(Triumviratus::aligned_large_pages_alloc(bytes));
+        tab = static_cast<tt_bucket*>(large_pages_alloc(bytes));
         if (!tab) {
             printf("info string Hash: %d MB su large pages non allocabili, ripiego su heap\n", mb);
             tab = new (std::nothrow) tt_bucket[buckets]();
@@ -225,10 +219,10 @@ inline void init_hash_table(int mb) {
 
     const int actual_mb = (int)(buckets * sizeof(tt_bucket) / (1024 * 1024));
     // 🔴 FIX 01/10/2026: tt_on_large_pages dice solo da QUALE allocatore viene la tabella (serve al free).
-    // aligned_large_pages_alloc su Windows non torna mai null: senza SeLockMemoryPrivilege ripiega in silenzio
+    // large_pages_alloc su Windows non torna mai null: senza SeLockMemoryPrivilege ripiega in silenzio
     // su pagine da 4 KB, e qui si stampava "ON" lo stesso. Sullo Xeon il privilegio non c'e': nessun motore ha
-    // mai avuto large pages, e la riga diceva il contrario. has_large_pages() prova un'allocazione vera da 2 MB.
-    static const bool lp_real = Triumviratus::has_large_pages();
+    // mai avuto large pages, e la riga diceva il contrario. large_pages_available() prova un'allocazione vera da 2 MB.
+    static const bool lp_real = large_pages_available();
     const char* lp = !g_large_pages                  ? "off (disabled)"
                    : tt_on_large_pages && lp_real    ? "ON"
                                                      : "off (unavailable: no 'Lock pages in memory' privilege)";

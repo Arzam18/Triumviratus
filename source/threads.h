@@ -196,10 +196,7 @@ struct ThreadData {
 // V1 (08/10/2026, velocita', albero identico): i ThreadData su large pages. Ognuno e' ~3 MB letti a caso a ogni
 // nodo (cache delle valutazioni 1 MB, correzioni di continuazione 1,4 MB, storie delle quiete): su pagine da 4 KB
 // ~750 pagine per thread, su pagine da 2 MB 2. Senza il privilegio l'allocazione ripiega su pagine normali.
-namespace Triumviratus {
-void* aligned_large_pages_alloc(std::size_t size);
-void  aligned_large_pages_free(void* mem);
-}
+#include "large_pages.h"
 template <class T>
 struct LargePageAllocator {
     using value_type = T;
@@ -207,12 +204,12 @@ struct LargePageAllocator {
     template <class U>
     LargePageAllocator(const LargePageAllocator<U>&) {}
     T* allocate(std::size_t n) {
-        void* p = Triumviratus::aligned_large_pages_alloc(n * sizeof(T));
+        void* p = large_pages_alloc(n * sizeof(T));
         if (!p)
             throw std::bad_alloc();
         return static_cast<T*>(p);
     }
-    void deallocate(T* p, std::size_t) { Triumviratus::aligned_large_pages_free(p); }
+    void deallocate(T* p, std::size_t) { large_pages_free(p); }
     template <class U>
     bool operator==(const LargePageAllocator<U>&) const { return true; }
     template <class U>

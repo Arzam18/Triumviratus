@@ -25,7 +25,7 @@
 #endif
 #include <windows.h>
 
-#include "nnue/memory.h"
+#include "large_pages.h"
 
 #ifndef FILE_MAP_LARGE_PAGES
     #define FILE_MAP_LARGE_PAGES 0x20000000
@@ -131,7 +131,7 @@ inline const void* attach(const void* src, std::size_t size, std::uint64_t hash,
     } else if (op == 0) {
         // 2) Non esiste: la crea, prima con large pages (serve SeLockMemoryPrivilege), poi con pagine normali.
         DWORD lpErr = 0;   // perche' le large pages non sono riuscite (0 = privilegio non ottenuto)
-        bool large = Triumviratus::windows_try_with_large_page_priviliges(
+        bool large = with_lock_memory_privilege(
           [&](std::size_t lp) {
               const std::size_t sz = (total + lp - 1) / lp * lp;
               v.map = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE | SEC_COMMIT | SEC_LARGE_PAGES,

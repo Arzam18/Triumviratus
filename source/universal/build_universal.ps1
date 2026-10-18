@@ -145,11 +145,11 @@ function VFlags($n) {
     switch ($n) {
         1 { @('/arch:AVX2', '-UUSE_PEXT', '-mno-bmi2', '-mno-avx512f') }
         2 { @('/arch:AVX2', '-DUSE_PEXT', '-mbmi2', '-mno-avx512f') }
-        3 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-mavx512f', '-mavx512bw', '-mavx512dq', '-mavx512vl', '-mbmi2',
+        3 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-mavx512f', '-mavx512cd', '-mavx512bw', '-mavx512dq', '-mavx512vl', '-mbmi2',
               '-mno-avx512vnni') }
-        4 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-mavx512f', '-mavx512bw', '-mavx512dq', '-mavx512vl',
+        4 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-mavx512f', '-mavx512cd', '-mavx512bw', '-mavx512dq', '-mavx512vl',
               '-mbmi2', '-mavx512vnni') }
-        5 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-DUSE_AVX512ICL', '-mavx512f', '-mavx512bw',
+        5 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-DUSE_AVX512ICL', '-mavx512f', '-mavx512cd', '-mavx512bw',
               '-mavx512dq', '-mavx512vl', '-mbmi2', '-mavx512vnni', '-mavx512vbmi', '-mavx512vbmi2', '-mavx512bitalg') }
         6 { @('-UUSE_AVX2', '-UUSE_PEXT', '-msse4.1', '-mssse3', '-mpopcnt', '-mno-avx', '-mno-avx2', '-mno-bmi2') }
         7 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_VNNI', '-DUSE_AVXVNNI', '-mbmi2', '-mavxvnni', '-mno-avx512f') }

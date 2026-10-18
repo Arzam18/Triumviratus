@@ -34,8 +34,8 @@
   <ItemGroup>
     <ClInclude Include="attacks.h" />
     <ClInclude Include="defs.h" />
-    <ClInclude Include="evaluation.h" />
-    <ClInclude Include="nnue_bridge.h" />
+    <ClInclude Include="consilium_bridge.h" />
+    <ClInclude Include="consilium\cn.h" />
     <ClInclude Include="io.h" />
     <ClInclude Include="magic.h" />
     <ClInclude Include="misc.h" />
@@ -64,7 +64,8 @@
     <ClInclude Include="search\06_nndirty.inc" />
     <ClInclude Include="nn_dirty.h" />
     <ClInclude Include="nn_attacks.h" />
-    <ClInclude Include="nnue\nn_board.h" />
+    <ClInclude Include="sliders.h" />
+    <ClInclude Include="large_pages.h" />
     <ClInclude Include="chess960.h" />
     <ClInclude Include="uci.h" />
     <ClInclude Include="syzygy.h" />
@@ -88,45 +89,13 @@
     <ClCompile Include="uci_mt.cpp" />
     <ClCompile Include="zobrist.cpp" />
     <ClCompile Include="chess960.cpp" />
-    <ClCompile Include="nnue_bridge.cpp" />
-    <!-- Vendored Stockfish-master SFNNv13 NNUE (FullThreats + HalfKAv2_hm, L1=1024).
-         Replaces the SFNNv10 + Bullet code (removed in M2). We compile only the subset
-         the NNUE eval needs. Dal 07/10/2026 (scacchiera unica v2) la rete legge la scacchiera del
-         motore e le dirty le scrive la make (search/06_nndirty.inc): position_min.cpp e la
-         Position sono stati tolti. ObjectFileName routes objects to a subdir so nnue's
-         misc.cpp / attacks.cpp / bitboard.cpp do not clash with the engine's own. -->
-    <ClCompile Include="nnue\bitboard.cpp">
-      <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\attacks.cpp">
-      <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\misc.cpp">
-      <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\memory.cpp">
-      <ObjectFileName>$(IntDir)nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\network.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\nnue_accumulator.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\features\feat_perm.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\features\full_threats.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\features\pawn_pair.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\features\passed_pawns.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
-    </ClCompile>
-    <ClCompile Include="nnue\nnue\features\half_ka_v2_hm.cpp">
-      <ObjectFileName>$(IntDir)nnue\nnue\features\</ObjectFileName>
+    <ClCompile Include="consilium_bridge.cpp" />
+    <!-- Block 7 of 8.1 (18/10/2026): sliding attacks and large pages, our own code; nnue/ is gone. -->
+    <ClCompile Include="sliders.cpp" />
+    <ClCompile Include="large_pages.cpp" />
+    <!-- Block 6 of 8.1 (18/10/2026): the Consilium inference module, written from our own specification. -->
+    <ClCompile Include="consilium\cn.cpp">
+      <ObjectFileName>$(IntDir)consilium\</ObjectFileName>
     </ClCompile>
     <ClCompile Include="syzygy.cpp">
       <AdditionalIncludeDirectories>fathom;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -351,7 +320,7 @@
        ClangPgoFlags finirebbero PRIMA delle -m qui sotto e verrebbero annullate. -->
   <ItemDefinitionGroup Condition="'$(PlatformToolset)'=='ClangCL'">
     <ClCompile>
-      <AdditionalOptions>-O3 -flto=thin $(ClangPgoFlags) -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vnni -mbmi2 -mavx2 $(ClangArchFlags) %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-O3 -flto=thin $(ClangPgoFlags) -mavx512f -mavx512cd -mavx512bw -mavx512dq -mavx512vl -mavx512vnni -mbmi2 -mavx2 $(ClangArchFlags) %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <!-- runtime di profiling clang (per -fprofile-generate/-use); lld-link cerca clang_rt.profile.lib.

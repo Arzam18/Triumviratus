@@ -31,7 +31,7 @@ engine pinned to one core.
    machine, so it starts at once. Its result says which search components to rewrite first.
 3. **A search of our own** ([future directions, section 11](docs/project/FUTURE_DIRECTIONS.md#11-a-search-shaped-by-the-network)).
    A rewrite of the search one component at a time, designed for a network of experts, each with a non-regression
-   SPRT at unchanged parameters. Six blocks; the first four in this order, because each one feeds the next:
+   SPRT at unchanged parameters. Six blocks, and a seventh for the infrastructure outside the search; the first four in this order, because each one feeds the next:
    1. **histories and move ordering**: a history of quiet moves indexed by the threat context of the move, in a form
       of our own built on the value of the attacking pieces, and the ordering rethought around it
       ([block 1](docs/development/8.1/SEARCH_1_ORDERING.md));
@@ -45,7 +45,13 @@ engine pinned to one core.
       windows, and the threads ([block 5](docs/development/8.1/SEARCH_5_CORE.md));
    6. **the inference of the network**: the forward pass, the SIMD layers and the loading of the network, rewritten to
       give bit-identical evaluations, so that strength is unchanged by construction and only speed is measured
-      ([block 6](docs/development/8.1/NNUE_INFERENCE.md)).
+      ([block 6](docs/development/8.1/CONSILIUM_INFERENCE.md)). **Done on 18 October 2026**: a module of our own,
+      written in a clean room from a specification of the network, identical evaluations;
+   7. **the infrastructure outside the search**: the last files of Stockfish origin outside the search (slider
+      attacks, large pages and their helpers), rewritten in the same clean-room way. **Done on 18 October 2026**: the
+      folder `source/nnue/` is gone. Blocks 6 and 7 together: 5.5% fewer cycles per node in the middlegame and 4.7%
+      in endgames on AVX-512, 2.0% and 1.5% on AVX2, at the same search tree
+      ([block 6 document, section 6.9](docs/development/8.1/CONSILIUM_INFERENCE.md#69-block-7-the-last-files-of-stockfish-origin-outside-the-search)).
 
    Each stage: a written design, code behind an option (off, the tree is unchanged), a non-regression SPRT, then the
    old code is removed. Each block has its own document with the design, the tests and their results. Time management
@@ -56,7 +62,34 @@ engine pinned to one core.
    [block 5, section 5.7](docs/development/8.1/SEARCH_5_CORE.md#57-tests-and-tuning-of-block-5).
 4. **Tuning with the corrected schedule** ([section 8](docs/project/FUTURE_DIRECTIONS.md#8-tuning-again-with-the-corrected-schedule)).
    The six SPSA runs P1 to P6 on the final structure, without hyperthreading; each vector enters the engine only
-   through an SPRT against the release.
+   through an SPRT against the release. The blocks are tuned one at a time, so before the release one joint run
+   tunes a selected set of levers of all the blocks together: the ones whose runs were still moving, and the ones
+   that act on the same nodes from different blocks (ordering scales and the reduction and pruning margins built on
+   them). A run on every lever of every block would be several hundred levers, too many for SPSA in the time
+   available; the selection is listed in each block document.
+
+   **A lesson from the tuning of block 1, for every later run.** The block 1 runs used a schedule built for 3,000
+   iterations and were stopped after 200 to 860, so the perturbation was still about 2.25 times its final size. For a
+   few levers the lower or upper test point fell where the formula changes nature: at `CorrDepthQ` = −36 the reward
+   of the correction tables changes sign from depth 2, and at `CorrGain` = 1.7 the corrections are exaggerated. Those
+   levers moved fast, away from the broken side, and their drift says little about their best value. From now on:
+   8 to 15 levers per run; ranges chosen so that the start value ± 2.25 c never crosses such a point; the iteration
+   count of the schedule equal to the iterations actually played; no hyperthreading; 20,000 to 40,000 games per run;
+   halfway through, a regression test of the gradient, and a run without signal is stopped. The block 1 runs are
+   repeated this way at the end of the queue, for the small gain left (an analysis of the logs puts it at 0 to 3 Elo
+   for the block).
+
+   **Ideas to test after the closing of block 1** (from an analysis of the tuning logs and of about 25,000 games;
+   expected gains are estimates):
+
+   | # | idea | where | expected | test |
+   |---|---|---|---|---|
+   | 1 | **Time follows where games are decided.** The expert with 24 pieces or more takes 46% of the thinking time and decides 6% of the games; the expert with 10 to 15 pieces takes 15% and decides 43%. Save time in the first and spend it in the second (per-expert time levers `TmExp0`-`TmExp3`, `TmEarlySave`), checking that the real shift of time is at least 20% | time manager | +2 to +5 | UHO 40+0.4, then 10+0.1 |
+   | 2 | **Correction tables keyed on eight regimes** (piece band × queens on the board): the queens double the evaluation swings inside a band; the same tables with a different key | correction histories | 0 to +3 | UHO 10+0.1 without hyperthreading, 20,000 games |
+   | 3 | **One joint tuning of the levers that link the histories to reductions and pruning** (history gravity, reward to penalty ratio, history thresholds of pruning and reduction, about 12 levers), with phase entering as a base and a slope on a continuous variable instead of four free values | blocks 1 to 3 | +1 to +3 | SPSA at 10+0.1 without hyperthreading, then SPRT |
+   | 4 | **Endgame rules**: no null move when the side to move has very few legal moves (exact count from the legal generator); quiet checks with a non-losing exchange at the first quiescence ply only with 15 pieces or fewer | blocks 3 and 5 | +1 to +4 on endgames | endgame book without draw adjudication, then UHO |
+   | 5 | **The correction levers retried in a safe form**: `CorrDepthQ` in [0, 32] or as a multiplicative term that cannot change the sign of the reward | block 1 | unknown | SPRT on its own |
+
 5. **Release of 8.1.**
 
 **In parallel:**

@@ -129,4 +129,5 @@ The rewrite keeps the old behaviour at the starting values, so it needs no test 
 **SPSA of quiescence and hash cutoff.** One run with the 23 levers of sections 5.5 and 5.6, starting from their
 current values, after the fine pass of block 1. Quiescence and the cutoff act in every phase of the game, so only
 the two margins that most depend on the material are split by expert; the run uses the general opening book. Then a
-non-regression SPRT of the block against the engine before the rewrite.
+non-regression SPRT of the block against the engine before the rewrite. The levers of this run that are still moving
+at its end join the selected set of the joint SPSA before the 8.1 release (step 4 of the plan).

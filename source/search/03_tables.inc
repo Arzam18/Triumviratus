@@ -66,12 +66,12 @@ constexpr int CORR_ROWS_PER_SLOT = 65536;
 // ~21 MB (follow 5,5 MB, pawn_rows 13,6 MB, corr 1 MB, corr_x 256 KB) letti a caso a ogni nodo (5 righe di
 // continuazione per quieta, 4 correzioni): su pagine da 4 KB sono ~5.200 pagine contro ~1.500 voci dello STLB di
 // questo Xeon, su pagine da 2 MB 11. Profilo del 05/10: td_prefetch_child 2,9% e corr_signal 2,0% dei cicli, entrambi
-// costi di memoria. Senza il privilegio SeLockMemoryPrivilege aligned_large_pages_alloc ripiega su VirtualAlloc
+// costi di memoria. Senza il privilegio SeLockMemoryPrivilege large_pages_alloc ripiega su VirtualAlloc
 // normale (Windows) o su allocazione allineata + madvise (Linux). La memoria torna azzerata, poi la riempie
 // shared_stats_reset come prima.
 template <typename T>
 static T *lp_alloc(size_t bytes) {
-  return static_cast<T *>(Triumviratus::aligned_large_pages_alloc(bytes));
+  return static_cast<T *>(large_pages_alloc(bytes));
 }
 
 static void shared_stats_alloc(int threads) {
@@ -80,10 +80,10 @@ static void shared_stats_alloc(int threads) {
     slots <<= 1;
   if (slots == g_stats.slots)
     return;
-  Triumviratus::aligned_large_pages_free(g_stats.follow);
-  Triumviratus::aligned_large_pages_free(g_stats.pawn_rows);
-  Triumviratus::aligned_large_pages_free(g_stats.corr);
-  Triumviratus::aligned_large_pages_free(g_stats.corr_x);
+  large_pages_free(g_stats.follow);
+  large_pages_free(g_stats.pawn_rows);
+  large_pages_free(g_stats.corr);
+  large_pages_free(g_stats.corr_x);
   g_stats.follow    = lp_alloc<PieceToRow[2][NO_PC + 1][64]>(sizeof(PieceToRow[2][2][NO_PC + 1][64]));
   g_stats.pawn_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * PAWN_ROWS_PER_SLOT * slots);
   g_stats.corr      = lp_alloc<CorrSlot[2]>(sizeof(CorrSlot[2]) * CORR_ROWS_PER_SLOT * slots);

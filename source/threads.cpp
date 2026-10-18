@@ -13,11 +13,10 @@
 #include "cstats.h"   // precisione delle correzioni, solo con -DTRIUMV_CORRSTATS (06/10/2026)
 #include "attacks.h"
 #include "chess960.h"
-#include "evaluation.h"
 #include "magic.h"
 #include "misc.h"
 #include "movegen.h"
-#include "nnue_bridge.h"
+#include "consilium_bridge.h"
 #include "search.h"
 #include "see.h"
 #include "tt.h"

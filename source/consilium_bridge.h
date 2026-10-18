@@ -1,15 +1,14 @@
-#pragma once
-#ifndef SF_BRIDGE_H
-#define SF_BRIDGE_H
+// Triumviratus, a UCI chess engine.
+// Copyright (C) 2026 Francesco Torsello
+// SPDX-License-Identifier: GPL-3.0-or-later (see COPYING)
 
-// Thin bridge to the TRANN3 NNUE (in nnue/) — Consilium, Triumviratus' own architecture:
-// FOUR input blocks (FullThreats + HalfKAv2_hm with four phase experts + PawnPair +
-// PassedPawns), L1=1024, L2/L3, 8 LayerStacks. The inference code started from
-// Stockfish's NNUE (SFNNv16 line, GPLv3, attribution in COPYING/README) and has since
-// been largely rewritten in the accumulators, features and link with the search; the
-// net format is our own and no Stockfish net can be loaded. Keeps all Stockfish-derived
-// headers/types/macros out of the rest of the engine so there is no clash with
-// Triumviratus's own globals.
+#pragma once
+#ifndef CONSILIUM_BRIDGE_H
+#define CONSILIUM_BRIDGE_H
+
+// consilium_bridge.h -- the engine's interface to the Consilium network (block 6 of 8.1; until 18/10/2026
+// nnue_bridge.h). The network is evaluated by our module in consilium/; the rest of the engine sees only these
+// plain C entry points and the dirty-stack types of nn_dirty.h.
 
 #include "nn_dirty.h"   // le dirty di ogni mossa (tipi semplici, condivisi con la rete)
 
@@ -17,14 +16,14 @@
 // (Attacks::init() is SEPARATE from Bitboards::init() in the master.)
 void nn_init_tables(void);
 
-// Nome del net di default (macro EvalFileDefaultName, definita in nnue/evaluate.h).
-// Esposto qui perche' il resto del motore NON include gli header Stockfish: un solo
+// Nome del net di default (macro EvalFileDefaultName, definita in consilium_bridge.cpp).
+// Esposto qui perche' il resto del motore non vede il modulo della rete: un solo
 // punto di verita' per il nome, niente stringhe duplicate da tenere in sync.
 const char* nn_default_net_name(void);
 // Rete condivisa fra processi (-DTRIUMV_SHARED_NET): esito della attach, "" nelle altre build.
 const char* nn_net_memory_status(void);
 
-// Load the TRANN1 network from a file path. Returns 1 on success (file opened +
+// Load the Consilium network from a file path. Returns 1 on success (file opened +
 // arch-hash verified), 0 otherwise. Must be called once at startup before any
 // nn_pos_create() (the per-handle accumulator caches are built from the net).
 int nn_load_net(const char* net_path);
@@ -33,40 +32,30 @@ int nn_load_net(const char* net_path);
 // search is running. Returns 1 on success, 0 if the path could not be loaded.
 int nn_reload_big(const char* net_path);
 
-// Toggle the per-thread accumulator refresh cache ("finny tables"). No-op in the
-// M2 full-refresh path (the master always uses the cache to accelerate refresh;
-// the eval value is identical regardless). Kept for API stability.
+// No-ops kept for API stability: the refresh cache is always on, and "accstats" has no counters.
 void nn_set_finny(int on);
-
-// DIAGNOSTIC ("accstats" UCI command). No-op stub in M2 (the v13 incremental
-// refresh counters arrive with M3).
 void nn_acc_stats(void);
 
-// M3 incremental eval. on != 0 uses the master AccumulatorStack chain (DirtyPiece +
-// DirtyThreats per ply) instead of a full refresh per node. Default OFF (the
-// validated M2 full-refresh) until the verify oracle is clean. The handle MUST be
-// re-set (nn_pos_set) after toggling so its board/accumulator chain is consistent.
+// Incremental evaluation (default on): accumulators updated from the parent state with the dirty stack. Off = a full
+// refresh at every evaluation (diagnostic). Re-set the handle (nn_pos_set) after toggling.
 void nn_set_incremental(int on);
 
 // DEBUG: cross-check incremental == full-refresh at every leaf eval (prints the
 // first mismatches). Halves NPS; single-thread recommended. Default OFF.
 void nn_set_verify(int on);
 
-// Eval output scale in PERCENT (default 100 = x1.0). The SFNNv13 cp formula lands on
-// a different scale than the engine's SPSA-tuned (for SFNNv10) search margins expect;
-// this re-aligns the two. UCI option "EvalScale". Diagnostic sweep at fixed depth.
+// Eval output scale in percent: matches the network's units to the search margins. UCI option "EvalScale".
 void nn_set_eval_scale(int pct);          // scrive TUTTI gli 8 bucket (comportamento storico)
 // EvalScale per bucket di output (15/08/2026). bucket = (pezzi - 1) / 4, 0..7, come
-// network.cpp:170. Dal BAKE MOE1 (30/09/2026) i default sono per fascia (rete MoE-1024), non piu' tutti 60.
+// il bucket di uscita della rete. Dal BAKE MOE1 (30/09/2026) i default sono per fascia (rete MoE-1024), non piu' tutti 60.
 void nn_set_eval_scale_bucket(int bucket, int pct);
 int  nn_get_eval_scale_bucket(int bucket);   // valore corrente (all'avvio = default), per la riga UCI
 
 // --- Costanti del blend dell'eval (15/08/2026) -------------------------------
-// Le sette costanti che trasformano le due uscite della rete (psqt, positional) in
-// una valutazione: pesi del blend, smorzamento per disaccordo, scala col materiale,
-// termini dell'optimism. Sono di Stockfish, ereditate col wrapper, e MAI tarate su
-// questa rete. ⚠️ NON scalano l'eval — decidono COSA DICE, che e' la differenza con
-// EvalScale/EvalScaleB (scala per bucket, chiusa a -9,82 il 15/08).
+// Le costanti che trasformano le due uscite della rete (psqt, positional) in una valutazione: pesi del blend,
+// smorzamento per disaccordo, scala col materiale, termini dell'optimism, e la forma di EvalShape. Tarate dai nostri
+// SPSA su questa rete (BAKE 09/09 e MOE1 30/09/2026). Non scalano l'eval: decidono cosa dice, che e' la differenza
+// con EvalScale/EvalScaleB (scala per bucket).
 // L'enumerazione serve a uci_mt.cpp per dichiarare le opzioni senza duplicare i nomi.
 int         nn_eval_const_count(void);
 const char* nn_eval_const_name(int i);
@@ -92,7 +81,7 @@ int nn_eval(int side_white, const unsigned long long* bb, const unsigned long lo
             int* raw_out = nullptr);
 
 // ---------------------------------------------------------------------------
-// Handle per thread (07/10/2026, scacchiera unica v2): catena degli accumulatori e finny table. La rete non tiene una
+// Handle per thread (07/10/2026, scacchiera unica v2): pila delle dirty, accumulatori e cache dei refresh. La rete non tiene una
 // scacchiera sua: legge quella del motore in nn_pos_eval. Le dirty di ogni mossa le scrive la make del motore sulla
 // pila dell'handle (nn_pos_stack, tipi in nn_dirty.h): uno stato per mossa fatta, tolto alla unmake; le mosse nulle
 // non aggiungono stati.
@@ -120,4 +109,4 @@ int   nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned lon
 unsigned long long nn_verify_count(void);
 unsigned long long nn_verify_bad(void);
 
-#endif // SF_BRIDGE_H
+#endif // CONSILIUM_BRIDGE_H

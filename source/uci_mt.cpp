@@ -18,7 +18,7 @@
 #include "syzygy.h"
 #include "perft.h"
 #include "chess960.h"
-#include "nnue_bridge.h"   // nn_acc_stats (diagnostic "accstats" command)
+#include "consilium_bridge.h"   // nn_acc_stats (diagnostic "accstats" command)
 #include <algorithm>       // std::sort (istogramma accessi, solo TRIUMV_PROFILE)
 #include <thread>
 
@@ -226,41 +226,57 @@ void parse_go(char* command)
 }
 
 // ---------------------------------------------------------------------------
-// SF-faithful setoption parser (mirrors Stockfish ucioption.cpp:42-59).
-// Tokenizes on whitespace: the option name may contain spaces (joined with a
-// single space) and the VALUE is the remaining tokens re-joined with single
-// spaces -> leading/trailing whitespace is trimmed and internal runs collapse,
-// EXACTLY as Stockfish reads SyzygyPath. So a GUI (Fritz/ChessBase) that sends a
-// slightly non-standard spacing is handled identically to SF. Returns true iff
-// 'input' is "setoption name <want> value ..."; writes the normalized value
-// (possibly empty) into out[0..outsz-1].
+// setoption with free spacing (block 7 of 8.1, 18/10/2026).
+// The line is read as words separated by blanks (space, tab, CR, LF): "setoption", "name", the words of the option
+// name up to the word "value", then the words of the value. Name and value are each rebuilt with one space between
+// words, so a GUI that sends extra or missing spaces around a name with spaces or a path (SyzygyPath) is understood
+// the same way. Returns true when the line sets option `want`; the value (possibly empty, cut to outsz - 1 chars)
+// goes to out. Names longer than 255 characters are cut before the comparison.
+
+// Next word of a line: start and length, advancing p past it; false at the end of the line.
+static bool next_word(const char*& p, const char*& word, size_t& len)
+{
+    auto blank = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+    while (*p && blank(*p)) ++p;
+    if (!*p) return false;
+    word = p;
+    while (*p && !blank(*p)) ++p;
+    len = size_t(p - word);
+    return true;
+}
+
+// Appends a word to a bounded string, with one space before it when the string is not empty.
+static void append_word(char* dst, size_t cap, size_t& used, const char* word, size_t len)
+{
+    if (used && used + 1 < cap) dst[used++] = ' ';
+    const size_t n = used + len < cap ? len : (cap > used + 1 ? cap - used - 1 : 0);
+    memcpy(dst + used, word, n);
+    used += n;
+    dst[used] = '\0';
+}
+
 static bool parse_setoption(const char* input, const char* want,
                             char* out, size_t outsz)
 {
-    char buf[10000];
-    strncpy(buf, input, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    const char* p = input;
+    const char* w;
+    size_t      n;
+    auto is = [&](const char* s) { return strlen(s) == n && memcmp(w, s, n) == 0; };
+    if (!next_word(p, w, n) || !is("setoption")) return false;
+    if (!next_word(p, w, n) || !is("name")) return false;
 
-    const char* SEP = " \t\r\n";
-    char* tok = strtok(buf, SEP);
-    if (!tok || strcmp(tok, "setoption") != 0) return false;
-    tok = strtok(nullptr, SEP);
-    if (!tok || strcmp(tok, "name") != 0) return false;
-
-    // option name: tokens until "value" (name may contain spaces, e.g. SF style)
-    char name[256]; name[0] = '\0';
-    while ((tok = strtok(nullptr, SEP)) != nullptr && strcmp(tok, "value") != 0) {
-        if (name[0]) strncat(name, " ", sizeof(name) - strlen(name) - 1);
-        strncat(name, tok, sizeof(name) - strlen(name) - 1);
-    }
+    char   name[256];
+    size_t nameLen = 0;
+    name[0] = '\0';
+    bool more;
+    while ((more = next_word(p, w, n)) && !is("value"))
+        append_word(name, sizeof(name), nameLen, w, n);
     if (strcmp(name, want) != 0) return false;
 
-    // value: remaining tokens joined by single spaces (trimmed + normalized)
+    size_t outLen = 0;
     out[0] = '\0';
-    while ((tok = strtok(nullptr, SEP)) != nullptr) {
-        if (out[0]) strncat(out, " ", outsz - strlen(out) - 1);
-        strncat(out, tok, outsz - strlen(out) - 1);
-    }
+    while (more && next_word(p, w, n))
+        append_word(out, outsz, outLen, w, n);
     return true;
 }
 
@@ -321,7 +337,7 @@ void uci_loop()
                            input[len-1] == ' ' || input[len-1] == '\t'))
             input[--len] = '\0';
 
-        char szpath[4096];   // scratch for SF-style SyzygyPath value parsing
+        char szpath[4096];   // scratch for the SyzygyPath value (parse_setoption)
 
         // UCI command: "uci" (EXACT match: strncmp len 3 would also swallow
         // "ucinewgame" -> its handler below would be dead code).
@@ -791,12 +807,38 @@ void uci_loop()
 
         // DIAGNOSTIC: "eval" -> static NNUE eval of the current position (cp,
         // side-to-move relative), no search => byte-identical for cross-checks.
+        // ORACOLO B6: "evalbatch <in.fen> <out.txt>": per riga FEN -> "psqt positional final".
+        else if (strncmp(input, "evalbatch", 9) == 0)
+        {
+            extern int nn_eval_parts(int, const unsigned long long*, const unsigned long long*, int, int*, int*);
+            char fin[1024], fout[1024];
+            if (sscanf(input + 9, "%1023s %1023s", fin, fout) == 2) {
+                FILE* fi = fopen(fin, "r");
+                FILE* fo = fopen(fout, "w");
+                char line[512];
+                long n = 0;
+                while (fi && fo && fgets(line, sizeof line, fi)) {
+                    size_t L = strlen(line);
+                    while (L && (line[L-1] == '\n' || line[L-1] == '\r')) line[--L] = 0;
+                    if (!L) continue;
+                    parse_fen(line);
+                    int ps = 0, po = 0;
+                    int fv = nn_eval_parts(side == white, bitboards, occupancies, fifty, &ps, &po);
+                    fprintf(fo, "%d %d %d\n", ps, po, fv);
+                    n++;
+                }
+                if (fi) fclose(fi);
+                if (fo) fclose(fo);
+                printf("evalbatch %ld\n", n);
+                fflush(stdout);
+            }
+        }
         else if (strncmp(input, "eval", 4) == 0)
         {
             const int e = debug_eval_position();
             printf("eval %d\n", e);
-            // Formato Stockfish, richiesto dagli strumenti standard (nnue-pytorch
-            // cross_check_eval.py cerca esattamente questa riga). "internal units" e'
+            // Riga richiesta dagli strumenti standard (nnue-pytorch
+            // cross_check_eval.py cerca esattamente questa forma). "internal units" e'
             // letterale: questo valore NON passa per la normalizzazione NORM_CP=392
             // applicata al `score cp` della search-info (print_search_info, search/13_iterdeep.inc), quindi e'
             // direttamente confrontabile con l'uscita del trainer. (27/07/2026)
@@ -830,8 +872,8 @@ void uci_loop()
             parse_position(input);
             // NOTE: do NOT clear the TT here. The table is keyed by Zobrist
             // hash and ages itself every search (new_search()), so keeping it
-            // across moves lets the engine reuse work between moves (as
-            // Stockfish does). It is only fully cleared on "ucinewgame".
+            // across moves lets the engine reuse work between moves. It is only
+            // fully cleared on "ucinewgame".
         }
 
         // UCI command: "go"
@@ -938,8 +980,8 @@ void uci_loop()
                 // g_tt_static_eval) plus scores searched under the old eval ->
                 // clear it. Rare, search-stopped
                 // operation; gates load the net once at startup (TT empty) so match
-                // runs pay nothing. NOT cleared: corr_hist (self-corrects, SF keeps
-                // it too). NB: "setoption EvalScale" mid-session has the same
+                // runs pay nothing. NOT cleared: corr_hist (it corrects
+                // itself). NB: "setoption EvalScale" mid-session has the same
                 // staleness family (diagnostic-only option, documented here).
                 clear_hash_table();
                 printf("info string EvalFile: loaded %s\n", resolved.c_str());
@@ -973,7 +1015,7 @@ void uci_loop()
         }
 
         // Costanti del blend (EvalPsqtW, EvalPosW, EvalComplexDiv, ...): un solo ramo,
-        // i nomi stanno nella tabella di nnue_bridge.cpp. Va PRIMA del generic handler,
+        // i nomi stanno nella tabella di consilium_bridge.cpp. Va PRIMA del generic handler,
         // altrimenti verrebbero ingoiate da quello senza avere effetto.
         else if (strncmp(input, "setoption name Eval", 19) == 0 && strstr(input, " value ")
                  && [&] {
@@ -1061,9 +1103,9 @@ void uci_loop()
         }
 
 
-        // UCI: "setoption name SyzygyPath value <dir[;dir...]>" — parsed EXACTLY
-        // like Stockfish (whitespace-tokenized, value trimmed/normalized) so any
-        // GUI spacing loads identically. Loading touches global tablebase state;
+        // UCI: "setoption name SyzygyPath value <dir[;dir...]>" — read by words
+        // (parse_setoption: value trimmed, blanks collapsed) so any GUI spacing
+        // loads identically. Loading touches global tablebase state;
         // stop any running search first. Always logs the path received so the
         // exact string the GUI sent is visible in the engine output (diagnostic).
         else if (parse_setoption(input, "SyzygyPath", szpath, sizeof(szpath)))

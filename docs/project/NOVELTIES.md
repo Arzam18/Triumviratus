@@ -51,7 +51,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 54 entries, **11 are new**, **27 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 56 entries, **12 are new**, **28 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
@@ -70,6 +70,8 @@ experts of the network. The analysis build has its own section ([§10](#10-analy
 | Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
 | Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral**; SPSA CORR1p2 kept it on (about 4,550); on the release-candidate build at 8+0.08 (14 October, two runs with the same tree, before and after the prefetch below): **+0.5 ± 3.0 over 14,426 games, neutral** | off |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
+| Slider attacks by obstruction difference on the four lines of a square in one AVX-512 register, with the lane-wise leading-zero count (`vplzcntq`) | New in its form | 8.1 dev | **−0.98%** cycles per node in the middlegame, **−1.20%** in endgames, whole engine (xperf, PGO, Xeon) | adopted, default of the AVX-512 builds |
+| Hyperbola quintessence for AVX2 in our form (`pair_hqs`: the two diagonals in a vector register, the rook in general registers) | Revisited | 8.1 dev | −0.23% / −0.05% cycles per node | adopted, default of the AVX2 builds |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted; inactive while LDSE is off |
 | Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
@@ -461,7 +463,19 @@ code and measured one by one.
 
 What is ours in this area is listed in [section 7](#7-known-ideas-revisited-in-a-different-form): the refresh cache of
 the pawn blocks, the universal build from one unit per source file, the move-ordering rank by popcount, and the
-analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
+analysis mode compiled as a second copy.
+
+**8.1: the slider attacks of our own.** In 8.1 the vectorised slider attacks of Stockfish origin were replaced by code
+of our own (block 7, [`CONSILIUM_INFERENCE.md` §6.9](../development/8.1/CONSILIUM_INFERENCE.md#69-block-7-the-last-files-of-stockfish-origin-outside-the-search)).
+The AVX-512 kernel is new in its form. The obstruction difference itself is published (chessprogramming wiki): on one
+line, the attacked squares come from the occupied squares above the slider and the highest occupied square below it.
+That needs the highest set bit of a word, which vector instructions could not give before AVX-512 CD added a lane-wise
+leading-zero count. Our kernel puts the four lines of a square (two diagonals, file, rank) in the four 64-bit lanes of
+one register and computes them together, with no table and no byte reversal; we have not found this combination
+described elsewhere. On AVX2 the kernel is our variant of the hyperbola quintessence. Block 6 rewrote the network
+inference from a specification of our own, at identical evaluations (with block 7, 5.5% fewer cycles per node on
+AVX-512 and 2% on AVX2): that is engineering on a known
+technique, not a new idea, and it is not counted above. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
 by line against every engine and are listed among the [open checks](#11-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
 [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §36.

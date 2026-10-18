@@ -327,8 +327,15 @@ static constexpr auto corr_phase_keys_by_count = [] {
     t[c] = keys[c <= 9 ? 0 : c <= 15 ? 1 : c <= 23 ? 2 : 3];   // = net_phase(c)
   return t;
 }();
+// CorrPhaseQueen (17/10/2026, off = old tables; report R2 of the 8.1 rewrite): eight regimes instead of four, the piece
+// band times "queens on the board". Inside a band the queens double the evaluation swings, so the systematic error on
+// one structure differs with and without them. Same tables, a different key: with queens the band key is XORed with a
+// fixed salt. Callers (prefetch in the make, corr_signal, corr_learn) all go through here, so they stay consistent.
 static inline U64 corr_phase_key(const ThreadData &td) {
-  return CorrPhase ? corr_phase_keys_by_count[count_bits(td.occupancies[both])] : 0;
+  if (!CorrPhase)
+    return 0;
+  const U64 k = corr_phase_keys_by_count[count_bits(td.occupancies[both])];
+  return (CorrPhaseQueen && (td.bitboards[Q] | td.bitboards[q])) ? k ^ 0x6A09E667F3BCC909ULL : k;
 }
 
 // CorrFifty (nostra, 05/10/2026, da un'idea di Reckless): l'errore sistematico della valutazione su una stessa

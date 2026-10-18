@@ -3,10 +3,10 @@
 
 // Decide UNA volta sola se questa build congela i parametri di tuning.
 //
-// 🔴 Perche' un header a se'. La guardia stava dentro defs.h, e nnue_bridge.cpp
+// 🔴 Perche' un header a se'. La guardia stava dentro defs.h, e consilium_bridge.cpp
 // NON include defs.h: in una build di spedizione, dove si passa il solo
 // -DTRIUMV_RELEASE, TRIUMV_FROZEN risultava definito in threads.cpp e NON in
-// nnue_bridge.cpp. Le dieci costanti della miscela di valutazione sarebbero
+// consilium_bridge.cpp. Le dieci costanti della miscela di valutazione sarebbero
 // rimaste variabili, con le loro sette divisioni a divisore ignoto, e nessuno se
 // ne sarebbe accorto: il bench non cambia, perche' congelare o no da' lo stesso
 // albero. Un guadagno che sparisce senza lasciare traccia e' il modo peggiore di

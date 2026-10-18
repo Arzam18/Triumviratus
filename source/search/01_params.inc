@@ -1,6 +1,16 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE BLOCK 1 (17/10/2026 evening, user): the values of our own for block 1 of 8.1. ThreatHist 0 -> 3 with ThreatCtxW
+// 1156 and ThreatCtxUpd 1083 (provisional, own SPRT at the end of the queue), ThrEsc 20 -> 25/25/25/27, ThrEnt 20 -> 25,
+// and the 24 "safe" levers that moved in the SPSA runs (movement >= 0.25 c and |z| >= 1 or monotonic, low or moderate
+// noise risk by simulation; CorrDepthQ and CorrGain excluded as a likely artefact of the schedule): HeCont3 1280,
+// HlCMalus0 1280, HtVict0 7001, HtVict1 6015, HmPawn0 2279, HmPawn2 2007, HmFar1/2/3 1028/1005/1158, HmNear3 1154,
+// HmMain1 2049, HlFNear2 821, HlFFar3 879, CorrGrav1 1061, HlDepthQ1 -1, HlQMalus2 847, HlQMalus3 941, HlQDecay1 922,
+// StGood1 1138, PrCapt0 807, HlEval3 1148, LpDecay1 1122, PrLate2 8. SPRT of the 24 levers (same threat structure on
+// both sides) +1.47 +- 4.05 over 7,792 at 8+0.08 HT; closing SPRT at 2+0.05 running. Bench 126352 -> 280323.
+// Backup _backup/Triumviratus_8.0_pre_bake_blocco1_2026-10-17.
+//
 // BAKE EXP1 (12/10/2026 pomeriggio, utente: "bakiamo, registrando l'idea in NOVELTIES; il prossimo SPSA continua il
 // tuning attuale"): margini di ricerca per esperto della rete (RfpExp/FutExp/LmrExp 0-3, fasce di net_phase) al
 // vettore dello SPSA EXP1, media delle iterazioni 5687-6314: RfpExp 3/1/-3/3, FutExp -3/-14/-2/8, LmrExp -25/102/-6/101.
@@ -204,10 +214,10 @@
   /*    moves tried before it (HlQMalus) and its decay along the list (HlQDecay), reward and penalty of captures  */ \
   /*    (HlCBonus, HlCMalus). They replace five single scales with the same values (removed).                    */ \
   P(HlQBonus0, 860, 300, 2000)  P(HlQBonus1, 860, 300, 2000)  P(HlQBonus2, 860, 300, 2000)  P(HlQBonus3, 860, 300, 2000)  \
-  P(HlQMalus0, 1043, 300, 2500) P(HlQMalus1, 1043, 300, 2500) P(HlQMalus2, 1043, 300, 2500) P(HlQMalus3, 1043, 300, 2500) \
-  P(HlQDecay0, 921, 600, 1024)  P(HlQDecay1, 921, 600, 1024)  P(HlQDecay2, 921, 600, 1024)  P(HlQDecay3, 921, 600, 1024)  \
+  P(HlQMalus0, 1043, 300, 2500) P(HlQMalus1, 1043, 300, 2500) P(HlQMalus2, 847, 300, 2500)  P(HlQMalus3, 941, 300, 2500)  \
+  P(HlQDecay0, 921, 600, 1024)  P(HlQDecay1, 922, 600, 1024)  P(HlQDecay2, 921, 600, 1024)  P(HlQDecay3, 921, 600, 1024)  \
   P(HlCBonus0, 1368, 400, 3000) P(HlCBonus1, 1368, 400, 3000) P(HlCBonus2, 1368, 400, 3000) P(HlCBonus3, 1368, 400, 3000) \
-  P(HlCMalus0, 1270, 400, 3000) P(HlCMalus1, 1270, 400, 3000) P(HlCMalus2, 1270, 400, 3000) P(HlCMalus3, 1270, 400, 3000) \
+  P(HlCMalus0, 1280, 400, 3000) P(HlCMalus1, 1270, 400, 3000) P(HlCMalus2, 1270, 400, 3000) P(HlCMalus3, 1270, 400, 3000) \
   /* F. Gravity of the saturating update, /1024 (lower = closer to the limit): HlGrav quiet histories (main,      */ \
   /*    first plies, pawn, continuations), HlCGrav captures, CorrGrav corrections, TtmGrav hash-move history.     */ \
   /* G. HlAux scale of the first-ply, pawn and continuation updates; HlFNear / HlFFar continuations at 1-2 and   */ \
@@ -218,16 +228,16 @@
   P(HlGrav0, 1024, 768, 1536)   P(HlGrav1, 1024, 768, 1536)   P(HlGrav2, 1024, 768, 1536)   P(HlGrav3, 1024, 768, 1536)   \
   P(HlCGrav0, 1024, 768, 1536)  P(HlCGrav1, 1024, 768, 1536)  P(HlCGrav2, 1024, 768, 1536)  P(HlCGrav3, 1024, 768, 1536)  \
   P(HlAux0, 1024, 256, 2048)    P(HlAux1, 1024, 256, 2048)    P(HlAux2, 1024, 256, 2048)    P(HlAux3, 1024, 256, 2048)    \
-  P(HlFNear0, 1024, 256, 2048)  P(HlFNear1, 1024, 256, 2048)  P(HlFNear2, 1024, 256, 2048)  P(HlFNear3, 1024, 256, 2048)  \
-  P(HlFFar0, 1024, 256, 2048)   P(HlFFar1, 1024, 256, 2048)   P(HlFFar2, 1024, 256, 2048)   P(HlFFar3, 1024, 256, 2048)   \
-  P(HlDepthQ0, 0, -64, 64)      P(HlDepthQ1, 0, -64, 64)      P(HlDepthQ2, 0, -64, 64)      P(HlDepthQ3, 0, -64, 64)      \
-  P(HlEval0, 1024, 0, 2048)     P(HlEval1, 1024, 0, 2048)     P(HlEval2, 1024, 0, 2048)     P(HlEval3, 1024, 0, 2048)     \
+  P(HlFNear0, 1024, 256, 2048)  P(HlFNear1, 1024, 256, 2048)  P(HlFNear2, 821, 256, 2048)   P(HlFNear3, 1024, 256, 2048)  \
+  P(HlFFar0, 1024, 256, 2048)   P(HlFFar1, 1024, 256, 2048)   P(HlFFar2, 1024, 256, 2048)   P(HlFFar3, 879, 256, 2048)    \
+  P(HlDepthQ0, 0, -64, 64)      P(HlDepthQ1, -1, -64, 64)     P(HlDepthQ2, 0, -64, 64)      P(HlDepthQ3, 0, -64, 64)      \
+  P(HlEval0, 1024, 0, 2048)     P(HlEval1, 1024, 0, 2048)     P(HlEval2, 1024, 0, 2048)     P(HlEval3, 1148, 0, 2048)     \
   P(HtCapt0, 1024, 256, 2048)   P(HtCapt1, 1024, 256, 2048)   P(HtCapt2, 1024, 256, 2048)   P(HtCapt3, 1024, 256, 2048)   \
-  P(HtVict0, 7168, 3584, 10752) P(HtVict1, 7168, 3584, 10752) P(HtVict2, 7168, 3584, 10752) P(HtVict3, 7168, 3584, 10752) \
+  P(HtVict0, 7001, 3584, 10752) P(HtVict1, 6015, 3584, 10752) P(HtVict2, 7168, 3584, 10752) P(HtVict3, 7168, 3584, 10752) \
   P(HeMain0, 1024, 256, 2048)   P(HeMain1, 1024, 256, 2048)   P(HeMain2, 1024, 256, 2048)   P(HeMain3, 1024, 256, 2048)   \
-  P(HeCont0, 1024, 0, 2048)     P(HeCont1, 1024, 0, 2048)     P(HeCont2, 1024, 0, 2048)     P(HeCont3, 1024, 0, 2048)     \
+  P(HeCont0, 1024, 0, 2048)     P(HeCont1, 1024, 0, 2048)     P(HeCont2, 1024, 0, 2048)     P(HeCont3, 1280, 0, 2048)     \
   P(EvPen0, 1024, 256, 2048)    P(EvPen1, 1024, 256, 2048)    P(EvPen2, 1024, 256, 2048)    P(EvPen3, 1024, 256, 2048)    \
-  P(CorrGrav0, 1024, 768, 1536) P(CorrGrav1, 1024, 768, 1536) P(CorrGrav2, 1024, 768, 1536) P(CorrGrav3, 1024, 768, 1536) \
+  P(CorrGrav0, 1024, 768, 1536) P(CorrGrav1, 1061, 768, 1536) P(CorrGrav2, 1024, 768, 1536) P(CorrGrav3, 1024, 768, 1536) \
   /* I. CorrGain weight of the correction in the evaluation (/1024); CorrDepthQ quadratic depth term of its      */ \
   /*    reward, d + q*d*d/64 (0 = linear).                                                                       */ \
   P(CorrGain0, 1024, 256, 2048) P(CorrGain1, 1024, 256, 2048) P(CorrGain2, 1024, 256, 2048) P(CorrGain3, 1024, 256, 2048) \
@@ -246,7 +256,7 @@
   /*            (1024 = the old -score/19, same truncation)                                                     */ \
   /*    StQuiet boundary between good quiet moves (before losing captures) and bad ones                         */ \
   /*    StSort  quiet moves with score >= -StSort x depth are sorted, the rest keep generation order            */ \
-  P(StGood0, 1024, 256, 3072)   P(StGood1, 1024, 256, 3072)   P(StGood2, 1024, 256, 3072)   P(StGood3, 1024, 256, 3072)   \
+  P(StGood0, 1024, 256, 3072)   P(StGood1, 1138, 256, 3072)   P(StGood2, 1024, 256, 3072)   P(StGood3, 1024, 256, 3072)   \
   P(StQuiet0, -15563, -30000, 0) P(StQuiet1, -15563, -30000, 0) P(StQuiet2, -15563, -30000, 0) P(StQuiet3, -15563, -30000, 0) \
   P(StSort0, 3223, 1000, 8000)  P(StSort1, 3223, 1000, 8000)  P(StSort2, 3223, 1000, 8000)  P(StSort3, 3223, 1000, 8000)  \
   /* B. Checks in the quiet-move score (11_queue.inc):                                                          */ \
@@ -259,19 +269,21 @@
   /*    ThrEsc  the piece leaves a square attacked by a lower-value enemy piece                                 */ \
   /*    ThrEnt  the piece enters such a square (one weight, ThreatOrderMul = 20, served both; tuned value 25)   */ \
   /*    ThrSafe ours, off: extra bonus when the threatened piece escapes to an unattacked square; own SPRT      */ \
-  P(ThrEsc0, 20, 0, 60)  P(ThrEsc1, 20, 0, 60)  P(ThrEsc2, 20, 0, 60)  P(ThrEsc3, 20, 0, 60)              \
-  P(ThrEnt0, 20, 0, 60)  P(ThrEnt1, 20, 0, 60)  P(ThrEnt2, 20, 0, 60)  P(ThrEnt3, 20, 0, 60)              \
+  P(ThrEsc0, 25, 0, 60)  P(ThrEsc1, 25, 0, 60)  P(ThrEsc2, 25, 0, 60)  P(ThrEsc3, 27, 0, 60)              \
+  P(ThrEnt0, 25, 0, 60)  P(ThrEnt1, 25, 0, 60)  P(ThrEnt2, 25, 0, 60)  P(ThrEnt3, 25, 0, 60)              \
   P(ThrSafe0, 0, 0, 60)  P(ThrSafe1, 0, 0, 60)  P(ThrSafe2, 0, 0, 60)  P(ThrSafe3, 0, 0, 60)              \
   /* A. LpDecay: how fast the first-ply history weight falls, 8 x entry x 1024 / (1024 + ply x LpDecay);        */ \
   /*    1024 = the old 8 x entry / (1 + ply), 0 = the same weight at every ply. Max 3072: beyond it the 40-bit  */ \
   /*    reciprocal of 11_queue.inc is no longer exact.                                                          */ \
-  P(LpDecay0, 1024, 0, 3072) P(LpDecay1, 1024, 0, 3072) P(LpDecay2, 1024, 0, 3072) P(LpDecay3, 1024, 0, 3072) \
+  P(LpDecay0, 1024, 0, 3072) P(LpDecay1, 1122, 0, 3072) P(LpDecay2, 1024, 0, 3072) P(LpDecay3, 1024, 0, 3072) \
   /* Threat-context history (09_history.inc), shared by all experts: 0 = off (old tree), 1-3 = factored form   */ \
   /* (flat table always updated + a correction per context, read only by the ordering; 3 is the value used in   */ \
   /* the tuning runs). The separate-table forms were removed on 17/10/2026 (H0 at 8+0.08).                      */ \
-  P(ThreatHist, 0, 0, 3)                                                                                  \
-  P(ThreatCtxW, 1024, 0, 3072)           /* weight of the context correction in the ordering, /1024 */          \
-  P(ThreatCtxUpd, 1024, 0, 3072)         /* scale of the update of the context correction, /1024 */             \
+  /* BAKE 17/10/2026 (block 1, see the head of the file): ThreatHist 0 -> 3, ThreatCtxW 1024 -> 1156,           */ \
+  /* ThreatCtxUpd 1024 -> 1083 (provisional: own SPRT of ThreatHist at the end of the 8.1 queue).               */ \
+  P(ThreatHist, 3, 0, 3)                                                                                  \
+  P(ThreatCtxW, 1156, 0, 3072)           /* weight of the context correction in the ordering, /1024 */          \
+  P(ThreatCtxUpd, 1083, 0, 3072)         /* scale of the update of the context correction, /1024 */             \
   /* ThreatBal (ours, off; the package lost -17): one threat balance of a quiet move in place of the fixed      */ \
   /* threat term and the safe-square attack bonuses (11_queue.inc); weight per expert, share of the target /1024. */ \
   P(ThreatBal, 0, 0, 1)                                                                                   \
@@ -287,10 +299,10 @@
   /* A. Reading the histories in the quiet-move score (11_queue.inc), /1024: main history (old weight x2), pawn  */ \
   /*    history (x2), near continuations cont1+cont2 (x1), far ones cont3+cont4+cont6 (x1), first plies (x1),    */ \
   /*    and HmAgree (ours): share of the smaller of cont1 and cont2 when they agree in sign (0 = none).          */ \
-  P(HmMain0, 2048, 0, 6144) P(HmMain1, 2048, 0, 6144) P(HmMain2, 2048, 0, 6144) P(HmMain3, 2048, 0, 6144) \
-  P(HmPawn0, 2048, 0, 6144) P(HmPawn1, 2048, 0, 6144) P(HmPawn2, 2048, 0, 6144) P(HmPawn3, 2048, 0, 6144) \
-  P(HmNear0, 1024, 0, 3072) P(HmNear1, 1024, 0, 3072) P(HmNear2, 1024, 0, 3072) P(HmNear3, 1024, 0, 3072) \
-  P(HmFar0, 1024, 0, 3072)  P(HmFar1, 1024, 0, 3072)  P(HmFar2, 1024, 0, 3072)  P(HmFar3, 1024, 0, 3072)  \
+  P(HmMain0, 2048, 0, 6144) P(HmMain1, 2049, 0, 6144) P(HmMain2, 2048, 0, 6144) P(HmMain3, 2048, 0, 6144) \
+  P(HmPawn0, 2279, 0, 6144) P(HmPawn1, 2048, 0, 6144) P(HmPawn2, 2007, 0, 6144) P(HmPawn3, 2048, 0, 6144) \
+  P(HmNear0, 1024, 0, 3072) P(HmNear1, 1024, 0, 3072) P(HmNear2, 1024, 0, 3072) P(HmNear3, 1154, 0, 3072) \
+  P(HmFar0, 1024, 0, 3072)  P(HmFar1, 1028, 0, 3072)  P(HmFar2, 1005, 0, 3072)  P(HmFar3, 1158, 0, 3072)  \
   P(HmLow0, 1024, 0, 3072)  P(HmLow1, 1024, 0, 3072)  P(HmLow2, 1024, 0, 3072)  P(HmLow3, 1024, 0, 3072)  \
   P(HmAgree0, 0, -1024, 1024) P(HmAgree1, 0, -1024, 1024) P(HmAgree2, 0, -1024, 1024) P(HmAgree3, 0, -1024, 1024) \
   P(LmrRank, 0, 0, 1)                                                                                     \
@@ -605,6 +617,9 @@
        _backup/Triumviratus_8.0_pre_rimozione_blend_2026-10-11. */                                                   \
   P(CorrPhase, 1, 0, 1)                  /* BAKE 06/10/2026 (era 0, vedi in testa): idea 9, correzione dei */ \
                                          /* pedoni/minori separata per esperto                           */ \
+  /* CorrPhaseQueen (17/10/2026, off = old tables): with CorrPhase on, eight regimes (piece band x queens on the  */ \
+  /* board) instead of four; same tables, different key (09_history.inc, corr_phase_key). Own SPRT before use.    */ \
+  P(CorrPhaseQueen, 0, 0, 1)                                                                               \
   P(CorrFiftyStep, 0, 0, 50)             /* nostra (05/10/2026): correzione di pedoni e non-pedoni separata */ \
                                          /* per fascia del contatore delle 50 mosse (Step semimosse, 0 = spenta) */ \
   /* Audit del nucleo (05/10/2026): gli adattatori intorno alla ricerca (hash, SEE, mossa nulla, valutazione) rivisti \
@@ -718,9 +733,9 @@
   /* H. Block 1, per expert, the previous move when no move raised alpha: PrLate move number from which it counts */ \
   /*    as late (was 9); PrGain gain on the reward scale (/1024); PrCapt reward of the opponent's capture that    */ \
   /*    led here (was 892 for all).                                                                              */ \
-  P(PrLate0, 9, 2, 30)     P(PrLate1, 9, 2, 30)     P(PrLate2, 9, 2, 30)     P(PrLate3, 9, 2, 30)                 \
+  P(PrLate0, 9, 2, 30)     P(PrLate1, 9, 2, 30)     P(PrLate2, 8, 2, 30)     P(PrLate3, 9, 2, 30)                 \
   P(PrGain0, 1024, 256, 2048) P(PrGain1, 1024, 256, 2048) P(PrGain2, 1024, 256, 2048) P(PrGain3, 1024, 256, 2048) \
-  P(PrCapt0, 892, 0, 3000) P(PrCapt1, 892, 0, 3000) P(PrCapt2, 892, 0, 3000) P(PrCapt3, 892, 0, 3000)             \
+  P(PrCapt0, 807, 0, 3000) P(PrCapt1, 892, 0, 3000) P(PrCapt2, 892, 0, 3000) P(PrCapt3, 892, 0, 3000)             \
   P(CorrLearnW, 1061, 0, 3000)           /* /1024: peso dell'aggiornamento delle correzioni a fine nodo    */ \
   /* potatura per storia delle quiete: divisore per profondita' 1..16 (13_search.inc, prune_quiet)      */      \
   P(HistDiv1, 3637, 500, 8000)                                                                             \
