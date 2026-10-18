@@ -3,7 +3,7 @@
 
 // SeePinned (05/10/2026, audit del nucleo): inchiodati e inchiodatori dei due colori, una volta per posizione, per la
 // SEE (see.cpp). Per ogni re: i pezzi lunghi avversari sulle sue linee a scacchiera vuota sono i cecchini; un
-// cecchino con un solo pezzo in mezzo, e quel pezzo nostro, lo inchioda. SF fa lo stesso conto in ogni posizione.
+// cecchino con un solo pezzo in mezzo, e quel pezzo nostro, lo inchioda.
 static void see_pins_update(ThreadData &td) {
   for (int c = white; c <= black; c++) {
     const int off = c == white ? 0 : 6, eoff = 6 - off;
@@ -43,8 +43,8 @@ static inline bool see_holds(ThreadData &td, int m, int threshold) {
 // One queue per node hands out the moves in groups: hash move, captures that hold the exchange, quiet moves with good
 // statistics, losing captures, the remaining quiet moves. In check all evasions are sorted together; in quiescence
 // and ProbCut only captures are seen. Moves are pseudo-legal: td_make_move decides legality.
-// Origin: staged move generation is a known idea, common to almost every engine; the order of the groups follows the
-// algorithmic base of Stockfish 19. Ours: the three thresholds between the groups are per expert (StGood, StQuiet,
+// Origin: staged move generation is a known idea, common to almost every engine, with the usual order of the groups.
+// Ours: the three thresholds between the groups are per expert (StGood, StQuiet,
 // StSort), chosen once per node when the queue fills (q.ex, q.good_capt, q.good_quiet). Defaults give the old
 // constants, identical tree. Code map: docs/conceptual_maps/BLOCK_1_CODE_MAP.md.
 // ============================================================================
@@ -136,8 +136,8 @@ static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int th
 
 // Inserimento stabile: le mosse con punteggio >= limit vanno in testa in ordine decrescente, le altre restano
 // dopo, nell'ordine di generazione.
-// 04/10/2026 (xperf): qui nasce l'11% dei salti mal predetti del motore (~6 per nodo; l'ordinamento intero ne fa 10,
-// SF 2,7). PROVATA e TOLTA la variante a scambio (la mossa buona prende il posto della prima bassa): salti mal
+// 04/10/2026 (xperf): qui nasce l'11% dei salti mal predetti del motore (~6 per nodo; l'ordinamento intero ne fa
+// 10). PROVATA e TOLTA la variante a scambio (la mossa buona prende il posto della prima bassa): salti mal
 // predetti invariati (55,4 -> 55,1 per nodo), cicli per nodo +3,8%, ordine delle mosse basse rimescolato. I salti
 // vengono dai confronti, che dipendono dai dati, non dagli spostamenti: serve un ordinamento senza salti.
 // 04/10/2026 — SENZA SALTI, stesso ordine di prima (albero identico). Ogni mossa sopra la soglia ha una chiave unica

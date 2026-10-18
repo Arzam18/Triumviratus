@@ -328,6 +328,10 @@
   P(NmpRedBase, 7, 3, 12)                                                                                 \
   P(NmpEvalDiv, 223, 64, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
+  /* Endgame rule (report R2, 18/10/2026): no null move when the side to move has at most NmpFewMoves legal moves  */ \
+  /*  and at most NmpFewPieces pieces are on the board (zugzwang is likely there). 0 = off, identical tree.        */ \
+  P(NmpFewMoves, 0, 0, 10)                                                                                \
+  P(NmpFewPieces, 15, 2, 32)                                                                              \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
@@ -758,6 +762,10 @@
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
   P(QsStandMix, 462, 0, 1024)                                                                              \
+  /* Endgame rule (report R2, 18/10/2026): at the first quiescence ply called by the main search, quiet moves that */ \
+  /*  give check with SEE >= 0 are also searched when at most QsChecksPieces pieces are on the board (the quiesce */ \
+  /*  QCHK form of analysis mode). 0 = off, identical tree.                                                        */ \
+  P(QsChecksPieces, 0, 0, 32)                                                                              \
   /* tra un'iterazione e l'altra (14_deepen.inc) */                                                          \
   P(LowPlyFill, 102, -500, 500)          /* valore iniziale della storia dei primi ply a ogni ricerca       */ \
   P(QuietHistDecay, 729, 0, 1024)        /* /1024: storie delle quiete conservate fra le mosse              */ \

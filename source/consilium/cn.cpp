@@ -44,6 +44,26 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
     #define CN_PREFETCH(p) ((void)0)
 #endif
 
+// CN_W1 (block 8, 18/10/2026; the idea is A Tin Man's, 15/10/2026, measured on the previous inference): the int8 rows
+// (threats, pawn pairs, passed pawns) are stored with their bytes interleaved in blocks of 32 (byte 2j = element j,
+// byte 2j + 1 = element 16 + j). One 32-byte load then gives two int16 vectors: vpmaddubsw with (1, 0) pairs keeps the
+// even bytes, vpsraw by 8 the odd ones, both on ports 0/1, instead of two vpmovsxbw on port 5 (the bottleneck of the
+// threat rows). Same values, same result. His measurements, identical nodes: Zen+ (avx2-nopext) +4.49%, Raptor Lake
+// (avxvnni) +1.09%, Zen 3 (avx2) -2.15%: so only in the AVX2 builds without PEXT or with AVX-VNNI. -DCN_NO_W1: off.
+#if defined(USE_AVX2) && !defined(USE_AVX512) && (!defined(USE_PEXT) || defined(USE_AVXVNNI)) && !defined(CN_NO_W1)
+    #define CN_W1 1
+#endif
+
+// Independent chains of the sparse first layer: three when it uses vpdpbusd (latency about five cycles, AVX-512 VNNI
+// or AVX-VNNI), two otherwise. -DCN_DOT_CHAINS=2 goes back to two (not measured on a VNNI processor here).
+#ifndef CN_DOT_CHAINS
+    #if defined(USE_VNNI)
+        #define CN_DOT_CHAINS 3
+    #else
+        #define CN_DOT_CHAINS 2
+    #endif
+#endif
+
 
 // ---------------------------------------------------------------- -DCN_PROF: cycles per phase (diagnostic only)
 #ifdef CN_PROF
@@ -490,12 +510,29 @@ void apply(const RowList& L, const Acc& src, Acc& dst) {
         for (int i = 0; i < L.n16s; i++)
             for (int k = 0; k < R; k++)
                 r[k] = _mm256_sub_epi16(r[k], _mm256_load_si256((const __m256i*)(L.s16[i] + t + k * W)));
+#ifdef CN_W1
+        // Interleaved int8 rows (CN_W1): one 32-byte load per pair of registers, widened on ports 0/1.
+        const __m256i even = _mm256_set1_epi16(1);   // u8 pairs (1, 0): vpmaddubsw keeps the signed even byte
+        for (int i = 0; i < L.n8a; i++)
+            for (int k = 0; k < R; k += 2) {
+                const __m256i w = _mm256_load_si256((const __m256i*)(L.a8[i] + t + k * W));
+                r[k]     = _mm256_add_epi16(r[k], _mm256_maddubs_epi16(even, w));
+                r[k + 1] = _mm256_add_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
+            }
+        for (int i = 0; i < L.n8s; i++)
+            for (int k = 0; k < R; k += 2) {
+                const __m256i w = _mm256_load_si256((const __m256i*)(L.s8[i] + t + k * W));
+                r[k]     = _mm256_sub_epi16(r[k], _mm256_maddubs_epi16(even, w));
+                r[k + 1] = _mm256_sub_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
+            }
+#else
         for (int i = 0; i < L.n8a; i++)
             for (int k = 0; k < R; k++)
                 r[k] = _mm256_add_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.a8[i] + t + k * W))));
         for (int i = 0; i < L.n8s; i++)
             for (int k = 0; k < R; k++)
                 r[k] = _mm256_sub_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.s8[i] + t + k * W))));
+#endif
         for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(dst.v + t + k * W), r[k]);
     }
     apply_psqt(L, src.psqt, dst.psqt);
@@ -820,6 +857,25 @@ Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket) {
     __m512i a0 = _mm512_loadu_si512(st.b1), a1 = _mm512_loadu_si512(st.b1 + 16);
     __m512i a2 = _mm512_setzero_si512(), a3 = a2;
     int i = 0;
+#if CN_DOT_CHAINS >= 3 && defined(USE_VNNI)
+    // Three independent chains (vpdpbusd has a latency of about five cycles); integer sums, same result.
+    __m512i a4 = a2, a5 = a2;
+    for (; i + 2 < n; i += 3) {
+        const __m512i  x0 = _mm512_set1_epi32(in[nz[i]]), x1 = _mm512_set1_epi32(in[nz[i + 1]]);
+        const __m512i  x2 = _mm512_set1_epi32(in[nz[i + 2]]);
+        const __m512i* w0 = reinterpret_cast<const __m512i*>(st.w1g[nz[i]]);
+        const __m512i* w1 = reinterpret_cast<const __m512i*>(st.w1g[nz[i + 1]]);
+        const __m512i* w2 = reinterpret_cast<const __m512i*>(st.w1g[nz[i + 2]]);
+        a0 = dot4(a0, x0, _mm512_load_si512(w0));
+        a1 = dot4(a1, x0, _mm512_load_si512(w0 + 1));
+        a2 = dot4(a2, x1, _mm512_load_si512(w1));
+        a3 = dot4(a3, x1, _mm512_load_si512(w1 + 1));
+        a4 = dot4(a4, x2, _mm512_load_si512(w2));
+        a5 = dot4(a5, x2, _mm512_load_si512(w2 + 1));
+    }
+    a0 = _mm512_add_epi32(a0, a4);
+    a1 = _mm512_add_epi32(a1, a5);
+#endif
     for (; i + 1 < n; i += 2) {
         const int g0 = nz[i], g1 = nz[i + 1];
         const __m512i  x0 = _mm512_set1_epi32(in[g0]), x1 = _mm512_set1_epi32(in[g1]);
@@ -955,6 +1011,24 @@ Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket) {
         b[k] = _mm256_setzero_si256();
     }
     int i = 0;
+#if CN_DOT_CHAINS >= 3 && defined(USE_AVXVNNI)
+    // Three independent chains with AVX-VNNI (vpdpbusd has a latency of about five cycles); same integer sums.
+    __m256i c[4];
+    for (int k = 0; k < 4; k++) c[k] = _mm256_setzero_si256();
+    for (; i + 2 < n; i += 3) {
+        const __m256i  x0 = _mm256_set1_epi32(in[nz[i]]), x1 = _mm256_set1_epi32(in[nz[i + 1]]);
+        const __m256i  x2 = _mm256_set1_epi32(in[nz[i + 2]]);
+        const __m256i* w0 = reinterpret_cast<const __m256i*>(st.w1g[nz[i]]);
+        const __m256i* w1 = reinterpret_cast<const __m256i*>(st.w1g[nz[i + 1]]);
+        const __m256i* w2 = reinterpret_cast<const __m256i*>(st.w1g[nz[i + 2]]);
+        for (int k = 0; k < 4; k++) {
+            a[k] = dot8(a[k], x0, _mm256_load_si256(w0 + k));
+            b[k] = dot8(b[k], x1, _mm256_load_si256(w1 + k));
+            c[k] = dot8(c[k], x2, _mm256_load_si256(w2 + k));
+        }
+    }
+    for (int k = 0; k < 4; k++) a[k] = _mm256_add_epi32(a[k], c[k]);
+#endif
     for (; i + 1 < n; i += 2) {
         const __m256i  x0 = _mm256_set1_epi32(in[nz[i]]), x1 = _mm256_set1_epi32(in[nz[i + 1]]);
         const __m256i* w0 = reinterpret_cast<const __m256i*>(st.w1g[nz[i]]);
@@ -1112,10 +1186,22 @@ bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::str
     if (r.u32() != (fh ^ std::uint32_t(L1 * 2))) return fail("feature transformer hash");
     bool ok = r.tensor(net->ftBias, L1);
     // Weights row by row into the strided rows (row `slot(file row)`), then the PSQT values into the tail of each row.
+    // CN_W1: element e of an int8 row goes to its interleaved byte (block of 32, element 32b + j -> byte 32b + 2j,
+    // element 32b + 16 + j -> byte 32b + 2j + 1); the PSQT tail after the 1024 weights is not touched.
     auto block = [&](auto file_type_tag, auto* rows, int nrows, auto slot) {
         using F = decltype(file_type_tag);
-        bool ok2 = r.template tensor_f<F>(std::size_t(nrows) * L1,
-                                          [rows, slot](std::size_t k, F v) { rows[slot(int(k / L1))][k % L1] = v; });
+        auto pos = [](std::size_t e) -> std::size_t {
+#ifdef CN_W1
+            if (sizeof(F) == 1) {
+                const std::size_t l = e % 32;
+                return e - l + (l < 16 ? 2 * l : 2 * (l - 16) + 1);
+            }
+#endif
+            return e;
+        };
+        bool ok2 = r.template tensor_f<F>(std::size_t(nrows) * L1, [rows, slot, pos](std::size_t k, F v) {
+            rows[slot(int(k / L1))][pos(k % L1)] = v;
+        });
         return ok2 && r.template tensor_f<std::int32_t>(std::size_t(nrows) * NPSQT, [rows, slot](std::size_t k, std::int32_t v) {
             std::memcpy(reinterpret_cast<char*>(rows[slot(int(k / NPSQT))] + L1) + 4 * (k % NPSQT), &v, 4);
         });
@@ -1153,6 +1239,9 @@ bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::str
     std::uint64_t layout = 0;   // differs between the AVX-512, AVX2 and plain orders of w1g
     for (int g = 0; g < L1 / 4; g++) layout = layout * 1099511628211ULL + std::uint64_t(l0_group(g));
     h ^= layout;
+#ifdef CN_W1
+    h ^= 0x5731'0000'0000'0000ULL;   // interleaved int8 rows: another layout of the same file
+#endif
 #ifdef CN_THRPERM
     h ^= THR_PERM_ID;   // and so does the order of the threat rows
 #endif

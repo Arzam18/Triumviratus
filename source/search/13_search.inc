@@ -186,14 +186,15 @@ static inline bool crystal_node(const ThreadData &td, const NodeFrame *f) {
 // AnNmpZug: al massimo 5 mosse legali, come Crystal. Prima versione con le pseudo-legali (14/10/2026 notte): non
 // scattava quasi mai (1 posizione su 383 con la ricerca diversa). Chiamata solo fuori scacco (mossa nulla), dove
 // legal_before vale.
-static bool few_moves(ThreadData &td) {
+// The same count serves the endgame rule NmpFewMoves (18/10/2026) with its own limit.
+static bool few_moves(ThreadData &td, int limit = 5) {
   moves ml;
   td_generate_moves(td, &ml);
   MoveSafety s;
   s.ready = false;
   int legal = 0;
   for (int i = 0; i < ml.count; i++)
-    if (legal_before(td, s, ml.moves[i]) && ++legal > 5)
+    if (legal_before(td, s, ml.moves[i]) && ++legal > limit)
       return false;
   return true;
 }
@@ -341,7 +342,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
 //      move, if it is in the table, must agree with the cutoff;
 //   5. the returned value: a lower bound is pulled toward beta (HashDamp, ours after an idea seen in Coda);
 //   6. an entry deep enough whose bound contradicts the window loses a ply above depth HashWeaken.
-// Defaults = the 8.0 tree, whose cutoff came from the algorithmic base of SF19.
+// Defaults = the 8.0 tree.
 // --------------------------------------------------------------------------
 static inline int hash_cut_value(const NodeState &n) {
   const int v = n.h.value;
@@ -511,7 +512,8 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
                            ? 1 : 0;
   if (n.cut && f->static_eval >= n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase &&
       !n.excluded && non_pawn && td.ply >= td.nmp_min_ply && n.beta >= -2000 && !(AN && gd_skip_null(td, n)) &&
-      !(AN && (td.an_bits & AN_NMPZUG) && td.root_depth >= 11 && td.side != td.root_side && few_moves(td))) {
+      !(AN && (td.an_bits & AN_NMPZUG) && td.root_depth >= 11 && td.side != td.root_side && few_moves(td)) &&
+      !(NmpFewMoves && count_bits(td.occupancies[both]) <= NmpFewPieces && few_moves(td, NmpFewMoves))) {
     // DeepNmp in 1024-esimi di ply, arrotondato con 10 bit della chiave (fissi per posizione): a 0 il termine e' 0,
     // altrimenti una frazione |v|/1024 dei nodi riduce di un ply in piu' (o in meno) e lo SPSA ne vede la pendenza.
     const int r = NmpRedBase + n.depth / 3 + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
@@ -1067,7 +1069,9 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
 template <bool AN>
 static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth, bool cut, bool pv) {
   if (depth <= 0)
-    return (AN && (td.an_bits & AN_QSCHK)) ? quiesce<true>(td, f, alpha, beta, pv) : quiesce<false>(td, f, alpha, beta, pv);
+    return ((AN && (td.an_bits & AN_QSCHK)) || (QsChecksPieces && count_bits(td.occupancies[both]) <= QsChecksPieces))
+               ? quiesce<true>(td, f, alpha, beta, pv)
+               : quiesce<false>(td, f, alpha, beta, pv);
   td.pv_length[td.ply] = td.ply;
   NodeState n;
   n.root = f == &td.frames[FRAME_OFFSET];

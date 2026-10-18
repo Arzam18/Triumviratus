@@ -5,7 +5,7 @@
 #include <functional>
 
 // Thread persistenti (12/10/2026). Prima ogni "go" creava un thread per la ricerca principale e uno per ogni helper,
-// e alla fine li univa: 1-2 ms a mossa con 4-8 thread (misura costi_infrastruttura.py, SF19 tiene i thread vivi).
+// e alla fine li univa: 1-2 ms a mossa con 4-8 thread (misura costi_infrastruttura.py).
 // Ora ogni thread nasce una volta e aspetta il lavoro su una condition variable. Gli oggetti non vengono mai
 // distrutti (il thread e' staccato): all'uscita del processo il sistema chiude i thread fermi in attesa.
 struct SearchWorker {
@@ -279,7 +279,7 @@ void search_position_mt(int depth) {
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
-    // TmFenPly (05/10/2026, audit del nucleo): ply di partita come SF, numero di mossa della FEN + mosse giocate.
+    // TmFenPly (05/10/2026, audit del nucleo): ply di partita = numero di mossa della FEN + mosse giocate.
     // A 0 solo le mosse giocate dopo la posizione data, come prima: da un libro .epd la partita "partiva" da ply 0.
     clock_plan(side, repetition_index + (TmFenPly ? g_fen_ply : 0), g_move_overhead_ms);
   }

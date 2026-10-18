@@ -5,8 +5,8 @@
 // consilium_bridge.cpp -- the engine's link with the Consilium network (block 6 of 8.1, 18/10/2026).
 //
 // The network is evaluated by the module in consilium/ (cn.h, cn.cpp), written from our own specification of the
-// network (docs/development/8.1/CONSILIUM_INFERENCE.md); the previous inference, which started from Stockfish's NNUE
-// code, is gone. This file holds what the engine adds around the module:
+// network (docs/development/8.1/CONSILIUM_INFERENCE.md); the previous inference is gone. This file holds what the
+// engine adds around the module:
 //   - loading the network (file, embedded resource, memory shared between processes);
 //   - the per-thread handles, whose dirty stack the engine's make writes (search/06_nndirty.inc, nn_dirty.h);
 //   - the five steps from the two network outputs to the static evaluation (nn_scale, nn_finalize);
@@ -202,12 +202,14 @@ static int load_net_impl(const char* path) {
 // Steps 1-3 do not depend on the fifty-move counter: they are the "unadjusted" value the evaluation cache stores, and
 // nn_finalize applies steps 4-5 to it with the counter of the position that reads it.
 //
-// Two shapes (UCI EvalShape):
-//   0 (default): agree = linear damping v - v*d/EvalComplexDiv, fifty = v - v*r/199. The constants were tuned by our
-//                SPSA runs on this network (BAKE 09/09/2026 and BAKE MOE1 30/09/2026).
-//   1 (our design, to be judged on games): agree = v*A/(A + d), which never changes the sign of v however large the
-//                disagreement (the linear form does once d > EvalComplexDiv); fifty keeps the full value for the first
-//                EvalShapeR50 plies of reversible play, then falls linearly to 0 at ply 100, where a draw can be claimed.
+// Step 2 is the linear damping v - v*d/EvalComplexDiv; the constants of steps 1-3 were tuned by our SPSA runs on this
+// network (BAKE 09/09/2026 and BAKE MOE1 30/09/2026).
+// Step 4 mixes two forms (18/10/2026), EvalFiftyMix /1024: the linear pull v - v*r/199 (0, the default) and a form of
+// our own that keeps the full value for the first EvalFiftyKeep plies of reversible play, then falls linearly to 0 at
+// ply 100, where a draw can be claimed (1024). On 2 million positions from games (tools/evalshape_predict.py) the
+// second form predicts the result better in every band of the counter, and the SPSA run T15b raised the mix.
+// (A second form of step 2, v*A/(A + d), predicted no better and the same SPSA run drove its mix to zero: removed on
+// 18/10/2026.)
 // =====================================================================================================================
 
 // Per-bucket EvalScale (percent). The eight output buckets of the network (by piece count) each get their own scale;
@@ -237,18 +239,19 @@ int              g_opt_per_thread = 1;
 int g_ev_psqt_w    = 125;     // psqt weight (/128)
 int g_ev_pos_w     = 131;     // positional weight (/128)                       (126, BAKE MOE1)
 int g_ev_pos_w_end = 131;     // positional weight with <= 15 pieces (/128); 125 measured -6.6 +- 8.3 (01/10/2026)
-int g_ev_cplx_div  = 18198;   // shape 0: disagreement that cancels the value    (19139, BAKE MOE1)
+int g_ev_cplx_div  = 18198;   // disagreement that cancels the value             (19139, BAKE MOE1)
 int g_ev_pawn_mat  = 680;     // pawn in the material term                       (551)
 int g_ev_mat_base  = 102051;  // material scale: v * (base + material) / base    (84768)
 int g_ev_opt_cplx  = 432;     // optimism grows by optimism * d / this           (461)
 int g_ev_opt_base  = 5831;    // optimism scale: optimism * (this + material)    (6456)
-// Shape 1 (EvalShape = 1). Default A = EvalComplexDiv: for a small disagreement both shapes damp alike.
-int g_ev_shape     = 0;
-int g_ev_shape_agree = 18198; // shape 1: v * A / (A + d)
-int g_ev_shape_r50   = 20;    // shape 1: plies of the fifty-move counter before the pull towards 0 starts
+// Step 4: the mix of the two forms (/1024, 0 = linear pull, identical tree) and the plies kept at full value.
+int g_ev_fifty_mix  = 0;
+int g_ev_fifty_keep = 20;
 
 // Values of the minor and major pieces in the material term, and the bounds of a normal (non-mate, non-TB) score.
 constexpr int MAT_KNIGHT = 781, MAT_BISHOP = 825, MAT_ROOK = 1276, MAT_QUEEN = 2538;
+// Pawn weight and material base of the optimism term: the default values of EvalPawnMat and EvalMatBase, fixed.
+constexpr int OPT_PAWN_MAT = 680, OPT_MAT_BASE = 102051;
 constexpr int EVAL_BOUND = 31506;   // |static eval| <= 31506: below every tablebase and mate score
 
 // Release builds (TRIUMV_FROZEN) compile the tuned values as literals: the divisions of steps 1-3 then become
@@ -268,9 +271,12 @@ constexpr int EVAL_BOUND = 31506;   // |static eval| <= 31506: below every table
 
 // Step 4 (fifty-move counter), shared by nn_scale and nn_finalize.
 static inline int fifty_pull(int v, int rule50) {
-    if (!g_ev_shape) return v - v * rule50 / 199;
-    const int r = std::min(rule50, 100), r0 = g_ev_shape_r50;
-    return r <= r0 ? v : int(std::int64_t(v) * (100 - r) / (100 - r0));
+    const int mix   = g_ev_fifty_mix;
+    const int lin_v = v - v * rule50 / 199;
+    if (mix == 0) return lin_v;
+    const int r = std::min(rule50, 100), r0 = g_ev_fifty_keep;
+    const int keep_v = r <= r0 ? v : int(std::int64_t(v) * (100 - r) / (100 - r0));
+    return mix == 1024 ? keep_v : lin_v + int(std::int64_t(keep_v - lin_v) * mix / 1024);
 }
 
 // Step 5: per-bucket EvalScale and the bounds of a normal score.
@@ -289,29 +295,34 @@ static inline int nn_scale(const NnBoard& pos, Value psqt, Value positional, int
 
     // 2. agree
     const int disagree = std::abs(int(psqt) - int(positional));
-    if (!g_ev_shape)
-        blend -= blend * disagree / g_ev_cplx_div;
-    else
-        blend = int(std::int64_t(blend) * g_ev_shape_agree / (g_ev_shape_agree + disagree));
+    blend -= blend * disagree / g_ev_cplx_div;
 
     // 3. material (and optimism on the same scale)
     const int material = g_ev_pawn_mat * pos.count_type(NN_PAWN) + MAT_KNIGHT * pos.count_type(NN_KNIGHT)
                        + MAT_BISHOP * pos.count_type(NN_BISHOP) + MAT_ROOK * pos.count_type(NN_ROOK)
                        + MAT_QUEEN * pos.count_type(NN_QUEEN);
-    const std::int64_t stretched = std::int64_t(blend) * (g_ev_mat_base + material);
+    // With a negative pawn weight the factor could reach zero or below and flip the sign of the evaluation: it never
+    // goes under a quarter of the base (at the defaults it is always above the base, so nothing changes).
+    const std::int64_t stretched = std::int64_t(blend) * std::max(g_ev_mat_base + material, g_ev_mat_base / 4);
+    // The optimism has its own material sum and scale (18/10/2026): with the pawn weight and the material base it
+    // shared with the evaluation, a fit of those two (tools/evalscale_fit.py: negative pawn, base x27) would have
+    // flipped the sign of the optimism or made it vanish. At the defaults (pawn 680, base 102051) the result is
+    // identical bit for bit to the shared form.
+    const int          opt_material = material + (OPT_PAWN_MAT - g_ev_pawn_mat) * pos.count_type(NN_PAWN);
     int                v;
     if (g_eval_optimism) {
         int opt = opt_local ? opt_local[pos.side_to_move()] : g_optimism[pos.side_to_move()].load();
         opt += opt * disagree / g_ev_opt_cplx;
-        v = int((stretched + std::int64_t(opt) * (g_ev_opt_base + material)) / g_ev_mat_base);
+        v = int((stretched + std::int64_t(opt) * (g_ev_opt_base + opt_material) * g_ev_mat_base / OPT_MAT_BASE)
+                / g_ev_mat_base);
     } else
         v = int(stretched / g_ev_mat_base);
 
     const int scale_pct = g_eval_scale_b[(pieces - 1) / 4];   // the network's output bucket
     if (last) {
         last->opt_base   = int(stretched / g_ev_mat_base);
-        last->opt_coeff  = int(std::int64_t(g_ev_opt_cplx + disagree) * (g_ev_opt_base + material) * 1000 * scale_pct
-                               / (std::int64_t(g_ev_opt_cplx) * g_ev_mat_base * 100));
+        last->opt_coeff  = int(std::int64_t(g_ev_opt_cplx + disagree) * (g_ev_opt_base + opt_material) * 1000 * scale_pct
+                               / (std::int64_t(g_ev_opt_cplx) * OPT_MAT_BASE * 100));
         last->unadjusted = v;
     }
 
@@ -351,7 +362,7 @@ static unsigned long long g_verify_count = 0, g_verify_bad = 0;   // valutazioni
 // saltando pairwise+propagate) PROVATO e UCCISO CON MISURA su build PGO:
 // thr700 fire 75% -> albero +154%; thr2000 fire 16% -> +28%; thr4000 fire 0.6%
 // -> +4%; time-to-depth SEMPRE peggiore. Terza falsificazione della famiglia
-// "eval economica ai nodi decisi" (smallnet SF -17 Elo, SPLE): la search e'
+// "eval economica ai nodi decisi" (seconda rete piccola -17 Elo, SPLE): la search e'
 // co-adattata all'eval piena, ogni surrogato grossolano gonfia l'albero piu'
 // di quanto il forward risparmiato ripaghi. NON riprovare varianti.
 void        nn_set_incremental(int on) { g_incremental = on != 0; }
@@ -387,14 +398,13 @@ const EvalConst g_eval_consts[] = {
     {"EvalPosW",           &g_ev_pos_w,       40,    260},
     {"EvalPosWEnd",        &g_ev_pos_w_end,   40,    260},
     {"EvalComplexDiv",     &g_ev_cplx_div,    4000,  60000},
-    {"EvalPawnMat",        &g_ev_pawn_mat,    200,   1200},
-    {"EvalMatBase",        &g_ev_mat_base,    20000, 200000},
+    {"EvalPawnMat",        &g_ev_pawn_mat,    -30000, 1200},     // negative: more pawns, smaller evaluation
+    {"EvalMatBase",        &g_ev_mat_base,    20000,  5000000},  // large: almost no stretch with the material
     {"EvalOptComplexDiv",  &g_ev_opt_cplx,    100,   2000},
     {"EvalOptMatBase",     &g_ev_opt_base,    1000,  30000},
     {"EvalBucketOverride", CN_BUCKET_OVERRIDE, -1,   7},
-    {"EvalShape",          &g_ev_shape,       0,     1},
-    {"EvalShapeAgree",     &g_ev_shape_agree, 1000,  100000},
-    {"EvalShapeR50",       &g_ev_shape_r50,   0,     90},
+    {"EvalFiftyMix",       &g_ev_fifty_mix,   0,     1024},
+    {"EvalFiftyKeep",      &g_ev_fifty_keep,  0,     90},
 };
 }
 #ifdef TRIUMV_FROZEN

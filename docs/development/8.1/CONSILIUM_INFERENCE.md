@@ -464,14 +464,19 @@ usual checks: bench, golden set, perft):
   how often chains occur).
 - **Sparse first layer without VNNI**: pairs of four-byte groups whose products cannot overflow 16 bits could share
   one `madd` (the pairs can be classified at load; estimate 0.3-0.5%).
-- **Three dependency chains of `vpdpbusd`** in the sparse first layer on Zen 4 (two today).
+- **Done on 18 October:** three dependency chains of `vpdpbusd` in the sparse first layer of the VNNI builds
+  (avxvnni, vnni512, avx512icl), and int8 rows stored with interleaved bytes in the avx2-nopext and avxvnni builds, so
+  that a row widens to int16 with `vpmaddubsw` and `vpsraw` on two ports instead of `vpmovsxbw` on one. Both ideas are
+  A Tin Man's, measured by him on the previous inference (+4.5% on Zen+, +1.1% on an i9-14900KF, −2.2% on Zen 3, which
+  is why the avx2 build keeps the plain form); the code in our module is new. Identical results (golden set, bench).
+  Speed on those processors still to measure.
 - **Zen 4** (VNNI, AVX-512 at 256 bits per cycle): measure the inference and the slider kernels there (the
   leading-zero count is cheaper there than on the Xeon), and the threat-row order.
 - **A smaller refresh cache** (512 entries of about 2 KB per thread, often outside L2 when read): small gain, mostly
   with many threads.
 
-To check (not speed): the `nopext` build gives bench 267502 instead of 280323, already on the engine before block 7,
-while the Makefile says the two builds give the same tree. It concerns the builds for AMD Zen 1 and Zen 2.
+Checked (not speed): a clean MinGW `nopext` build gives bench 280323 and the same perft as the other builds; an
+earlier 267502 came from object files left by another build (the Makefile does not rebuild when the options change).
 
 Other items:
 

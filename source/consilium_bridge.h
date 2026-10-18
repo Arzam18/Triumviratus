@@ -53,7 +53,7 @@ int  nn_get_eval_scale_bucket(int bucket);   // valore corrente (all'avvio = def
 
 // --- Costanti del blend dell'eval (15/08/2026) -------------------------------
 // Le costanti che trasformano le due uscite della rete (psqt, positional) in una valutazione: pesi del blend,
-// smorzamento per disaccordo, scala col materiale, termini dell'optimism, e la forma di EvalShape. Tarate dai nostri
+// smorzamento per disaccordo, scala col materiale, termini dell'optimism, e la miscela del passo delle 50 mosse. Tarate dai nostri
 // SPSA su questa rete (BAKE 09/09 e MOE1 30/09/2026). Non scalano l'eval: decidono cosa dice, che e' la differenza
 // con EvalScale/EvalScaleB (scala per bucket).
 // L'enumerazione serve a uci_mt.cpp per dichiarare le opzioni senza duplicare i nomi.

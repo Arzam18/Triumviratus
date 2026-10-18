@@ -165,8 +165,8 @@ static inline PieceToRow &pawn_row(const ThreadData &td) {
 // WRITING THE STATISTICS (block 1 of 8.1)
 // Every update of a statistic goes through the functions below, with the parameters of the network expert chosen by
 // the material of the node (net_phase: 0 = 9 pieces or fewer, 1 = 10-15, 2 = 16-23, 3 = 24 or more).
-// Origin: the saturating update and an amount linear in depth are known ideas (move histories, part of the
-// algorithmic base of Stockfish 19). Our form: a gravity per expert, a quadratic term in depth, weights per expert.
+// Origin: the saturating update and an amount linear in depth are known ideas of move histories, used by most
+// engines. Our form: a gravity per expert, a quadratic term in depth, weights per expert.
 // At the starting values every formula gives the old integer result, so the tree is identical until tuning moves
 // them (bench 137419). Parameters: 01_params.inc, sub-blocks E, F, G of docs/development/8.1/SEARCH_1_ORDERING.md.
 // ============================================================================

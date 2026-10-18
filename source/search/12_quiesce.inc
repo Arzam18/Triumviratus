@@ -250,7 +250,7 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, boo
   // a re non sotto scacco o per una parata del generatore delle parate; la mossa hash, le killer e la contromossa
   // passano solo dalla pseudo-legalita', e una di loro che non parava lo scacco veniva giocata. Il re si catturava al
   // ply dopo e la posizione della rete restava senza re: crash in release (1 motore su 16 nel training PGO, 3 partite
-  // perse per disconnessione su 197 contro SF19). La verifica con -DTRIUMV_VERIFY_LEGAL su 3,9 milioni di nodi non
+  // perse per disconnessione su 197). La verifica con -DTRIUMV_VERIFY_LEGAL su 3,9 milioni di nodi non
   // l'aveva trovato.
   // ✅ 04/10/2026 sera — RIPRESA SOLO DOVE E' COMPLETA: a re NON sotto scacco legal_before decide da solo (inchiodature,
   // re che non entra in presa, en passant, arrocco) e la make salta il test; sotto scacco il test resta. Arrocco del
@@ -278,9 +278,8 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, boo
   f->cont_hist = &g_stats.follow[f->in_check][is_tactical(m)][move_piece(m)][move_to(m)];
   f->cont_corr = &td.cont_corr[move_piece(m)][move_to(m)];
   // CCPF (14/10/2026, velocita' ad albero identico): prefetch delle celle della correzione di continuazione che il
-  // figlio legge per prime in corr_signal. Trovato da noi dal costo di CorrContOppW diverso fra i socket; poi visto che
-  // Stockfish lo fa dall'agosto 2026 ("Prefetch continuation correction histories", 4150d22b86, gia' in SF19: la
-  // riscrittura del 04/10 lo aveva perso). xperf v14 a macchina ferma: ~-0,3% cicli (SF: neutro su AVX-512, +0,5% Zen 3). Nel figlio f[-1] e' questo frame, quindi le righe sono quelle di f[-1] e f[-3]
+  // figlio legge per prime in corr_signal. Trovato dal costo di CorrContOppW diverso fra i socket. xperf v14 a
+  // macchina ferma: ~-0,3% cicli. Nel figlio f[-1] e' questo frame, quindi le righe sono quelle di f[-1] e f[-3]
   // qui (CorrContW, il figlio a -2 e -4) e di f[-2] (CorrContOppW, il figlio a -3), la cella e' (pezzo arrivato, casa).
   // Le correzioni per struttura sono gia' anticipate nella make; queste no. Misura del 14/10: con CorrContOppW accesa
   // il lato in prova perdeva -0,04 ply sul socket 1 (2 banchi di memoria) contro -0,01 sul socket 0: una lettura in
@@ -445,7 +444,7 @@ static inline void pv_extend(ThreadData &td, int m) {
 //      and may raise the node's value with what a skipped move was certainly worth;
 //   4. the close: mate or stalemate when nothing was played, the value pulled toward beta, the hash entry.
 // Levers (01_params.inc): QsFut0-3, QsSee0-3, QsGate, QsVictimW, QsSeeFutW, QsFhMix, QsStandMix. At their
-// defaults the tree is the one of the 8.0 quiescence, whose logic came from the algorithmic base of SF19.
+// defaults the tree is the one of the 8.0 quiescence.
 // ============================================================================
 
 // What the walk knows about the node.
