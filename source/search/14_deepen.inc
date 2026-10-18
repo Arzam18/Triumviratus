@@ -467,7 +467,7 @@ static void deepen(ThreadData &td) {
       // Aspiration window (block 5): AspBase + an offset per thread, (id % SmpAspCycle) x SmpAspStep (default id % 8),
       // + the spread of the root scores. The offset makes the threads fail high and low at different moments.
       int delta = AspBase + td.thread_id % SmpAspCycle * SmpAspStep + (int)(std::llabs(cur.mean_sq) / AspMeanSqDiv);
-      if (td.gd_style == 2)   // AnGold: finestra piu' stretta in equilibrio, piu' larga in attacco
+      if (td.gd_style == 2)   // AnGold: a narrower window in balanced positions, a wider one in attack
         delta = std::max(6, delta * 9 / 10);
       else if (td.gd_style == 1 || td.gd_style == 4)
         delta = delta * 9 / 8;
@@ -481,10 +481,10 @@ static void deepen(ThreadData &td) {
       for (;;) {
         // AspFhRed plies off for each fail high in a row (was 1).
         const int depth = std::max(1, td.root_depth - failed_high * AspFhRed - 3 * (again + 1) / 4 -
-                                      (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: seconda linea piu' corta
+                                      (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: a shorter second line
         td.root_delta = beta - alpha;
-        best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // modalita' analisi
-                          : explore<false>(td, root, alpha, beta, depth, false, true);  // partita: termini costanti
+        best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // analysis mode
+                          : explore<false>(td, root, alpha, beta, depth, false, true);  // games: constant terms
         settle_lines(td, td.pv_idx, td.pv_last);
         if (stop_threads.load(std::memory_order_relaxed))
           break;
@@ -516,7 +516,7 @@ static void deepen(ThreadData &td) {
 
       settle_lines(td, 0, td.pv_idx + 1);
       if (td.pv_idx + 1 == iter_lines && !stop_threads.load(std::memory_order_relaxed))
-        direct_swapped = an_direct(td, iter_lines);   // AnDirect prima della stampa: la GUI vede la mossa diretta
+        direct_swapped = an_direct(td, iter_lines);   // AnDirect before printing: the GUI sees the direct move
       if (main && !stop_threads.load(std::memory_order_relaxed)) {
         U64 total = 0;
         for (auto &t : thread_data) total += t.nodes;

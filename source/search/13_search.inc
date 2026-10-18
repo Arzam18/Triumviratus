@@ -11,6 +11,10 @@
 template <bool AN>
 static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth, bool cut, bool pv);
 
+#ifdef TRIUMV_REDLOG
+#include "redlog.h"
+#endif
+
 constexpr int TRACKED = 32;   // mosse provate ricordate per i malus
 
 struct NodeState {
@@ -407,7 +411,7 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
   return hash_cut_value(n);
 }
 
-// Tablebase nei nodi interni.
+// Tablebases in interior nodes.
 static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (n.root || n.excluded)
     return NO_VALUE;
@@ -427,7 +431,7 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
     g_poll_countdown = 0;
   const int bound = tb > 0 ? BOUND_LOW : tb < 0 ? BOUND_UP : BOUND_EXACT;
   if (bound == BOUND_EXACT)
-    tb = contempt(td);   // patta da tablebase: lo stesso valore delle altre patte (0 senza Contempt)
+    tb = contempt(td);   // tablebase draw: the same value as the other draws (0 without Contempt)
   if (bound == BOUND_EXACT || (bound == BOUND_LOW ? tb >= n.beta : tb <= n.alpha)) {
     hash_write(td, tb, f->tt_pv, bound, std::min(max_ply - 1, n.depth + 6), 0, tt_eval_none);
     return tb;
@@ -809,6 +813,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (f->tt_pv)
       r += LmrTtPvAdd;
     r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
+#ifdef TRIUMV_REDLOG
+    const int redlog_entry = r;   // the value skip_move reads
+#endif
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
     const int ctx = tact ? 0 : quiet_ctx(q, m);   // ThreatHist: 0 se spenta
@@ -907,6 +914,19 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         r += 80;
     }
 
+#ifdef TRIUMV_REDLOG
+    // Block 2 data (18/10/2026): the features of every reduced move and the reduction it gets, for the fit of our
+    // own reduction formula. One record per sampled move, binary, one file per thread (redlog.h).
+    if (!AN && (n.depth >= 2 && n.moves > 1 || (!n.pv || n.moves > 1)))
+      redlog_write(td.thread_id, n.depth, n.moves, red_move_no, n.expert, f->stat_score,
+                   val_decided(n.alpha) ? 0 : n.alpha - n.eval, f[1].cutoff_cnt, redlog_entry, r, n.signal,
+                   red_window_term, f->ply,
+                   (n.improving << 0) | (f->tt_pv << 1) | (n.pv << 2) | (n.cut << 3) | (n.all << 4) | (tact << 5) |
+                   (gives << 6) | ((m == n.h.move) << 7) | (n.tact_hash << 8) | ((n.h.value > n.alpha) << 9) |
+                   ((n.h.depth >= n.depth) << 10) | (passer << 11) |
+                   ((CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal)) << 12) |
+                   ((!n.h.move) << 13) | ((n.depth >= 2 && n.moves > 1) << 14) | (n.opp_worse << 15));
+#endif
     if (n.depth >= 2 && n.moves > 1) {
       // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
       // queste estensioni si sommano come quelle di Ldse prima della sua guardia (LdseMax). Stesso rimedio: un tetto al

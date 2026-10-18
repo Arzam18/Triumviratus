@@ -946,7 +946,7 @@ void uci_loop()
         }
 
         // UCI command: "setoption name EvalFile value <path>" -> reload the TRANN1
-        // network at runtime. Default at startup = EvalFileDefaultName (own-lineage).
+        // network at runtime. Default at startup = CN_DEFAULT_NET_FILE (own-lineage).
         else if (strncmp(input, "setoption name EvalFile value ", 30) == 0)
         {
             // Swapping the net under a running search would read half-loaded

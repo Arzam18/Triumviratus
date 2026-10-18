@@ -39,12 +39,12 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # Define replicati dalla build MSVC Release (USE_POPCNT su GCC = __builtin_popcountll
 # = hardware, risultato identico). TRIUMV5_THREATS_INCR = accumulatore-threats
 # incrementale (default, come la build Windows).
-# EMBEDDING (2026-07-13): se il net di default (EvalFileDefaultName, in
+# EMBEDDING (2026-07-13): se il net di default (CN_DEFAULT_NET_FILE, in
 # consilium_bridge.cpp) e' presente alla build-root, viene EMBEDDATA nel binario via
 # incbin/ (un file omonimo accanto all'exe la sovrascrive; EvalFile carica
 # qualsiasi path). Senza file -> NNUE_EMBEDDING_OFF come prima (es. bundle
-# sorgenti-only per le VM). NB: il nome deve restare allineato a EvalFileDefaultName.
-# 17/10/2026 (review by Bastiii): the 8.0 network, aligned with EvalFileDefaultName (it still named the 7.0 network,
+# sorgenti-only per le VM). NB: il nome deve restare allineato a CN_DEFAULT_NET_FILE.
+# 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
 NET_NAME ?= nn-consilium.nnue
 ifneq (,$(wildcard $(NET_NAME)))

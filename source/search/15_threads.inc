@@ -1,13 +1,13 @@
-// search/15_threads.inc -- Avvio e arresto della ricerca, mosse di radice, scelta del thread, bestmove.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/15_threads.inc -- Starting and stopping the search, root moves, choice of the thread, bestmove.
+// Part of threads.cpp: NOT a translation unit of its own.
 
 #include <condition_variable>
 #include <functional>
 
-// Thread persistenti (12/10/2026). Prima ogni "go" creava un thread per la ricerca principale e uno per ogni helper,
-// e alla fine li univa: 1-2 ms a mossa con 4-8 thread (misura costi_infrastruttura.py).
-// Ora ogni thread nasce una volta e aspetta il lavoro su una condition variable. Gli oggetti non vengono mai
-// distrutti (il thread e' staccato): all'uscita del processo il sistema chiude i thread fermi in attesa.
+// Persistent threads (12/10/2026). Before, every "go" created a thread for the main search and one per helper and
+// joined them at the end: 1-2 ms per move with 4-8 threads (costi_infrastruttura.py). Now each thread is created once
+// and waits for work on a condition variable. The objects are never destroyed (the thread is detached): at process exit
+// the system closes the waiting threads.
 struct SearchWorker {
   std::mutex m;
   std::condition_variable cv;
@@ -48,10 +48,10 @@ struct SearchWorker {
 static SearchWorker *g_master_worker = nullptr;
 static std::vector<SearchWorker *> g_helper_workers;   // helper i = g_helper_workers[i - 1]
 
-// Attesa di stop o ponderhit (12/10/2026): prima un ciclo di sleep da 1 ms, che su Windows dura fino a 15,6 ms (grana
-// del timer), quindi la bestmove dopo un ponderhit poteva partire con ~15 ms di ritardo. Ora una condition variable,
-// svegliata da stop_search_threads e ponder_hit. Chi cambia i flag prende il mutex prima di notificare: cosi' chi
-// aspetta o non ha ancora controllato il predicato o sta gia' dormendo, e la sveglia non si perde.
+// Waiting for stop or ponderhit (12/10/2026): before, a loop of 1 ms sleeps, which on Windows last up to 15.6 ms (the
+// timer granularity), so the bestmove after a ponderhit could leave ~15 ms late. Now a condition variable, woken by
+// stop_search_threads and ponder_hit. Whoever changes the flags takes the mutex before notifying, so the waiter has
+// either not yet checked the predicate or is already asleep, and the wake-up is never lost.
 static std::mutex g_release_m;
 static std::condition_variable g_release_cv;
 static void notify_release() {
@@ -77,20 +77,20 @@ void wait_for_threads() {
     g_helper_workers[i - 1]->wait();
 }
 
-std::thread search_master;   // non piu' usato (thread persistenti, sopra); resta per threads.h
+std::thread search_master;   // no longer used (persistent threads, above); kept for threads.h
 
 void wait_for_search_done() {
   if (g_master_worker)
     g_master_worker->wait();
 }
 
-// La ricerca gira su un thread a parte, cosi' il ciclo UCI resta libero per stop, ponderhit e isready.
+// The search runs on a thread of its own, so the UCI loop stays free for stop, ponderhit and isready.
 void launch_search(int depth) {
   stop_search_threads();
   wait_for_search_done();
   g_limits.depth = depth;
 
-  // Posizione di radice coperta dalle tablebase (DTZ): si gioca subito la mossa perfetta.
+  // Root position covered by the tablebases (DTZ): the perfect move is played at once.
   if (!g_limits.infinite && !g_limits.ponder) {
     int tb_move = 0, tb_score = 0;
     if (syzygy_probe_root(tb_move, tb_score)) {
@@ -115,7 +115,7 @@ void launch_search(int depth) {
   g_master_worker->run([depth] { search_position_mt(depth); });
 }
 
-// L'avversario ha giocato la mossa prevista: la ricerca diventa normale. Se il tempo era gia' finito, si muove.
+// The opponent played the expected move: the search becomes a normal one. If the time is already over, it moves.
 void ponder_hit() {
   if (!g_pondering.load(std::memory_order_acquire))
     return;
@@ -125,7 +125,7 @@ void ponder_hit() {
   notify_release();
 }
 
-// Mosse legali della radice (ristrette a "go searchmoves" se presenti).
+// Legal moves of the root (restricted to "go searchmoves" when given).
 static int collect_root_moves(ThreadData &td, int out[256]) {
   moves ml[1];
   td_generate_moves(td, ml, false);
@@ -211,8 +211,8 @@ static ThreadData *pick_thread() {
   return best;
 }
 
-// Risposta prevista (TmExpect*, 05/10/2026): chiave della posizione dopo la nostra mossa e la risposta della linea
-// principale, sulla scacchiera del thread 0 (alla radice a ricerca finita). 0 se una delle due non e' legale.
+// Expected reply (TmExpect*, 05/10/2026): key of the position after our move and the reply of the main line, on
+// thread 0's board (at the root, after the search). 0 if either move is not legal.
 static U64 expected_key(ThreadData &td, int first, int reply) {
   UndoInfo u, u2;
   U64 key = 0;
@@ -236,7 +236,7 @@ static U64 expected_key(ThreadData &td, int first, int reply) {
   return key;
 }
 
-// Senza seconda mossa nella linea, la risposta prevista si cerca nella hash.
+// Without a second move in the line, the expected reply is looked up in the hash.
 static int reply_from_hash(ThreadData &td, int first) {
   UndoInfo u;
   int reply = 0;
@@ -273,14 +273,14 @@ void search_position_mt(int depth) {
 
   int list[256];
   copy_board_to_thread(thread_data[0]);
-  // Risposta prevista (TmExpect*): siamo nella posizione attesa alla fine della ricerca precedente?
+  // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
-    // TmFenPly (05/10/2026, audit del nucleo): ply di partita = numero di mossa della FEN + mosse giocate.
-    // A 0 solo le mosse giocate dopo la posizione data, come prima: da un libro .epd la partita "partiva" da ply 0.
+    // TmFenPly (05/10/2026): game ply = move number of the FEN + moves played. At 0 only the moves played after the
+    // given position count: from an .epd book the game "started" at ply 0.
     clock_plan(side, repetition_index + (TmFenPly ? g_fen_ply : 0), g_move_overhead_ms);
   }
 
@@ -313,7 +313,7 @@ void search_position_mt(int depth) {
     g_helper_workers[i - 1]->run([i] { thread_main(i); });
   deepen(thread_data[0]);
 
-  // "go infinite" e ponder: la bestmove aspetta stop o ponderhit.
+  // "go infinite" and ponder: the bestmove waits for stop or ponderhit.
   wait_release();
   g_pondering.store(false, std::memory_order_relaxed);
   stop_threads.store(true, std::memory_order_relaxed);
@@ -332,8 +332,8 @@ void search_position_mt(int depth) {
   if (!reply)
     reply = reply_from_hash(*bt, best_move);
 
-  // Risposta prevista (TmExpect*): serve una linea di almeno tre mosse (nostra, risposta, nostra successiva). Si
-  // calcola solo con l'opzione accesa, cosi' a opzione spenta nulla cambia.
+  // Expected reply (TmExpect*): it needs a line of at least three moves (ours, the reply, our next). Computed only with
+  // the option on, so nothing changes with it off.
   g_clock.expect_key = 0;
   if ((TmExpectScale < 1000 || TmSurpriseScale > 1000) && line.pv_len >= 3) {
     g_clock.expect_key = expected_key(thread_data[0], best_move, line.pv[1]);

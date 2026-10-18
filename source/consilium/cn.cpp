@@ -1,5 +1,6 @@
 // Triumviratus, a UCI chess engine.
 // Copyright (C) 2026 Francesco Torsello
+// Copyright (C) 2026 A Tin Man (interleaved int8 rows of the first layer, CN_W1)
 // SPDX-License-Identifier: GPL-3.0-or-later (see COPYING)
 
 // consilium/cn.cpp -- Consilium inference (block 6 of 8.1). See cn.h for the clean-room rule.

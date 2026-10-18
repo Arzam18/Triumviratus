@@ -1,12 +1,12 @@
-// search/09_history.inc -- Valutazione statica, statistiche delle mosse, correzione della valutazione.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/09_history.inc -- Static evaluation, move statistics, correction of the evaluation.
+// Part of threads.cpp: NOT a translation unit of its own.
 
 // ============================================================================
-// VALUTAZIONE
+// EVALUATION
 // ============================================================================
 
-// Comando "eval": valutazione statica della scacchiera globale (lato al tratto) e uscita grezza della rete. La rete
-// legge i nostri bitboard cosi' come sono (07/10/2026, scacchiera unica v2).
+// "eval" command: static evaluation of the global board (side to move) and the raw network output. The network reads
+// our bitboards as they are (07/10/2026, single board).
 int debug_eval_position() {
   return nn_eval(side == white, bitboards, occupancies, fifty);
 }
@@ -16,8 +16,8 @@ int debug_eval_position_raw() {
   return raw;
 }
 
-// Riparte dalla radice con la catena degli accumulatori della rete (a ogni iterazione). La rete legge la scacchiera
-// del thread direttamente: non c'e' una sua copia da riallineare, solo la pila delle dirty da azzerare.
+// Back to the root with the network's chain of accumulators (at every iteration). The network reads the thread's
+// board directly: there is no copy to realign, only the dirty stack to reset.
 static inline void nn_root_sync(ThreadData &td) {
   nn_pos_set(td.nnpos);
 #ifdef TRIUMV_VERIFY_NNSYNC
@@ -25,8 +25,8 @@ static inline void nn_root_sync(ThreadData &td) {
 #endif
 }
 
-// La rete valuta la scacchiera del thread. Prima: minacce e pedoni che mancano (nn_dirty_catch_up) e, con
-// -DTRIUMV_VERIFY_NNSYNC, il controllo che la pila descriva questa scacchiera (06_nndirty.inc).
+// The network evaluates the thread's board. First the missing threats and pawns (nn_dirty_catch_up) and, with
+// -DTRIUMV_VERIFY_NNSYNC, the check that the stack describes this board (06_nndirty.inc).
 static inline int td_nn_eval(ThreadData &td) {
   {
     PROF_GUARD(prof_catchup);
@@ -36,13 +36,12 @@ static inline int td_nn_eval(ThreadData &td) {
   return nn_pos_eval(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white, td.fifty);
 }
 
-// La rete smorza la valutazione col contatore delle 50 mosse: v * (199 - fifty) / 199. In TT si
-// tiene il valore SENZA smorzamento, cosi' vale per ogni trasposizione, e lo si rismorza alla lettura.
-// W1 (08/10/2026, velocita', stesso valore): il divisore 199 - fifty cambia a run time e la divisione era una idiv
-// (~26 cicli di latenza) a ogni valutazione fresca, due volte (cache delle valutazioni e hash). Ora moltiplica per il
-// reciproco M = ceil(2^40 / D) e tronca verso zero: esatto finche' |x| * (M*D - 2^40) < 2^40, cioe' |x| < 2^40 / 199;
-// qui |x| = |v| * 199 < 2^28 (verificato con numpy per ogni fifty e |v| <= 2^20: 0 differenze). xperf 6 giri, PGO:
-// cicli -0,42% mediogioco, +0,19% finali (nel rumore); tenuta perche' l'albero e' identico (docs/audit_8.0/W_*).
+// The evaluation is damped with the fifty-move counter: v * (199 - fifty) / 199. The hash keeps the value WITHOUT the
+// damping, so that it holds for every transposition, and damps it again when read.
+// (08/10/2026, speed, same value) The divisor 199 - fifty changes at run time and the division was an idiv (~26
+// cycles of latency) at every fresh evaluation, twice. Now it multiplies by the reciprocal M = ceil(2^40 / D) and
+// truncates toward zero: exact while |x| * (M*D - 2^40) < 2^40, that is |x| < 2^40 / 199; here |x| = |v| * 199 < 2^28
+// (checked for every fifty and |v| <= 2^20: no difference). Identical tree.
 static constexpr auto unfade_recip = [] {
   std::array<unsigned long long, 101> r{};
   for (int f = 0; f <= 100; f++)
@@ -58,17 +57,16 @@ static inline int eval_unfade(int v, int fifty) {
 }
 static inline int eval_refade(int v, int fifty) {
   if (fifty > 100) fifty = 100;
-  // Lo stesso troncamento del ponte (nn_scale, nn_finalize: v - v*f/199), cosi' la stessa posizione vale uguale
-  // fresca, dalla cache o dalla hash (05/10/2026, audit del nucleo; BAKE PULIZIA 06/10, opzione EvalRefadeBridge
-  // ritirata la sera; prima v * (199 - fifty) / 199).
+  // The same truncation as the bridge (nn_scale, nn_finalize: v - v*f/199), so the same position has the same value
+  // fresh, from the cache or from the hash (05/10/2026; before, v * (199 - fifty) / 199).
   return v - v * fifty / 199;
 }
 
-// Esperto della rete (fascia di materiale) per numero di pezzi: la stessa tabella di half_ka_v2_hm.h
-// (<= 9, 10-15, 16-23, >= 24). Serve a PhaseEdge* e CorrPhase.
+// Expert of the network (material band) by number of pieces: <= 9, 10-15, 16-23, >= 24, the bands of the network's
+// piece-square block. Used by the per-expert parameters and CorrPhase.
 static inline int net_phase(int pieces) { return pieces <= 9 ? 0 : pieces <= 15 ? 1 : pieces <= 23 ? 2 : 3; }
 
-// Valutazione della rete (unita' della rete).
+// Network evaluation (network units).
 static inline int net_evaluate(ThreadData &td) {
   PROF_GUARD(prof_eval);
   if (g_eval_off) {
@@ -78,31 +76,26 @@ static inline int net_evaluate(ThreadData &td) {
       s += mat[pc] * (count_bits(td.bitboards[pc]) - count_bits(td.bitboards[pc + 6]));
     return td.side == white ? s : -s;
   }
-  return td_nn_eval(td);   // E1 (15/10/2026): niente cache per thread, vedi threads.h
+  return td_nn_eval(td);   // (15/10/2026) no per-thread evaluation cache, see threads.h
 }
 
-// Valutazione nelle unita' dei margini della ricerca: x EvalUnits/1024, dentro la fascia delle tablebase.
-// (I termini dal residuo Res*, costanti sommate qui, sono stati tolti l'11/10/2026: vedi 01_params.inc.)
+// Evaluation in the units of the search margins: x EvalUnits/1024, inside the tablebase band.
 static inline int static_evaluate(ThreadData &td) {
   const int v = (int)((long long)net_evaluate(td) * EvalUnits / 1024);
   return std::clamp(v, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
 
-// Correzioni apprese con chiave sui concetti del residuo (11/10/2026 sera): TUTTE CHIUSE e TOLTE, codice nei backup.
-// CorrKingPawnW (tutti i pedoni + zona 2x2 dei re) -4,68 +- 7,19 su 2.378 a 8+0.08, nessun bug (Z3), chiave troppo fine;
-// CorrShelterW (pedoni sulle 3 colonne attorno ai re, mediogioco) -5,63 +- 5,53 su 3.898 a 8+0.08 UHO;
-// CorrPassKingW (passati + passati fuori dal quadrato del re nemico) -5,24 +- 8,49 su 744 nei finali 8+0.1.
-// Grana misurata (posizioni per chiave in partita): pedoni 3,3 mg / 4,9 eg, scudo 4,6 mg, passati 15,8 / 6,8. Le
-// correzioni esistenti sembrano prendere gia' il segnale apprendibile in partita: una tabella in piu' aggiunge rumore.
-// Backup: _pre_corrkey2_2026-10-11, _pre_rimozione_shelter_2026-10-11, _pre_rimozione_passking_2026-10-11.
+// Corrections learned with keys on residual concepts (11/10/2026): all closed and removed. CorrKingPawnW (all pawns +
+// the 2x2 zones of the kings) -4.68 +- 7.19 over 2,378 games, key too fine; CorrShelterW (pawns on the three files
+// around the kings) -5.63 +- 5.53 over 3,898; CorrPassKingW (passed pawns outside the enemy king's square) -5.24 +-
+// 8.49 over 744 endgames. The existing corrections seem to take the signal that games can teach already.
 
-// Valore per lo schermo: dalle unita' della ricerca ai centipedoni (scala della rete e normalizzazione 400).
-// SCALA 06/10/2026 (richiesta dell'utente): 449 -> 400, cosi' +1,00 = 50% di probabilita' di vincere. Taratura sui
-// NOSTRI dati di autogioco (match_moe/fit_cp_scale.py): con 449 il 50% di vittorie cadeva a +0,89 stampato, piatto
-// col materiale (86-95 da 17 a 78 punti di materiale) sia a 10+0.1 (563.496 posizioni) sia a 40+0.4 (99.438):
-// basta una costante, non serve una curva per materiale. Solo stampa: la ricerca usa le unita' interne, il bench non
-// cambia. Cambiano le soglie di aggiudicazione delle GUI (stessa posizione = cifra +12%).
+// Value for the screen: from search units to centipawns (network scale and normalisation by 400).
+// (06/10/2026) 449 -> 400, so that +1.00 = 50% chance of winning, fitted on our own self-play data
+// (match_moe/fit_cp_scale.py): with 449 the 50% point fell at +0.89 printed, flat with the material, at 10+0.1
+// (563,496 positions) and 40+0.4 (99,438): one constant is enough. Display only: the search uses internal units and
+// the bench does not change.
 static inline int units_to_cp(int v) {
   const long long net = (long long)v * 1024 / EvalUnits;
   const int es = nn_get_eval_scale();
@@ -111,17 +104,17 @@ static inline int units_to_cp(int v) {
 }
 
 // ============================================================================
-// STATISTICHE DELLE MOSSE
+// MOVE STATISTICS
 // ============================================================================
 
-// Valore di un tipo di pezzo nelle unita' dei margini (indice: P..K, poi "nessuno").
+// Value of a piece type in the units of the margins (index: P..K, then "none").
 static const int unit_value[7] = {208, 781, 825, 1276, 2538, 0, 0};
 
 // Every statistic of the engine (move histories, correction histories, hash-move history) is updated by
 // hist_learn, below. The former update (stat_push, in the inherited form) was removed on 17/10/2026: hist_learn with
 // gravity 1024 gives the same integer result.
 
-// 12/10/2026 sera: i tre limiti sono parametri (HistLim*, 01_params.inc); nella release restano costanti.
+// (12/10/2026) The three limits are parameters (HistLim*, 01_params.inc); in the release they are constants.
 #ifdef TRIUMV_RELEASE
 constexpr int LIM_QUIET  = HistLimQuiet;
 constexpr int LIM_CAPT   = HistLimCapt;
@@ -139,20 +132,18 @@ static inline bool move_ok(int m) { return m > 0; }
 static inline int  move_from(int m) { return get_move_source(m); }
 static inline int  move_to(int m) { return get_move_target(m); }
 static inline int  move_piece(int m) { return get_move_piece(m); }
-// Tipo di promozione 0..4 (nessuna, N, B, R, Q): entra nella chiave delle statistiche quiete.
-// 04/10/2026 sera: tabella sui 4 bit del campo al posto di `pr ? pr % 6 : 0` (stessi valori, anche per i codici che
-// non si presentano mai): promo_kind e' chiamata per ogni mossa da quiet_key e is_tactical e valeva lo 0,6% dei cicli.
+// Promotion kind 0..4 (none, N, B, R, Q): part of the key of the quiet statistics. A table on the 4 bits of the field
+// instead of `pr ? pr % 6 : 0` (same values): promo_kind runs for every move and cost 0.6% of the cycles.
 static constexpr signed char kPromoKind[16] = {0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3};
 static inline int  promo_kind(int m) { return kPromoKind[get_move_promoted(m)]; }
 static inline int  quiet_key(int m) { return move_from(m) | (move_to(m) << 6) | (promo_kind(m) << 12); }
-// Mossa "tattica": cattura o promozione a donna (codice Q = 4 o q = 10: bit 4 e 10 della maschera 0x410). Le altre
-// promozioni si ordinano fra le quiete.
+// "Tactical" move: a capture or a queen promotion (code Q = 4 or q = 10: bits 4 and 10 of the mask 0x410). The other
+// promotions are ordered among the quiet moves.
 static inline bool is_tactical(int m) { return (get_move_capture(m) | ((0x410u >> get_move_promoted(m)) & 1)) != 0; }
-// Tipo di pezzo P..K da un codice P..k, senza modulo (06/10/2026, velocita', stessi valori): `pc % 6` costava una
-// moltiplicazione e tre operazioni per mossa (score_quiets, checks_before, victim_kind...). L'indice 15 e' "nessun
-// pezzo" (-1 & 15) e da' CAPT_NONE, cosi' anche la casa vuota passa dalla tabella senza salto.
+// Piece type P..K from a code P..k without a modulo (06/10/2026, speed, same values). Index 15 is "no piece"
+// (-1 & 15) and gives CAPT_NONE, so an empty square also goes through the table without a branch.
 static constexpr signed char kPieceKind[16] = {0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, CAPT_NONE, CAPT_NONE, CAPT_NONE, CAPT_NONE};
-// Tipo del pezzo catturato (CAPT_NONE per l'en passant e per la promozione senza cattura, come la casa vuota).
+// Type of the captured piece (CAPT_NONE for en passant and for a promotion without capture, like an empty square).
 static inline int  victim_kind(const ThreadData &td, int m) {
   return kPieceKind[td.piece_on[move_to(m)] & 15];
 }
@@ -316,13 +307,12 @@ static inline CorrSlot &corr_slot(U64 key, int side_to_move) {
   return g_stats.corr[key & g_stats.corr_mask][side_to_move];
 }
 
-// Idea 9 (CorrPhase, 04/10/2026): con quattro esperti l'errore sistematico su una stessa struttura cambia con
-// l'esperto. Una costante per fascia mescolata nelle chiavi dei pedoni e dei minori separa le correzioni.
-// 06/10/2026 (velocita', stessi valori): la chiave si legge da una tabella per numero di pezzi, senza i due o
-// tre confronti di net_phase. Contatori: ~2,1 chiamate per nodo (prefetch nella make, corr_signal, corr_learn).
+// CorrPhase (idea 9, 04/10/2026): with four experts the systematic error on one structure changes with the expert. A
+// constant per band, mixed into the pawn and minor-piece keys, separates the corrections. (06/10/2026, speed, same
+// values) The key is read from a table by number of pieces, without the comparisons of net_phase (~2.1 calls per node).
 static constexpr auto corr_phase_keys_by_count = [] {
   constexpr U64 keys[4] = {0x9E3779B97F4A7C15ULL, 0xC2B2AE3D27D4EB4FULL, 0x165667B19E3779F9ULL, 0xD6E8FEB86659FD93ULL};
-  std::array<U64, 65> t{};   // fino a 64: anche una FEN con troppi pezzi resta nella tabella
+  std::array<U64, 65> t{};   // up to 64: even a FEN with too many pieces stays inside the table
   for (int c = 0; c <= 64; c++)
     t[c] = keys[c <= 9 ? 0 : c <= 15 ? 1 : c <= 23 ? 2 : 3];   // = net_phase(c)
   return t;
@@ -338,10 +328,10 @@ static inline U64 corr_phase_key(const ThreadData &td) {
   return (CorrPhaseQueen && (td.bitboards[Q] | td.bitboards[q])) ? k ^ 0x6A09E667F3BCC909ULL : k;
 }
 
-// CorrFifty (nostra, 05/10/2026, da un'idea di Reckless): l'errore sistematico della valutazione su una stessa
-// struttura cambia con la distanza dalla regola delle 50 mosse (la rete smorza l'eval col contatore, e nei finali
-// che si trascinano la posizione "vale" altro). Una costante per fascia di CorrFiftyStep semimosse (al massimo 16
-// fasce) mescolata nelle chiavi dei pedoni e dei non-pedoni separa le correzioni. A 0 la chiave e' quella di sempre.
+// CorrFifty (ours, 05/10/2026, from an idea seen in Reckless): the systematic error on one structure changes with the
+// distance from the fifty-move rule (the evaluation is damped by the counter, and in long endgames the position is
+// worth something else). A constant per band of CorrFiftyStep plies (at most 16 bands), mixed into the pawn and
+// non-pawn keys, separates the corrections. At 0 the key is the usual one.
 static inline U64 corr_fifty_key(const ThreadData &td) {
   static constexpr U64 keys[16] = {0, 0x78FAC4B00841A538ULL, 0x5EB2C61E9C3747D9ULL, 0x59701BD515B6EE59ULL,
                                    0x2FEFFD3F283182A5ULL, 0x2DBE4F221F31A14FULL, 0xE19215DA308D5DA7ULL,
@@ -361,15 +351,15 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   const int npw = corr_slot(td.np_key[white] ^ fk, us).np_white;
   const int npb = corr_slot(td.np_key[black] ^ fk, us).np_black;
   const int prev = f[-1].move;
-  int cont = CorrNoMoveW;   // termine fisso dopo la mossa nulla (08/10/2026: era la costante 64049, ora leva)
+  int cont = CorrNoMoveW;   // fixed term after a null move (08/10/2026: a constant before, now a lever)
   if (move_ok(prev)) {
     const int to = move_to(prev), pc = td.piece_on[to];
     cont = CorrContW * ((*f[-2].cont_corr)[pc][to] + (*f[-4].cont_corr)[pc][to]);
-    if (CorrCont6W)   // f[-6] esiste sempre: prima della radice ci sono 7 frame con la riga sentinella
+    if (CorrCont6W)   // f[-6] always exists: there are 7 frames with the sentinel row before the root
       cont += CorrCont6W * (*f[-6].cont_corr)[pc][to];
-    // CorrContOppW (idea dell'utente, 06/10/2026): la coppia delle due ultime mosse dell'AVVERSARIO (a -3 e a -1),
-    // cioe' il suo piano, invece della nostra mossa con la sua risposta. Stessa tabella; la versione con la sola
-    // ultima mossa, senza contesto, era chiusa (-7,6 +- 7,8 a 20+0.2).
+    // CorrContOppW (the user's idea, 06/10/2026): the pair of the OPPONENT's last two moves (at -3 and -1), that is
+    // its plan, instead of our move with its reply. Same table; the version with the last move alone, without
+    // context, was closed (-7.6 +- 7.8 at 20+0.2).
     if (CorrContOppW)
       cont += CorrContOppW * (*f[-3].cont_corr)[pc][to];
   }
@@ -380,10 +370,10 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   return (int)((long long)s * by_exp4(ex, CorrGain0, CorrGain1, CorrGain2, CorrGain3) / 1024);
 }
 
-// CorrExpertW (06/10/2026, rapporto N_CORREZIONI 4.8): una tabella dei pedoni per esperto della rete che si somma
-// alle correzioni condivise invece di sostituirne la chiave (come CorrPhase). La condivisa resta come base, quella per
-// esperto impara solo la differenza propria dell'esperto. Il termine entra nella valutazione ma NON in n.signal, che
-// regola RFP, LMR e singolare (rapporto 4.2): cosi' si misura solo la precisione. A 0 il termine vale 0.
+// CorrExpertW (06/10/2026): a pawn table per expert of the network, added to the shared corrections instead of
+// replacing their key (as CorrPhase does). The shared table stays as the base; the per-expert one learns only the
+// expert's own difference. The term enters the evaluation but NOT n.signal, which steers RFP, LMR and the singular
+// extension, so that only accuracy is measured. At 0 the term is 0.
 static inline U64 corr_expert_key(const ThreadData &td) {
   static constexpr U64 keys[4] = {0x3C6EF372FE94F82BULL, 0xA54FF53A5F1D36F1ULL, 0x510E527FADE682D1ULL,
                                   0x9B05688C2B3E6C1FULL};

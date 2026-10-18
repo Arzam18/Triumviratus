@@ -179,7 +179,7 @@ int main()
     // different weights than a release build unless EvalFile was set explicitly -> never
     // again; both build kinds load our own net by default now).
     // TRANN3 (4 blocchi: threats+halfka+pawnpair+passedpawns). UNA sola fonte di verita'
-    // per il nome (EvalFileDefaultName in consilium_bridge.cpp), esposta via bridge: una stringa
+    // per il nome (CN_DEFAULT_NET_FILE in consilium_bridge.cpp), esposta via bridge: una stringa
     // duplicata qui e' gia' costata un quasi-incidente (release che spediva lo zerograft).
     const char* netName = nn_default_net_name();
     std::string netPath = resolve_net_path(netName);

@@ -13,8 +13,7 @@
 //   - the UCI options of the evaluation constants and the diagnostic entry points (eval, evalbatch, nnueverify).
 // Until 18/10/2026 this file was nnue_bridge.cpp.
 
-#include "frozen.h"   // 🔴 DEVE stare qui: senza, il congelamento della
-                      // miscela non si attiva nelle build di spedizione.
+#include "frozen.h"   // must come first: without it the release builds do not compile the tuned constants as literals
 #include "consilium_bridge.h"
 
 #include "profile.h"
@@ -78,22 +77,22 @@ inline int pop_lsb(Bitboard& b) {
 class NnBoard {
    public:
     NnBoard(const unsigned long long* bb, const unsigned long long* occ, const int* mb, Color stm) :
-        bb_(bb), occ_(occ), mb_(mb), stm_(stm) {}
-    int   count() const { return __builtin_popcountll(occ_[2]); }
-    int   count_type(int t) const { return __builtin_popcountll(bb_[t] | bb_[t + NN_BLACK]); }
-    Color side_to_move() const { return stm_; }
-    cn::Board view() const { return cn::Board{bb_, occ_, mb_, stm_ == BLACK}; }
+        piece_bb_(bb), occupied_(occ), mb_(mb), mover_(stm) {}
+    int   count() const { return __builtin_popcountll(occupied_[2]); }
+    int   count_type(int t) const { return __builtin_popcountll(piece_bb_[t] | piece_bb_[t + NN_BLACK]); }
+    Color mover() const { return mover_; }
+    cn::Board view() const { return cn::Board{piece_bb_, occupied_, mb_, mover_ == BLACK}; }
 
    private:
-    const unsigned long long* bb_;
-    const unsigned long long* occ_;
+    const unsigned long long* piece_bb_;
+    const unsigned long long* occupied_;
     const int*                mb_;
-    Color                     stm_;
+    Color                     mover_;
 };
 
 }  // namespace cnb
 
-#define EvalFileDefaultName "nn-consilium.nnue"
+#define CN_DEFAULT_NET_FILE "nn-consilium.nnue"
 
 // GCC and clang builds from the Makefile (Linux, Android, MinGW): the default network is embedded with incbin when it
 // sits at the build root (the Makefile sets NNUE_EMBEDDING_OFF otherwise). incbin.h is Dale Weiler's public-domain
@@ -144,7 +143,7 @@ static int load_net_impl(const char* path) {
             const size_t sl = p.find_last_of("/\\");
             const std::string base = sl == std::string::npos ? p : p.substr(sl + 1);
 #if defined(TRIUMV_EMBED_RESOURCE) || defined(TRIUMV_EMBED_INCBIN)
-            ok = base == EvalFileDefaultName && gEmbeddedNNUEData
+            ok = base == CN_DEFAULT_NET_FILE && gEmbeddedNNUEData
               && cn::load_memory(gEmbeddedNNUEData, gEmbeddedNNUESize, net, &err);
 #else
             ok = false;
@@ -311,7 +310,7 @@ static inline int nn_scale(const NnBoard& pos, Value psqt, Value positional, int
     const int          opt_material = material + (OPT_PAWN_MAT - g_ev_pawn_mat) * pos.count_type(NN_PAWN);
     int                v;
     if (g_eval_optimism) {
-        int opt = opt_local ? opt_local[pos.side_to_move()] : g_optimism[pos.side_to_move()].load();
+        int opt = opt_local ? opt_local[pos.mover()] : g_optimism[pos.mover()].load();
         opt += opt * disagree / g_ev_opt_cplx;
         v = int((stretched + std::int64_t(opt) * (g_ev_opt_base + opt_material) * g_ev_mat_base / OPT_MAT_BASE)
                 / g_ev_mat_base);
@@ -333,13 +332,13 @@ static inline int nn_scale(const NnBoard& pos, Value psqt, Value positional, int
 // ---------------------------------------------------------------------------
 // Net loading entry points and options
 // ---------------------------------------------------------------------------
-const char* nn_default_net_name(void) { return EvalFileDefaultName; }
+const char* nn_default_net_name(void) { return CN_DEFAULT_NET_FILE; }
 
 int nn_load_net(const char* net_path) { return load_net_impl(net_path); }
 int nn_reload_big(const char* net_path) { return load_net_impl(net_path); }
 
-// (nn_export_graft, nn_export_pst, nn_pst_indices e nn_graft_entries, per i blocchi da innesto: tolte il 10/10/2026,
-// codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 e nel repo del training, 04_consilium/graft_engine_storico.)
+// (nn_export_graft, nn_export_pst, nn_pst_indices and nn_graft_entries, for the graft blocks: removed on 10/10/2026;
+// the code is in the training repository, 04_consilium/graft_engine_storico.)
 
 void nn_init_tables(void) {
     cn::init();   // feature index tables of the Consilium module (the slider tables are built by init_bitboards)
@@ -350,21 +349,17 @@ void nn_set_finny(int) {}
 
 void nn_acc_stats(void) {}
 
-// M3 toggles. Incremental is now the DEFAULT: validated bit-exact vs full-refresh
-// (zero verify mismatches + IDENTICAL bench node counts at depth 12/14 across all 8
-// positions, exercising captures/promotions/e.p./castling) at +16% NPS. Toggle OFF
-// ("incremental off") to fall back to the M2 full-refresh A/B base.
+// Incremental evaluation is the default (identical to a full refresh at every node); "incremental off" refreshes every
+// evaluation, as a diagnostic. nnueverify compares the two at every evaluation.
 static bool g_incremental = true;
 static bool g_verify      = false;
-static unsigned long long g_verify_count = 0, g_verify_bad = 0;   // valutazioni confrontate / diverse
+static unsigned long long g_verify_count = 0, g_verify_bad = 0;   // evaluations compared / different
 
-// NB (2026-07-15): "PsqtFastPath" (eval = solo psqt del net ai nodi |psqt|>soglia,
-// saltando pairwise+propagate) PROVATO e UCCISO CON MISURA su build PGO:
-// thr700 fire 75% -> albero +154%; thr2000 fire 16% -> +28%; thr4000 fire 0.6%
-// -> +4%; time-to-depth SEMPRE peggiore. Terza falsificazione della famiglia
-// "eval economica ai nodi decisi" (seconda rete piccola -17 Elo, SPLE): la search e'
-// co-adattata all'eval piena, ogni surrogato grossolano gonfia l'albero piu'
-// di quanto il forward risparmiato ripaghi. NON riprovare varianti.
+// (15/07/2026) A cheaper evaluation at decided nodes (only the psqt head when |psqt| is above a threshold) was measured
+// and dropped: the tree grew by 154%, 28% and 4% at thresholds 700, 2000 and 4000, and time to depth was always worse.
+// It was the third test of that family (a small second network -17 Elo, a lazy evaluation with the parent's
+// positional part): the search is fitted to the full evaluation, and a rough substitute grows the tree more than the
+// skipped forward pass saves.
 void        nn_set_incremental(int on) { g_incremental = on != 0; }
 void        nn_set_verify(int on) { g_verify = on != 0; }
 void nn_set_eval_scale(int pct) {   // EvalScale: all eight buckets
