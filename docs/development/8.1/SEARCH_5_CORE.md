@@ -131,3 +131,13 @@ current values, after the fine pass of block 1. Quiescence and the cutoff act in
 the two margins that most depend on the material are split by expert; the run uses the general opening book. Then a
 non-regression SPRT of the block against the engine before the rewrite. The levers of this run that are still moving
 at its end join the selected set of the joint SPSA before the 8.1 release (step 4 of the plan).
+
+## 5.8 Status and remaining steps (19 October 2026)
+
+Done: threads, aspiration windows, quiescence and the transposition-table cutoff in our code at the tree of 8.0
+(17 October). Still equal to Stockfish 19: 13 values (3 more uncertain) and 5 neutral weights on the old shape.
+
+To do:
+
+1. Long tuning of the block (the SPSA of the block never ran; the coarse runs are discarded).
+2. Bake with a long non-regression test.

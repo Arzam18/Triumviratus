@@ -151,3 +151,50 @@ Two lessons of the re-search fit. A grid that contains the inherited form as a s
 the margin on value minus best allowed, the best fit was the old rule with 48 in place of 51), so a fit of a rule of
 our own leaves that form out. And probes that share the hash table must run in random order: in a fixed order the
 deeper probe found the table filled by the shallower ones and looked almost free.
+
+## 2.6 The reduction learned from search outcomes (`RfLearn`, 19 October 2026)
+
+The data build also records what happened to each reduced move, and probes a quarter of the moves that fail low at
+the reduced depth with a full-depth search. A logistic model gives, from features the search already has, the
+log-odds that a move matters; the reduction moves by `RfLearn`/1024 ply per unit of log-odds away from a centre, at
+most two plies.
+
+Three faults were found on the way, each by measurement:
+
+1. **Extensions by accident.** A correction that brought the reduction below zero became an extension of up to two
+   plies. Less reduction now stops at zero.
+2. **The centre.** With the centre on the median log-odds, the correction reduced less overall: the tree grew by 14%
+   at `RfLearn` 256 and 26% at 768, and the build searched shallower in games. The centre is now chosen so that the
+   tree keeps its size: geometric mean of the nodes to depth 12 over 400 positions of our games, for several centres.
+   The bench is no use for this: on 50 positions a few of them dominate the sum and the count jumps with no order.
+3. **The label.** The first model called a move good when its final value went above alpha. Most of those moves
+   already fail high at the reduced depth and are searched again anyway, so the model spent nodes on them (−9.65 ±
+   10.36 over 1,152 games). The model now predicts the moves the reduction hides: failed low reduced, above alpha at
+   full depth (1.7% of the probed moves). With this label the weight of a hash entry on a PV node turns from +1.64 to
+   −0.68, and the moves with a 2% to 10% chance of being hidden turn out to be the most reduced of all.
+
+A lesson for every lever that changes the size of the tree: a fit on search data plus a tree-size sweep on fixed
+positions finds in minutes a value that an SPSA would look for over hours, if it found it at all.
+
+## 2.7 Status and remaining steps (19 October 2026)
+
+Done:
+
+- [x] Data, method and the reduction formula of our own (`RedForm`), refitted on the engine with block 1 reverted.
+- [x] Re-search depth of our own (`ResOwn`), `RfVolatile`: each level or slightly positive alone; taken out together
+  with `RedForm` (section 2.5). Block 2 is back at the tree of 8.0.
+- [x] `RfLearn` with the hidden-move model (section 2.6).
+- [x] Follow-up reward after a re-search and the extra ply of the PV hash move in our form (19 October): the reward
+  depends on what the re-search found (`FollowFhBonus` plus `FollowFhRed` per ply of reduction overcome when it
+  confirms, `FollowFhMiss` when it refutes); `PvHashDepth`, `PvMinDepth`. Same tree at the starting values.
+
+To do:
+
+1. `RedForm` + `RfLearn` against the formula of 8.0 (8+0.08, HT; running: +3.27 ± 8.51 over 1,702 games), then a check
+   of the tree size at depth 16 and a confirmation at a long time control.
+2. `ResOwn` on the new base.
+3. The reward when the re-search refutes the move: `FollowFhMiss` 0 and `FollowFhRed` above 0, in one test.
+4. A form of our own for the full-depth search of the first move (thresholds 5234 and 5487, `LmrNoTTFull`); the fit only
+   found the current thresholds again.
+5. The weights of the statistic score (2252, 1126, 1093, 873): long tuning.
+6. `RfVolatile` back in the queue.

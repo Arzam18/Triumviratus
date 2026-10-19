@@ -257,3 +257,9 @@ reduces less in volatile nodes, each accepted on a level or slightly positive te
 they lost at every long time control (−4.5 ± 9.7 at 10+0.1 without hyperthreading, −23 ± 11 at 8+0.08 with it) and
 searched 0.35 to 0.6 ply less deep at the same time per move. They stay in the code as options, off, with their fitted
 values, and come back one at a time, each with its own test against this base.
+
+**Tuning: all the coarse runs are discarded.** The 34 tuned values of block 1, measured alone on this base, lost
+(−5.83 ± 8.13 over 2,086 games at 4+0.06 with hyperthreading) and stay out, as do the packages of the other coarse
+runs (evaluation scale, block 2 levers). The values of our own will come from new runs at a longer time control and
+with many more iterations, where a lever enters only when its net move is at least 2.5 times the random-walk
+expectation.

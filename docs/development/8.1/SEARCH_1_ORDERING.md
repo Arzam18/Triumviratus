@@ -227,3 +227,27 @@ that pass are tuned and switched on.
 four experts, an SPRT, a fine pass, a final SPRT. Block 6 (the inference of the network) needs no tuning, since its
 evaluations are bit-identical by construction. Time management has its own runs at the target time control, then
 come the six final runs on the finished structure (step 4 of the plan). In all, about fifty SPSA runs.
+
+## 1.8 Status and remaining steps (19 October 2026)
+
+Done:
+
+- [x] Code of our own at the tree of 8.0 (16 and 17 October): per-expert weights, the saturating update, one function
+  for the reward amounts, the staged queue with per-expert thresholds. Bench identical at the starting values.
+- [x] Threat-context history, factored (section 1.3): written, off since the revert (`ThreatHist` 0).
+- [x] Coarse tuning (17 October): baked, then withdrawn on 18 October because 8.1 lost at long time controls. Measured
+  alone on the new base on 19 October: −5.83 ± 8.13 Elo over 2,086 games (4+0.06, HT). Discarded, with every other
+  coarse run.
+
+To do:
+
+1. Groups of values that only describe a curve become functions of our own with two or three parameters, fitted to
+   give the same numbers: the reward of the previous move (21 values), the continuation distances and multipliers
+   (13), the correction updates (11). Same tree; fewer levers for the tuning.
+2. Long tuning: SPSA at 15+0.15 or longer without hyperthreading, about 20 levers per run, many iterations; a lever
+   moves only when its net move is at least 2.5 times the random-walk expectation.
+3. The techniques of our own that are off get their own test: `ThreatHist`, the discovered-check bonus (`ChkDisc`),
+   the safe-escape bonus (`ThrSafe`, from 0).
+4. Bake with a non-regression test at a long time control.
+
+Until step 2 moves the values, the logic of this block keeps the algorithmic base of Stockfish 19 in our code.

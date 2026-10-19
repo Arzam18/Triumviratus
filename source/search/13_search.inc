@@ -235,6 +235,67 @@ static inline int base_reduction(const ThreadData &td, bool improving, int depth
 // ---------------------------------------------------------------------------
 static int rf_dp[256], rf_mp[256], re_dp[256], re_mp[256];   // 1024 * max(x + x0, 0.5)^exponent
 static int rf_isqrt[256];                                     // 1024 / sqrt(d)
+static int rl_log2[256];                                      // 1024 * log2(max(i, 1)), for RfLearn
+
+// RfLearn (19/10/2026, ours, off): the reduction learned from the outcome of the searches. A data build probed, for
+// reduced moves that failed low, the same move at full depth; a move is hidden when the probe goes above alpha (1.7% of
+// them). A logistic fit on 2.5 million probed moves (tools/redout_fit.py --target hidden) gives the log-odds that a
+// move is hidden from features the search already has. The reduction moves by RfLearn/1024 ply per unit of log-odds
+// away from the centre RfLearnC/1024: less where hidden moves are likely, more where they almost never are; at most
+// two plies, and less reduction stops at zero. A first fit labelled a move good when its final value went above alpha:
+// most of those fail high already at the reduced depth and are searched again anyway, so that model spent nodes on
+// them (-9.7 +- 10.4 over 1,152 games) and is replaced.
+// Weights in 1/1024 of a log-odds unit, in the order of the features of learned_logit.
+static constexpr int RL_W[29] = {
+  248,    // hash entry on the principal variation (tt_pv)
+  -675,   // tt_pv and PV node
+  266,    // tt_pv and hash value above alpha
+  -17,    // tt_pv and hash depth at least the depth
+  -1052,  // expected cut node
+  -256,   // cut node without hash move
+  -1167,  // all node
+  -608,   // hash move is a capture
+  -123,   // no hash move
+  368,    // improving
+  172,    // opponent worsening
+  3,      // correction size per 2^20
+  340,    // the move gives check
+  -440,   // capture
+  0,      // the move is the hash move
+  132,    // more than one cutoff in the children
+  11,     // more than two
+  -392,   // alpha minus evaluation per 64 (quiet moves)
+  167,    // passed-pawn push
+  -58,    // causal reduction applies
+  712,    // statistic score per 16384
+  -623,   // log2 of the move number
+  -1083,  // depth per 16
+  620,    // expert 0 (<= 9 pieces)
+  212,    // expert 1
+  41,     // expert 2
+  -165,   // |hash value - static evaluation| per 256, up to 2048
+  286,    // the reduction per 1024
+  -2894,  // constant
+};
+static inline int learned_logit(const NodeFrame *f, const NodeState &n, int m, int move_no, bool tact, bool gives,
+                                bool passer, bool causal_hit, int r) {
+  const int tp = f->tt_pv, above = n.h.value > n.alpha, deep = n.h.depth >= n.depth, nohash = !n.h.move;
+  const int cuts = f[1].cutoff_cnt;
+  const int gap = (tact || val_decided(n.alpha)) ? 0 : std::clamp(n.alpha - n.eval, -64, 96);
+  const int hg = (val_known(n.h.value) && !val_decided(n.h.value)) ? std::min(std::abs(n.h.value - f->static_eval), 2048)
+                                                                    : 0;
+  long long z = RL_W[0] * tp + RL_W[1] * (tp & n.pv) + RL_W[2] * (tp & above) + RL_W[3] * (tp & deep) +
+                RL_W[4] * n.cut + RL_W[5] * (n.cut & nohash) + RL_W[6] * n.all + RL_W[7] * n.tact_hash +
+                RL_W[8] * nohash + RL_W[9] * n.improving + RL_W[10] * n.opp_worse + RL_W[12] * gives +
+                RL_W[13] * tact + RL_W[14] * (m == n.h.move) + RL_W[15] * (cuts > 1) + RL_W[16] * (cuts > 2) +
+                RL_W[18] * passer + RL_W[19] * causal_hit + RL_W[28] +
+                (n.expert == 0 ? RL_W[23] : n.expert == 1 ? RL_W[24] : n.expert == 2 ? RL_W[25] : 0);
+  z += (long long)RL_W[11] * (std::abs((long long)n.signal) >> 20);
+  z += RL_W[17] * gap / 64 + (long long)RL_W[20] * f->stat_score / 16384;
+  z += (long long)RL_W[21] * rl_log2[std::min(move_no, 255)] / 1024 + RL_W[22] * n.depth / 16;
+  z += RL_W[26] * hg / 256 + (long long)RL_W[27] * r / 1024;
+  return int(z);
+}
 static void red_tables_refresh() {
   const auto fill = [](int *t, int x0_tenths, int exp_thousandths) {
     for (int i = 0; i < 256; i++)
@@ -246,6 +307,8 @@ static void red_tables_refresh() {
   fill(re_mp, ReM0, ReBeta);
   for (int i = 0; i < 256; i++)
     rf_isqrt[i] = int(std::lround(1024.0 / std::sqrt(double(std::max(i, 1)))));
+  for (int i = 0; i < 256; i++)
+    rl_log2[i] = int(std::lround(1024.0 * std::log2(double(std::max(i, 1)))));
 }
 static const bool red_tables_ready = (red_tables_refresh(), true);
 
@@ -796,26 +859,48 @@ static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
 static constexpr int SING_SKIPPED = -99;
 template <bool AN>
 static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int new_depth, int *cutoff) {
+  // Block 4 of 8.1 in our form (19/10/2026). The hash move is tested for being the only good move: the other moves are
+  // searched at about half depth against a bar below the hash value (the exclusion search). Three outcomes:
+  //  - every other move stays under the bar: the hash move is extended, by more plies the further they stay under;
+  //  - the exclusion search itself clears beta: the node has several good moves and returns at once;
+  //  - otherwise the hash move may be searched shallower (negative extension) when the node expects a cutoff.
+  // The bar and the thresholds of the extra plies are built from one vector of node facts, with a weight per level
+  // and an offset per expert of the network. The starting values reproduce the previous tree; the weights marked
+  // "ours" start at 0 and wait for the tuning.
   const HashView &h = n.h;
-  if (n.root || m != h.move || n.excluded || n.depth < 6 + f->tt_pv || !val_known(h.value) || val_decided(h.value) ||
-      !bound_covers(h.bound, true) || h.bound == BOUND_UP || h.depth < n.depth - 3 || shuffles(td, f, m) || n.hunt_mate)
+  if (n.root || m != h.move || n.excluded || n.depth < SingMinDepth + SingMinDepthTtPv * f->tt_pv ||
+      !val_known(h.value) || val_decided(h.value) || !bound_covers(h.bound, true) || h.bound == BOUND_UP ||
+      h.depth < n.depth - SingHashSlack || shuffles(td, f, m) || n.hunt_mate)
     return SING_SKIPPED;
-  const int s_beta = h.value - (SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) + SingMarginTtPv * (f->tt_pv && !n.pv)) * n.depth / 63;
-  const int s_depth = new_depth / 2;
+
+  // The bar: hash value minus a margin per ply of depth. Ours, at 0: the expert, how much deeper than needed the hash
+  // entry is, and how far the hash value sits from the static evaluation (a node in motion trusts its hash less).
+  const int surplus = h.depth - (n.depth - SingHashSlack);
+  const int moving = std::min(std::abs(h.value - f->static_eval), 1024) / 64;
+  const int margin = SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) +
+                     SingMarginTtPv * (f->tt_pv && !n.pv) + by_exp4(n.expert, SingExp0, SingExp1, SingExp2, SingExp3) +
+                     SingSurplus * surplus + SingMoving * moving;
+  const int s_beta = h.value - margin * n.depth / SingMarginDiv;
+  const int s_depth = new_depth * SingDepthMul / 2048;
   f->excluded = m;
   const int v = explore<AN>(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
   f->excluded = 0;
+
   if (v < s_beta) {
+    // Extra plies: the gap under the bar against a threshold per level. Node facts shared by the two levels; each
+    // level weighs them its own way, plus an offset per expert (ours, at 0).
     const int corr_adj = std::abs(n.signal) / SingCorrDiv;
-    const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * !n.tact_hash - corr_adj -
-                    SingTtHistMul * td.tt_move_hist / SingTtHistDiv - (f->ply > td.root_depth) * SingDoubleDeep -
-                    (AN ? td.dz_ext : deep_term(td, DeepExt));
-    const int tpl = SingTripleBase + SingTriplePv * n.pv - SingTripleQuiet * !n.tact_hash + SingTripleTtPv * f->tt_pv -
-                    corr_adj - (f->ply > td.root_depth) * SingTripleDeep - (AN ? td.dz_ext : deep_term(td, DeepExt));
+    const int beyond = f->ply > td.root_depth, quiet = !n.tact_hash;
+    const int deep_adj = AN ? td.dz_ext : deep_term(td, DeepExt);
+    const int common = corr_adj + deep_adj + by_exp4(n.expert, SingLvlExp0, SingLvlExp1, SingLvlExp2, SingLvlExp3);
+    const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * quiet -
+                    SingTtHistMul * td.tt_move_hist / SingTtHistDiv - SingDoubleDeep * beyond - common;
+    const int tpl = SingTripleBase + SingTriplePv * n.pv - SingTripleQuiet * quiet + SingTripleTtPv * f->tt_pv -
+                    SingTripleDeep * beyond - common;
     n.depth++;
     return 1 + (v < s_beta - dbl) + (v < s_beta - tpl);
   }
-  if (v >= n.beta && !val_decided(v)) {
+  if (v >= n.beta && !val_decided(v)) {   // several good moves: the node returns, and the hash move learns it
     hist_learn(td.tt_move_hist, -SingFhTtBase - SingFhTtDepth * n.depth, LIM_TTMOVE, ttm_grav(n.expert));
     if (!n.in_check && v > f->static_eval) {
       const int bonus = std::clamp((v - f->static_eval) * s_depth * CorrSingMul / 1024, -LIM_CORR / 4, LIM_CORR / 4);
@@ -824,8 +909,11 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
     *cutoff = v;
     return 0;
   }
-  if (h.value >= n.beta || n.cut)
-    return -3;
+  // Negative extension, split by its two reasons: the hash value already clears beta, or the node expects a cutoff.
+  if (h.value >= n.beta)
+    return -SingNegHigh;
+  if (n.cut)
+    return -SingNegCut;
   return 0;
 }
 
@@ -1062,6 +1150,14 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       // queste estensioni si sommano come quelle di Ldse prima della sua guardia (LdseMax). Stesso rimedio: un tetto al
       // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path).
       // BAKE NEGEXTMAX (11/10/2026, vedi 01_params.inc): tetto fisso a una estensione per linea, opzione ritirata.
+      if (RfLearn) {   // ours, off: the reduction learned from search outcomes (see learned_logit)
+        const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
+        const int z = learned_logit(f, n, m, red_move_no, tact, gives, passer, causal_hit, r);
+        // Less reduction stops at zero: a negative reduction would become an extension of up to two plies, and the
+        // first version, without this floor, widened the tree by a quarter at RfLearn 768.
+        const int corr = std::clamp(int((long long)RfLearn * (z - RfLearnC) / 1024), -2048, 2048);
+        r = corr > 0 ? std::max(r - corr, std::min(r, 0)) : r - corr;
+      }
       const int neg_cap = f->negext_path < 1 ? 2 : 0;
       if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: niente riduzione, le riduzioni negative restano
         r = 0;
@@ -1083,6 +1179,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         if (redlog_on && d < new_depth)
           redres_probes<AN>(td, f, n, 1, d, new_depth, new_depth - 1, value, red_move_no, redlog_r, redlog_flags);
 #endif
+        const int full_depth = new_depth;   // before the re-search depth moves it
         if (ResOwn) {   // ours (01_params.inc, off): the margin over alpha must grow with the reduction and the correction
           const int u = std::max(ResU0 + ResUc * (std::abs(n.signal) >> 16) / 64 + ResUr * (new_depth - d), 1);
           const int margin = (value - n.alpha) * 64;
@@ -1091,7 +1188,12 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
           value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
-        learn_followups(f, pc, to, FollowFhBonus, n.expert);
+        // Follow-up learning after a reduced move cleared alpha (ours, 19/10/2026): what the re-search found decides.
+        // Confirmed, the move earns FollowFhBonus plus FollowFhRed per ply of reduction it overcame (up to 8): a move
+        // that beat a deep reduction was badly placed in the ordering. Refuted by the re-search, it earns FollowFhMiss.
+        // FollowFhRed 0 and FollowFhMiss = FollowFhBonus give the previous rule (one fixed reward either way).
+        const int fh_bonus = value > n.alpha ? FollowFhBonus + FollowFhRed * std::min(full_depth - d, 8) : FollowFhMiss;
+        learn_followups(f, pc, to, fh_bonus, n.expert);
       }
 #ifdef TRIUMV_REDLOG
       if (redlog_on && !stop_threads.load(std::memory_order_relaxed)) {
@@ -1121,8 +1223,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
                        new_depth - (r > LmrDeepRed1) - (r > LmrDeepRed2 && new_depth > 2), !n.cut, false);
     }
     if (n.pv && (n.moves == 1 || value > n.alpha)) {
-      if (m == n.h.move && ((val_known(n.h.value) && val_decided(n.h.value) && n.h.depth > 0) || n.h.depth > 1))
-        new_depth = std::max(new_depth, 1);
+      // The hash move of a PV node is not left to the quiescence when its entry has some depth (a decided value from
+      // any search, or a plain one from deeper than PvHashDepth): it gets at least PvMinDepth plies.
+      if (m == n.h.move && ((val_known(n.h.value) && val_decided(n.h.value) && n.h.depth > 0) || n.h.depth > PvHashDepth))
+        new_depth = std::max(new_depth, PvMinDepth);
       value = -explore<AN>(td, f + 1, -n.beta, -n.alpha, new_depth, false, true);
     }
     step_out(td, m, u);

@@ -390,6 +390,25 @@
   P(SingTriplePv, 279, 0, 600)                                                                            \
   P(SingTripleQuiet, 188, 0, 500)                                                                         \
   P(SingTripleTtPv, 81, 0, 300)                                                                           \
+  /* Block 4 in our form (19/10/2026, 13_search.inc singular_probe): the thresholds of the previous code become  */ \
+  /* parameters at their old values, and new terms of our own start at 0 (same tree, bench unchanged).          */ \
+  P(SingMinDepth, 6, 3, 12)              /* the exclusion search from this depth, one more on tt_pv nodes  */ \
+  P(SingMinDepthTtPv, 1, 0, 3)                                                                             \
+  P(SingHashSlack, 3, 0, 6)              /* the hash entry may be this many plies shallower than the node   */ \
+  P(SingMarginDiv, 63, 32, 128)          /* the margin of the bar is per this many plies of depth          */ \
+  P(SingDepthMul, 1024, 512, 1536)       /* depth of the exclusion search, new_depth * Mul / 2048          */ \
+  P(SingExp0, 0, -40, 40)                /* ours: margin of the bar per expert of the network              */ \
+  P(SingExp1, 0, -40, 40)                                                                                  \
+  P(SingExp2, 0, -40, 40)                                                                                  \
+  P(SingExp3, 0, -40, 40)                                                                                  \
+  P(SingSurplus, 0, -16, 16)             /* ours: margin per ply of hash depth beyond what is needed       */ \
+  P(SingMoving, 0, -16, 16)              /* ours: margin per 64 units of |hash value - static evaluation|  */ \
+  P(SingLvlExp0, 0, -100, 100)           /* ours: thresholds of the extra plies per expert                 */ \
+  P(SingLvlExp1, 0, -100, 100)                                                                             \
+  P(SingLvlExp2, 0, -100, 100)                                                                             \
+  P(SingLvlExp3, 0, -100, 100)                                                                             \
+  P(SingNegHigh, 3, 0, 4)                /* negative extension when the hash value clears beta             */ \
+  P(SingNegCut, 3, 0, 4)                 /* negative extension on an expected cut node                     */ \
   /* SBAKE LDSE 14/10/2026 (utente): non regressione a 40+0.4 HT di tempo + Ldse insieme (tm53), lato release            \
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
      senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
@@ -758,7 +777,11 @@
   P(StatCont1W, 1126, 0, 4000)                                                                             \
   P(StatCont2W, 1093, 0, 4000)                                                                             \
   P(LmrAllDivBase, 268, 1, 1500)         /* r * LmrAllNode / (256*depth + Base) nei nodi all             */ \
-  P(FollowFhBonus, 1334, 0, 4000)        /* continuazioni dopo la ricerca piu' profonda riuscita            */ \
+  P(FollowFhBonus, 1334, 0, 4000)        /* follow-up reward when the re-search confirms the fail high     */ \
+  P(FollowFhRed, 0, -200, 400)           /* ours (19/10): plus this per ply of reduction overcome, up to 8 */ \
+  P(FollowFhMiss, 1334, -2000, 4000)     /* ours (19/10): reward when the re-search refutes it (old: same) */ \
+  P(PvHashDepth, 1, 0, 4)                /* PV hash move: at least PvMinDepth plies if its entry is deeper */ \
+  P(PvMinDepth, 1, 1, 3)                 /* than PvHashDepth (or holds a decided value)                    */ \
   P(LmrDeepRed1, 5234, 2000, 9000)       /* ricerca ridotta: -1 ply se r > Red1, -1 se r > Red2           */ \
   P(LmrDeepRed2, 5487, 2000, 9000)                                                                         \
   /* BLOCK 2 - late-move reduction of our own (13_search.inc, red_entry_ours / red_final_ours). Rf* = the      */ \
@@ -815,6 +838,12 @@
   P(RfAllCutoffs, 20426, -61478, 61478)                                                                    \
   P(RfDepth, -743, -2429, 2429)                                                                            \
   P(RfVolatile, 0, -200, 200)            /* ours, OFF (19/10, user): never confirmed, back in the queue */  \
+  /* RfLearn (19/10/2026, ours, off): reduction learned from search outcomes, 1/1024 ply per unit of log-odds of a */ \
+  /* good move away from RfLearnC/1024 (the median log-odds of the reduced moves, -3.63); 13_search.inc. Works   */ \
+  /* with both reduction formulas. First test value 256: about +0.65 ply for the 10% least promising moves and  */ \
+  /* -0.55 ply for the 10% most promising.                                                                       */ \
+  P(RfLearn, 0, 0, 2048)                                                                                  \
+  P(RfLearnC, -4723, -8192, 2048)                                                                         \
   P(ReA0, 1009, 336, 3127)                                                                                 \
   P(ReA1, 1057, 352, 3271)                                                                                 \
   P(ReA2, 1040, 346, 3220)                                                                                 \
