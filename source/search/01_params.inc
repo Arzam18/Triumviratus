@@ -1,12 +1,11 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
-// BAKE BLOCK 2 REDUCTION + RFLEARN (19/10/2026, user): the reduction of our own and the reduction learned from the
-// moves the reduction hides (RfLearn 768, centre -4950: same tree size as the formula alone, depth 12 and 16) become
-// the default, and the previous formula, its table, its long-time-control ramps and its parameters are removed again.
-// Against the previous formula, pooled: -0.51 +- 3.55 Elo over 10,272 games (8+0.08 with HT on the Xeon, +0.46 +- 4.24
-// over 6,872; 2+0.02 on a Zen 4, -2.45 +- 6.42 over 3,400): level, accepted as a non-regression. Backup
-// _pre_bake_redlearn_2026-10-19. Bench 213149 (the tm84 binary with RedForm=1 RfLearn=768 RfLearnC=-4950 gives the same).
+// UNBAKE BLOCK 2 (19/10/2026 midday, user): the reduction of our own with RfLearn, baked in the morning (parity against
+// the formula of 8.0 at 8+0.08 with HT and 2+0.02), lost on a Zen 4 at long time controls against 8.0 with both builds
+// universal (-4.43 +- 7.35 over 1,962 games at 12+0.12; the dev build -5.35 +- 4.37 over 5,520 at 15+0.15), while the
+// rest of 8.1 is the tree of 8.0 and speed. Block 2 goes back to the formula of 8.0 and stays on hold; RedForm and
+// RfLearn remain as options, off. Bench 126352. Backup of the baked state: _pre_unbake_blocco2_2026-10-19.
 // RESTORE BLOCK 2 (19/10/2026, user): block 2 goes back to the tree of 8.0. 8.1 against 8.0 lost at every long time
 // control (10+0.1 without HT -4.5 +- 9.7 over 1,312 after the block 1 revert) and searched 0.35 ply less deep at the
 // same time per move. The reduction of our own (RedForm) and the re-search rule of our own (ResOwn) stay in the code
@@ -440,12 +439,34 @@
   /* NegExtMax: bakata a 1 l'11/10/2026 e ritirata come opzione (vedi in testa). */                               \
                                          /* (fino a +2 ply), come LdseMax; 0 = nessun tetto (albero di prima) */ \
   /* riduzioni (1/1024 di ply) */                                                                         \
+  P(LmrLogMul, 2872, 1500, 4000)         /* /128 */                                                       \
+  P(LmrDeltaMul, 577, 0, 1500)                                                                            \
+  P(LmrNotImproving, 197, 0, 600)        /* /512 */                                                       \
+  P(LmrBase, 998, 0, 2500)                                                                                \
+  P(LmrTtPvAdd, 929, 0, 2500)                                                                             \
+  P(LmrTtPvSub, 2915, 0, 6000)                                                                            \
+  P(LmrTtPvPv, 1004, 0, 3000)                                                                             \
+  P(LmrTtPvAlpha, 885, 0, 3000)                                                                           \
+  P(LmrTtPvDepth, 816, 0, 3000)                                                                           \
+  P(LmrTtPvCut, 940, 0, 3000)                                                                             \
+  P(LmrOffset, 697, -1500, 2500)                                                                          \
+  P(LmrMoveCount, 60, 0, 300)                                                                             \
+  P(LmrCorrDiv, 26310, 5000, 100000)                                                                      \
+  P(LmrCutNode, 4093, 1000, 7000)                                                                         \
+  P(LmrCutNoTT, 933, 0, 3000)                                                                             \
+  P(LmrTTCapture, 1079, 0, 3000)                                                                          \
+  P(LmrCutoffBase, 264, 0, 1500)                                                                          \
+  P(LmrCutoffMany, 1095, 0, 3000)                                                                         \
+  P(LmrCutoffAll, 1138, 0, 3000)                                                                          \
+  P(LmrTTMove, 2037, 0, 5000)                                                                             \
   P(CausalRed, 512, 0, 4096)             /* BAKE 10/10/2026 (era 0, vedi in testa): 1/1024 ply in piu' alle  \
                                             quiete fuori dalle case della confutazione di una sorella (13_search.inc,\
                                             causal_mask; 0 = spenta). 12/10 sera, non-regressione a 10+0.1 HT    \
                                             (tm42, CausalRed=0 contro 512): dal lato del bake -4,78 +- 9,12 su   \
                                             1.528, fermata dall'utente; resta 512 (SPSA EXP2: 512 -> ~464, senza \
                                             trend netto; le varianti AG1 sono state tolte il 13/10) */          \
+  P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
+  P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
   P(DeeperMargin, 51, 0, 200)                                                                             \
   P(ShallowerMargin, 8, 0, 60)                                                                            \
@@ -604,6 +625,18 @@
   P(FutExp1, PSV(-14, 0), -200, 200)     /* [EXP1 0->-14] */                                              \
   P(FutExp2, PSV(-2, 0), -200, 200)      /* [EXP1 0->-2] */                                               \
   P(FutExp3, PSV(8, 0), -200, 200)       /* [EXP1 0->8] */                                                \
+  P(LmrExp0, PSV(-25, 0), -1536, 1536)   /* [EXP1 0->-25] */                                              \
+  P(LmrExp1, PSV(102, 0), -1536, 1536)   /* [EXP1 0->102] */                                              \
+  P(LmrExp2, PSV(-6, 0), -1536, 1536)    /* [EXP1 0->-6] */                                               \
+  P(LmrExp3, PSV(101, 0), -1536, 1536)   /* [EXP1 0->101] */                                              \
+  /* 13/10/2026 (utente: "i margini si sommano, non dovrebbero sostituirli?"): LmrExp sposta solo il livello della    \
+     riduzione; LmrScaleExp ne da' a ogni esperto anche la PENDENZA: scala la riduzione di base (tabella log x log,      \
+     finestra, LmrBase) in 1024-esimi prima delle altre correzioni. 0 = albero invariato. -64/96/0/96 +1,11 +- 3,65 su  \
+     9.118 (8+0.08); LmrScaleExp1 -128 0,00 +- 6,03 su 3.160; in prova nel pacchetto difesa (exp1fix). */             \
+  P(LmrScaleExp0, 0, -256, 256)          /* /1024: +102 = riduzione di base +10%                          */ \
+  P(LmrScaleExp1, 0, -256, 256)                                                                           \
+  P(LmrScaleExp2, 0, -256, 256)                                                                           \
+  P(LmrScaleExp3, 0, -256, 256)                                                                           \
   P(Contempt, 0, 0, 200)                 /* idea 3: patta = -c per il colore di radice (Elo di lista) */  \
   /* DrawDefend (13/10/2026, utente: "la patta dinamica in svantaggio, la devi implementare"). Misura contro SF19     \
      (tools/defense_vs_engine.py): teniamo il 37% delle posizioni peggiori, SF il 51%. Se la mossa precedente si e'    \
@@ -678,8 +711,13 @@
      nella release il codice sparisce. */                                                                     \
   P(LtKnee, 15, 4, 40)                                                                                     \
   P(LtSpan, 2, 1, 20)                                                                                      \
+  P(LmrLogMulLt, 0, -1000, 1000)                                                                           \
   P(RfpMaxDepthLt, 0, -10, 10)                                                                             \
   P(NmpVerifyDepthLt, 0, -10, 10)                                                                          \
+  P(LmrNotImprovingLt, 0, -300, 300)                                                                       \
+  P(LmrOffsetLt, 0, -1500, 1500)                                                                           \
+  P(LmrAllNodeLt, 0, -400, 400)                                                                            \
+  P(LmrNoTTFullLt, 0, -1500, 1500)                                                                         \
   P(NmpImprovingLt, 0, -100, 100)                                                                          \
   P(QuietFutAlphaLt, 0, -200, 200)                                                                         \
   /* COSTANTI DEL CODICE RESE PARAMETRI (12/10/2026 sera, utente: "tutto come variabili, nella release frozen").     \
@@ -743,6 +781,7 @@
   P(StatQuietW, 2252, 0, 6000)           /* stat_score delle quiete: (W*storia + C1*cont1 + C2*cont2)/1024 */ \
   P(StatCont1W, 1126, 0, 4000)                                                                             \
   P(StatCont2W, 1093, 0, 4000)                                                                             \
+  P(LmrAllDivBase, 268, 1, 1500)         /* r * LmrAllNode / (256*depth + Base) nei nodi all             */ \
   P(FollowFhBonus, 1334, 0, 4000)        /* follow-up reward when the re-search confirms the fail high     */ \
   P(FollowFhRed, 0, -200, 400)           /* ours (19/10): plus this per ply of reduction overcome, up to 8 */ \
   P(FollowFhMiss, 1334, -2000, 4000)     /* ours (19/10): reward when the re-search refutes it (old: same) */ \
@@ -756,6 +795,7 @@
   /* redfit_engine.py), 93.5% at the same depth as the old formula, none off by more than one ply, no bias by depth. */ \
   /* Alpha/Beta /1000, D0/M0 /10; trust weights /4096 of the base, the correction size /256 in trust and /16 in facts; */ \
   /* move weights /16; window * 1024 / root_delta. RfVolatile (ours) is set apart, see its BAKE note.          */ \
+  P(RedForm, 0, 0, 1)                                                                                      \
   P(RfA0, 1157, 385, 3571)                                                                                 \
   P(RfA1, 1186, 395, 3658)                                                                                 \
   P(RfA2, 1165, 388, 3595)                                                                                 \
@@ -807,8 +847,8 @@
   /* good move away from RfLearnC/1024 (the median log-odds of the reduced moves, -3.63); 13_search.inc. Works   */ \
   /* with both reduction formulas. First test value 256: about +0.65 ply for the 10% least promising moves and  */ \
   /* -0.55 ply for the 10% most promising.                                                                       */ \
-  P(RfLearn, 768, 0, 2048)                                                                                \
-  P(RfLearnC, -4950, -8192, 2048)                                                                         \
+  P(RfLearn, 0, 0, 2048)                                                                                  \
+  P(RfLearnC, -4723, -8192, 2048)                                                                         \
   P(ReA0, 1009, 336, 3127)                                                                                 \
   P(ReA1, 1057, 352, 3271)                                                                                 \
   P(ReA2, 1040, 346, 3220)                                                                                 \

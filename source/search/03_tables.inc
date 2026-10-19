@@ -1,6 +1,17 @@
-// search/03_tables.inc -- Tabelle della ricerca: statistiche condivise fra i thread, preparazione dei
+// search/03_tables.inc -- Tabelle della ricerca: riduzioni, statistiche condivise fra i thread, preparazione dei
 // thread e della loro scacchiera.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+
+// ---------------------------------------------------------------------------
+// Riduzioni tardive: red_log[i] = LmrLogMul/128 * ln(i), ricalcolata a ogni ricerca (LmrLogMul e' un'opzione).
+// ---------------------------------------------------------------------------
+static int red_log[256];
+
+static void build_reduction_table() {
+  red_log[0] = 0;
+  for (int i = 1; i < 256; i++)
+    red_log[i] = int(LmrLogMul / 128.0 * std::log(double(i)));
+}
 
 // ---------------------------------------------------------------------------
 // Chiave della tabella hash (nostra, 05/10/2026). Con HashFiftyStep > 0 la chiave porta anche la fascia del

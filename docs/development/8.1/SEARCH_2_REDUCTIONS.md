@@ -200,3 +200,16 @@ To do:
    found the current thresholds again.
 5. The weights of the statistic score (2252, 1126, 1093, 873): long tuning.
 6. `RfVolatile` back in the queue.
+
+## 2.8 On hold (19 October 2026, midday)
+
+The baked reduction of our own with `RfLearn` lost on a Zen 4 at long time controls against 8.0, with both engines
+universal builds: −4.43 ± 7.35 Elo over 1,962 games at 12+0.12 (a development build had shown −5.35 ± 4.37 over 5,520
+games at 15+0.15). The rest of 8.1 has the tree of 8.0, so the loss belongs to block 2. Block 2 goes back to the
+formula of 8.0 (bench 126352) and stays on hold until a form of our own holds at long time controls on both machines.
+`RedForm`, `RfLearn` and `ResOwn` remain in the code as options, off.
+
+A note on the measurements: the Xeon of the tests has AVX-512 without VNNI, so the development builds are compiled
+without VNNI. On processors with VNNI (Zen 4 among them) the universal executable of 8.0 picks its VNNI variant, and
+every comparison on the Zen 4 before 19 October gave 8.0 that advantage. Comparisons on such processors use the
+universal build of 8.1.

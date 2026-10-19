@@ -161,7 +161,10 @@ struct ThreadData {
     int  gd_style;                    // AnGold: 0 neutro, 1 attacco, 2 manovra, 3 difesa
     // Rampa "tempo lungo" (Lt*, 01_params.inc): peso e valori effettivi delle leve per l'iterazione corrente.
     int  lt_w;
+    int  lt_lmr_not_improving, lt_lmr_offset, lt_lmr_all_node, lt_lmr_no_tt_full;
     int  lt_nmp_improving, lt_quiet_fut_alpha, lt_rfp_max_depth, lt_nmp_verify_depth;
+    int  lt_lmr_log_mul;              // valore effettivo da cui e' stata costruita lt_red_log
+    int  lt_red_log[256];             // tabella delle riduzioni del thread quando LmrLogMulLt != 0
     // SeePinned (05/10/2026): inchiodati e inchiodatori dei due colori, calcolati una volta per posizione.
     U64  see_pin_key;                 // posizione per cui valgono i campi sotto
     U64  see_pinned[2];               // pezzi di ciascun colore inchiodati al proprio re

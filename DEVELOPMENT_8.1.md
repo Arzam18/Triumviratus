@@ -268,3 +268,7 @@ expectation.
 our own and `RfLearn`, against the formula of 8.0 on this base: −0.51 ± 3.55 Elo over 10,272 games, parity. Baked;
 the formula of 8.0 is removed (bench 213149). The singular extension of block 4 is in our code at the same tree, and
 its first tuning runs at 10+0.1 on one socket ([`SEARCH_4_EXTENSIONS.md`](docs/development/8.1/SEARCH_4_EXTENSIONS.md)).
+
+**Block 2 on hold (19 October 2026, midday).** On a Zen 4 at long time controls, with both engines universal builds,
+the reduction of our own lost against 8.0 (−4.43 ± 7.35 over 1,962 games at 12+0.12), so block 2 goes back to the
+formula of 8.0 (bench 126352) and stays on hold. The tuning of block 4 continues on one socket of the Xeon.
