@@ -234,3 +234,26 @@ the noise. A second suggestion, skipping the slider lookup when a knight recaptu
 **The promotion gain in the exchange evaluation.** SPRT on endgame positions (12 to 18 pieces) without draw
 adjudication, 8+0.08, both sockets, against the same build without it: **+1.78 ± 1.76 Elo over 14,874 games** (LLR +2.63 for non-regression on [−3, 0]; stopped just short of the +2.94 bound to free the machine, with the lower end of the interval above zero). It is kept: the new bench is
 **126352**.
+
+## 3. First incremental result: the rewritten code at the tree of 8.0 (19 October 2026)
+
+From this point 8.1 grows one piece at a time. Each piece is measured alone against the current base and enters only
+if it holds; a piece that loses inside the noise of a mixed test would otherwise add up with the others unseen.
+
+**The base.** Blocks 1, 5, 6 and 7 are in our own code and give the tree of 8.0 at their starting values; the network
+inference of block 6 and the speed patches of block 9 make the engine faster at the same tree. The only change to the
+tree is the promotion gain in the exchange evaluation (section 2). Bench **126352**; with that one change taken out,
+137419, the bench of 8.0, checked on a clean build.
+
+**Against the official 8.0.** Frozen PGO build (AVX-512) against the universal executable of 8.0, 8+0.08 with
+hyperthreading, 36 games per socket: **+10.97 ± 5.67 Elo over 4,054 games** (LLR +2.92 on [−3, +1]). At the same
+time per move the new build searches deeper on both sockets (15.75 against 15.63 plies on the faster socket, 14.97
+against 14.75 on the slower one, whose memory has two channels instead of four), which is what a faster engine at the
+same tree should do.
+
+**What was taken out first.** Before this base, 8.1 carried the reduction formula of our own (block 2, section 2.4 of
+[`SEARCH_2_REDUCTIONS.md`](docs/development/8.1/SEARCH_2_REDUCTIONS.md)), a re-search rule of our own and a lever that
+reduces less in volatile nodes, each accepted on a level or slightly positive test of its own. Together, against 8.0,
+they lost at every long time control (−4.5 ± 9.7 at 10+0.1 without hyperthreading, −23 ± 11 at 8+0.08 with it) and
+searched 0.35 to 0.6 ply less deep at the same time per move. They stay in the code as options, off, with their fitted
+values, and come back one at a time, each with its own test against this base.

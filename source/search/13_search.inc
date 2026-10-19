@@ -40,6 +40,49 @@ struct NodeState {
   int  expert;                   // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
 };
 
+#ifdef TRIUMV_REDLOG
+// Re-search data (redlog.h): the current move, already made, searched with a null window at lo, lo+1 and lo+2.
+template <bool AN>
+static void redres_probes(ThreadData &td, NodeFrame *f, const NodeState &n, int type, int d, int nd, int lo,
+                          int value, int move_no, int r, int flags) {
+  RedresRec rec{};
+  rec.type = (uint8_t)type;
+  rec.d = (int8_t)d;
+  rec.nd = (int8_t)nd;
+  rec.depth = (int16_t)n.depth;
+  rec.moves = (int16_t)n.moves;
+  rec.move_no = (int16_t)move_no;
+  rec.expert = (int16_t)n.expert;
+  rec.ply = (int16_t)f->ply;
+  rec.stat_score = f->stat_score;
+  rec.r = r;
+  rec.signal = n.signal;
+  rec.hash_known = val_known(n.h.value);
+  rec.hash_gap = rec.hash_known ? redres_clip(n.h.value - f->static_eval) : 0;
+  rec.flags = (uint16_t)flags;
+  rec.m_best = redres_clip(value - n.best);
+  rec.m_alpha = redres_clip(value - n.alpha);
+  // The probes share the hash table, so a later probe is cheaper than it would be alone: the order is drawn from six
+  // permutations and stored in bits 3-5 of done, and the fit reads the cost of a depth only when it ran first.
+  static const int perms[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+  const int perm = int(redlog_counters[td.thread_id * 16 + 3]++ % 6);
+  rec.done = uint8_t(perm << 3);
+  for (int j = 0; j < 3; j++) {
+    const int k = perms[perm][j], depth = lo + k;
+    if (depth < 1)
+      continue;
+    const U64 before = td.nodes;
+    const int v = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, depth, !n.cut, false);
+    if (stop_threads.load(std::memory_order_relaxed))
+      return;
+    rec.v[k] = redres_clip(v - n.alpha);
+    rec.nodes[k] = (uint32_t)std::min<U64>(td.nodes - before, 0xffffffffu);
+    rec.done |= uint8_t(1 << k);
+  }
+  redres_write(td.thread_id, rec);
+}
+#endif
+
 // Margini per esperto (10/10/2026, nostra): Consilium valuta con quattro esperti per fascia di materiale (net_phase),
 // e la fiducia nella valutazione statica non e' la stessa nei quattro. Le leve RfpExp*, FutExp*, LmrExp* spostano
 // il margine della futility inversa, quello della futility delle quiete e la riduzione LMR secondo l'esperto del nodo
@@ -102,7 +145,9 @@ static constexpr auto hist_recip = make_hist_recip(hist_div);
 static std::array<int, 16> hist_div;
 static std::array<unsigned long long, max_ply + 8> all_node_recip;
 static std::array<unsigned long long, 16> hist_recip;
+static void red_tables_refresh();   // block 2, below
 static void param_tables_refresh() {
+  red_tables_refresh();
   hist_div = HIST_DIV_LIST;
   all_node_recip = make_all_node_recip(LmrAllDivBase);
   hist_recip = make_hist_recip(hist_div);
@@ -165,6 +210,77 @@ static inline int base_reduction(const ThreadData &td, bool improving, int depth
   const int *rl = e_red_log(td);
   const int scale = rl[std::min(depth, 255)] * rl[std::min(move_no, 255)];
   return scale - window_term + (!improving ? scale * e_lmr_not_improving(td) / 512 : 0) + LmrBase;
+}
+
+// ---------------------------------------------------------------------------
+// Block 2 of 8.1: late-move reduction of our own (RedForm = 1; 0 keeps the previous formula). Units of 1/1024 ply.
+//
+//   base   a power law of the depth d and the move number m with an amplitude per expert of the network:
+//          A[e] * max(d + d0, 0.5)^alpha * max(m + m0, 0.5)^beta, two tables built from the parameters.
+//   inner  base * (4096 + trust) / 4096 + facts + moves / 16
+//          trust: how far the node can be believed (hash on the principal variation and its value and depth, cut
+//          node, hash capture, no hash move, improving, the opponent worsening, size of the correction) scales the
+//          base; the same features also add a fixed amount (facts); the move terms add the quality of the move
+//          (statistic score, check, capture, children cutoffs, quiet gap between alpha and the evaluation, passed
+//          push, causal term, move number, window, depth).
+//   final  in all nodes the whole value grows by RfAllScale / sqrt(d), a share that fades with depth.
+// The pruning rules read a lighter value (red_entry_ours): its own power law scaled by improving, plus the hash on
+// the principal variation, the move number, the window and a constant.
+// Every value came from a least-squares fit on 20.7 million moves of our own searches (tools/redfit_engine.py,
+// 18/10/2026): 92% of the reduced moves are searched at the same depth as with the previous formula, all of them
+// within one ply; the pruning value gives the same depth on 88%. Refit on 18/10 on the engine with block 1 reverted
+// (26.5 million moves). The window enters as window * 1024 / root_delta (red_window_ours in move_loop).
+// Baked on 18/10 and taken back out on 19/10 (user): 8.1 searched 0.35 ply less deep than 8.0 at the same time and
+// lost; block 2 returns to the tree of 8.0 and each change is measured again on its own, in order.
+// ---------------------------------------------------------------------------
+static int rf_dp[256], rf_mp[256], re_dp[256], re_mp[256];   // 1024 * max(x + x0, 0.5)^exponent
+static int rf_isqrt[256];                                     // 1024 / sqrt(d)
+static void red_tables_refresh() {
+  const auto fill = [](int *t, int x0_tenths, int exp_thousandths) {
+    for (int i = 0; i < 256; i++)
+      t[i] = int(std::lround(1024.0 * std::pow(std::max(i + x0_tenths / 10.0, 0.5), exp_thousandths / 1000.0)));
+  };
+  fill(rf_dp, RfD0, RfAlpha);
+  fill(rf_mp, RfM0, RfBeta);
+  fill(re_dp, ReD0, ReAlpha);
+  fill(re_mp, ReM0, ReBeta);
+  for (int i = 0; i < 256; i++)
+    rf_isqrt[i] = int(std::lround(1024.0 / std::sqrt(double(std::max(i, 1)))));
+}
+static const bool red_tables_ready = (red_tables_refresh(), true);
+
+static inline int red_entry_ours(const NodeFrame *f, const NodeState &n, int move_no, int window_term) {
+  const int d = std::min(n.depth, 255), m = std::min(move_no, 255);
+  const int base = ((by_expert(n.expert, ReA0, ReA1, ReA2, ReA3) * re_dp[d]) >> 10) * re_mp[m] >> 10;
+  return base * (1024 + ReImproving * n.improving) / 1024 + ReConst + ReMoveNo * m + ReWindow * window_term / 16 +
+         ReTtPv * f->tt_pv;
+}
+
+static inline int red_final_ours(const NodeFrame *f, const NodeState &n, int move_no, bool tact, bool gives,
+                                 bool passer, bool causal_hit, int window_term) {
+  const int d = std::min(n.depth, 255), m = std::min(move_no, 255);
+  const int base = ((by_expert(n.expert, RfA0, RfA1, RfA2, RfA3) * rf_dp[d]) >> 10) * rf_mp[m] >> 10;
+  const int tp = f->tt_pv, above = n.h.value > n.alpha, deep = n.h.depth >= n.depth, nohash = !n.h.move;
+  const int cut = n.cut, corr = std::abs(n.signal) >> 16;   // correction size, up to about 1000
+#define RF_NODE(W) (W##TtPv * tp + W##TtPvPv * (tp & n.pv) + W##TtPvAbove * (tp & above) + W##TtPvDeep * (tp & deep) + \
+                    W##TtPvDeepCut * (tp & deep & cut) + W##Cut * cut + W##CutNoHash * (cut & nohash) +              \
+                    W##HashCapt * n.tact_hash + W##NoHash * nohash + W##Improving * n.improving +                    \
+                    W##OppWorse * n.opp_worse)
+  // Trust per 4096 of the base, the correction size per 256 in trust and per 16 in facts: finer steps than whole
+  // units, since a rounded weight on a feature that reaches ~1000 shifted the deep nodes by a tenth of a ply.
+  const int trust = RF_NODE(RfTrust) + RfTrustCorr * corr / 256, facts = RF_NODE(RfAdd) + RfAddCorr * corr / 16;
+#undef RF_NODE
+  const int cuts = f[1].cutoff_cnt;
+  const int gap = (tact || val_decided(n.alpha)) ? 0 : std::clamp(n.alpha - n.eval, -64, 96);
+  const int moves = RfStat * (f->stat_score >> 6) + RfCheck * gives + RfCapture * tact + RfCutoffs * (cuts > 1) +
+                    RfCutoffsMany * (cuts > 2) + RfGap * gap + RfPasser * passer + RfCausal * causal_hit +
+                    RfMoveNo * m + RfWindow * window_term + RfConst + RfAllCutoffs * (n.all && cuts > 1) + RfDepth * d;
+  // RfVolatile (ours, off): a node whose hash value is far from its corrected static evaluation is in motion, so its late
+  // moves are reduced by a weight per 16 units of that distance (at most 64 steps).
+  const int volatile_steps = (RfVolatile && val_known(n.h.value) && !val_decided(n.h.value))
+                                 ? std::min(std::abs(n.h.value - f->static_eval) >> 4, 64) : 0;
+  const int inner = base * (4096 + trust) / 4096 + facts + moves / 16 + RfVolatile * volatile_steps;
+  return n.all ? inner * (1024 + ((RfAllScale * rf_isqrt[d]) >> 10)) / 1024 : inner;
 }
 
 // ---------------------------------------------------------------------------
@@ -752,7 +868,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   s.ready = false;
   q.checks = &s.checks;
   int value = n.best, m;
-  int red_window = -1, red_window_term = 0;   // vedi base_reduction
+  int red_window = -1, red_window_term = 0, red_window_ours = 0;   // vedi base_reduction; ours: per 1024 of root_delta
   int first_quiet_no = 0;                     // LmrRank: numero della prima quieta ordinata del nodo
   // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
@@ -789,6 +905,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (n.beta - n.alpha != red_window) {
       red_window = n.beta - n.alpha;
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
+      red_window_ours = red_window * 1024 / td.root_delta;
     }
     // LmrRank (blocco 2 della 8.1, 16/10/2026, nostra; docs/development/8.1/SEARCH_2_REDUCTIONS.md nel repo): per una
     // quieta della lista ordinata, la riduzione di base non legge solo il suo numero d'ordine. Il numero "effettivo"
@@ -804,15 +921,22 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       const int mix = by_expert(n.expert, LmrRankMix0, LmrRankMix1, LmrRankMix2, LmrRankMix3);
       red_move_no = std::clamp((n.moves * (1024 - mix) + eff * mix) / 1024, 1, 255);
     }
-    int r = base_reduction(td, n.improving, n.depth, red_move_no, red_window_term);
-    if (gd_style)   // AnGold: riduzione di base al 97% in attacco, al 103% in manovra
-      r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
-    // LmrScaleExp (13/10/2026, spenta): pendenza della riduzione per esperto (LmrExp ne sposta solo il livello).
-    if (LmrScaleExp0 | LmrScaleExp1 | LmrScaleExp2 | LmrScaleExp3)
-      r = r * (1024 + by_expert(n.expert, LmrScaleExp0, LmrScaleExp1, LmrScaleExp2, LmrScaleExp3)) / 1024;
-    if (f->tt_pv)
-      r += LmrTtPvAdd;
-    r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
+    int r;
+    if (RedForm) {   // block 2: our reduction, the value the pruning rules read
+      r = red_entry_ours(f, n, red_move_no, red_window_ours);
+      if (gd_style)
+        r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
+    } else {
+      r = base_reduction(td, n.improving, n.depth, red_move_no, red_window_term);
+      if (gd_style)   // AnGold: riduzione di base al 97% in attacco, al 103% in manovra
+        r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
+      // LmrScaleExp (13/10/2026, spenta): pendenza della riduzione per esperto (LmrExp ne sposta solo il livello).
+      if (LmrScaleExp0 | LmrScaleExp1 | LmrScaleExp2 | LmrScaleExp3)
+        r = r * (1024 + by_expert(n.expert, LmrScaleExp0, LmrScaleExp1, LmrScaleExp2, LmrScaleExp3)) / 1024;
+      if (f->tt_pv)
+        r += LmrTtPvAdd;
+      r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
+    }
 #ifdef TRIUMV_REDLOG
     const int redlog_entry = r;   // the value skip_move reads
 #endif
@@ -860,6 +984,18 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       f[1].refute = 0;
     new_depth += ext;
 
+    if (tact) {
+      // Pezzo davvero catturato (per l'en passant e' il pedone, non la casa d'arrivo vuota).
+      const int took = kPieceKind[u.captured_piece & 15];
+      f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
+    }
+    else
+      f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
+                       StatCont2W * (*f[-2].cont_hist)[pc][to]) / 1024;
+    if (RedForm) {   // block 2: our reduction for the search of this move
+      const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
+      r = red_final_ours(f, n, red_move_no, tact, gives, passer, causal_hit, red_window_ours) + node_red;
+    } else {
     if (f->tt_pv)
       r -= LmrTtPvSub + deep_term(td, DeepTtPv) + n.pv * LmrTtPvPv + (n.h.value > n.alpha) * LmrTtPvAlpha +
            (n.h.depth >= n.depth) * (LmrTtPvDepth + n.cut * LmrTtPvCut);
@@ -875,14 +1011,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       r += LmrCutoffBase + LmrCutoffMany * (f[1].cutoff_cnt > 2) + LmrCutoffAll * n.all;
     else if (m == n.h.move)
       r -= LmrTTMove;
-    if (tact) {
-      // Pezzo davvero catturato (per l'en passant e' il pedone, non la casa d'arrivo vuota).
-      const int took = kPieceKind[u.captured_piece & 15];
-      f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
-    }
-    else
-      f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
-                       StatCont2W * (*f[-2].cont_hist)[pc][to]) / 1024;
     r -= f->stat_score * LmrStatDiv / 4096;
     if (!tact && !val_decided(n.alpha))
       r += 3 * std::clamp(n.alpha - n.eval, -64, 96);
@@ -903,6 +1031,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
         !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal))
       r += CausalRed;
+    }
     // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
     // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
     if (gd_style && n.depth > 5 && f->ply > 1) {
@@ -915,17 +1044,18 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
 
 #ifdef TRIUMV_REDLOG
-    // Block 2 data (18/10/2026): the features of every reduced move and the reduction it gets, for the fit of our
-    // own reduction formula. One record per sampled move, binary, one file per thread (redlog.h).
-    if (!AN && (n.depth >= 2 && n.moves > 1 || (!n.pv || n.moves > 1)))
-      redlog_write(td.thread_id, n.depth, n.moves, red_move_no, n.expert, f->stat_score,
-                   val_decided(n.alpha) ? 0 : n.alpha - n.eval, f[1].cutoff_cnt, redlog_entry, r, n.signal,
-                   red_window_term, f->ply,
-                   (n.improving << 0) | (f->tt_pv << 1) | (n.pv << 2) | (n.cut << 3) | (n.all << 4) | (tact << 5) |
-                   (gives << 6) | ((m == n.h.move) << 7) | (n.tact_hash << 8) | ((n.h.value > n.alpha) << 9) |
-                   ((n.h.depth >= n.depth) << 10) | (passer << 11) |
-                   ((CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal)) << 12) |
-                   ((!n.h.move) << 13) | ((n.depth >= 2 && n.moves > 1) << 14) | (n.opp_worse << 15));
+    // Block 2 data (18/10/2026): the features of a sampled reduced move, the reduction it gets and, written after its
+    // searches, what happened (redlog.h, version 2). Some moves that fail low at the reduced depth are searched again
+    // at full depth only to label them (probe): that extra search changes the tree of the data build only.
+    const bool redlog_on = !AN && n.depth >= 2 && n.moves > 1 && redlog_pick(td.thread_id);
+    const int redlog_flags =
+        (n.improving << 0) | (f->tt_pv << 1) | (n.pv << 2) | (n.cut << 3) | (n.all << 4) | (tact << 5) |
+        (gives << 6) | ((m == n.h.move) << 7) | (n.tact_hash << 8) | ((n.h.value > n.alpha) << 9) |
+        ((n.h.depth >= n.depth) << 10) | (passer << 11) |
+        ((CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal)) << 12) |
+        ((!n.h.move) << 13) | (1 << 14) | (n.opp_worse << 15);
+    const int redlog_gap = val_decided(n.alpha) ? 0 : n.alpha - n.eval, redlog_r = r, redlog_cuts = f[1].cutoff_cnt;
+    const int redlog_alpha = n.alpha;
 #endif
     if (n.depth >= 2 && n.moves > 1) {
       // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
@@ -945,15 +1075,48 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
       f->reduction = 0;
       f->negext = 0;
+#ifdef TRIUMV_REDLOG
+      const int value_red = value;
+#endif
       if (value > n.alpha) {
-        new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
+#ifdef TRIUMV_REDLOG
+        if (redlog_on && d < new_depth)
+          redres_probes<AN>(td, f, n, 1, d, new_depth, new_depth - 1, value, red_move_no, redlog_r, redlog_flags);
+#endif
+        if (ResOwn) {   // ours (01_params.inc, off): the margin over alpha must grow with the reduction and the correction
+          const int u = std::max(ResU0 + ResUc * (std::abs(n.signal) >> 16) / 64 + ResUr * (new_depth - d), 1);
+          const int margin = (value - n.alpha) * 64;
+          new_depth += (d < new_depth && margin > ResKp * u) - (margin < ResKm * u);
+        } else
+          new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
           value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
         learn_followups(f, pc, to, FollowFhBonus, n.expert);
       }
+#ifdef TRIUMV_REDLOG
+      if (redlog_on && !stop_threads.load(std::memory_order_relaxed)) {
+        // outcome bits: 1 reduced search above alpha, 2 re-searched, 4 final value above alpha, 8 probed, 16 probe
+        // above alpha (full-depth null-window search of a move that failed low reduced)
+        const int full = n.depth - 1 + ext;
+        int outcome = (value_red > redlog_alpha) | ((new_depth > d && value_red > redlog_alpha) << 1) |
+                      ((value > redlog_alpha) << 2);
+        if (value_red <= redlog_alpha && d < full && redlog_probe(td.thread_id)) {
+          const int vp = -explore<AN>(td, f + 1, -(redlog_alpha + 1), -redlog_alpha, full, !n.cut, false);
+          if (!stop_threads.load(std::memory_order_relaxed))
+            outcome |= 8 | ((vp > redlog_alpha) << 4);
+        }
+        redlog_write(td.thread_id, n.depth, n.moves, red_move_no, n.expert, f->stat_score, redlog_gap, redlog_cuts,
+                     redlog_entry, redlog_r, n.signal, red_window_term, f->ply, redlog_flags, outcome, d, full,
+                     std::clamp(n.h.value - f->static_eval, -32000, 32000), val_known(n.h.value));
+      }
+#endif
     } else if (!n.pv || n.moves > 1) {
       if (!n.h.move)
         r += e_lmr_no_tt_full(td);
+#ifdef TRIUMV_REDLOG
+      if (!AN && !n.pv && n.moves == 1 && n.depth >= 2 && new_depth >= 3 && redres_pick(td.thread_id))
+        redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);
+#endif
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha,
                        new_depth - (r > LmrDeepRed1) - (r > LmrDeepRed2 && new_depth > 2), !n.cut, false);
     }

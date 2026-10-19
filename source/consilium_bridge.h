@@ -92,6 +92,19 @@ void  nn_pos_set(void* handle);
 // The handle's dirty stack, written directly by the engine's make and unmake.
 NnStack* nn_pos_stack(void* handle);
 
+// Memory hint from the make (board before the move, bb[12] as above; phase = material band after the move): asks for
+// the network rows the move will change, so they are in cache when the child evaluates. Changes no state. Without a
+// capture capPc/capSq repeat pc/from; a promotion arrives as toPc.
+// The make calls it only where it pays (NN_MAKE_PREFETCH): xperf 18/10/2026, PGO, middlegame, -0.56% cycles per node on
+// AVX2 and +2.8% on AVX-512 (there the update hides the latency by itself, and the call in every make costs more).
+// So on in the AVX2 builds without AVX-512 (avx2, avx2-nopext, avxvnni); -DCN_MAKE_PREFETCH forces it on elsewhere,
+// -DCN_NO_MAKE_PREFETCH turns it off.
+#if !defined(CN_NO_MAKE_PREFETCH) && (defined(CN_MAKE_PREFETCH) || (defined(USE_AVX2) && !defined(USE_AVX512)))
+    #define NN_MAKE_PREFETCH 1
+#endif
+void  nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from, int toPc, int to, int capPc,
+                       int capSq);
+
 // Evaluate the current position (internal units, side to move). The network reads the engine's board: bb[12] in the
 // order P,N,B,R,Q,K,p,n,b,r,q,k, occ[3] = white/black/all, mailbox[64] with -1 = empty, all with a8 = 0. side_white and
 // rule50 are the search's. The dirty states up to this position must be complete (the engine's nn_dirty_catch_up).

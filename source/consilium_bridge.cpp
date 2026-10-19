@@ -511,6 +511,12 @@ void nn_pos_set(void* handle) { cn::reset(*static_cast<CnPos*>(handle)->h); }
 
 NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->stack; }
 
+void nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from, int toPc, int to, int capPc,
+                      int capSq) {
+    if (g_cn_view)
+        cn::prefetch_move(NET_REF, reinterpret_cast<const std::uint64_t*>(bb), phase, pc, from, toPc, to, capPc, capSq);
+}
+
 int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
                 int side_white, int rule50) {
     CnPos*        p = static_cast<CnPos*>(handle);

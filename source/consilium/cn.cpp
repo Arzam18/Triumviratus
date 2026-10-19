@@ -498,45 +498,70 @@ void apply(const RowList& L, const Acc& src, Acc& dst) {
     apply_tile<false>(L, src, dst, L1 / 2);
 }
 #elif defined(USE_AVX2)
-// AVX2: 16 registers; tiles of 8 registers (128 values), eight tiles.
+// AVX2: 16 registers; tiles of 8 registers (128 values), eight tiles. As on AVX-512, the first tile also sums the PSQT
+// values at the row tails (WithPsqt, a ninth register): apply_psqt afterwards ran four more loops over the rows, each
+// with an exit branch on a list length that changes from move to move (19/10/2026). -DCN_PSQT_SEPARATE goes back.
+template <bool WithPsqt>
+inline void apply_tile(const RowList& L, const Acc& src, Acc& dst, int t) {
+    constexpr int R = 8, W = 16;
+    __m256i       r[R];
+    __m256i       ps = WithPsqt ? _mm256_loadu_si256((const __m256i*)src.psqt) : _mm256_setzero_si256();
+    for (int k = 0; k < R; k++) r[k] = _mm256_loadu_si256((const __m256i*)(src.v + t + k * W));
+    for (int i = 0; i < L.n16a; i++) {
+        for (int k = 0; k < R; k++)
+            r[k] = _mm256_add_epi16(r[k], _mm256_load_si256((const __m256i*)(L.a16[i] + t + k * W)));
+        if (WithPsqt) ps = _mm256_add_epi32(ps, _mm256_load_si256((const __m256i*)(L.a16[i] + L1)));
+    }
+    for (int i = 0; i < L.n16s; i++) {
+        for (int k = 0; k < R; k++)
+            r[k] = _mm256_sub_epi16(r[k], _mm256_load_si256((const __m256i*)(L.s16[i] + t + k * W)));
+        if (WithPsqt) ps = _mm256_sub_epi32(ps, _mm256_load_si256((const __m256i*)(L.s16[i] + L1)));
+    }
+#ifdef CN_W1
+    // Interleaved int8 rows (CN_W1): one 32-byte load per pair of registers, widened on ports 0/1.
+    const __m256i even = _mm256_set1_epi16(1);   // u8 pairs (1, 0): vpmaddubsw keeps the signed even byte
+    for (int i = 0; i < L.n8a; i++) {
+        for (int k = 0; k < R; k += 2) {
+            const __m256i w = _mm256_load_si256((const __m256i*)(L.a8[i] + t + k * W));
+            r[k]     = _mm256_add_epi16(r[k], _mm256_maddubs_epi16(even, w));
+            r[k + 1] = _mm256_add_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_add_epi32(ps, _mm256_load_si256((const __m256i*)(L.a8[i] + L1)));
+    }
+    for (int i = 0; i < L.n8s; i++) {
+        for (int k = 0; k < R; k += 2) {
+            const __m256i w = _mm256_load_si256((const __m256i*)(L.s8[i] + t + k * W));
+            r[k]     = _mm256_sub_epi16(r[k], _mm256_maddubs_epi16(even, w));
+            r[k + 1] = _mm256_sub_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_sub_epi32(ps, _mm256_load_si256((const __m256i*)(L.s8[i] + L1)));
+    }
+#else
+    for (int i = 0; i < L.n8a; i++) {
+        for (int k = 0; k < R; k++)
+            r[k] = _mm256_add_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.a8[i] + t + k * W))));
+        if (WithPsqt) ps = _mm256_add_epi32(ps, _mm256_load_si256((const __m256i*)(L.a8[i] + L1)));
+    }
+    for (int i = 0; i < L.n8s; i++) {
+        for (int k = 0; k < R; k++)
+            r[k] = _mm256_sub_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.s8[i] + t + k * W))));
+        if (WithPsqt) ps = _mm256_sub_epi32(ps, _mm256_load_si256((const __m256i*)(L.s8[i] + L1)));
+    }
+#endif
+    for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(dst.v + t + k * W), r[k]);
+    if (WithPsqt) _mm256_storeu_si256((__m256i*)dst.psqt, ps);
+}
+
 void apply(const RowList& L, const Acc& src, Acc& dst) {
     CN_TIME(3);
-    constexpr int R = 8, W = 16;
-    for (int t = 0; t < L1; t += R * W) {
-        __m256i r[R];
-        for (int k = 0; k < R; k++) r[k] = _mm256_loadu_si256((const __m256i*)(src.v + t + k * W));
-        for (int i = 0; i < L.n16a; i++)
-            for (int k = 0; k < R; k++)
-                r[k] = _mm256_add_epi16(r[k], _mm256_load_si256((const __m256i*)(L.a16[i] + t + k * W)));
-        for (int i = 0; i < L.n16s; i++)
-            for (int k = 0; k < R; k++)
-                r[k] = _mm256_sub_epi16(r[k], _mm256_load_si256((const __m256i*)(L.s16[i] + t + k * W)));
-#ifdef CN_W1
-        // Interleaved int8 rows (CN_W1): one 32-byte load per pair of registers, widened on ports 0/1.
-        const __m256i even = _mm256_set1_epi16(1);   // u8 pairs (1, 0): vpmaddubsw keeps the signed even byte
-        for (int i = 0; i < L.n8a; i++)
-            for (int k = 0; k < R; k += 2) {
-                const __m256i w = _mm256_load_si256((const __m256i*)(L.a8[i] + t + k * W));
-                r[k]     = _mm256_add_epi16(r[k], _mm256_maddubs_epi16(even, w));
-                r[k + 1] = _mm256_add_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
-            }
-        for (int i = 0; i < L.n8s; i++)
-            for (int k = 0; k < R; k += 2) {
-                const __m256i w = _mm256_load_si256((const __m256i*)(L.s8[i] + t + k * W));
-                r[k]     = _mm256_sub_epi16(r[k], _mm256_maddubs_epi16(even, w));
-                r[k + 1] = _mm256_sub_epi16(r[k + 1], _mm256_srai_epi16(w, 8));
-            }
-#else
-        for (int i = 0; i < L.n8a; i++)
-            for (int k = 0; k < R; k++)
-                r[k] = _mm256_add_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.a8[i] + t + k * W))));
-        for (int i = 0; i < L.n8s; i++)
-            for (int k = 0; k < R; k++)
-                r[k] = _mm256_sub_epi16(r[k], _mm256_cvtepi8_epi16(_mm_load_si128((const __m128i*)(L.s8[i] + t + k * W))));
-#endif
-        for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(dst.v + t + k * W), r[k]);
-    }
+    constexpr int TILE = 8 * 16;
+#ifdef CN_PSQT_SEPARATE
+    for (int t = 0; t < L1; t += TILE) apply_tile<false>(L, src, dst, t);
     apply_psqt(L, src.psqt, dst.psqt);
+#else
+    apply_tile<true>(L, src, dst, 0);
+    for (int t = TILE; t < L1; t += TILE) apply_tile<false>(L, src, dst, t);
+#endif
 }
 #else
 void apply(const RowList& L, const Acc& src, Acc& dst) {
@@ -1280,6 +1305,34 @@ void reset(Handle& h) {
     S.st[0].idx = 0;
     S.st[0].threats.n = 0;
     S.v1PassW[0] = S.v1PassB[0] = ~0ULL;
+}
+
+// The HalfKA rows a move changes for both perspectives (the piece leaving, the piece arriving, the captured piece),
+// first line and PSQT line of each, requested from the make (19/10/2026): the hash probe and the rest of the child
+// node cover the memory latency before its evaluation reads them (push16 asks for the same lines, then already in
+// cache). Without a capture the captured row is the leaving one again, so nothing depends on a branch. A king move
+// refreshes its own perspective from the cache instead, and the rows asked for there go unused. Only a hint: no
+// state is read or written besides the king squares. -DCN_NO_MAKE_PREFETCH turns it off.
+void prefetch_move(const Net& net, const std::uint64_t* bb, int phase, int pc, int from, int toPc, int to, int capPc,
+                   int capSq) {
+#ifndef CN_NO_MAKE_PREFETCH
+    for (int p = 0; p < 2; p++) {
+        const int           ksq  = CN_LSB(bb[KING + 6 * p]);
+        const int           base = phase * HKA_PHASE_ROWS + g_kb[p][ksq];
+        const std::int16_t (*hk)[64] = g_hk[p][mirror_hka(ksq)];
+        const std::int16_t* r0 = net.wHka[base + hk[pc][from]];
+        const std::int16_t* r1 = net.wHka[base + hk[toPc][to]];
+        const std::int16_t* r2 = net.wHka[base + hk[capPc][capSq]];
+        CN_PREFETCH(r0);
+        CN_PREFETCH(r0 + L1);
+        CN_PREFETCH(r1);
+        CN_PREFETCH(r1 + L1);
+        CN_PREFETCH(r2);
+        CN_PREFETCH(r2 + L1);
+    }
+#else
+    (void)net, (void)bb, (void)phase, (void)pc, (void)from, (void)toPc, (void)to, (void)capPc, (void)capSq;
+#endif
 }
 
 Out evaluate_refresh(const Net& net, const Board& b, Acc acc[2]) {

@@ -52,3 +52,102 @@ ordering scores, the distance says less than the move number. With the coarse ve
 Status: off. `LmrRank` adds a signal without replacing any inherited formula, so it waits for the rewrite of this
 block, where it is tuned again with the other terms at a longer time control and 16 games per iteration: effects of
 one or two Elo on the reductions are below what an 8-game iteration at 8 seconds can resolve.
+
+## 2.4 A reduction formula of our own (`RedForm`)
+
+**Rule.** The rewrite of this block does not keep the inherited formula behind new names, even at an identical tree.
+A form that gives the same reduction to every move computes the same function, with the same coefficients. So the
+block starts from data and a form of its own, and accepts a changed tree from the first step: games prove the non-regression.
+
+**Data.** A build compiled with `TRIUMV_REDLOG` writes, for one move in 256 that reaches the late-move code, the
+features of the node and of the move and the reduction the current formula gives it (`redlog.h`). 6,000 positions
+taken from our own test games, stratified so that each expert of the network gets 1,500, were searched to one million
+nodes each: 20.7 million records (`tools/redlog_collect.py`).
+
+**Form.** In units of 1/1024 ply, with d the depth, m the move number and e the expert of the node:
+
+- *base*: a power law with an amplitude per expert, A[e] · max(d + d0, 0.5)^α · max(m + m0, 0.5)^β, read from two
+  tables built from the parameters;
+- *trust*: the features that say how far the node can be believed (hash entry on the principal variation, its value
+  and depth, expected cut node, hash capture, no hash move, improvement, the opponent worsening, the size of the
+  evaluation correction) scale the base by (1024 + trust) / 1024;
+- *facts*: the same features also add a fixed amount, and the move adds its own terms: statistic score, check,
+  capture, cutoffs of the children, the gap between alpha and the evaluation for quiet moves, passed-pawn push, the
+  causal term, move number, window, depth;
+- *all nodes*: the whole value grows by a share that fades as 1/√d.
+
+The pruning rules read a lighter value of the same kind: a power law scaled by improvement, plus the hash entry on
+the principal variation, the move number, the window and a constant.
+
+**Fit.** Alternating least squares, with a grid over the exponents and the offsets, then rounding to integers and an
+emulation of the integer arithmetic of the engine (`tools/redfit_engine.py`). On the reduced moves the new formula
+searches 92% of them at the same depth as before and all of them within one ply; the value read by the pruning rules
+gives the same depth on 88%. Two lessons from the fit: a factor of trust on every node feature at once reached only
+70% (the node facts are mostly additive), and an encoding of the correction size cut at a low ceiling lost a term
+worth up to two and a half plies, since the correction reaches millions of internal units.
+
+### Method, step by step
+
+The same method can replace any inherited formula of the search. It has six steps.
+
+1. **Instrument.** A data build (`TRIUMV_REDLOG`) records, for a sample of the decisions, every input the formula
+   reads and the value it returns. The record is written at the place where the value is used, so it sees exactly
+   what the search sees. The tree of the data build is the tree of the engine (same bench).
+2. **Collect on our own positions.** Positions are taken from our own test games, one per piece band per game, in
+   equal numbers for the four experts of the network, and searched to a fixed node count with one thread. The
+   sample covers every depth the games reach and every phase.
+3. **Choose a form of our own.** The form is chosen before the fit and is not the inherited one. Here: a power law
+   per expert in place of the product of two logarithms, a trust factor on the base, additive facts, a scale for all
+   nodes that fades as 1/√d. A test with the inherited base inside our form gave the same fidelity (80% against 80%),
+   so the choice of base costs nothing.
+4. **Fit and check the residual.** Least squares on the recorded values, a grid on the shape parameters, and a check
+   against an oracle: the inherited structure fitted with the same tools. When our form falls far below the oracle,
+   the gap points to a missing input or a wrong encoding. This is how two faults were found: the
+   node features were mostly additive, so a pure trust factor reached only 70%; and the correction size had been
+   capped at a value that 90% of the nodes exceeded.
+5. **Emulate the integers.** The parameters are rounded and the integer arithmetic of the engine (shifts, truncated
+   divisions, table lookups) is reproduced in the fit tool, so the reported fidelity is the fidelity of the engine.
+   The fidelity is measured on the depth the search actually uses, after its truncation and its clamps.
+6. **Test with games, then tune.** The new formula enters behind a switch on the same binary (`RedForm`), and an SPRT
+   compares the two forms. Tuning comes after, and a lever enters a package only if its move is larger than noise
+   (see below).
+
+### Tests
+
+| Test | Conditions | Games | Elo | Outcome |
+|---|---|---|---|---|
+| First form (correction size wrongly capped) | 8+0.08, HT | 1,500 | −3.98 ± 9.29 | stopped: fault found in the fit |
+| Fitted form | 8+0.08, HT | 4,044 | +1.80 ± 5.54 | level |
+| Fitted form + 15 levers moved by a coarse SPSA (459 iterations) | 8+0.08, HT | ~3,000 | −4.07 ± 6.50 | stopped: the moves were noise |
+| Fitted form, both tests pooled | 8+0.08 and 12+0.12, HT | 8,276 | −0.67 ± 3.84 | baked on 18 October |
+| Fitted form at a long time control | 20+0.2, no HT | 7,422 | −2.43 ± 3.84 | refit |
+| Refit on the engine with block 1 reverted (26.5 million moves) | 10+0.1 and 6+0.06, no HT | 4,278 | +0.32 ± 5.20 | level |
+
+### What the coarse tuning taught
+
+The SPSA run on 37 levers (8+0.08 without hyperthreading, 16 games per iteration) moved no lever beyond noise: the
+largest net move was 1.4 times what a random walk with the same steps would give. A package built from levers that
+moved "steadily" lost about four Elo, as an earlier package of the evaluation scale had. The reason is statistical: the
+mean of segments of a pure random walk looks monotonic (rank correlation of 0.85 or more) in 30% of cases, so with
+37 levers about 11 pass that test by chance, and baking random moves away from a point that is already good costs
+strength. From here a lever enters a package only when its net move is at least 2.5 times the random-walk
+expectation, and a run with no such lever leaves the values where they are.
+
+## 2.5 Taken back out, to come back one piece at a time (19 October 2026)
+
+The reduction of our own, the re-search rule of our own (`ResOwn`: the depth of the re-search after a reduced move
+fails high, from its margin over alpha against the uncertainty of the node; fit on 9.2 million moves, +0.22 ± 4.42
+over 6,238 games against the old margins) and `RfVolatile` were each level or slightly positive against the form they
+replaced. Built together into 8.1 and measured against the official 8.0, they lost at every long time control, and the
+new build searched 0.35 to 0.6 ply less deep at the same time per move: a wider tree that ate the speed gained
+elsewhere. Level tests of single pieces leave room for losses of two or three Elo each, and three of them add up.
+
+So block 2 returns to the tree of 8.0. The three pieces stay in the code as options, off, with their fitted values
+(`RedForm`, `ResOwn`, `RfVolatile`), and each comes back alone against the new base, with a test at a long time
+control and a check of the depth reached, before the next one is tried. The base itself, the rewritten code of the
+other blocks at the tree of 8.0, is +10.97 ± 5.67 Elo against 8.0 (section 3 of `DEVELOPMENT_8.1.md`).
+
+Two lessons of the re-search fit. A grid that contains the inherited form as a special case falls back onto it (with
+the margin on value minus best allowed, the best fit was the old rule with 48 in place of 51), so a fit of a rule of
+our own leaves that form out. And probes that share the hash table must run in random order: in a fixed order the
+deeper probe found the table filled by the shallower ones and looked almost free.

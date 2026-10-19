@@ -107,6 +107,9 @@ void reset(Handle& h);            // back to the root: one state, nothing comput
 Out  evaluate(const Net& net, Handle& h, const Board& b);       // incremental along the stack
 Out  evaluate_refresh(const Net& net, const Board& b, Acc acc[2]);  // from scratch, both perspectives
 bool same_accumulators(const Handle& h, const Acc acc[2]);       // nnueverify: top of the stack == refresh
+// Memory hint from the make: the HalfKA rows of a move (board before the move, phase after it). No state changes.
+void prefetch_move(const Net& net, const std::uint64_t* bb, int phase, int pc, int from, int toPc, int to, int capPc,
+                   int capSq);
 
 extern int g_bucket_override;     // EvalBucketOverride probe: -1 normal, 0..7 forces the output bucket
 

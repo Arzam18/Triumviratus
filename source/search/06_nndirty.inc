@@ -333,6 +333,15 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
   dp.phase = nn_phase_of_count[pieces - (cap != -1)];
   dp.phaseChanged = nn_phase_of_count[pieces] != dp.phase;
   // Minacce e pedoni: nn_dirty_catch_up, solo se si arriva a una valutazione.
+  // Prefetch of the network rows this move changes (19/10/2026): the memory latency runs under the hash probe and the
+  // rest of the child node instead of at the start of its evaluation. Without a capture the third row repeats the
+  // first (no branch). The rook of a castling move is left out (rare). Only where it pays (NN_MAKE_PREFETCH,
+  // consilium_bridge.h: the AVX2 builds without AVX-512).
+#ifdef NN_MAKE_PREFETCH
+  const bool hasCap = cap != -1;
+  nn_prefetch_move(td.bitboards, dp.phase, piece, source, promoted ? promoted : piece, target, hasCap ? cap : piece,
+                   hasCap ? capSq : source);
+#endif
 }
 
 // La mossa appena registrata non si fa (illegale) o si disfa (unmake): lo stato esce dalla pila.

@@ -1,6 +1,39 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// RESTORE BLOCK 2 (19/10/2026, user): block 2 goes back to the tree of 8.0. 8.1 against 8.0 lost at every long time
+// control (10+0.1 without HT -4.5 +- 9.7 over 1,312 after the block 1 revert) and searched 0.35 ply less deep at the
+// same time per move. The reduction of our own (RedForm) and the re-search rule of our own (ResOwn) stay in the code
+// as options, off, with their fitted values, to be measured again one at a time; RfVolatile stays at 0. The previous
+// formula, its parameters and the old margins are back from _pre_bake_redform_2026-10-18. Default tree: that of 8.0
+// with the promotion gain in the exchange evaluation (bench 126352, 137419 without it). Backup of the source before
+// this change: _pre_ripristino_blocco2_2026-10-19. The notes below up to BAKE BLOCK 2 REDUCTION describe the bakes
+// this restore undoes.
+// BAKE RESOWN (19/10/2026, user): the re-search depth after a reduced move fails high is ours (margin over alpha
+// against the uncertainty of the node, ResU0..ResKm, fit on 9.2 million moves) and replaces the margins on value - best
+// (DeeperMargin 51, ShallowerMargin 8, removed with the option ResOwn). SPRT ResOwn=1 against the old rule at 10+0.1
+// and 6+0.06 without HT and 8+0.08 with HT, pooled: +0.22 +- 4.42 Elo over 6,238 games, accepted as level. Bench 223002 (before
+// 141759; the tm80 binary with ResOwn=1 gives the same 223002). Backup _pre_bake_resown_2026-10-19.
+// BLOCK 2 REFIT (18/10/2026): the reduction fitted again on the engine with block 1 reverted (26.5 million moves);
+// against the old formula +0.32 +- 5.20 over 4,278 games (10+0.1 and 6+0.06 without HT, closed as level). Bench 141759.
+// REVERT BLOCK 1 TUNING (18/10/2026, user): the block 1 values go back to those that reproduce the tree of 8.0 (the
+// code stays ours). At long time controls 8.1 lost to 8.0 (20+0.2 without HT -7.7 +- 6.3 / 2,848; on a second machine
+// at 12+0.12 -10.2), and the build with the old reduction formula still lost (-5.9 +- 5.4 / 4,120 at 12+0.12): the
+// rewrites are byte-identical, so the loss came from the tuned values, chosen with a selection rule that also passes
+// random walks. Reverted: the 24 levers of the BAKE BLOCK 1 below, ThrEsc/ThrEnt 25 -> 20, ThreatHist 3 -> 0 (weights
+// 1024). The promotion gain in the exchange evaluation (Bastiii) stays. Backup _pre_revert_blocco1_2026-10-18.
+// UNBAKE RFVOLATILE (19/10/2026, user): back to 0, the lean below was never confirmed by an SPRT; back in the queue. Bench 463725
+// (before 223002; the tm80 binary with ResOwn=1 RfVolatile=0 gives the same).
+// BAKE RFVOLATILE (18/10/2026, user, provisional until the block 2 SPSA): RfVolatile 0 -> -8, late moves reduced
+// less where the hash value is far from the corrected static evaluation (13_search.inc, red_final_ours). +1.70 +- 3.62
+// Elo over 8,808 games (12+0.12 with HT and 8+0.08 without, pooled); -16 was level (+0.78 +- 6.88 at 4+0.04, about
+// 2,500 games; -1.0 in a package with ChkDisc). Bench 208468 (before 268168).
+// BAKE BLOCK 2 REDUCTION (18/10/2026, user): the late-move reduction of our own (power law per expert, trust factor,
+// node and move facts, all-node scale; values from the fit on 20.7 million moves) replaces the previous formula. Tests
+// of the fitted form against the previous one, pooled: +0.51 +- 4.03 Elo over 7,542 games (8+0.08 and 12+0.12, HT).
+// Removed with it: the log table and LmrLogMul, LmrBase, LmrNotImproving, LmrDeltaMul, LmrTtPv*, LmrOffset,
+// LmrMoveCount, LmrCorrDiv, LmrCutNode, LmrCutNoTT, LmrTTCapture, LmrCutoff*, LmrTTMove, LmrStatDiv, LmrAllNode,
+// LmrAllDivBase, LmrExp0-3, LmrScaleExp0-3 and their Lt offsets. Backup _backup/Triumviratus_8.0_pre_bake_redform_2026-10-18.
 // BAKE BLOCK 1 (17/10/2026 evening, user): the values of our own for block 1 of 8.1. ThreatHist 0 -> 3 with ThreatCtxW
 // 1156 and ThreatCtxUpd 1083 (provisional, own SPRT at the end of the queue), ThrEsc 20 -> 25/25/25/27, ThrEnt 20 -> 25,
 // and the 24 "safe" levers that moved in the SPSA runs (movement >= 0.25 c and |z| >= 1 or monotonic, low or moderate
@@ -214,10 +247,10 @@
   /*    moves tried before it (HlQMalus) and its decay along the list (HlQDecay), reward and penalty of captures  */ \
   /*    (HlCBonus, HlCMalus). They replace five single scales with the same values (removed).                    */ \
   P(HlQBonus0, 860, 300, 2000)  P(HlQBonus1, 860, 300, 2000)  P(HlQBonus2, 860, 300, 2000)  P(HlQBonus3, 860, 300, 2000)  \
-  P(HlQMalus0, 1043, 300, 2500) P(HlQMalus1, 1043, 300, 2500) P(HlQMalus2, 847, 300, 2500)  P(HlQMalus3, 941, 300, 2500)  \
-  P(HlQDecay0, 921, 600, 1024)  P(HlQDecay1, 922, 600, 1024)  P(HlQDecay2, 921, 600, 1024)  P(HlQDecay3, 921, 600, 1024)  \
+  P(HlQMalus0, 1043, 300, 2500) P(HlQMalus1, 1043, 300, 2500) P(HlQMalus2, 1043, 300, 2500)  P(HlQMalus3, 1043, 300, 2500)  \
+  P(HlQDecay0, 921, 600, 1024)  P(HlQDecay1, 921, 600, 1024)  P(HlQDecay2, 921, 600, 1024)  P(HlQDecay3, 921, 600, 1024)  \
   P(HlCBonus0, 1368, 400, 3000) P(HlCBonus1, 1368, 400, 3000) P(HlCBonus2, 1368, 400, 3000) P(HlCBonus3, 1368, 400, 3000) \
-  P(HlCMalus0, 1280, 400, 3000) P(HlCMalus1, 1270, 400, 3000) P(HlCMalus2, 1270, 400, 3000) P(HlCMalus3, 1270, 400, 3000) \
+  P(HlCMalus0, 1270, 400, 3000) P(HlCMalus1, 1270, 400, 3000) P(HlCMalus2, 1270, 400, 3000) P(HlCMalus3, 1270, 400, 3000) \
   /* F. Gravity of the saturating update, /1024 (lower = closer to the limit): HlGrav quiet histories (main,      */ \
   /*    first plies, pawn, continuations), HlCGrav captures, CorrGrav corrections, TtmGrav hash-move history.     */ \
   /* G. HlAux scale of the first-ply, pawn and continuation updates; HlFNear / HlFFar continuations at 1-2 and   */ \
@@ -228,16 +261,16 @@
   P(HlGrav0, 1024, 768, 1536)   P(HlGrav1, 1024, 768, 1536)   P(HlGrav2, 1024, 768, 1536)   P(HlGrav3, 1024, 768, 1536)   \
   P(HlCGrav0, 1024, 768, 1536)  P(HlCGrav1, 1024, 768, 1536)  P(HlCGrav2, 1024, 768, 1536)  P(HlCGrav3, 1024, 768, 1536)  \
   P(HlAux0, 1024, 256, 2048)    P(HlAux1, 1024, 256, 2048)    P(HlAux2, 1024, 256, 2048)    P(HlAux3, 1024, 256, 2048)    \
-  P(HlFNear0, 1024, 256, 2048)  P(HlFNear1, 1024, 256, 2048)  P(HlFNear2, 821, 256, 2048)   P(HlFNear3, 1024, 256, 2048)  \
-  P(HlFFar0, 1024, 256, 2048)   P(HlFFar1, 1024, 256, 2048)   P(HlFFar2, 1024, 256, 2048)   P(HlFFar3, 879, 256, 2048)    \
-  P(HlDepthQ0, 0, -64, 64)      P(HlDepthQ1, -1, -64, 64)     P(HlDepthQ2, 0, -64, 64)      P(HlDepthQ3, 0, -64, 64)      \
-  P(HlEval0, 1024, 0, 2048)     P(HlEval1, 1024, 0, 2048)     P(HlEval2, 1024, 0, 2048)     P(HlEval3, 1148, 0, 2048)     \
+  P(HlFNear0, 1024, 256, 2048)  P(HlFNear1, 1024, 256, 2048)  P(HlFNear2, 1024, 256, 2048)   P(HlFNear3, 1024, 256, 2048)  \
+  P(HlFFar0, 1024, 256, 2048)   P(HlFFar1, 1024, 256, 2048)   P(HlFFar2, 1024, 256, 2048)   P(HlFFar3, 1024, 256, 2048)    \
+  P(HlDepthQ0, 0, -64, 64)      P(HlDepthQ1, 0, -64, 64)     P(HlDepthQ2, 0, -64, 64)      P(HlDepthQ3, 0, -64, 64)      \
+  P(HlEval0, 1024, 0, 2048)     P(HlEval1, 1024, 0, 2048)     P(HlEval2, 1024, 0, 2048)     P(HlEval3, 1024, 0, 2048)     \
   P(HtCapt0, 1024, 256, 2048)   P(HtCapt1, 1024, 256, 2048)   P(HtCapt2, 1024, 256, 2048)   P(HtCapt3, 1024, 256, 2048)   \
-  P(HtVict0, 7001, 3584, 10752) P(HtVict1, 6015, 3584, 10752) P(HtVict2, 7168, 3584, 10752) P(HtVict3, 7168, 3584, 10752) \
+  P(HtVict0, 7168, 3584, 10752) P(HtVict1, 7168, 3584, 10752) P(HtVict2, 7168, 3584, 10752) P(HtVict3, 7168, 3584, 10752) \
   P(HeMain0, 1024, 256, 2048)   P(HeMain1, 1024, 256, 2048)   P(HeMain2, 1024, 256, 2048)   P(HeMain3, 1024, 256, 2048)   \
-  P(HeCont0, 1024, 0, 2048)     P(HeCont1, 1024, 0, 2048)     P(HeCont2, 1024, 0, 2048)     P(HeCont3, 1280, 0, 2048)     \
+  P(HeCont0, 1024, 0, 2048)     P(HeCont1, 1024, 0, 2048)     P(HeCont2, 1024, 0, 2048)     P(HeCont3, 1024, 0, 2048)     \
   P(EvPen0, 1024, 256, 2048)    P(EvPen1, 1024, 256, 2048)    P(EvPen2, 1024, 256, 2048)    P(EvPen3, 1024, 256, 2048)    \
-  P(CorrGrav0, 1024, 768, 1536) P(CorrGrav1, 1061, 768, 1536) P(CorrGrav2, 1024, 768, 1536) P(CorrGrav3, 1024, 768, 1536) \
+  P(CorrGrav0, 1024, 768, 1536) P(CorrGrav1, 1024, 768, 1536) P(CorrGrav2, 1024, 768, 1536) P(CorrGrav3, 1024, 768, 1536) \
   /* I. CorrGain weight of the correction in the evaluation (/1024); CorrDepthQ quadratic depth term of its      */ \
   /*    reward, d + q*d*d/64 (0 = linear).                                                                       */ \
   P(CorrGain0, 1024, 256, 2048) P(CorrGain1, 1024, 256, 2048) P(CorrGain2, 1024, 256, 2048) P(CorrGain3, 1024, 256, 2048) \
@@ -256,7 +289,7 @@
   /*            (1024 = the old -score/19, same truncation)                                                     */ \
   /*    StQuiet boundary between good quiet moves (before losing captures) and bad ones                         */ \
   /*    StSort  quiet moves with score >= -StSort x depth are sorted, the rest keep generation order            */ \
-  P(StGood0, 1024, 256, 3072)   P(StGood1, 1138, 256, 3072)   P(StGood2, 1024, 256, 3072)   P(StGood3, 1024, 256, 3072)   \
+  P(StGood0, 1024, 256, 3072)   P(StGood1, 1024, 256, 3072)   P(StGood2, 1024, 256, 3072)   P(StGood3, 1024, 256, 3072)   \
   P(StQuiet0, -15563, -30000, 0) P(StQuiet1, -15563, -30000, 0) P(StQuiet2, -15563, -30000, 0) P(StQuiet3, -15563, -30000, 0) \
   P(StSort0, 3223, 1000, 8000)  P(StSort1, 3223, 1000, 8000)  P(StSort2, 3223, 1000, 8000)  P(StSort3, 3223, 1000, 8000)  \
   /* B. Checks in the quiet-move score (11_queue.inc):                                                          */ \
@@ -269,21 +302,21 @@
   /*    ThrEsc  the piece leaves a square attacked by a lower-value enemy piece                                 */ \
   /*    ThrEnt  the piece enters such a square (one weight, ThreatOrderMul = 20, served both; tuned value 25)   */ \
   /*    ThrSafe ours, off: extra bonus when the threatened piece escapes to an unattacked square; own SPRT      */ \
-  P(ThrEsc0, 25, 0, 60)  P(ThrEsc1, 25, 0, 60)  P(ThrEsc2, 25, 0, 60)  P(ThrEsc3, 27, 0, 60)              \
-  P(ThrEnt0, 25, 0, 60)  P(ThrEnt1, 25, 0, 60)  P(ThrEnt2, 25, 0, 60)  P(ThrEnt3, 25, 0, 60)              \
+  P(ThrEsc0, 20, 0, 60)  P(ThrEsc1, 20, 0, 60)  P(ThrEsc2, 20, 0, 60)  P(ThrEsc3, 20, 0, 60)              \
+  P(ThrEnt0, 20, 0, 60)  P(ThrEnt1, 20, 0, 60)  P(ThrEnt2, 20, 0, 60)  P(ThrEnt3, 20, 0, 60)              \
   P(ThrSafe0, 0, 0, 60)  P(ThrSafe1, 0, 0, 60)  P(ThrSafe2, 0, 0, 60)  P(ThrSafe3, 0, 0, 60)              \
   /* A. LpDecay: how fast the first-ply history weight falls, 8 x entry x 1024 / (1024 + ply x LpDecay);        */ \
   /*    1024 = the old 8 x entry / (1 + ply), 0 = the same weight at every ply. Max 3072: beyond it the 40-bit  */ \
   /*    reciprocal of 11_queue.inc is no longer exact.                                                          */ \
-  P(LpDecay0, 1024, 0, 3072) P(LpDecay1, 1122, 0, 3072) P(LpDecay2, 1024, 0, 3072) P(LpDecay3, 1024, 0, 3072) \
+  P(LpDecay0, 1024, 0, 3072) P(LpDecay1, 1024, 0, 3072) P(LpDecay2, 1024, 0, 3072) P(LpDecay3, 1024, 0, 3072) \
   /* Threat-context history (09_history.inc), shared by all experts: 0 = off (old tree), 1-3 = factored form   */ \
   /* (flat table always updated + a correction per context, read only by the ordering; 3 is the value used in   */ \
   /* the tuning runs). The separate-table forms were removed on 17/10/2026 (H0 at 8+0.08).                      */ \
   /* BAKE 17/10/2026 (block 1, see the head of the file): ThreatHist 0 -> 3, ThreatCtxW 1024 -> 1156,           */ \
   /* ThreatCtxUpd 1024 -> 1083 (provisional: own SPRT of ThreatHist at the end of the 8.1 queue).               */ \
-  P(ThreatHist, 3, 0, 3)                                                                                  \
-  P(ThreatCtxW, 1156, 0, 3072)           /* weight of the context correction in the ordering, /1024 */          \
-  P(ThreatCtxUpd, 1083, 0, 3072)         /* scale of the update of the context correction, /1024 */             \
+  P(ThreatHist, 0, 0, 3)                                                                                  \
+  P(ThreatCtxW, 1024, 0, 3072)           /* weight of the context correction in the ordering, /1024 */          \
+  P(ThreatCtxUpd, 1024, 0, 3072)         /* scale of the update of the context correction, /1024 */             \
   /* ThreatBal (ours, off; the package lost -17): one threat balance of a quiet move in place of the fixed      */ \
   /* threat term and the safe-square attack bonuses (11_queue.inc); weight per expert, share of the target /1024. */ \
   P(ThreatBal, 0, 0, 1)                                                                                   \
@@ -299,10 +332,10 @@
   /* A. Reading the histories in the quiet-move score (11_queue.inc), /1024: main history (old weight x2), pawn  */ \
   /*    history (x2), near continuations cont1+cont2 (x1), far ones cont3+cont4+cont6 (x1), first plies (x1),    */ \
   /*    and HmAgree (ours): share of the smaller of cont1 and cont2 when they agree in sign (0 = none).          */ \
-  P(HmMain0, 2048, 0, 6144) P(HmMain1, 2049, 0, 6144) P(HmMain2, 2048, 0, 6144) P(HmMain3, 2048, 0, 6144) \
-  P(HmPawn0, 2279, 0, 6144) P(HmPawn1, 2048, 0, 6144) P(HmPawn2, 2007, 0, 6144) P(HmPawn3, 2048, 0, 6144) \
-  P(HmNear0, 1024, 0, 3072) P(HmNear1, 1024, 0, 3072) P(HmNear2, 1024, 0, 3072) P(HmNear3, 1154, 0, 3072) \
-  P(HmFar0, 1024, 0, 3072)  P(HmFar1, 1028, 0, 3072)  P(HmFar2, 1005, 0, 3072)  P(HmFar3, 1158, 0, 3072)  \
+  P(HmMain0, 2048, 0, 6144) P(HmMain1, 2048, 0, 6144) P(HmMain2, 2048, 0, 6144) P(HmMain3, 2048, 0, 6144) \
+  P(HmPawn0, 2048, 0, 6144) P(HmPawn1, 2048, 0, 6144) P(HmPawn2, 2048, 0, 6144) P(HmPawn3, 2048, 0, 6144) \
+  P(HmNear0, 1024, 0, 3072) P(HmNear1, 1024, 0, 3072) P(HmNear2, 1024, 0, 3072) P(HmNear3, 1024, 0, 3072) \
+  P(HmFar0, 1024, 0, 3072)  P(HmFar1, 1024, 0, 3072)  P(HmFar2, 1024, 0, 3072)  P(HmFar3, 1024, 0, 3072)  \
   P(HmLow0, 1024, 0, 3072)  P(HmLow1, 1024, 0, 3072)  P(HmLow2, 1024, 0, 3072)  P(HmLow3, 1024, 0, 3072)  \
   P(HmAgree0, 0, -1024, 1024) P(HmAgree1, 0, -1024, 1024) P(HmAgree2, 0, -1024, 1024) P(HmAgree3, 0, -1024, 1024) \
   P(LmrRank, 0, 0, 1)                                                                                     \
@@ -413,6 +446,17 @@
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
   P(DeeperMargin, 51, 0, 200)                                                                             \
   P(ShallowerMargin, 8, 0, 60)                                                                            \
+  /* ResOwn (19/10/2026, ours, off): re-search depth after a reduced move fails high from its margin over alpha  */ \
+  /* against the uncertainty of the node, u = ResU0 + ResUc*corr/64 + ResUr*(plies of reduction); one ply deeper */ \
+  /* above ResKp*u/64, one shallower below ResKm*u/64 (fit on 9.2 million moves, redres_fit.py). Against the old */ \
+  /* margins +0.22 +- 4.42 over 6,238 games (10+0.1 and 6+0.06 noHT, 8+0.08 HT); baked on 19/10 and taken back  */ \
+  /* out the same night with the rest of block 2 (see the RESTORE note at the top).                             */ \
+  P(ResOwn, 0, 0, 1)                                                                                      \
+  P(ResU0, 8, 1, 64)                                                                                      \
+  P(ResUc, 1, 0, 16)                                                                                      \
+  P(ResUr, 8, 0, 32)                                                                                      \
+  P(ResKp, 32, 0, 256)                                                                                    \
+  P(ResKm, 4, 0, 64)                                                                                      \
   /* Quiescence, block 5 in our form (17/10/2026; 12_quiesce.inc). Defaults = the old tree.                   */ \
   /*  QsFut   margin over the stand for a capture to be worth searching, per expert (was 312 for all)          */ \
   /*  QsSee   exchange loss a capture may accept, per expert (was 74 for all)                                  */ \
@@ -546,8 +590,9 @@
   P(DeepExt, 0, -120, 120)               /* margini delle estensioni doppia e tripla della singolare      */      \
   /* 10/10/2026, margini per esperto della rete (nostra; esperto = fascia di pezzi <=9, 10-15, 16-23, >=24, come      \
      net_phase): si sommano al moltiplicatore della futility inversa (RfpExp, base RfpMultBase 50), al margine della  \
-     futility delle quiete (FutExp) e alla riduzione LMR in 1024-esimi di ply (LmrExp). Tutte a 0 = albero invariato. \
-     BAKE EXP1 12/10/2026 (vedi in testa): valori dello SPSA EXP1, [EXP1 0->nuovo]. */                               \
+     futility delle quiete (FutExp). Tutte a 0 = albero invariato. BAKE EXP1 12/10/2026 (vedi in testa): valori dello \
+     SPSA EXP1, [EXP1 0->nuovo]. LmrExp e LmrScaleExp tolte il 18/10/2026: la riduzione del blocco 2 ha un'ampiezza  \
+     per esperto sua (RfA0-3, ReA0-3). */                                                                             \
   P(RfpExp0, PSV(3, 0), -40, 40)         /* esperto 0: <= 9 pezzi  [EXP1 0->3]; Pos Solver 0 */           \
   P(RfpExp1, PSV(1, 0), -40, 40)         /* esperto 1: 10-15 pezzi [EXP1 0->1] */                         \
   P(RfpExp2, PSV(-3, 0), -40, 40)        /* esperto 2: 16-23 pezzi [EXP1 0->-3] */                        \
@@ -654,8 +699,8 @@
   /* COSTANTI DEL CODICE RESE PARAMETRI (12/10/2026 sera, utente: "tutto come variabili, nella release frozen").     \
      Erano numeri scritti nel codice della ricerca, quasi tutti uguali a quelli di Stockfish 19 (tools/               \
      search_attribution.py: 74 su 87 costanti >= 100). Default = valore di prima: albero identico, bench invariato.   \
-     Nella release sono constexpr come gli altri parametri; nel dev le due tabelle di reciproci (HistDiv*,            \
-     LmrAllDivBase) si ricalcolano a ogni setoption (param_tables_refresh, 13_search.inc). Servono agli SPSA.        \
+     Nella release sono constexpr come gli altri parametri; nel dev la tabella dei reciproci di HistDiv* si ricalcola \
+     a ogni setoption (param_tables_refresh, 13_search.inc). Servono agli SPSA.                                      \
      Limiti delle statistiche (09_history.inc, hist_learn) */                                                    \
   P(HistLimQuiet, 7183, 2000, 20000)     /* storie delle quiete (butterfly, low ply, per esperto)          */ \
   P(HistLimCapt, 10692, 3000, 30000)     /* storia delle catture                                           */ \
@@ -716,6 +761,73 @@
   P(FollowFhBonus, 1334, 0, 4000)        /* continuazioni dopo la ricerca piu' profonda riuscita            */ \
   P(LmrDeepRed1, 5234, 2000, 9000)       /* ricerca ridotta: -1 ply se r > Red1, -1 se r > Red2           */ \
   P(LmrDeepRed2, 5487, 2000, 9000)                                                                         \
+  /* BLOCK 2 - late-move reduction of our own (13_search.inc, red_entry_ours / red_final_ours). Rf* = the      */ \
+  /* reduction of the search, Re* = the value the pruning rules read. Values of the fit of 18/10/2026 evening on the */ \
+  /* engine with block 1 reverted to the tree of 8.0: 26.5 million moves of searches at 1 and 6 million nodes (tools/ */ \
+  /* redfit_engine.py), 93.5% at the same depth as the old formula, none off by more than one ply, no bias by depth. */ \
+  /* Alpha/Beta /1000, D0/M0 /10; trust weights /4096 of the base, the correction size /256 in trust and /16 in facts; */ \
+  /* move weights /16; window * 1024 / root_delta. RfVolatile (ours) is set apart, see its BAKE note.          */ \
+  P(RedForm, 0, 0, 1)                                                                                      \
+  P(RfA0, 1157, 385, 3571)                                                                                 \
+  P(RfA1, 1186, 395, 3658)                                                                                 \
+  P(RfA2, 1165, 388, 3595)                                                                                 \
+  P(RfA3, 1187, 395, 3661)                                                                                 \
+  P(RfAlpha, 300, 50, 900)                                                                                 \
+  P(RfBeta, 400, 50, 900)                                                                                  \
+  P(RfD0, 0, -5, 80)                                                                                       \
+  P(RfM0, -5, -5, 40)                                                                                      \
+  P(RfAllScale, 189, 0, 767)                                                                               \
+  P(RfTrustTtPv, 132, -596, 596)                                                                           \
+  P(RfTrustTtPvPv, 17, -251, 251)                                                                          \
+  P(RfTrustTtPvAbove, -17, -251, 251)                                                                      \
+  P(RfTrustTtPvDeep, 173, -719, 719)                                                                       \
+  P(RfTrustTtPvDeepCut, -276, -1028, 1028)                                                                 \
+  P(RfTrustCut, 255, -965, 965)                                                                            \
+  P(RfTrustCutNoHash, -126, -578, 578)                                                                     \
+  P(RfTrustHashCapt, 58, -374, 374)                                                                        \
+  P(RfTrustNoHash, 191, -773, 773)                                                                         \
+  P(RfTrustImproving, -620, -2060, 2060)                                                                   \
+  P(RfTrustOppWorse, 39, -317, 317)                                                                        \
+  P(RfTrustCorr, 31, -293, 293)                                                                            \
+  P(RfAddTtPv, -2232, -6896, 6896)                                                                         \
+  P(RfAddTtPvPv, -996, -3188, 3188)                                                                        \
+  P(RfAddTtPvAbove, -888, -2864, 2864)                                                                     \
+  P(RfAddTtPvDeep, -1140, -3620, 3620)                                                                     \
+  P(RfAddTtPvDeepCut, -405, -1415, 1415)                                                                   \
+  P(RfAddCut, 3651, -11153, 11153)                                                                         \
+  P(RfAddCutNoHash, 1038, -3314, 3314)                                                                     \
+  P(RfAddHashCapt, 1044, -3332, 3332)                                                                      \
+  P(RfAddNoHash, -196, -788, 788)                                                                          \
+  P(RfAddImproving, -68, -404, 404)                                                                        \
+  P(RfAddOppWorse, -41, -323, 323)                                                                         \
+  P(RfAddCorr, -44, -332, 332)                                                                             \
+  P(RfStat, -98, -494, 494)                                                                                \
+  P(RfCheck, -2318, -7154, 7154)                                                                           \
+  P(RfCapture, -2444, -7532, 7532)                                                                         \
+  P(RfCutoffs, 3947, -12041, 12041)                                                                        \
+  P(RfCutoffsMany, 17801, -53603, 53603)                                                                   \
+  P(RfGap, 48, -344, 344)                                                                                  \
+  P(RfPasser, -19231, -57893, 57893)                                                                       \
+  P(RfCausal, 6328, -19184, 19184)                                                                         \
+  P(RfMoveNo, -2532, -7796, 7796)                                                                          \
+  P(RfWindow, -8, -300, 300)                                                                               \
+  P(RfConst, 18228, -54884, 54884)                                                                         \
+  P(RfAllCutoffs, 20426, -61478, 61478)                                                                    \
+  P(RfDepth, -743, -2429, 2429)                                                                            \
+  P(RfVolatile, 0, -200, 200)            /* ours, OFF (19/10, user): never confirmed, back in the queue */  \
+  P(ReA0, 1009, 336, 3127)                                                                                 \
+  P(ReA1, 1057, 352, 3271)                                                                                 \
+  P(ReA2, 1040, 346, 3220)                                                                                 \
+  P(ReA3, 1064, 354, 3292)                                                                                 \
+  P(ReAlpha, 300, 50, 900)                                                                                 \
+  P(ReBeta, 400, 50, 900)                                                                                  \
+  P(ReD0, 40, -5, 80)                                                                                      \
+  P(ReM0, -5, -5, 40)                                                                                      \
+  P(ReImproving, -162, -686, 686)                                                                          \
+  P(ReConst, -382, -1646, 1646)                                                                            \
+  P(ReMoveNo, -78, -334, 334)                                                                              \
+  P(ReWindow, -9, -60, 30)                                                                                 \
+  P(ReTtPv, 933, -2999, 2999)                                                                              \
   /* fine del nodo (13_search.inc, node_close) */                                                             \
   P(TtMoveHistGood, 918, 0, 3000)        /* tt_move_hist: + se la migliore e' la mossa hash, - altrimenti */ \
   P(TtMoveHistBad, 747, 0, 3000)                                                                           \
@@ -737,9 +849,9 @@
   /* H. Block 1, per expert, the previous move when no move raised alpha: PrLate move number from which it counts */ \
   /*    as late (was 9); PrGain gain on the reward scale (/1024); PrCapt reward of the opponent's capture that    */ \
   /*    led here (was 892 for all).                                                                              */ \
-  P(PrLate0, 9, 2, 30)     P(PrLate1, 9, 2, 30)     P(PrLate2, 8, 2, 30)     P(PrLate3, 9, 2, 30)                 \
+  P(PrLate0, 9, 2, 30)     P(PrLate1, 9, 2, 30)     P(PrLate2, 9, 2, 30)     P(PrLate3, 9, 2, 30)                 \
   P(PrGain0, 1024, 256, 2048) P(PrGain1, 1024, 256, 2048) P(PrGain2, 1024, 256, 2048) P(PrGain3, 1024, 256, 2048) \
-  P(PrCapt0, 807, 0, 3000) P(PrCapt1, 892, 0, 3000) P(PrCapt2, 892, 0, 3000) P(PrCapt3, 892, 0, 3000)             \
+  P(PrCapt0, 892, 0, 3000) P(PrCapt1, 892, 0, 3000) P(PrCapt2, 892, 0, 3000) P(PrCapt3, 892, 0, 3000)             \
   P(CorrLearnW, 1061, 0, 3000)           /* /1024: peso dell'aggiornamento delle correzioni a fine nodo    */ \
   /* potatura per storia delle quiete: divisore per profondita' 1..16 (13_search.inc, prune_quiet)      */      \
   P(HistDiv1, 3637, 500, 8000)                                                                             \
@@ -1061,7 +1173,7 @@ bool set_search_param(const char* name, int value) {
   }
 #ifndef TRIUMV_RELEASE
   // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
-  // 12/10/2026 sera: anche le tabelle di reciproci costruite dai parametri (HistDiv*, LmrAllDivBase).
+  // 12/10/2026 sera: anche le tabelle costruite dai parametri (reciproci di HistDiv*, potenze del blocco 2).
   const auto sync = [] { g_see_pinned = SeePinned; param_tables_refresh(); };
 #define TP_SET(pname, def, lo, hi)                                                                         \
   if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
