@@ -118,17 +118,9 @@ static inline U64 causal_mask(const ThreadData &td, int refute) {
 
 static constexpr int NO_VALUE = 1 << 30;   // "nessun valore": la fase non ha chiuso il nodo
 
-// Reciproci a 40 bit di 256*depth + LmrAllDivBase (divisore della riduzione ai nodi all, vedi move_loop): M =
-// ceil(2^40 / D). 12/10/2026 sera: con LmrAllDivBase e HistDiv* parametri, nella release le tabelle restano costanti
-// calcolate in compilazione; nel dev si ricalcolano a ogni setoption e all'avvio (param_tables_refresh).
-static constexpr auto make_all_node_recip = [](int base) {
-  std::array<unsigned long long, max_ply + 8> r{};
-  for (int d = 0; d < max_ply + 8; d++) {
-    const unsigned long long D = 256ULL * d + (unsigned long long)base;
-    r[d] = ((1ULL << 40) + D - 1) / D;
-  }
-  return r;
-};
+// Reciproci a 40 bit dei divisori HistDiv* della potatura per storia (skip_move): M = ceil(2^40 / D). Nella release
+// la tabella resta costante calcolata in compilazione; nel dev si ricalcola a ogni setoption e all'avvio
+// (param_tables_refresh, che ricostruisce anche le tabelle della riduzione del blocco 2).
 static constexpr auto make_hist_recip = [](const std::array<int, 16> &div) {
   std::array<unsigned long long, 16> r{};
   for (int i = 0; i < 16; i++)
@@ -139,17 +131,14 @@ static constexpr auto make_hist_recip = [](const std::array<int, 16> &div) {
                        HistDiv10, HistDiv11, HistDiv12, HistDiv13, HistDiv14, HistDiv15, HistDiv16}
 #ifdef TRIUMV_RELEASE
 static constexpr std::array<int, 16> hist_div = HIST_DIV_LIST;
-static constexpr auto all_node_recip = make_all_node_recip(LmrAllDivBase);
 static constexpr auto hist_recip = make_hist_recip(hist_div);
 #else
 static std::array<int, 16> hist_div;
-static std::array<unsigned long long, max_ply + 8> all_node_recip;
 static std::array<unsigned long long, 16> hist_recip;
 static void red_tables_refresh();   // block 2, below
 static void param_tables_refresh() {
   red_tables_refresh();
   hist_div = HIST_DIV_LIST;
-  all_node_recip = make_all_node_recip(LmrAllDivBase);
   hist_recip = make_hist_recip(hist_div);
 }
 static const bool param_tables_ready = (param_tables_refresh(), true);
@@ -173,47 +162,20 @@ static inline int lt_value(int base, int offset, int w) { return base + offset *
 static inline void lt_update(ThreadData &td) {
   td.lt_w = std::clamp((td.root_depth - LtKnee) * 1024 / LtSpan, 0, 1024);
   const int w = td.lt_w;
-  td.lt_lmr_not_improving = lt_value(LmrNotImproving, LmrNotImprovingLt, w);
-  td.lt_lmr_offset        = lt_value(LmrOffset, LmrOffsetLt, w);
-  td.lt_lmr_all_node      = lt_value(LmrAllNode, LmrAllNodeLt, w);
-  td.lt_lmr_no_tt_full    = lt_value(LmrNoTTFull, LmrNoTTFullLt, w);
   td.lt_nmp_improving     = lt_value(NmpImproving, NmpImprovingLt, w);
   td.lt_quiet_fut_alpha   = lt_value(QuietFutAlpha, QuietFutAlphaLt, w);
   td.lt_rfp_max_depth     = lt_value(RfpMaxDepth, RfpMaxDepthLt, w);
   td.lt_nmp_verify_depth  = lt_value(NmpVerifyDepth, NmpVerifyDepthLt, w);
-  if (LmrLogMulLt) {
-    const int mul = lt_value(LmrLogMul, LmrLogMulLt, w);
-    if (mul != td.lt_lmr_log_mul) {   // stessa formula di build_reduction_table, col moltiplicatore effettivo
-      td.lt_lmr_log_mul = mul;
-      td.lt_red_log[0] = 0;
-      for (int i = 1; i < 256; i++)
-        td.lt_red_log[i] = int(mul / 128.0 * std::log(double(i)));
-    }
-  }
 }
-static inline int e_lmr_not_improving(const ThreadData &td) { return LmrNotImprovingLt ? td.lt_lmr_not_improving : LmrNotImproving; }
-static inline int e_lmr_offset(const ThreadData &td)        { return LmrOffsetLt ? td.lt_lmr_offset : LmrOffset; }
-static inline int e_lmr_all_node(const ThreadData &td)      { return LmrAllNodeLt ? td.lt_lmr_all_node : LmrAllNode; }
-static inline int e_lmr_no_tt_full(const ThreadData &td)    { return LmrNoTTFullLt ? td.lt_lmr_no_tt_full : LmrNoTTFull; }
 static inline int e_nmp_improving(const ThreadData &td)     { return NmpImprovingLt ? td.lt_nmp_improving : NmpImproving; }
 static inline int e_quiet_fut_alpha(const ThreadData &td)   { return QuietFutAlphaLt ? td.lt_quiet_fut_alpha : QuietFutAlpha; }
 static inline int e_rfp_max_depth(const ThreadData &td)     { return RfpMaxDepthLt ? td.lt_rfp_max_depth : RfpMaxDepth; }
 // Sempre il valore del thread (09/10/2026): lt_update lo calcola per iterazione e la modalita' analisi (AN_NMPV) lo
 // sovrascrive; letto solo dopo una mossa nulla riuscita, quindi senza costo. In partita vale NmpVerifyDepth.
 static inline int e_nmp_verify_depth(const ThreadData &td)  { return td.lt_nmp_verify_depth; }
-static inline const int *e_red_log(const ThreadData &td)    { return LmrLogMulLt ? td.lt_red_log : red_log; }
-
-// Profondita' ridotta di base: tabella logaritmica, finestra relativa e assenza di miglioramento.
-// `window_term` = finestra * LmrDeltaMul / root_delta: lo calcola move_loop solo quando la finestra cambia, perche'
-// la divisione per root_delta (non costante) costava ~30 cicli a ogni mossa (04/10/2026, stesso valore).
-static inline int base_reduction(const ThreadData &td, bool improving, int depth, int move_no, int window_term) {
-  const int *rl = e_red_log(td);
-  const int scale = rl[std::min(depth, 255)] * rl[std::min(move_no, 255)];
-  return scale - window_term + (!improving ? scale * e_lmr_not_improving(td) / 512 : 0) + LmrBase;
-}
 
 // ---------------------------------------------------------------------------
-// Block 2 of 8.1: late-move reduction of our own (RedForm = 1; 0 keeps the previous formula). Units of 1/1024 ply.
+// Block 2 of 8.1: late-move reduction of our own. Units of 1/1024 ply.
 //
 //   base   a power law of the depth d and the move number m with an amplitude per expert of the network:
 //          A[e] * max(d + d0, 0.5)^alpha * max(m + m0, 0.5)^beta, two tables built from the parameters.
@@ -229,7 +191,7 @@ static inline int base_reduction(const ThreadData &td, bool improving, int depth
 // Every value came from a least-squares fit on 20.7 million moves of our own searches (tools/redfit_engine.py,
 // 18/10/2026): 92% of the reduced moves are searched at the same depth as with the previous formula, all of them
 // within one ply; the pruning value gives the same depth on 88%. Refit on 18/10 on the engine with block 1 reverted
-// (26.5 million moves). The window enters as window * 1024 / root_delta (red_window_ours in move_loop).
+// (26.5 million moves). The window enters as window * 1024 / root_delta (red_window_term in move_loop).
 // Baked on 18/10 and taken back out on 19/10 (user): 8.1 searched 0.35 ply less deep than 8.0 at the same time and
 // lost; block 2 returns to the tree of 8.0 and each change is measured again on its own, in order.
 // ---------------------------------------------------------------------------
@@ -956,7 +918,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   s.ready = false;
   q.checks = &s.checks;
   int value = n.best, m;
-  int red_window = -1, red_window_term = 0, red_window_ours = 0;   // vedi base_reduction; ours: per 1024 of root_delta
+  int red_window = -1, red_window_term = 0;   // window * 1024 / root_delta, see red_final_ours
   int first_quiet_no = 0;                     // LmrRank: numero della prima quieta ordinata del nodo
   // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
@@ -992,8 +954,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     int new_depth = n.depth - 1;
     if (n.beta - n.alpha != red_window) {
       red_window = n.beta - n.alpha;
-      red_window_term = red_window * LmrDeltaMul / td.root_delta;
-      red_window_ours = red_window * 1024 / td.root_delta;
+      red_window_term = red_window * 1024 / td.root_delta;
     }
     // LmrRank (blocco 2 della 8.1, 16/10/2026, nostra; docs/development/8.1/SEARCH_2_REDUCTIONS.md nel repo): per una
     // quieta della lista ordinata, la riduzione di base non legge solo il suo numero d'ordine. Il numero "effettivo"
@@ -1009,22 +970,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       const int mix = by_expert(n.expert, LmrRankMix0, LmrRankMix1, LmrRankMix2, LmrRankMix3);
       red_move_no = std::clamp((n.moves * (1024 - mix) + eff * mix) / 1024, 1, 255);
     }
-    int r;
-    if (RedForm) {   // block 2: our reduction, the value the pruning rules read
-      r = red_entry_ours(f, n, red_move_no, red_window_ours);
-      if (gd_style)
-        r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
-    } else {
-      r = base_reduction(td, n.improving, n.depth, red_move_no, red_window_term);
-      if (gd_style)   // AnGold: riduzione di base al 97% in attacco, al 103% in manovra
-        r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
-      // LmrScaleExp (13/10/2026, spenta): pendenza della riduzione per esperto (LmrExp ne sposta solo il livello).
-      if (LmrScaleExp0 | LmrScaleExp1 | LmrScaleExp2 | LmrScaleExp3)
-        r = r * (1024 + by_expert(n.expert, LmrScaleExp0, LmrScaleExp1, LmrScaleExp2, LmrScaleExp3)) / 1024;
-      if (f->tt_pv)
-        r += LmrTtPvAdd;
-      r += by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
-    }
+    // Block 2: our reduction, the value the pruning rules read. AnGold: 97% in attack, 103% in manoeuvre.
+    int r = red_entry_ours(f, n, red_move_no, red_window_term);
+    if (gd_style)
+      r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
 #ifdef TRIUMV_REDLOG
     const int redlog_entry = r;   // the value skip_move reads
 #endif
@@ -1080,45 +1029,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     else
       f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
                        StatCont2W * (*f[-2].cont_hist)[pc][to]) / 1024;
-    if (RedForm) {   // block 2: our reduction for the search of this move
+    {   // block 2: our reduction for the search of this move
       const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
-      r = red_final_ours(f, n, red_move_no, tact, gives, passer, causal_hit, red_window_ours) + node_red;
-    } else {
-    if (f->tt_pv)
-      r -= LmrTtPvSub + deep_term(td, DeepTtPv) + n.pv * LmrTtPvPv + (n.h.value > n.alpha) * LmrTtPvAlpha +
-           (n.h.depth >= n.depth) * (LmrTtPvDepth + n.cut * LmrTtPvCut);
-    r += e_lmr_offset(td);
-    r -= n.moves * LmrMoveCount;
-    r -= std::abs(n.signal) / LmrCorrDiv;
-    if (n.cut)
-      r += LmrCutNode + LmrCutNoTT * !n.h.move;
-    if (n.tact_hash)
-      r += LmrTTCapture;
-    r += node_red;
-    if (f[1].cutoff_cnt > 1)
-      r += LmrCutoffBase + LmrCutoffMany * (f[1].cutoff_cnt > 2) + LmrCutoffAll * n.all;
-    else if (m == n.h.move)
-      r -= LmrTTMove;
-    r -= f->stat_score * LmrStatDiv / 4096;
-    if (!tact && !val_decided(n.alpha))
-      r += 3 * std::clamp(n.alpha - n.eval, -64, 96);
-    if (n.all) {
-      // r * LmrAllNode / (256*depth + LmrAllDivBase), troncato verso zero come la divisione intera: moltiplicazione per il
-      // reciproco a 40 bit della tabella (esatta finche' |r*LmrAllNode| < 2^24: il divisore arriva a 35.000, quindi
-      // l'errore M*D - 2^40 < D non puo' far scattare l'unita'); oltre, mai visto, si divide davvero
-      // (04/10/2026 sera: era una divisione hardware per ogni mossa dei nodi all).
-      const long long x = (long long)r * e_lmr_all_node(td);
-      const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
-      const int q = mag < (1ULL << 24) ? (int)((mag * all_node_recip[n.depth]) >> 40)
-                                       : (int)(mag / (unsigned long long)(256 * n.depth + LmrAllDivBase));
-      r += x < 0 ? -q : q;
-    }
-    if (passer)
-      r -= PassedPushRed;
-    // CausalRed: la quieta non tocca le case della confutazione di una sorella fallita bassa.
-    if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
-        !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal))
-      r += CausalRed;
+      r = red_final_ours(f, n, red_move_no, tact, gives, passer, causal_hit, red_window_term) + node_red;
     }
     // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
     // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
@@ -1214,7 +1127,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 #endif
     } else if (!n.pv || n.moves > 1) {
       if (!n.h.move)
-        r += e_lmr_no_tt_full(td);
+        r += LmrNoTTFull;
 #ifdef TRIUMV_REDLOG
       if (!AN && !n.pv && n.moves == 1 && n.depth >= 2 && new_depth >= 3 && redres_pick(td.thread_id))
         redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);

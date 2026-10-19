@@ -36,3 +36,11 @@ To do:
 2. Outcome data for the pruning: a pruning decision is yes or no, so the fit is a classification, and the probes of
    the data build can show the prunings that lose good moves.
 3. Long tuning, then bake with a long non-regression test.
+4. Idea, not started (`PrLearn`): pruning corrected by search outcomes, on the pattern of `RfLearn` (block 2). The data
+   build probes a sample of the moves that the pruning rules skip, at the depth they would have had, and records
+   whether they clear alpha; probing the skipped moves themselves avoids a fit that only sees the moves the rules
+   kept. A logistic model of that outcome, with the features of the reduction plus the missed futility margin, the
+   exchange threshold and the history, gives one lever: where a skipped move is likely to matter, the pruning is
+   lifted; where it almost never does, a move the rules would keep is pruned. The centre is chosen at an equal tree
+   size, measured on fixed positions. A logistic late-move pruning model labelled by replays exists in arche
+   (PR #335, September 2026).

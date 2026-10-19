@@ -265,7 +265,6 @@ static int reply_from_hash(ThreadData &td, int first) {
 void search_position_mt(int depth) {
   (void)depth;
   g_limits.start_ms = starttime;
-  build_reduction_table();
   new_search();
   stopped = 0;
   g_poll_countdown = 0;

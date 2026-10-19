@@ -263,3 +263,8 @@ values, and come back one at a time, each with its own test against this base.
 runs (evaluation scale, block 2 levers). The values of our own will come from new runs at a longer time control and
 with many more iterations, where a lever enters only when its net move is at least 2.5 times the random-walk
 expectation.
+
+**Block 2: the reduction of our own is back, with the learned correction (19 October 2026).** The reduction formula of
+our own and `RfLearn`, against the formula of 8.0 on this base: −0.51 ± 3.55 Elo over 10,272 games, parity. Baked;
+the formula of 8.0 is removed (bench 213149). The singular extension of block 4 is in our code at the same tree, and
+its first tuning runs at 10+0.1 on one socket ([`SEARCH_4_EXTENSIONS.md`](docs/development/8.1/SEARCH_4_EXTENSIONS.md)).

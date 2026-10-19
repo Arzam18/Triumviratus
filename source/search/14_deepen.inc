@@ -338,7 +338,6 @@ static void deepen(ThreadData &td) {
                            std::min<long long>(1024, (long long)(-g_clock.prev_best - DrawDefendFrom) * 1024 / DrawDefendSpan) /
                            1024);
   td.deep_w = 0;
-  td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
   // Modalita' analisi: decisa una volta per ricerca (un setoption durante la ricerca vale dalla prossima).
   // Pos Solver (TRIUMV_POS_SOLVER): sempre accesa, qualunque cosa mandi la GUI (utente 14/10/2026).

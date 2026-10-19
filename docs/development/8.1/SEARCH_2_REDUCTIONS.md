@@ -190,8 +190,10 @@ Done:
 
 To do:
 
-1. `RedForm` + `RfLearn` against the formula of 8.0 (8+0.08, HT; running: +3.27 ± 8.51 over 1,702 games), then a check
-   of the tree size at depth 16 and a confirmation at a long time control.
+1. [x] `RedForm` + `RfLearn` against the formula of 8.0, pooled: −0.51 ± 3.55 Elo over 10,272 games (8+0.08 with HT,
+   +0.46 ± 4.24 over 6,872; 2+0.02 on a second machine, −2.45 ± 6.42 over 3,400): parity. Tree size at depth 16:
+   0.98 of the formula alone. Baked on 19 October; the formula of 8.0 and its parameters are removed again (bench
+   213149). Still to do: a confirmation at a long time control against 8.0.
 2. `ResOwn` on the new base.
 3. The reward when the re-search refutes the move: `FollowFhMiss` 0 and `FollowFhRed` above 0, in one test.
 4. A form of our own for the full-depth search of the first move (thresholds 5234 and 5487, `LmrNoTTFull`); the fit only
