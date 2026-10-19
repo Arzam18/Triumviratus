@@ -38,6 +38,7 @@ struct NodeState {
   int  tacts[TRACKED], n_tacts;
   U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
   int  expert;                   // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
+  int  disagree;                 // |psqt - positional| of the network on this node, -1 when the eval came from the hash
 };
 
 #ifdef TRIUMV_REDLOG
@@ -111,6 +112,39 @@ static inline U64 piece_attacks(int pc, int sq, U64 occ) {
     default: return king_attacks[sq];
   }
 }
+// King safety for the reduction levers (19/10/2026, ours, off). Squares attacked by colour c with occupancy occ.
+static inline U64 attacked_by(const ThreadData &td, int c, U64 occ) {
+  U64 att = 0;
+  for (int pc = (c == white ? P : p), last = pc + 6; pc < last; pc++)
+    for (U64 b = td.bitboards[pc]; b; b &= b - 1)
+      att |= piece_attacks(pc, get_ls1b_index(b), occ);
+  return att;
+}
+// Squares next to the king of colour c that the other side attacks (0-8).
+static inline int king_ring_attacked(const ThreadData &td, int c) {
+  const U64 kb = td.bitboards[c == white ? K : k];
+  if (!kb)
+    return 0;
+  return count_bits(king_attacks[get_ls1b_index(kb)] & attacked_by(td, c ^ 1, td.occupancies[both]));
+}
+// Weight of the attack that the piece just moved to `to` brings on the king of the side to move: squares next to the
+// king it hits, plus 2 for each piece of that side next to its king it hits (pawn or piece of the shelter), plus 3 for
+// each piece pinned to that king it hits. Called after the move, so the side to move is the defender.
+static inline int king_attack_weight(ThreadData &td, int to) {
+  const int def = td.side;
+  const U64 kb = td.bitboards[def == white ? K : k];
+  if (!kb)
+    return 0;
+  const U64 ring = king_attacks[get_ls1b_index(kb)];
+  const U64 att = piece_attacks(td.piece_on[to], to, td.occupancies[both]);
+  if (!(att & ring) && !(att & td.occupancies[def]))
+    return 0;
+  if (td.see_pin_key != td.hash_key)
+    see_pins_update(td);
+  return count_bits(att & ring) + 2 * count_bits(att & ring & td.occupancies[def]) +
+         3 * count_bits(att & td.see_pinned[def]);
+}
+
 static inline U64 causal_mask(const ThreadData &td, int refute) {
   const int from = get_move_source(refute), to = get_move_target(refute), pc = get_move_piece(refute);
   return piece_attacks(pc, to, td.occupancies[both]) | (1ULL << from) | (1ULL << to);
@@ -630,13 +664,16 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
 // --------------------------------------------------------------------------
 static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
   n.eval_raw = tt_eval_none;
+  n.disagree = -1;
   if (n.in_check) {
     f->static_eval = n.eval = f[-2].static_eval;
   } else if (n.excluded) {
     n.eval = f->static_eval;
     n.eval_raw = n.h.hit ? n.h.eval_raw : tt_eval_none;
   } else {
+    nn_last_disagree = -1;
     const int plain = node_eval(td, n.h, n.eval_raw);
+    n.disagree = nn_last_disagree;   // -1 when node_eval took the evaluation from the hash
     f->static_eval = n.eval = corrected_eval(plain, n.signal + n.signal_x);
     if (n.h.hit) {
       if (val_known(n.h.value) && bound_covers(n.h.bound, n.h.value > n.eval))
@@ -957,6 +994,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   q.checks = &s.checks;
   int value = n.best, m;
   int red_window = -1, red_window_term = 0, red_window_ours = 0;   // vedi base_reduction; ours: per 1024 of root_delta
+  // RdKingDanger (ours, off): squares next to our king that the opponent attacks, once per node.
+  const int king_danger = RdKingDanger ? std::min(king_ring_attacked(td, us), 4) : 0;
   int first_quiet_no = 0;                     // LmrRank: numero della prima quieta ordinata del nodo
   // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
@@ -1157,6 +1196,37 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         // first version, without this floor, widened the tree by a quarter at RfLearn 768.
         const int corr = std::clamp(int((long long)RfLearn * (z - RfLearnC) / 1024), -2048, 2048);
         r = corr > 0 ? std::max(r - corr, std::min(r, 0)) : r - corr;
+      }
+      // Reduction levers of our own (19/10/2026, all off): signals the formula does not read. Each one only lowers the
+      // reduction, and the sum stops at zero (a negative reduction would become an extension).
+      //  RdDisagree   the two parts of the network disagree on this node (|psqt - positional|): the evaluation is
+      //               unsure, per 1024 units of disagreement, up to 8;
+      //  RdBoundCapt  a capture that moves the position to another expert of the network (piece count 10, 16, 24 ->
+      //               one less): the next evaluations come from another expert;
+      //  RdKingAtt    the moved piece hits the defender's king zone, its shelter or a piece pinned to its king
+      //               (king_attack_weight, up to 6);
+      //  RdKingDanger squares next to our own king under attack, up to 4;
+      //  RdPawnBreak  in a closed position (at least 3 pawns blocked head to head) a pawn push that touches an enemy
+      //               pawn: the few breaks of a frozen structure are often the plan of the whole game (user's idea).
+      if (RdDisagree | RdBoundCapt | RdKingAtt | RdKingDanger | RdPawnBreak) {
+        int less = RdKingDanger * king_danger;
+        if (RdPawnBreak && !get_move_capture(m) && kPieceKind[pc] == P) {
+          const int mover = td.side ^ 1;   // the move is made: the side to move is the opponent
+          const U64 wp = td.bitboards[P], bp = td.bitboards[p];
+          const int blocked = count_bits((wp >> 8) & bp);   // a8 = 0: the square in front of a white pawn is sq - 8
+          if (blocked >= 3 && (pawn_attacks[mover][to] & td.bitboards[mover == white ? p : P]))
+            less += RdPawnBreak;
+        }
+        if (RdDisagree && n.disagree > 0)
+          less += RdDisagree * std::min(n.disagree, 8192) / 1024;
+        if (RdBoundCapt && get_move_capture(m)) {
+          const int pieces = count_bits(td.occupancies[both]);   // after the capture
+          less += RdBoundCapt * (pieces == 9 || pieces == 15 || pieces == 23);
+        }
+        if (RdKingAtt)
+          less += RdKingAtt * std::min(king_attack_weight(td, to), 6);
+        if (less > 0)
+          r = std::max(r - less, std::min(r, 0));
       }
       const int neg_cap = f->negext_path < 1 ? 2 : 0;
       if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: niente riduzione, le riduzioni negative restano

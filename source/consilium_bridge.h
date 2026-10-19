@@ -111,6 +111,11 @@ void  nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from
 int   nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
                   int side_white, int rule50);
 
+// |psqt - positional| of the last nn_pos_eval on this thread (19/10/2026): how much the two parts of the network
+// disagree on the position, read by the search (RdDisagree). The caller resets it to -1 before an evaluation that may
+// come from the hash instead of the network.
+extern thread_local int nn_last_disagree;
+
 // nnueverify: evaluations compared and evaluations that differed since startup.
 unsigned long long nn_verify_count(void);
 unsigned long long nn_verify_bad(void);

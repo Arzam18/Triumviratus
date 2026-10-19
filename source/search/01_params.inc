@@ -1,6 +1,16 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BAKE BLOCK 4 S4 (19/10/2026 evening, user): the SPSA S4 of block 4 (30 levers, 10+0.1 without HT, stopped at about
+// iteration 1,450) gives its vector: 18 levers that moved (SingMarginBase 73->76, SingMarginTtPv 66->70,
+// SingDoubleBase -2->-4, SingDoublePv 225->215, SingDoubleQuiet 152->145, SingTripleBase 60->62, SingTriplePv
+// 279->294, SingTripleQuiet 188->183, SingTripleDeep 43->47, SingCorrDiv 198368->186725, SingFhTtBase 421->404,
+// CorrSingMul 177->180, SingNegHigh 3->4, and the terms of our own SingExp1 -1, SingExp2 3, SingMoving 2,
+// SingLvlExp0 1, SingLvlExp1 1), and the small moves of six that stayed near their start (SingMarginDiv 63->64,
+// SingDepthMul 1024->1026, SingDoubleDeep 38->39, SingTtHistMul 1175->1194, SingTripleTtPv 81->80, SingFhTtDepth
+// 110->109). Against the previous values, pooled (10+0.1 without HT and 8+0.08 with HT): +0.22 +- 2.89 Elo over
+// 14,266 games, level. Still the numbers of Stockfish 19: SingNegCut 3, SingMinDepth 6 (+1 on tt_pv), SingHashSlack 3,
+// SingTtHistDiv 114178. Backup _pre_bake_s4_2026-10-19.
 // UNBAKE BLOCK 2 (19/10/2026 midday, user): the reduction of our own with RfLearn, baked in the morning (parity against
 // the formula of 8.0 at 8+0.08 with HT and 2+0.02), lost on a Zen 4 at long time controls against 8.0 with both builds
 // universal (-4.43 +- 7.35 over 1,962 games at 12+0.12; the dev build -5.35 +- 4.37 over 5,520 at 15+0.15), while the
@@ -386,33 +396,33 @@
   P(QuietFutBase, 160, 0, 400)                                                                            \
   P(QuietSeeMul, 24, 5, 80)                                                                               \
   /* estensioni */                                                                                        \
-  P(SingMarginBase, 73, 20, 150)                                                                          \
-  P(SingMarginTtPv, 66, 0, 200)                                                                           \
-  P(SingDoubleBase, -2, -100, 100)                                                                        \
-  P(SingDoublePv, 225, 0, 500)                                                                            \
-  P(SingDoubleQuiet, 152, 0, 400)                                                                         \
-  P(SingTripleBase, 60, 0, 300)                                                                           \
-  P(SingTriplePv, 279, 0, 600)                                                                            \
-  P(SingTripleQuiet, 188, 0, 500)                                                                         \
-  P(SingTripleTtPv, 81, 0, 300)                                                                           \
+  P(SingMarginBase, 76, 20, 150)                                                                          \
+  P(SingMarginTtPv, 70, 0, 200)                                                                           \
+  P(SingDoubleBase, -4, -100, 100)                                                                        \
+  P(SingDoublePv, 215, 0, 500)                                                                            \
+  P(SingDoubleQuiet, 145, 0, 400)                                                                         \
+  P(SingTripleBase, 62, 0, 300)                                                                           \
+  P(SingTriplePv, 294, 0, 600)                                                                            \
+  P(SingTripleQuiet, 183, 0, 500)                                                                         \
+  P(SingTripleTtPv, 80, 0, 300)                                                                           \
   /* Block 4 in our form (19/10/2026, 13_search.inc singular_probe): the thresholds of the previous code become  */ \
   /* parameters at their old values, and new terms of our own start at 0 (same tree, bench unchanged).          */ \
   P(SingMinDepth, 6, 3, 12)              /* the exclusion search from this depth, one more on tt_pv nodes  */ \
   P(SingMinDepthTtPv, 1, 0, 3)                                                                             \
   P(SingHashSlack, 3, 0, 6)              /* the hash entry may be this many plies shallower than the node   */ \
-  P(SingMarginDiv, 63, 32, 128)          /* the margin of the bar is per this many plies of depth          */ \
-  P(SingDepthMul, 1024, 512, 1536)       /* depth of the exclusion search, new_depth * Mul / 2048          */ \
+  P(SingMarginDiv, 64, 32, 128)          /* the margin of the bar is per this many plies of depth          */ \
+  P(SingDepthMul, 1026, 512, 1536)       /* depth of the exclusion search, new_depth * Mul / 2048          */ \
   P(SingExp0, 0, -40, 40)                /* ours: margin of the bar per expert of the network              */ \
-  P(SingExp1, 0, -40, 40)                                                                                  \
-  P(SingExp2, 0, -40, 40)                                                                                  \
+  P(SingExp1, -1, -40, 40)                                                                                  \
+  P(SingExp2, 3, -40, 40)                                                                                  \
   P(SingExp3, 0, -40, 40)                                                                                  \
   P(SingSurplus, 0, -16, 16)             /* ours: margin per ply of hash depth beyond what is needed       */ \
-  P(SingMoving, 0, -16, 16)              /* ours: margin per 64 units of |hash value - static evaluation|  */ \
-  P(SingLvlExp0, 0, -100, 100)           /* ours: thresholds of the extra plies per expert                 */ \
-  P(SingLvlExp1, 0, -100, 100)                                                                             \
+  P(SingMoving, 2, -16, 16)              /* ours: margin per 64 units of |hash value - static evaluation|  */ \
+  P(SingLvlExp0, 1, -100, 100)           /* ours: thresholds of the extra plies per expert                 */ \
+  P(SingLvlExp1, 1, -100, 100)                                                                             \
   P(SingLvlExp2, 0, -100, 100)                                                                             \
   P(SingLvlExp3, 0, -100, 100)                                                                             \
-  P(SingNegHigh, 3, 0, 4)                /* negative extension when the hash value clears beta             */ \
+  P(SingNegHigh, 4, 0, 4)                /* negative extension when the hash value clears beta             */ \
   P(SingNegCut, 3, 0, 4)                 /* negative extension on an expected cut node                     */ \
   /* SBAKE LDSE 14/10/2026 (utente): non regressione a 40+0.4 HT di tempo + Ldse insieme (tm53), lato release            \
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
@@ -527,8 +537,8 @@
   P(CorrBonusLo, 18, 4, 40)              /* bonus per profondita' nel fail-low, /128 */                   \
   P(CorrBonusMaxHi, 256, 64, 600)        /* tetto del bonus positivo */                                   \
   P(CorrBonusMaxLo, 256, 64, 600)        /* tetto del bonus negativo */                                   \
-  P(CorrSingMul, 177, 0, 600)            /* bonus del multi-cut della singolare per profondita', /1024 */ \
-  P(SingCorrDiv, 198368, 50000, 800000)  /* |signal| nei margini doppio/triplo della singolare */         \
+  P(CorrSingMul, 180, 0, 600)            /* bonus del multi-cut della singolare per profondita', /1024 */ \
+  P(SingCorrDiv, 186725, 50000, 800000)  /* |signal| nei margini doppio/triplo della singolare */         \
   /* 08/10/2026: il termine della continuazione dopo la mossa nulla, prima la costante 64049, e' una leva. Serve allo \
      SPSA CORR1: aggiungendo CorrCont6W la correzione totale cresce (da noi entra anche in RFP, LMR e nei margini     \
      della singolare), quindi i pesi vanno riequilibrati insieme e non uno alla volta come nella prova del 06/10.     \
@@ -770,12 +780,12 @@
   P(EvalDiffHi, 194, 0, 600)             /* che ci ha portati qui                                          */ \
   P(EvalDiffOfs, 60, -200, 200)                                                                            \
   /* estensione singolare (13_search.inc, singular) */                                                         \
-  P(SingTtHistMul, 1175, 0, 4000)        /* margine doppia: - Mul * tt_move_hist / Div                     */ \
+  P(SingTtHistMul, 1194, 0, 4000)        /* margine doppia: - Mul * tt_move_hist / Div                     */ \
   P(SingTtHistDiv, 114178, 20000, 400000)                                                                  \
-  P(SingDoubleDeep, 38, 0, 150)          /* oltre la profondita' di radice: margini doppia/tripla ridotti */ \
-  P(SingTripleDeep, 43, 0, 150)                                                                            \
-  P(SingFhTtBase, 421, 0, 1500)          /* tt_move_hist dopo il taglio multiplo: -(Base + Depth*depth)  */ \
-  P(SingFhTtDepth, 110, 0, 400)                                                                            \
+  P(SingDoubleDeep, 39, 0, 150)          /* oltre la profondita' di radice: margini doppia/tripla ridotti */ \
+  P(SingTripleDeep, 47, 0, 150)                                                                            \
+  P(SingFhTtBase, 404, 0, 1500)          /* tt_move_hist dopo il taglio multiplo: -(Base + Depth*depth)  */ \
+  P(SingFhTtDepth, 109, 0, 400)                                                                            \
   /* move_loop (13_search.inc) */                                                                             \
   P(CaptStatMul, 873, 0, 2500)           /* stat_score delle catture: Mul * valore della vittima / 128      */ \
   P(StatQuietW, 2252, 0, 6000)           /* stat_score delle quiete: (W*storia + C1*cont1 + C2*cont2)/1024 */ \
@@ -849,6 +859,15 @@
   /* -0.55 ply for the 10% most promising.                                                                       */ \
   P(RfLearn, 0, 0, 2048)                                                                                  \
   P(RfLearnC, -4723, -8192, 2048)                                                                         \
+  /* Reduction levers of our own (19/10/2026, all off; 13_search.inc before neg_cap). Each lowers the reduction,   */ \
+  /* the sum stops at zero. Units 1/1024 ply: RdDisagree per 1024 of |psqt - positional| (up to 8), RdBoundCapt   */ \
+  /* once for a capture into another expert, RdKingAtt per unit of king_attack_weight (up to 6), RdKingDanger per */ \
+  /* attacked square next to our king (up to 4). First tests at strong values to see the sign.                    */ \
+  P(RdDisagree, 0, 0, 1024)                                                                               \
+  P(RdBoundCapt, 0, 0, 3072)                                                                              \
+  P(RdKingAtt, 0, 0, 1024)                                                                                \
+  P(RdKingDanger, 0, 0, 1024)                                                                             \
+  P(RdPawnBreak, 0, 0, 3072)             /* once for a pawn break in a closed structure (>= 3 blocked)      */ \
   P(ReA0, 1009, 336, 3127)                                                                                 \
   P(ReA1, 1057, 352, 3271)                                                                                 \
   P(ReA2, 1040, 346, 3220)                                                                                 \

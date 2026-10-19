@@ -272,3 +272,9 @@ its first tuning runs at 10+0.1 on one socket ([`SEARCH_4_EXTENSIONS.md`](docs/d
 **Block 2 on hold (19 October 2026, midday).** On a Zen 4 at long time controls, with both engines universal builds,
 the reduction of our own lost against 8.0 (−4.43 ± 7.35 over 1,962 games at 12+0.12), so block 2 goes back to the
 formula of 8.0 (bench 126352) and stays on hold. The tuning of block 4 continues on one socket of the Xeon.
+
+**Block 4 tuned and baked (19 October 2026, evening).** The SPSA vector of block 4, level against the previous values
+(+0.22 ± 2.89 over 14,266 games), is baked: its values are now our own except four thresholds (bench 209655). Five
+reduction levers of our own are written and off, to be tested one at a time: disagreement between the two parts of the
+network, captures into another expert, attacks on the defender's king zone, danger to our own king, pawn breaks in
+closed structures.

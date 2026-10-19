@@ -35,8 +35,18 @@ the node returns (several good moves); or the hash move is searched shallower wh
 - Already ours: `Ldse` (extension of the hash move near the horizon when the evaluation is below alpha) and the cap on
   extensions from negative reductions along a line.
 
-## 4.3 Status and remaining steps (19 October 2026)
+## 4.3 Tuning and bake (19 October 2026)
 
-1. Dev build and commit of the rewrite (bench 126352).
-2. Long tuning with the new terms; until it moves them, the logic keeps the algorithmic base of Stockfish 19.
-3. Bake with a long non-regression test.
+An SPSA of 30 levers (the inherited values and the terms of our own) ran at 10+0.1 without hyperthreading for about
+1,450 iterations. The vector was taken whole, with the levers that kept oscillating around their start left out, and
+the six of those that come from Stockfish 19 take the small move the SPSA gave them. Against the previous values,
+pooled at 10+0.1 without HT and 8+0.08 with HT: **+0.22 ± 2.89 Elo over 14,266 games**, level; baked (bench 209655).
+
+Of the terms of our own, five are on: the margin of the bar per expert (`SingExp1` −1, `SingExp2` 3), the distance
+between hash value and static evaluation (`SingMoving` 2) and the thresholds of the extra plies per expert
+(`SingLvlExp0` 1, `SingLvlExp1` 1). A regression of the SPSA results on its perturbations found no lever with an effect
+beyond noise: the block sits near a flat optimum, and the tuning moved its values without changing its strength.
+
+Still the numbers of Stockfish 19: the negative extension on an expected cut node (3), the depth from which the
+exclusion search runs (6, one more on hash entries of the principal variation), the slack on the hash depth (3) and
+the divisor of the hash-move history (114178).

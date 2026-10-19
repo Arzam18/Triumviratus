@@ -517,6 +517,8 @@ void nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from,
         cn::prefetch_move(NET_REF, reinterpret_cast<const std::uint64_t*>(bb), phase, pc, from, toPc, to, capPc, capSq);
 }
 
+thread_local int nn_last_disagree = -1;
+
 int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
                 int side_white, int rule50) {
     CnPos*        p = static_cast<CnPos*>(handle);
@@ -527,6 +529,7 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
 
     const cn::Out o   = cn::evaluate(NET_REF, *p->h, board.view());
     const int     inc = nn_scale(board, o.psqt, o.positional, rule50, nullptr, opt);
+    nn_last_disagree  = std::abs(int(o.psqt) - int(o.positional));
 
     if (g_verify) {
         // Same position from scratch: final values and both accumulators must be identical.
