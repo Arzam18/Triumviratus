@@ -1,6 +1,12 @@
 // search/01_params.inc -- Parametri della ricerca e globali condivise con le altre unita'.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp.
 //
+// BLOCK 4 LADDER (19/10/2026 night, user: "fully our own"): the extra plies of the singular extension become a ladder,
+// a first rung (the old Double threshold) and a step with its own weights (SingStep*, from the old Triple threshold
+// minus the Double one), up to SingRungs rungs; SingStepDepth (step per depth) and a third rung are ours, off. The
+// divisor of the tt-move history term goes from 114178 to 2^17 (SingTtHistMul 1194 -> 1371). Bench unchanged 209655
+// (MinGW, clean build); SingRungs=3 166809, SingStepDepth=16 271925. Backup _pre_step_b4_2026-10-19 (search/ only).
+//
 // BAKE BLOCK 4 S4 (19/10/2026 evening, user): the SPSA S4 of block 4 (30 levers, 10+0.1 without HT, stopped at about
 // iteration 1,450) gives its vector: 18 levers that moved (SingMarginBase 73->76, SingMarginTtPv 66->70,
 // SingDoubleBase -2->-4, SingDoublePv 225->215, SingDoubleQuiet 152->145, SingTripleBase 60->62, SingTriplePv
@@ -401,10 +407,19 @@
   P(SingDoubleBase, -4, -100, 100)                                                                        \
   P(SingDoublePv, 215, 0, 500)                                                                            \
   P(SingDoubleQuiet, 145, 0, 400)                                                                         \
-  P(SingTripleBase, 62, 0, 300)                                                                           \
-  P(SingTriplePv, 294, 0, 600)                                                                            \
-  P(SingTripleQuiet, 183, 0, 500)                                                                         \
-  P(SingTripleTtPv, 80, 0, 300)                                                                           \
+  /* Ladder of the extra plies (19/10/2026, ours): the first rung is the Double threshold above, every further rung */ \
+  /* sits one step higher. Step = Base + Pv*pv - Quiet*quiet + TtPv*tt_pv + hist term - Deep*beyond + Depth*depth/16. */ \
+  /* Start values = the old separate third threshold rewritten as a step (same tree); SingStepDepth and a third    */ \
+  /* rung (SingRungs 3) are ours and start off.                                                                     */ \
+  P(SingStepBase, 66, -100, 300)                                                                          \
+  P(SingStepPv, 79, -100, 300)                                                                            \
+  P(SingStepQuiet, 38, -100, 300)                                                                         \
+  P(SingStepTtPv, 80, 0, 300)                                                                             \
+  P(SingStepDepth, 0, -64, 64)           /* ours: step per 16 plies of depth. DISCARDED 19/10/2026, loses  */ \
+                                         /* both ways (8+0.08 HT, UHO): -32 -3.05 +- 5.53 (4,106), +32     */ \
+                                         /* -5.49 +- 8.18 (1,836); a step constant with depth stays.       */ \
+  P(SingRungs, 2, 1, 3)                  /* ours: extra plies at most (1 + SingRungs in all). 3 DISCARDED  */ \
+                                         /* 19/10/2026: -13.61 +- 9.47 (1,456, 8+0.08 HT, UHO).            */ \
   /* Block 4 in our form (19/10/2026, 13_search.inc singular_probe): the thresholds of the previous code become  */ \
   /* parameters at their old values, and new terms of our own start at 0 (same tree, bench unchanged).          */ \
   P(SingMinDepth, 6, 3, 12)              /* the exclusion search from this depth, one more on tt_pv nodes  */ \
@@ -423,7 +438,8 @@
   P(SingLvlExp2, 0, -100, 100)                                                                             \
   P(SingLvlExp3, 0, -100, 100)                                                                             \
   P(SingNegHigh, 4, 0, 4)                /* negative extension when the hash value clears beta             */ \
-  P(SingNegCut, 3, 0, 4)                 /* negative extension on an expected cut node                     */ \
+  P(SingNegCut, 3, 0, 4)                 /* negative extension on an expected cut node. 2: -1.98 +- 4.51   */ \
+                                         /* (6,322, 8+0.08 HT, UHO, 19/10/2026), stopped; 3 stays.         */ \
   /* SBAKE LDSE 14/10/2026 (utente): non regressione a 40+0.4 HT di tempo + Ldse insieme (tm53), lato release            \
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
      senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
@@ -780,10 +796,10 @@
   P(EvalDiffHi, 194, 0, 600)             /* che ci ha portati qui                                          */ \
   P(EvalDiffOfs, 60, -200, 200)                                                                            \
   /* estensione singolare (13_search.inc, singular) */                                                         \
-  P(SingTtHistMul, 1194, 0, 4000)        /* margine doppia: - Mul * tt_move_hist / Div                     */ \
-  P(SingTtHistDiv, 114178, 20000, 400000)                                                                  \
-  P(SingDoubleDeep, 39, 0, 150)          /* oltre la profondita' di radice: margini doppia/tripla ridotti */ \
-  P(SingTripleDeep, 47, 0, 150)                                                                            \
+  P(SingTtHistMul, 1371, 0, 4600)        /* first rung - and step + Mul * tt_move_hist / Div; 19/10/2026:  */ \
+  P(SingTtHistDiv, 131072, 20000, 400000) /* Div 114178 -> 2^17 with Mul 1194 -> 1371 (same weight, +0.03%) */ \
+  P(SingDoubleDeep, 39, 0, 150)          /* beyond the root depth: first rung lower                        */ \
+  P(SingStepDeep, 8, -100, 150)          /* beyond the root depth: step smaller (ours, was Triple - Double) */ \
   P(SingFhTtBase, 404, 0, 1500)          /* tt_move_hist dopo il taglio multiplo: -(Base + Depth*depth)  */ \
   P(SingFhTtDepth, 109, 0, 400)                                                                            \
   /* move_loop (13_search.inc) */                                                                             \
@@ -863,11 +879,17 @@
   /* the sum stops at zero. Units 1/1024 ply: RdDisagree per 1024 of |psqt - positional| (up to 8), RdBoundCapt   */ \
   /* once for a capture into another expert, RdKingAtt per unit of king_attack_weight (up to 6), RdKingDanger per */ \
   /* attacked square next to our king (up to 4). First tests at strong values to see the sign.                    */ \
-  P(RdDisagree, 0, 0, 1024)                                                                               \
-  P(RdBoundCapt, 0, 0, 3072)                                                                              \
-  P(RdKingAtt, 0, 0, 1024)                                                                                \
-  P(RdKingDanger, 0, 0, 1024)                                                                             \
-  P(RdPawnBreak, 0, 0, 3072)             /* once for a pawn break in a closed structure (>= 3 blocked)      */ \
+  P(RdDisagree, 0, -1024, 1024)             /* 19/10/2026: 1024 -4.94 +- 6.16 (3,308, 8+0.08 HT, UHO), stopped. */ \
+                                            /* |psqt - positional| on game positions: median 239, 90% 961.      */ \
+  P(RdBoundCapt, 0, -3072, 3072)            /* 19/10/2026: 3072 +1.54 +- 5.89 (3,394, 8+0.08 HT, UHO). With     */ \
+                                            /* RdDisagree=-512: +0.75 +- 3.25 (11,652), lean, to be closed.     */ \
+  P(RdKingAtt, 0, -1024, 1024)                                                                               \
+  P(RdKingDanger, 0, -1024, 1024)                                                                            \
+  P(RdPawnBreak, 0, -3072, 3072)            /* once for a pawn break in a closed structure (>= 3 blocked).     */ \
+                                            /* CLOSED 19/10/2026: 2048 +0.19 +- 5.74 (3,724, 8+0.08 HT, UHO),  */ \
+                                            /* +0.61 +- 4.80 pooled with 7+0.07 (5,142); 3072 8moves -3.65.    */ \
+                                            /* Breaks occur in 6% of game positions, 30% of games; played      */ \
+                                            /* breaks almost unchanged (597 vs 569): the search finds them.    */ \
   P(ReA0, 1009, 336, 3127)                                                                                 \
   P(ReA1, 1057, 352, 3271)                                                                                 \
   P(ReA2, 1040, 346, 3220)                                                                                 \

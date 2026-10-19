@@ -278,3 +278,12 @@ formula of 8.0 (bench 126352) and stays on hold. The tuning of block 4 continues
 reduction levers of our own are written and off, to be tested one at a time: disagreement between the two parts of the
 network, captures into another expert, attacks on the defender's king zone, danger to our own king, pawn breaks in
 closed structures.
+
+**Reduction levers and the ladder of block 4 (19 October 2026, night).** The reduction levers were measured one at a
+time at strong values (8+0.08 with hyperthreading): the attacks on the king zone lost in every direction, the pawn
+breaks were neutral (+0.19 ± 5.74 over 3,724 games: the search already finds them), less reduction with disagreement
+inside the network lost (−4.94 ± 6.16), and captures into another expert together with more reduction on disagreement
+lean positive but small (+0.75 ± 3.25 over 11,652), to be closed later. In block 4 the extra plies of the singular
+extension became a ladder of our own, a first rung and a step with its own weights, at the same tree (bench 209655);
+its new degrees of freedom and a smaller negative extension did not gain and stay off
+([§4.4](docs/development/8.1/SEARCH_4_EXTENSIONS.md)). Block 4 is now ours except three generic gates.

@@ -924,18 +924,25 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   f->excluded = 0;
 
   if (v < s_beta) {
-    // Extra plies: the gap under the bar against a threshold per level. Node facts shared by the two levels; each
-    // level weighs them its own way, plus an offset per expert (ours, at 0).
+    // Extra plies: a ladder on the gap under the bar. The first rung is a threshold built from the node facts, plus
+    // an offset per expert; every further rung sits one step higher, and the step has its own weights of the same
+    // facts. A move earns one extra ply per rung it clears, up to SingRungs. The step may shrink or grow with depth
+    // (SingStepDepth, ours, at 0); with two rungs the ladder gives the tree of the previous separate thresholds.
     const int corr_adj = std::abs(n.signal) / SingCorrDiv;
     const int beyond = f->ply > td.root_depth, quiet = !n.tact_hash;
     const int deep_adj = AN ? td.dz_ext : deep_term(td, DeepExt);
     const int common = corr_adj + deep_adj + by_exp4(n.expert, SingLvlExp0, SingLvlExp1, SingLvlExp2, SingLvlExp3);
-    const int dbl = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * quiet -
-                    SingTtHistMul * td.tt_move_hist / SingTtHistDiv - SingDoubleDeep * beyond - common;
-    const int tpl = SingTripleBase + SingTriplePv * n.pv - SingTripleQuiet * quiet + SingTripleTtPv * f->tt_pv -
-                    SingTripleDeep * beyond - common;
+    const int hist = SingTtHistMul * td.tt_move_hist / SingTtHistDiv;
+    const int first = SingDoubleBase + SingDoublePv * n.pv - SingDoubleQuiet * quiet - hist - SingDoubleDeep * beyond -
+                      common;
+    const int step = SingStepBase + SingStepPv * n.pv - SingStepQuiet * quiet + SingStepTtPv * f->tt_pv + hist -
+                     SingStepDeep * beyond + SingStepDepth * n.depth / 16;
+    const int gap = s_beta - v;
+    int extra = 0;
+    for (int k = 0; k < SingRungs; k++)
+      extra += gap > first + k * step;
     n.depth++;
-    return 1 + (v < s_beta - dbl) + (v < s_beta - tpl);
+    return 1 + extra;
   }
   if (v >= n.beta && !val_decided(v)) {   // several good moves: the node returns, and the hash move learns it
     hist_learn(td.tt_move_hist, -SingFhTtBase - SingFhTtDepth * n.depth, LIM_TTMOVE, ttm_grav(n.expert));
@@ -1225,8 +1232,12 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         }
         if (RdKingAtt)
           less += RdKingAtt * std::min(king_attack_weight(td, to), 6);
+        // Positive: less reduction, down to zero at most. Negative weights (allowed since 19/10 evening) add
+        // reduction instead, with no floor needed.
         if (less > 0)
           r = std::max(r - less, std::min(r, 0));
+        else
+          r -= less;
       }
       const int neg_cap = f->negext_path < 1 ? 2 : 0;
       if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: niente riduzione, le riduzioni negative restano

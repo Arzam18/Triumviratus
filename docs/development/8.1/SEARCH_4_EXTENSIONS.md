@@ -47,6 +47,25 @@ between hash value and static evaluation (`SingMoving` 2) and the thresholds of 
 (`SingLvlExp0` 1, `SingLvlExp1` 1). A regression of the SPSA results on its perturbations found no lever with an effect
 beyond noise: the block sits near a flat optimum, and the tuning moved its values without changing its strength.
 
-Still the numbers of Stockfish 19: the negative extension on an expected cut node (3), the depth from which the
-exclusion search runs (6, one more on hash entries of the principal variation), the slack on the hash depth (3) and
-the divisor of the hash-move history (114178).
+## 4.4 The extra plies as a ladder (19 October 2026)
+
+The extra plies of the singular extension were decided by two separate thresholds, one for the second ply and one for
+the third, each a weighted sum of the same node facts. They are now a ladder on the gap under the bar: a first rung
+(the threshold of the second ply, with an offset per expert) and a step with its own weights of the same facts
+(`SingStepBase`, `SingStepPv`, `SingStepQuiet`, `SingStepTtPv`, `SingStepDeep`, and the hash-move history with the
+opposite sign). A move earns one extra ply per rung it clears, up to `SingRungs`. The divisor of the hash-move history
+became a power of two (2^17, multiplier 1371). The start values give the tree of §4.3: bench unchanged, 209655.
+
+Two degrees of freedom of the ladder were measured at strong values (8+0.08 with hyperthreading, UHO book):
+
+| change | result | decision |
+|---|---|---|
+| step shorter with depth, `SingStepDepth` −32 | −3.05 ± 5.53 (4,106 games) | discarded |
+| step longer with depth, `SingStepDepth` +32 | −5.49 ± 8.18 (1,836) | discarded |
+| a third rung, `SingRungs` 3 | −13.61 ± 9.47 (1,456) | discarded |
+| negative extension on an expected cut node 2 instead of 3 | −1.98 ± 4.51 (6,322) | 3 stays |
+
+A step constant with depth and two rungs stay. The remaining inherited numbers are the generic gates of the rule: the
+negative extension on an expected cut node (3), the depth from which the exclusion search runs (6, one more on hash
+entries of the principal variation) and the slack on the hash depth (3). Every other value of the block comes from our
+tuning or from terms of our own.
