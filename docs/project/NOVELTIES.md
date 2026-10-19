@@ -51,7 +51,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 56 entries, **12 are new**, **28 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 58 entries, **14 are new**, **28 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
@@ -71,6 +71,7 @@ experts of the network. The analysis build has its own section ([§10](#10-analy
 | Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral**; SPSA CORR1p2 kept it on (about 4,550); on the release-candidate build at 8+0.08 (14 October, two runs with the same tree, before and after the prefetch below): **+0.5 ± 3.0 over 14,426 games, neutral** | off |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Slider attacks by obstruction difference on the four lines of a square in one AVX-512 register, with the lane-wise leading-zero count (`vplzcntq`) | New in its form | 8.1 dev | **−0.98%** cycles per node in the middlegame, **−1.20%** in endgames, whole engine (xperf, PGO, Xeon) | adopted, default of the AVX-512 builds |
+| Pawn break in a closed structure (three or more blocked pawns) reduced less (`RdPawnBreak`) | New | 8.1 dev | 2048: +2.1 ± 7.3 over 2,142 games (7+0.07 and 8+0.08 pooled); 3072 −3.7 ± 9.2 | under test |
 | Hyperbola quintessence for AVX2 in our form (`pair_hqs`: the two diagonals in a vector register, the rook in general registers) | Revisited | 8.1 dev | −0.23% / −0.05% cycles per node | adopted, default of the AVX2 builds |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted; inactive while LDSE is off |
@@ -341,6 +342,19 @@ divided by phase.
   mobility buckets, 2,048 inputs). Only its cost was measured, with random weights: −16.2% NPS, because mobility
   changes with every move. Archived on 29 September 2026 without training. No network of the nine engines has
   mobility inputs. **New as an idea**, with no measurement of strength.
+- **Pawn break in a closed structure reduced less (`RdPawnBreak`), 8.1 development, the author's idea.** In a closed
+  position the plan of both sides turns around the one or two pawn pushes that can open the structure, and a reduced
+  search tends to miss them because the gain comes several moves later. The structure counts as closed when at least
+  three pawns face an opposing pawn on the square directly in front of them (same file, blocked). In such a position a
+  quiet pawn push that lands on a square attacking an enemy pawn, that is a move offering a pawn exchange that opens a
+  file or a diagonal, has its late-move reduction lowered by `RdPawnBreak` (in 1/1024 of a ply), never below zero; the
+  lever is signed, so a negative value tests the opposite direction. The nine engines read do not condition any
+  reduction on the pawn structure. The closest examples are a move-ordering bonus in Reckless for a pawn push to an
+  advanced square attacked by an enemy pawn, which applies in every structure and only to ordering, and the general
+  advice to exempt pawn moves from late-move reductions (chessprogramming.org). First measurements: 2048 at 7+0.07
+  without hyperthreading (UHO book) +1.3 ± 9.0 (1,418 games); 3072 on the 8-move book −3.7 ± 9.2, with the search
+  clearly deeper, a value judged too strong; 2048 at 8+0.08 with hyperthreading (UHO) +2.9 ± 13.2 (724). The two runs at 2048 pooled: +2.1 ± 7.3 over 2,142 games. The lever fires rarely, only in closed middlegames,
+  so its effect on a whole game set is small by nature. **New**, under test.
 
 ## 7. Known ideas revisited in a different form
 
