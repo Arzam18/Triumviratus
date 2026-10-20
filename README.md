@@ -168,9 +168,7 @@ led the author to the surprise rule of 8.0's time management. Many thanks to him
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included.
 
-**Prometheus96**, tester and contributor, drew the project's logos: the first one, with three columns in a laurel
-wreath, and the current legionary helmet whose face guard forms the T of the name, from which the vector versions and
-the engine icon are made.
+**Prometheus96** generated the logo, which was then reworked and converted to SVG.
 
 <details>
 <summary><b>Code from other projects</b></summary>
