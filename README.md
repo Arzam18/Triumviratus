@@ -24,7 +24,7 @@
 <div align="center">
 
 [8.0](#triumviratus-80) · [Strength](#strength) · [Download](#download) · [Rating lists](#rating-lists) ·
-[Earlier releases](#earlier-releases) · [What is new](docs/project/NOVELTIES.md) · [Dev log](DEVELOPMENT_8.1.md) ·
+[Earlier releases](#earlier-releases) · [What is new](docs/project/NOVELTIES.md) ·
 [Networks](docs/networks/NETWORKS.md) · [Future directions](docs/project/FUTURE_DIRECTIONS.md) · [Tests](docs/tests/) · [History](docs/project/HISTORY.md) ·
 [License](#license) · [Credits](#credits)
 

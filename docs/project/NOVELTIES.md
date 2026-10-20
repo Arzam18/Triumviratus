@@ -483,7 +483,7 @@ the pawn blocks, the universal build from one unit per source file, the move-ord
 analysis mode compiled as a second copy.
 
 **8.1: the slider attacks of our own.** In 8.1 the vectorised slider attacks of Stockfish origin were replaced by code
-of our own (block 7, [`CONSILIUM_INFERENCE.md` §6.9](../development/8.1/CONSILIUM_INFERENCE.md#69-block-7-the-last-files-of-stockfish-origin-outside-the-search)).
+of our own.
 The AVX-512 kernel is new in its form. The obstruction difference itself is published (chessprogramming wiki): on one
 line, the attacked squares come from the occupied squares above the slider and the highest occupied square below it.
 That needs the highest set bit of a word, which vector instructions could not give before AVX-512 CD added a lane-wise

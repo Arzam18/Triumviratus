@@ -34,7 +34,7 @@ Results from testers are published in [`tests/`](../tests/README.md) with their 
 
 ## Contributions
 
-Merged contributions, newest first. Measurements and details are in [`DEVELOPMENT_8.1.md`](../../DEVELOPMENT_8.1.md).
+Merged contributions, newest first.
 
 - **Bastiii**, code review of the 8.1 development branch (17 October 2026): a race between threads in the
   transposition table store (the entry is checked again before its move and evaluation are reused), a dead write of
@@ -46,4 +46,4 @@ Merged contributions, newest first. Measurements and details are in [`DEVELOPMEN
   from his own engine, [Zoomies](https://github.com/CodeAdopter/Zoomies), with the move order of ours; an AVX-VNNI variant of the universal executable for Intel
   processors without AVX-512; the removal of the per-thread evaluation cache; a prefetch of the next move's hash entry
   on Intel processors; and two smaller vector changes (rank counting in AVX2, threat rows without `vpmovsxbw`).
-  ([section 1](../../DEVELOPMENT_8.1.md#1-speed-at-an-identical-tree-the-first-external-contribution-15-october-2026))
+
