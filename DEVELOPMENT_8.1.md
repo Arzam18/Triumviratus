@@ -294,3 +294,11 @@ which rule decided and what a search of the pruned move would have found; the le
 28-parameter SPSA of the pruning margins, did not gain (the SPSA vector: −2.83 ± 4.35 over 6,130 games), so the values
 stay as they are ([§3.3](docs/development/8.1/SEARCH_3_PRUNING.md)). The search code is now ours apart from the base
 formulas of time management.
+
+**Time management in our form (20 October 2026).** The two stages of the time manager are rewritten: a budget for
+the move (a reserve spread over a horizon of moves, a share of it as the target, a multiple of the target as the
+ceiling) and a verdict after each iteration (the target scaled by the trend of the score, how long the best move has
+held, how often it changed and how much of the effort it takes). Every remaining constant is a parameter. A test
+harness runs the previous and the new code side by side on 5,000,000 random cases (clocks, increments, moves to go,
+plies, overhead, and the existing parameters at random values): the target, the ceiling and the time of each
+iteration agree to the bit. With this, the whole search is code of our own.

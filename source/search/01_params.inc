@@ -1075,7 +1075,34 @@
   P(TmMtgPly, 1164, 300, 4000)           /* /10 */                                                        \
   P(TmMtgClock, 880, 300, 1000)          /* /1000: tetto della quota sul tempo rimasto */                 \
   P(TmMtgMaxBase, 1300, 800, 3000)       /* /1000: massimo = (base + TmMtgMaxHorizon*orizzonte) x ottimo */ \
-  P(TmMtgMaxHorizon, 110, 0, 400)        /* /1000 */
+  P(TmMtgMaxHorizon, 110, 0, 400)        /* /1000 */ \
+  /* Time management in our form (20/10/2026): the remaining constants of the two stages (budget and verdict, */     \
+  /*  see 14_deepen.inc) as parameters; defaults give the same times to the millisecond (n / 10^k is the       */    \
+  /*  correctly rounded double of the literal it replaces).                                                     */   \
+  P(TmHorizon, 50, 10, 100)              /* moves over which the clock is spread */ \
+  P(TmShortClock, 1000, 0, 5000)         /* ms: below, the horizon is a fraction of the clock */ \
+  P(TmShortHorizon, 50, 10, 200)         /* /1000: horizon = clock ms x this (1 move per 20 ms) */ \
+  P(TmOverheadMoves, 2, 0, 10)           /* overhead counted on horizon + this moves */ \
+  P(TmOpenLog, 3272, 1000, 6000)         /* /1e4: opening factor = log * log10(reserve) - base */ \
+  P(TmOpenBase, 4141, 0, 10000)          /* /1e4 */ \
+  P(TmOptCMax, 4905, 2000, 10000)        /* /1e6: cap of the coefficient of the share */ \
+  P(TmMaxCMin, 31441, 10000, 50000)      /* /1e4: floor of the ceiling multiple */ \
+  P(TmPlyShift, 322713, 0, 1000000)      /* /1e5: ply offset of the power law of the share */ \
+  P(TmPonderDiv, 4, 1, 16)               /* with ponder the target grows by 1/this */ \
+  P(TmPrevRed, 850, 500, 1500)           /* /1000: settle ramp assumed before the first move */ \
+  P(TmFallMin, 576, 300, 1000)           /* /1000: clamp of the trend factor */ \
+  P(TmFallMax, 1728, 1000, 3000)         /* /1000 */ \
+  P(TmRedY0, 639, 300, 1500)             /* /1000: settle ramp, value at TmRedLo plies held */ \
+  P(TmRedY1, 1712, 800, 3000)            /* /1000: value at TmRedHi plies held */ \
+  P(TmRedMin, 629, 300, 1500)            /* /1000: clamp of the settle ramp */ \
+  P(TmRedMax, 1544, 800, 3000)           /* /1000 */ \
+  P(TmSettlePrev, 1468, 500, 3000)       /* /1000: settle = (this + previous ramp) / (div x ramp) */ \
+  P(TmSettleDiv, 2284, 1000, 4000)       /* /1000 */ \
+  P(TmEffortY0, 969, 500, 1500)          /* /1000: focus ramp, value at TmEffortLo */ \
+  P(TmEffortY1, 714, 300, 1200)          /* /1000: value at TmEffortHi */ \
+  P(TmEffortMin, 693, 300, 1200)         /* /1000: clamp of the focus ramp */ \
+  P(TmEffortMax, 838, 500, 1500)         /* /1000 */ \
+  P(TmDeepenShare, 500, 100, 1000)       /* /1000: past this share of the time the next iteration keeps its depth */
 
 #ifdef TRIUMV_RELEASE
   #define TP_DECLARE(name, def, lo, hi) static constexpr int name = def;

@@ -1,34 +1,39 @@
-// search/14_deepen.inc -- Approfondimento iterativo, gestione del tempo, righe info.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/14_deepen.inc -- Iterative deepening, time management, info lines.
+// Part of threads.cpp: NOT a compilation unit of its own.
 
 // ============================================================================
-// GESTIONE DEL TEMPO
-// Un piano per mossa (tempo ottimale e massimo) e, a ogni iterazione completata, un verdetto: fermarsi o
-// continuare, secondo quanto scende la valutazione, quanto e' stabile la mossa migliore e quanti nodi le vanno.
+// TIME MANAGEMENT
+// Two stages. At the start of a search, a budget for the move: the clock is spread over a horizon of moves (the
+// reserve), a share of the reserve is the target time and a multiple of the target is the ceiling. After every
+// completed iteration, a verdict: the target is scaled by four factors read from the search (the trend of the score,
+// how long the best move has held, how often it changed, how much of the effort it takes) and the search stops once
+// the scaled target or the ceiling is spent. Every constant is a Tm* parameter (01_params.inc); the corrections of
+// our own (behind on the clock, early middlegame, per expert, expected reply, surprise, defence, jump guard) act on
+// top of the two stages.
 // ============================================================================
 struct ClockState {
-  int    optimum = 0, maximum = 0;
-  double opening_adjust = -1;       // fissato alla prima mossa della partita dal tempo disponibile
-  double prev_time_red = 0.85;      // riduzione usata alla mossa precedente
-  bool   have_prev = false;         // c'e' una mossa precedente in questa partita?
+  int    optimum = 0, maximum = 0;  // target and ceiling of this move, ms
+  double opening_adjust = -1;       // scale of the share, fixed at the first move of a game from the reserve
+  double prev_time_red = TmPrevRed / 1000.0;   // stability ramp of the previous move (settle factor)
+  bool   have_prev = false;         // is there a previous move in this game?
   int    prev_best = 0, prev_avg = 0;
-  int    iter_values[4] = {0, 0, 0, 0};
+  int    iter_values[4] = {0, 0, 0, 0};   // root score of the last four iterations (trend factor)
   int    iter_idx = 0;
-  double best_changes = 0;
+  double best_changes = 0;          // changes of the best move, halved at each iteration (churn factor)
   bool   increase_depth = true;
-  // Risposta prevista (TmExpect*): la posizione attesa dopo la nostra mossa e la risposta della linea principale, la
-  // nostra mossa successiva prevista, la valutazione e la profondita' della ricerca che le ha date.
+  // Expected reply (TmExpect*): the position expected after our move and the reply of the principal variation, our
+  // next move as predicted, and the score and depth of the search that gave them.
   U64    expect_key = 0;
   int    expect_move = 0, expect_score = 0, expect_depth = 0;
-  bool   expected = false;          // questa ricerca parte dalla posizione attesa
-  bool   surprise = false;          // c'era una risposta prevista e l'avversario ne ha giocata un'altra
-  double start_clock = 0;           // orologio alla prima mossa della partita (TmSurpriseClock)
+  bool   expected = false;          // this search starts from the expected position
+  bool   surprise = false;          // there was an expected reply and the opponent played another one
+  double start_clock = 0;           // clock at the first move of the game (TmSurpriseClock)
 };
 static ClockState g_clock;
 
 static void clock_memory_reset() {
   g_clock.opening_adjust = -1;
-  g_clock.prev_time_red = 0.85;
+  g_clock.prev_time_red = TmPrevRed / 1000.0;
   g_clock.have_prev = false;
   g_clock.expect_key = 0;
   g_clock.expected = false;
@@ -38,6 +43,49 @@ static void clock_memory_reset() {
 
 int clock_hard_limit() { return g_clock.maximum; }
 
+// Budget of a move: the horizon in moves, the reserve (ms that can be spent over the horizon), the share of the
+// reserve that is the target, and the multiple of the target that is the ceiling.
+struct ClockBudget {
+  int    horizon;
+  double reserve, share, ceil_mult;
+};
+
+// Reserve: the clock plus the increments still to come over the horizon, less the overhead of each move. With moves
+// to go the horizon is the cycle (at most TmHorizon); without, TmHorizon moves, or a fraction of the clock in
+// seconds when less than TmShortClock ms are left.
+static ClockBudget budget_reserve(double clock, double inc, int overhead) {
+  ClockBudget b;
+  b.horizon = g_limits.movestogo ? std::min(g_limits.movestogo, TmHorizon) : TmHorizon;
+  if (clock < TmShortClock && !g_limits.movestogo)
+    b.horizon = (int)(clock * (TmShortHorizon / 1000.0));
+  b.reserve = std::max(1.0, clock + inc * (b.horizon - 1) - (double)overhead * (TmOverheadMoves + b.horizon));
+  b.share = b.ceil_mult = 0;
+  return b;
+}
+
+// Without moves to go. The share grows with the ply of the game as a power law; its coefficient grows with the log
+// of the seconds on the clock up to TmOptCMax, the share is capped by a fraction of the clock over the reserve and
+// scaled by the opening factor of the game. The ceiling multiple grows with the clock and the ply, up to TmMaxMultCap.
+static void budget_sudden_death(ClockBudget &b, double clock, int game_ply) {
+  if (g_clock.opening_adjust < 0)
+    g_clock.opening_adjust = TmOpenLog / 1e4 * std::log10(b.reserve) - TmOpenBase / 1e4;
+  const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
+  const double grow = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, TmOptCMax / 1e6);
+  const double ceil_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, TmMaxCMin / 1e4);
+  b.share = std::min(TmOptBase / 1e6 + std::pow(game_ply + TmPlyShift / 1e5, TmOptPow / 1e5) * grow,
+                     TmOptClockCap / 1e5 * clock / b.reserve) *
+            g_clock.opening_adjust;
+  b.ceil_mult = std::min(TmMaxMultCap / 1e3, ceil_c + game_ply / (TmMaxPlyDiv / 1e3));
+}
+
+// With moves to go (the 40/15 of CCRL): a share of the cycle that grows with the ply, capped by a fraction of the
+// clock over the reserve; the ceiling multiple grows with the horizon.
+static void budget_moves_to_go(ClockBudget &b, double clock, int game_ply) {
+  b.share = std::min((TmMtgBase / 1000.0 + game_ply / (TmMtgPly / 10.0)) / b.horizon,
+                     TmMtgClock / 1000.0 * clock / b.reserve);
+  b.ceil_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * b.horizon;
+}
+
 static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.time[us]) {
     g_clock.optimum = g_clock.maximum = INT_MAX / 2;
@@ -45,56 +93,71 @@ static void clock_plan(int us, int game_ply, int overhead) {
   }
   const double clock = g_limits.time[us], inc = g_limits.inc[us];
   if (g_clock.start_clock <= 0)
-    g_clock.start_clock = clock;   // prima mossa della partita (TmSurpriseClock)
-  int horizon = g_limits.movestogo ? std::min(g_limits.movestogo, 50) : 50;
-  if (clock < 1000 && !g_limits.movestogo)
-    horizon = (int)(clock * 0.05);
-  const double left = std::max(1.0, clock + inc * (horizon - 1) - (double)overhead * (2 + horizon));
-  double opt_share, max_mult;
-  if (!g_limits.movestogo) {
-    if (g_clock.opening_adjust < 0)
-      g_clock.opening_adjust = 0.3272 * std::log10(left) - 0.4141;
-    // Costanti come parametri Tm* (05/10/2026, per uno SPSA del tempo contro un motore esterno); default = valori di prima.
-    const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
-    const double opt_c = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, 0.004905);
-    const double max_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, 3.1441);
-    opt_share = std::min(TmOptBase / 1e6 + std::pow(game_ply + 3.22713, TmOptPow / 1e5) * opt_c,
-                         TmOptClockCap / 1e5 * clock / left) *
-                g_clock.opening_adjust;
-    max_mult = std::min(TmMaxMultCap / 1e3, max_c + game_ply / (TmMaxPlyDiv / 1e3));   // 6873/1e3 == 6.873
-  } else {
-    // Idea 8 (04/10/2026): costanti del ramo movestogo come parametri, per uno SPSA dedicato al 40/15 di CCRL. I
-    // default riproducono i valori di prima (la divisione IEEE e' arrotondata correttamente: 880/1000.0 == 0.88).
-    opt_share = std::min((TmMtgBase / 1000.0 + game_ply / (TmMtgPly / 10.0)) / horizon, TmMtgClock / 1000.0 * clock / left);
-    max_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * horizon;
-  }
-  // TmBehindMul (07/10/2026): con meno orologio dell'avversario si spende meno (vantaggio relativo solo se negativo).
-  // Non con movestogo == 1: a fine ciclo l'orologio dell'avversario puo' gia' contenere il tempo del ciclo dopo.
+    g_clock.start_clock = clock;   // first move of the game (TmSurpriseClock)
+  ClockBudget b = budget_reserve(clock, inc, overhead);
+  if (!g_limits.movestogo)
+    budget_sudden_death(b, clock, game_ply);
+  else
+    budget_moves_to_go(b, clock, game_ply);
+  double opt_share = b.share;
+  // TmBehindMul (07/10/2026, the user's idea): with less clock than the opponent the share shrinks (relative
+  // advantage, only when negative). Not with movestogo == 1: at the end of a cycle the opponent's clock may already
+  // hold the time of the next cycle.
   if (TmBehindMul && g_limits.movestogo != 1) {
     const double mine = g_limits.time[us], theirs = g_limits.time[us ^ 1];
     opt_share *= 1 + TmBehindMul / 1000.0 * std::min((mine - theirs) / (1.0 + mine + theirs), 0.0);
   }
-  // TmEarlySave (08/10/2026, audit X3; BAKATA a 200 l'11/10/2026): con >= 24 pezzi gli errori contro SF19 sono rari per entrambi i
-  // motori; la quota si riduce e il tempo resta per le fasi 10-23 pezzi, dove in difesa sbagliamo 3-4 volte di piu'.
-  // La scacchiera globale e' quella della radice (start_search la copia nel thread prima di chiamare clock_plan).
+  // TmEarlySave (08/10/2026, baked at 200 on 11/10/2026): with >= 24 pieces errors are rare for both sides; the share
+  // shrinks and the time is kept for the phases with 10-23 pieces. The global board is the root board (start_search
+  // copies it into the thread before calling clock_plan).
   if (TmEarlySave && count_bits(occupancies[both]) >= 24)
     opt_share *= 1 - TmEarlySave / 1000.0;
-  // Idea F (13/10/2026, utente): tempo per esperto della rete. La quota ottimale si moltiplica per (1 + TmExpK/1000)
-  // secondo l'esperto della radice; il massimo della mossa (multiplo dell'ottimo, sotto il tetto dell'orologio) segue.
-  // Tutte a 0: tempi identici.
+  // Time per expert of the network (13/10/2026, the user's idea): the share is multiplied by (1 + TmExpK / 1000)
+  // according to the expert of the root; the ceiling follows. All 0: identical times.
   if (TmExp0 | TmExp1 | TmExp2 | TmExp3) {
     const int e = net_phase(count_bits(occupancies[both]));
     const int k = e == 0 ? TmExp0 : e == 1 ? TmExp1 : e == 2 ? TmExp2 : TmExp3;
     opt_share *= 1 + k / 1000.0;
   }
-  g_clock.optimum = (int)std::max(1.0, opt_share * left);
-  g_clock.maximum = (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, max_mult * g_clock.optimum));
+  g_clock.optimum = (int)std::max(1.0, opt_share * b.reserve);
+  g_clock.maximum =
+      (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, b.ceil_mult * g_clock.optimum));
   if (g_ponder_option)
-    g_clock.optimum += g_clock.optimum / 4;
+    g_clock.optimum += g_clock.optimum / TmPonderDiv;
 }
 
 static inline double lerp_clamped(double x, double x0, double x1, double y0, double y1, double lo, double hi) {
   return std::clamp(y0 + (y1 - y0) * (x - x0) / (x1 - x0), lo, hi);
+}
+
+// Verdict of a completed iteration: four factors that scale the target of the move.
+//   trend:  more time when the score falls, against the average of the previous move and against the iteration
+//           four back, clamped to [TmFallMin, TmFallMax]; with TmJumpGuard a large jump up never cuts the time;
+//   settle: less time the longer the best move has held (a ramp on the plies since it last changed), relative to the
+//           ramp of the previous move;
+//   churn:  more time when the best move changed often (changes summed over threads, halved at each iteration);
+//   focus:  less time when the best move takes most of the nodes (a ramp on its share of the nodes, x100000).
+struct IterVerdict {
+  double trend, settle_ramp, settle, churn, focus;
+};
+
+static IterVerdict iteration_verdict(int best, int iter_value, double prev_avg, int plies_held, U64 effort) {
+  IterVerdict v;
+  v.trend = (TmFallBase / 100.0 + TmFallPrev / 100.0 * (prev_avg - best) + TmFallIter / 100.0 * (iter_value - best)) /
+            100.0;
+  v.trend = std::clamp(v.trend, TmFallMin / 1000.0, TmFallMax / 1000.0);
+  // TmJumpGuard (11/10/2026): a very large jump up against the previous move is more often an error of the search
+  // than a discovery; the time that would refute it is not cut. Threshold in printed cp (units_to_cp), as in a GUI.
+  if (TmJumpGuard && g_clock.have_prev && !val_decided(best) && !val_decided(g_clock.prev_avg) &&
+      units_to_cp(best - g_clock.prev_avg) >= TmJumpGuard)
+    v.trend = std::max(v.trend, 1.0);
+  v.settle_ramp = lerp_clamped(plies_held, TmRedLo / 1e2, TmRedHi / 1e2, TmRedY0 / 1000.0, TmRedY1 / 1000.0,
+                               TmRedMin / 1000.0, TmRedMax / 1000.0);
+  v.settle = (TmSettlePrev / 1000.0 + g_clock.prev_time_red) / (TmSettleDiv / 1000.0 * v.settle_ramp);
+  v.churn = TmInstabBase / 1000.0 + TmInstabMul / 1000.0 * g_clock.best_changes / num_threads;
+  v.focus = lerp_clamped((double)effort, TmEffortLo, TmEffortHi, TmEffortY0 / 1000.0, TmEffortY1 / 1000.0,
+                         TmEffortMin / 1000.0, TmEffortMax / 1000.0);
+  return v;
 }
 
 // ============================================================================
@@ -608,21 +671,10 @@ static void deepen(ThreadData &td) {
         !g_stop_at_ponderhit.load(std::memory_order_relaxed)) {
       const U64 effort = td.root[0].effort * 100000 / std::max<U64>(1, td.nodes);
       const double prev_avg = g_clock.have_prev ? g_clock.prev_avg : (double)infinity;
-      double falling = (TmFallBase / 100.0 + TmFallPrev / 100.0 * (prev_avg - best) +
-                        TmFallIter / 100.0 * (g_clock.iter_values[g_clock.iter_idx] - best)) / 100.0;
-      falling = std::clamp(falling, 0.576, 1.728);
-      // TmJumpGuard (11/10/2026, spenta, vedi 01_params.inc): un salto in su molto grande rispetto alla mossa prima
-      // e' piu' spesso un errore della ricerca che una scoperta; non si taglia il tempo che servirebbe a smentirlo.
-      // Soglia in cp stampati (units_to_cp), cosi' corrisponde a quello che si legge nella GUI.
-      if (TmJumpGuard && g_clock.have_prev && !val_decided(best) && !val_decided(g_clock.prev_avg) &&
-          units_to_cp(best - g_clock.prev_avg) >= TmJumpGuard)
-        falling = std::max(falling, 1.0);
-      // TmRedLo/TmRedHi (06/10/2026): estremi della rampa come parametri; 496/1e2 == 4.96, 1879/1e2 == 18.79.
-      time_red = lerp_clamped(td.root_depth - last_best_depth, TmRedLo / 1e2, TmRedHi / 1e2, 0.639, 1.712, 0.629, 1.544);
-      const double reduction = (1.468 + g_clock.prev_time_red) / (2.284 * time_red);
-      const double instability = TmInstabBase / 1000.0 + TmInstabMul / 1000.0 * g_clock.best_changes / num_threads;
-      const double heavy = lerp_clamped((double)effort, TmEffortLo, TmEffortHi, 0.969, 0.714, 0.693, 0.838);
-      double total_time = g_clock.optimum * falling * reduction * instability * heavy;
+      const IterVerdict v =
+          iteration_verdict(best, g_clock.iter_values[g_clock.iter_idx], prev_avg, td.root_depth - last_best_depth, effort);
+      time_red = v.settle_ramp;
+      double total_time = g_clock.optimum * v.trend * v.settle * v.churn * v.focus;
       if (td.root_count == 1)
         total_time = std::min<double>(TmSingleMs, total_time);
       // Risposta prevista (TmExpect*, vedi ClockState): il tempo si riduce solo finche' valgono tutte e tre le
@@ -650,8 +702,8 @@ static void deepen(ThreadData &td) {
 #ifdef TRIUMV_TMDEBUG   // diagnosi della gestione del tempo (08/10/2026): i fattori a ogni iterazione completata
       printf("info string tm d %d el %d opt %d max %d fall %.3f red %.3f tr %.3f inst %.3f ch %.2f heavy %.3f "
              "effort %llu exp %d sur %d best %d prev %.0f iter %d tot %.0f\n",
-             td.root_depth, elapsed, g_clock.optimum, g_clock.maximum, falling, reduction, time_red, instability,
-             g_clock.best_changes, heavy, (unsigned long long)effort, (int)g_clock.expected, (int)g_clock.surprise, best,
+             td.root_depth, elapsed, g_clock.optimum, g_clock.maximum, v.trend, v.settle, time_red, v.churn,
+             g_clock.best_changes, v.focus, (unsigned long long)effort, (int)g_clock.expected, (int)g_clock.surprise, best,
              prev_avg, g_clock.iter_values[g_clock.iter_idx], total_time);
       fflush(stdout);
 #endif
@@ -662,7 +714,7 @@ static void deepen(ThreadData &td) {
         else
           stop_threads.store(true, std::memory_order_relaxed);
       } else
-        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || elapsed <= total_time * 0.50;
+        g_clock.increase_depth = g_pondering.load(std::memory_order_relaxed) || elapsed <= total_time * (TmDeepenShare / 1000.0);
     }
     g_clock.iter_values[g_clock.iter_idx] = best;
     g_clock.iter_idx = (g_clock.iter_idx + 1) & 3;
