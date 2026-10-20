@@ -46,7 +46,7 @@ static inline int td_is_square_attacked(ThreadData &td, int square,
   return 0;
 }
 
-// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati). Riempita da init_cuckoo
+// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati). Riempita da init_cycle_tables
 // (10_order.inc); usata qui (scacchi di scoperta), dalle evasioni (08_movegen.inc), dalla legalita' e
 // dall'upcoming-repetition.
 static U64 between_tbl[64][64];
@@ -55,7 +55,7 @@ static U64 between_tbl[64][64];
 // get_rook_attacks(sq, 0) / get_bishop_attacks(sq, 0), cioe' dalla voce 0 della riga della casa nelle tabelle PEXT:
 // righe da 32 KB (torre) e 4 KB (alfiere): le 64 voci "vuote" di ciascun pezzo cadono nello STESSO insieme della L1
 // (bit 6-11 dell'indirizzo uguali, 8 vie), insieme alle voci 0-7 di ogni riga. Qui stanno in 1 KB contiguo. Stessi valori.
-// Riempite da init_cuckoo (10_order.inc) insieme a between_tbl.
+// Riempite da init_cycle_tables (10_order.inc) insieme a between_tbl.
 alignas(64) static U64 empty_rook_att[64];
 alignas(64) static U64 empty_bishop_att[64];
 

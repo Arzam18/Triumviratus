@@ -647,7 +647,10 @@
      della radice (net_phase: <=9, 10-15, 16-23, >=24 pezzi), dopo TmEarlySave. 0 = invariato. Da provare come      \
      REDISTRIBUZIONE (piu' tempo nei finali, meno in apertura): in self-play il lato che spende di piu' vince.       \
      X5: gli errori contro SF19 sono nei finali con <= 9 pezzi; X3: in difesa con 10-23 pezzi. */                    \
-  P(TmExp0, 0, -500, 1000)                                                                                 \
+  P(TmExp0, 0, -500, 1000)               /* 20/10: TMLOG data show the verdict stops a little early in endgames  */ \
+                                         /* (move changes later 4.9% vs 3.2-4.1%, least time). 300 on the endgame */ \
+                                         /* book, no draw adj, 10+0.1 noHT: +0.66 +- 2.16 over 5,226 (first 1,372 */ \
+                                         /* +3.55): neutral, back to 0 (user). Kept for the TM tuning vs SF19.     */ \
   P(TmExp1, 0, -500, 1000)                                                                                 \
   P(TmExp2, 0, -500, 1000)                                                                                 \
   P(TmExp3, 0, -500, 1000)                                                                                 \
@@ -1102,7 +1105,27 @@
   P(TmEffortY1, 714, 300, 1200)          /* /1000: value at TmEffortHi */ \
   P(TmEffortMin, 693, 300, 1200)         /* /1000: clamp of the focus ramp */ \
   P(TmEffortMax, 838, 500, 1500)         /* /1000 */ \
-  P(TmDeepenShare, 500, 100, 1000)       /* /1000: past this share of the time the next iteration keeps its depth */
+  P(TmDeepenShare, 500, 100, 1000)       /* /1000: past this share of the time the next iteration keeps its depth */ \
+  P(TmTransMul, 500, 0, 2000)            /* /1000 (20/10/2026, ours): more time when the PV trades into another expert. */ \
+                                         /* BAKED 20/10 at 500 (user): +2.35 +- 4.21 over 5,758 (10+0.1 noHT), ~1% of moves */ \
+  P(TmTransPlies, 4, 1, 12)              /* PV moves whose captures are counted */ \
+  P(TmTransRest, 0, 0, 500)              /* /1000: time given back by the other moves (keeps self-play level) */ \
+  /* Base of our own (budget_own, 14_deepen.inc, 20/10/2026), off at 0: moves left from material and ply, share of */ \
+  /*  the reserve growing with its log; to be tuned against an external engine (in self-play spending more wins). */ \
+  /*  Verdict of our own, two attempts on 20/10/2026, both REMOVED (copy in _backup/..._pre_pulizia_verdetto_):   */ \
+  /*  fitted chance that the move still changes (data build -DTRIUMV_TMLOG, 651,766 searches): -27 over 556, more */ \
+  /*  very short and very long moves; own forms of the stability/score/node factors fitted to follow the         */ \
+  /*  inherited verdict (log corr 0.96): -12 over 830. The verdict stays the inherited one (iteration_verdict).    */ \
+  P(TmOwn, 1, 0, 1)                      /* BAKED 20/10 (user): -0.23 +- 3.87 over 7,468 (10+0.1 noHT), laptop */ \
+                                         /* 8+0.08 -1.06 +- 5.39 over 3,922; 4% less time per move, same depth */ \
+  P(TmMlBase, 2113, 0, 6000)             /* /100: moves left = base + piece x pieces - ply x game ply       */ \
+  P(TmMlPiece, 109, 0, 400)              /* /100                                                            */ \
+  P(TmMlPly, 87, 0, 400)                 /* /1000                                                           */ \
+  P(TmMlMin, 10, 2, 40)                  /* moves: floor of the estimate                                    */ \
+  P(TmOwnShare, 700, 200, 2500)          /* /1000: share of the reserve = share + log x log10(reserve s)    */ \
+  P(TmOwnShareLog, 500, 0, 1500)         /* /1000                                                           */ \
+  P(TmOwnCap, 200, 50, 500)              /* /1000: the target never exceeds this fraction of the clock     */ \
+  P(TmOwnCeil, 600, 150, 1200)           /* /100: ceiling = this x target (and the clock cap)              */
 
 #ifdef TRIUMV_RELEASE
   #define TP_DECLARE(name, def, lo, hi) static constexpr int name = def;

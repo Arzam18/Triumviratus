@@ -6,7 +6,7 @@
 // ============================================================================
 
 // between_tbl (case strettamente tra due quadrati allineati) e' definita in 07_makemove.inc, che la usa per gli
-// scacchi di scoperta; riempita da init_cuckoo (10_order.inc), usata anche qui dalle evasioni (P2.3).
+// scacchi di scoperta; riempita da init_cycle_tables (10_order.inc), usata anche qui dalle evasioni (P2.3).
 
 // Bitboard degli attaccanti di `sq` del colore `by` (P2.3 EvasionGen).
 static inline U64 td_attackers_to(ThreadData &td, int sq, int by) {

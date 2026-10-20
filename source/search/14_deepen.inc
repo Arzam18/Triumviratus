@@ -31,6 +31,34 @@ struct ClockState {
 };
 static ClockState g_clock;
 
+#ifdef TRIUMV_TMLOG
+// Data build for a stop rule of our own (20/10/2026, -DTRIUMV_TMLOG, never in a playing build). The main thread writes
+// one line per completed iteration of a timed search ("I": the factors of iteration_verdict, the time the verdict
+// grants and whether it would stop) and one line at the end of the search ("E": the move played). When the verdict
+// says stop, the search goes on until TRIUMV_TMLOG_EXT percent of the granted time (or the ceiling), so the data show
+// whether the best move would still have changed. File tmlog_<pid>.txt in the folder of TRIUMV_TMLOG_DIR (default .).
+#ifndef TRIUMV_TMLOG_EXT
+#define TRIUMV_TMLOG_EXT 200
+#endif
+static int g_tmlog_ply = 0;
+static long g_tmlog_search = 0;
+static FILE *tmlog_file() {
+  static FILE *f = nullptr;
+  if (!f) {
+#ifdef _WIN32
+    const unsigned long pid = (unsigned long)GetCurrentProcessId();
+#else
+    const unsigned long pid = (unsigned long)getpid();
+#endif
+    const char *dir = getenv("TRIUMV_TMLOG_DIR");
+    char path[1024];
+    snprintf(path, sizeof path, "%s/tmlog_%lu.txt", dir && *dir ? dir : ".", pid);
+    f = fopen(path, "a");
+  }
+  return f;
+}
+#endif
+
 static void clock_memory_reset() {
   g_clock.opening_adjust = -1;
   g_clock.prev_time_red = TmPrevRed / 1000.0;
@@ -86,6 +114,25 @@ static void budget_moves_to_go(ClockBudget &b, double clock, int game_ply) {
   b.ceil_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * b.horizon;
 }
 
+// Budget of our own (TmOwn, 20/10/2026). The moves still to play are estimated from the material and the ply of the
+// game, a straight fit on 67,706 of our games (moves left = 21.1 + 1.09 x pieces - 0.087 x ply, at least TmMlMin);
+// with moves to go the cycle caps the estimate. The reserve is the clock plus the increments of those moves less the
+// overhead of each; the target is a share of the reserve divided by the moves left, where the share grows with the
+// log of the reserve in seconds (spending more early at longer time controls), capped by a fraction of the clock.
+// The ceiling is a fixed multiple of the target (the clock cap of clock_plan still applies). Starting values give
+// the same spending profile as the inherited formula from 5 s to 3 minutes (studio_esperti/tm_own_sim.py).
+static void budget_own(ClockBudget &b, double clock, double inc, int overhead, int game_ply) {
+  double ml = TmMlBase / 100.0 + TmMlPiece / 100.0 * count_bits(occupancies[both]) - TmMlPly / 1000.0 * game_ply;
+  ml = std::max(ml, (double)TmMlMin);
+  if (g_limits.movestogo)
+    ml = std::min(ml, (double)g_limits.movestogo);
+  b.horizon = (int)ml;
+  b.reserve = std::max(1.0, clock + inc * (ml - 1) - (double)overhead * (ml + 1));
+  const double share = TmOwnShare / 1000.0 + TmOwnShareLog / 1000.0 * std::log10(std::max(1.0, b.reserve / 1000.0));
+  b.share = std::min(share / ml, TmOwnCap / 1000.0 * clock / b.reserve);
+  b.ceil_mult = TmOwnCeil / 100.0;
+}
+
 static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.time[us]) {
     g_clock.optimum = g_clock.maximum = INT_MAX / 2;
@@ -94,8 +141,13 @@ static void clock_plan(int us, int game_ply, int overhead) {
   const double clock = g_limits.time[us], inc = g_limits.inc[us];
   if (g_clock.start_clock <= 0)
     g_clock.start_clock = clock;   // first move of the game (TmSurpriseClock)
+#ifdef TRIUMV_TMLOG
+  g_tmlog_ply = game_ply;
+#endif
   ClockBudget b = budget_reserve(clock, inc, overhead);
-  if (!g_limits.movestogo)
+  if (TmOwn)
+    budget_own(b, clock, inc, overhead, game_ply);
+  else if (!g_limits.movestogo)
     budget_sudden_death(b, clock, game_ply);
   else
     budget_moves_to_go(b, clock, game_ply);
@@ -389,6 +441,10 @@ static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDe
 
 static void deepen(ThreadData &td) {
   const bool main = td.thread_id == 0;
+#ifdef TRIUMV_TMLOG
+  if (main)
+    g_tmlog_search++;
+#endif
   NodeFrame *root = &td.frames[FRAME_OFFSET];
   prepare_frames(td);
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
@@ -698,6 +754,18 @@ static void deepen(ThreadData &td) {
       // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;
+      // TmTrans (20/10/2026, ours, 0 = off): the captures in the first TmTransPlies moves of the principal variation
+      // take the game into another expert of the network (another material band). Such trades are hard to undo, so
+      // the move gets TmTransMul more time; the other moves give back TmTransRest, so that the average time per move
+      // can be kept level in self-play.
+      if (TmTransMul) {
+        const RootLine &top = td.root[0];
+        int caps = 0;
+        for (int i = 0; i < std::min(top.pv_len, TmTransPlies); i++)
+          caps += get_move_capture(top.pv[i]) != 0;
+        const int pieces = count_bits(occupancies[both]);
+        total_time *= net_phase(pieces - caps) != net_phase(pieces) ? 1 + TmTransMul / 1000.0 : 1 - TmTransRest / 1000.0;
+      }
       const int elapsed = get_time_ms() - g_limits.start_ms;
 #ifdef TRIUMV_TMDEBUG   // diagnosi della gestione del tempo (08/10/2026): i fattori a ogni iterazione completata
       printf("info string tm d %d el %d opt %d max %d fall %.3f red %.3f tr %.3f inst %.3f ch %.2f heavy %.3f "
@@ -707,8 +775,22 @@ static void deepen(ThreadData &td) {
              prev_avg, g_clock.iter_values[g_clock.iter_idx], total_time);
       fflush(stdout);
 #endif
+#ifdef TRIUMV_TMLOG
+      const bool verdict_stop = elapsed > std::min(total_time, (double)g_clock.maximum);
+      if (FILE *lf = tmlog_file()) {
+        fprintf(lf, "I %ld %d %d %d %d %d %d %d %d %.0f %d %d %llu %.3f %d %.4f %.4f %.4f %.4f %.0f %d\n",
+                g_tmlog_search, g_tmlog_ply, count_bits(occupancies[both]), td.root_depth, elapsed, g_clock.optimum,
+                g_clock.maximum, td.root[0].pv[0], best, g_clock.have_prev ? prev_avg : 99999.0,
+                g_clock.iter_values[g_clock.iter_idx], td.root_depth - last_best_depth, (unsigned long long)effort,
+                g_clock.best_changes, num_threads, v.trend, v.settle, v.churn, v.focus, total_time, (int)verdict_stop);
+        fflush(lf);
+      }
+      if (elapsed > std::min(total_time * (TRIUMV_TMLOG_EXT / 100.0), (double)g_clock.maximum) ||
+          td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
+#else
       if (elapsed > std::min(total_time, (double)g_clock.maximum) ||
           td.root[lines - 1].score >= mating_in(3) || td.root[0].score == mated_at(2)) {
+#endif
         if (g_pondering.load(std::memory_order_relaxed))
           g_stop_at_ponderhit.store(true, std::memory_order_relaxed);
         else
@@ -721,4 +803,12 @@ static void deepen(ThreadData &td) {
   }
   if (main)
     g_clock.prev_time_red = time_red;
+#ifdef TRIUMV_TMLOG
+  if (main && g_limits.use_tm())
+    if (FILE *lf = tmlog_file()) {
+      fprintf(lf, "E %ld %d %d %d %d\n", g_tmlog_search, td.root[0].pv[0], td.root[0].score, td.completed_depth,
+              get_time_ms() - g_limits.start_ms);
+      fflush(lf);
+    }
+#endif
 }

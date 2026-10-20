@@ -1,6 +1,3 @@
-// Origin: parts of this file follow Stockfish closely (the threat update of the network, the SEE threshold test, the
-// cuckoo tables of the repetition test), Copyright (C) 2004-2026 The Stockfish developers, GNU GPL v3,
-// https://github.com/official-stockfish/Stockfish. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 /*
  * Static Exchange Evaluation (SEE)
  * Determines if a capture wins or loses material
@@ -11,7 +8,8 @@
 #include "movegen.h"
 #include "magic.h"
 #include "attacks.h"
-#include <cstdio>    // TRIUMV_VERIFY_SEEW2
+#include <algorithm>
+#include <cstdio>    // TRIUMV_VERIFY_SEE2
 #include <cstdlib>
 
 // Get least valuable attacker
@@ -202,28 +200,102 @@ int td_see(ThreadData& td, int move) {
 }
 
 // ---------------------------------------------------------------------------
-// F-008 (audit 2026-07-02): td_see_ge(move, threshold) — SEE a soglia con
-// early-exit, stile Stockfish see_ge. TUTTI i call-site del motore chiedono solo
-// "SEE >= soglia?" (mai il valore esatto): appena il bound e' matematicamente
-// deciso si esce, evitando la simulazione completa dello scambio, il memcpy dei
-// 15 bitboard e la ri-scansione O(12) del pezzo su 'to' del td_see classico.
-// Swap-based: nessun pezzo viene "spostato" — si pela l'attaccante meno caro per
-// lato aggiornando solo `occupied`; gli x-ray emergono ri-sondando gli attacchi
-// slider con l'occupancy ridotta (bitboard `attackers` incrementale, non da zero).
-// Il re usa la regola esplicita SF (cattura legale solo se indifeso): col valore
-// 20000 di see_piece_values e' equivalente al comportamento del td_see classico.
-// Semantica: ritorna (td_see(td, move) >= threshold). Validazione: toggle UCI
-// SeeGEVerify = cross-check per-chiamata dei due path (0 mismatch attesi) +
-// node-count bit-identico al bench con SeeGE on/off.
-// W2 (08/10/2026, velocita', stesso risultato): il pezzo che ricattura (il meno caro del lato al tratto) si trova con
-// un indice calcolato invece che con la catena pedone / cavallo / alfiere / torre / donna. La catena era un salto per
-// tipo, e il tipo cambia da uno scambio all'altro: nel PGO di v2a ogni giro passava da cinque salti condizionati.
-// Ora: maschera dei tipi presenti (bit k = il lato ha un attaccante di tipo k, bit 5 = solo il re), indice = bit piu'
-// basso. Gli x-ray si ricalcolano sempre su entrambe le linee, mascherati per tipo: togliere un cavallo o un pedone non
-// apre linee ortogonali verso `to`, togliere una torre non apre diagonali, quindi i pezzi aggiunti sono gli stessi
-// della catena (verifica: -DTRIUMV_VERIFY_SEEW2 confronta le due versioni a ogni chiamata).
-template <bool Chain>
+// td_see_ge(move, threshold): is the static exchange on the target square worth at least `threshold` for the side
+// that moves? Every caller in the engine asks only this question, never the exact value.
+// 20/10/2026, written in the textbook swap-list form: the captures on `to` alternate between the sides, each with its
+// least valuable attacker; gain[d] is the material balance, for the side that makes capture d, if the exchange stops
+// right after it; the list is then resolved backwards, each side being free to stop instead of capturing. Rules:
+// - pieces are taken off `occupied` only, and x-ray attackers behind them are added by probing the slider lines
+//   again (only the lines a piece of that kind can open: a knight or a king opens none);
+// - SeePinned (05/10/2026): while a pinner of the other side still stands (and is not the piece just captured on
+//   `to`), our pinned pieces do not recapture (pins computed once per position by see_holds, 11_queue.inc);
+// - the king captures only if the square is no longer attacked by the other side;
+// - a promotion gains (promoted piece - pawn) and the piece then standing on `to` is the promoted one (SeePromo,
+//   17/10/2026, review by Bastiii);
+// - the least valuable attacker is found by an index (lowest set bit of the mask of the kinds present, W2,
+//   08/10/2026), not by a chain of tests per kind.
+// Validation: -DTRIUMV_VERIFY_SEE2 compares every call with the previous form (abort at the first difference).
 static int see_ge_impl(ThreadData& td, int move, int threshold) {
+    const int from = get_move_source(move);
+    const int to   = get_move_target(move);
+    int piece      = get_move_piece(move);
+
+    // Victim on `to`: for a pseudo-legal move `to` is empty (-1) or holds an enemy piece.
+    int captured = td.piece_on[to];
+    U64 occupied = td.occupancies[both] ^ (1ULL << from);   // the mover leaves its square
+    if (get_move_enpassant(move)) {
+        captured = (td.side == white) ? p : P;
+        occupied ^= (td.side == white) ? (1ULL << (to + 8)) : (1ULL << (to - 8));
+    }
+    int promo_gain = 0;
+    if (get_move_promoted(move)) {
+        const int promoted = get_move_promoted(move);
+        promo_gain = see_piece_values[promoted] - see_piece_values[piece];
+        piece = promoted;
+    }
+
+    int gain[40];
+    int d = 0;
+    gain[0] = ((captured != -1) ? see_piece_values[captured] : 0) + promo_gain;
+    int standing = see_piece_values[piece];   // value of the piece now on `to`, the next victim
+
+    const U64 diag_sliders = td.bitboards[B] | td.bitboards[b] | td.bitboards[Q] | td.bitboards[q];
+    const U64 orth_sliders = td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q];
+    const SliderPair sp0 = get_slider_pair(to, occupied);
+    U64 attackers = (pawn_attacks[black][to] & td.bitboards[P])
+                  | (pawn_attacks[white][to] & td.bitboards[p])
+                  | (knight_attacks[to] & (td.bitboards[N] | td.bitboards[n]))
+                  | (king_attacks[to] & (td.bitboards[K] | td.bitboards[k]))
+                  | (pair_bishop(sp0) & diag_sliders)
+                  | (pair_rook(sp0) & orth_sliders);
+
+    // lines a removed piece can open toward `to`: diagonals after a pawn, bishop or queen; files and ranks after a
+    // rook or queen (kinds 0..4 = pawn, knight, bishop, rook, queen)
+    static constexpr U64 opens_diag[5] = {~0ULL, 0, ~0ULL, 0, ~0ULL};
+    static constexpr U64 opens_orth[5] = {0, 0, 0, ~0ULL, ~0ULL};
+
+    for (int side = td.side ^ 1;; side ^= 1) {
+        attackers &= occupied;
+        U64 mine = attackers & td.occupancies[side];
+        if (g_see_pinned && (td.see_pinners[side ^ 1] & occupied & ~(1ULL << to)))
+            mine &= ~td.see_pinned[side];
+        if (!mine)
+            break;
+        const int base = (side == white) ? P : p;
+        const unsigned kinds = unsigned((mine & td.bitboards[base + 0]) != 0)
+                             | unsigned((mine & td.bitboards[base + 1]) != 0) << 1
+                             | unsigned((mine & td.bitboards[base + 2]) != 0) << 2
+                             | unsigned((mine & td.bitboards[base + 3]) != 0) << 3
+                             | unsigned((mine & td.bitboards[base + 4]) != 0) << 4
+                             | 32u;
+        const int t = __builtin_ctz(kinds);
+        if (t == 5) {   // only the king is left: it may capture only an undefended piece, and the exchange ends
+            if (!(attackers & td.occupancies[side ^ 1])) {
+                gain[d + 1] = standing - gain[d];
+                d++;
+            }
+            break;
+        }
+        gain[d + 1] = standing - gain[d];
+        d++;
+        standing = see_piece_values[t];
+        const U64 bb = mine & td.bitboards[base + t];
+        occupied ^= bb & (0 - bb);
+        const SliderPair sp = get_slider_pair(to, occupied);
+        attackers |= (pair_bishop(sp) & diag_sliders & opens_diag[t]) | (pair_rook(sp) & orth_sliders & opens_orth[t]);
+    }
+    // Backwards: the side making capture d takes it only if it does better than stopping before it.
+    while (d > 0) {
+        gain[d - 1] = std::min(gain[d - 1], -gain[d]);
+        d--;
+    }
+    return gain[0] >= threshold;
+}
+
+#ifdef TRIUMV_VERIFY_SEE2
+// The previous form (index variant, 08/10/2026), kept only to validate the swap-list form call by call.
+template <bool Chain>
+static int see_ge_prev(ThreadData& td, int move, int threshold) {
     int from  = get_move_source(move);
     int to    = get_move_target(move);
     int piece = get_move_piece(move);
@@ -346,23 +418,18 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
     }
     return res;
 }
+#endif
 
 int td_see_ge(ThreadData& td, int move, int threshold) {
-#ifdef TRIUMV_VERIFY_SEEW2
-    const int a = see_ge_impl<true>(td, move, threshold), w = see_ge_impl<false>(td, move, threshold);
-    if (a != w) {
-        printf("info string SEEW2 SBAGLIATA: mossa %d soglia %d catena %d indice %d\n", move, threshold, a, w);
+#ifdef TRIUMV_VERIFY_SEE2
+    const int a = see_ge_impl(td, move, threshold), o = see_ge_prev<false>(td, move, threshold);
+    if (a != o) {
+        printf("info string SEE2 MISMATCH: move %d threshold %d new %d previous %d\n", move, threshold, a, o);
         fflush(stdout);
         abort();
     }
     return a;
-#elif !defined(TRIUMV_NO_W2_SEE)
-    // 09/10/2026: W2 ACCESA di default. Rimisura con il metodo corretto (socket fissato, soli thread di ricerca, PGO
-    // deterministica, 4 giri, rumore A/A 0,02-0,09%): -0,38% cicli/nodo in mediogioco, -0,14% nei finali (z_w2,
-    // docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). Il +0,31/+0,26% dell'08/10 era del metodo vecchio.
-    // -DTRIUMV_NO_W2_SEE torna alla catena.
-    return see_ge_impl<false>(td, move, threshold);
 #else
-    return see_ge_impl<true>(td, move, threshold);
+    return see_ge_impl(td, move, threshold);
 #endif
 }

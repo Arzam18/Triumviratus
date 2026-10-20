@@ -13,9 +13,10 @@ longer fit the rewritten code.
 are rewritten block by block; every block passes a non-regression SPRT before the old code is removed. Known ideas
 stay, credited in the documents. Status on 20 October 2026 (audit against Stockfish 19): the text of the search is our
 own (about 0.4% of literal token sequences in common, the same as engines written independently), but its structure
-and many formulas still follow Stockfish 19, and replacing them with forms of our own is the next step; three smaller
-parts still follow Stockfish's code closely (the threat update of the network, the SEE threshold test, the cuckoo
-tables of the repetition test) and carry its notice until they are rewritten.
+and many formulas still follow Stockfish 19, and replacing them with forms of our own is the next step. The three smaller
+parts that still followed Stockfish's code closely (the threat update of the network, the SEE threshold test, the
+repetition tables) were rewritten on 20 October 2026 with identical results (same bench; every accumulator checked
+against a refresh; every SEE call checked against the previous form).
 
 **Measurement rules**, as in 8.0: one test at a time on the test machine; every search change by an SPRT run to a
 decision, with at least 20,000 games; a short time control first, then a long one for the changes that pass; small

@@ -145,7 +145,7 @@ static_assert(offsetof(ThreadData, plies_from_null) + sizeof(int) == offsetof(Th
               offsetof(ThreadData, fifty) == offsetof(ThreadData, hash_key) + 56,
               "AA3: hash_key ... plies_from_null devono essere 64 byte contigui in ThreadData");
 
-static void init_cuckoo();
+static void init_cycle_tables();
 static void nn_dirty_init();
 
 void init_threads(int thread_count) {
@@ -161,11 +161,11 @@ void init_threads(int thread_count) {
       td.nnstack = nullptr;
     }
 
-  static bool cuckoo_ready = false;
-  if (!cuckoo_ready) {
-    init_cuckoo();
+  static bool cycle_ready = false;
+  if (!cycle_ready) {
+    init_cycle_tables();
     nn_dirty_init();   // raggi per le minacce scoperte delle dirty della rete (06_nndirty.inc)
-    cuckoo_ready = true;
+    cycle_ready = true;
   }
 
   num_threads = thread_count;

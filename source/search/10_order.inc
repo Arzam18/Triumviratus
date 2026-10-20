@@ -1,9 +1,7 @@
-// Origin: parts of this file follow Stockfish closely (the threat update of the network, the SEE threshold test, the
-// cuckoo tables of the repetition test), Copyright (C) 2004-2026 The Stockfish developers, GNU GPL v3,
-// https://github.com/official-stockfish/Stockfish. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 // search/10_order.inc -- Validazione delle mosse, ripetizioni, ordinamento delle mosse.
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
-// Le prime due sezioni (validazione e cuckoo) vengono dal motore precedente, invariate.
+// The first two sections (validation, upcoming repetition) are the engine's own; the repetition table was
+// rewritten on 20/10/2026 (open addressing instead of the cuckoo pair of tables).
 
 // Pseudo-legality validator. The staged picker yields the TT move, killers and
 // the counter-move WITHOUT first generating the move list, so it must confirm
@@ -184,132 +182,106 @@ static inline bool td_is_pseudo_legal(ThreadData &td, int move) {
 }
 
 // ============================================================================
-// UPCOMING REPETITION (P1.2, 2026-06-09) — cuckoo, Kervinck / SF has_game_cycle
+// UPCOMING REPETITION
+// Can the side to move close a cycle with one reversible move? The idea is Marcel van Kervinck's (2013): the key
+// difference between the current position and an older one is the key of a single reversible move exactly when one
+// move of ours, on a free path, would recreate that position. We keep the keys of all reversible moves (a piece other
+// than a pawn going between two squares it attacks on an empty board, 3,668 of them) in an open-addressing table with
+// linear probing, indexed by the top bits of the key.
 // ============================================================================
-// cuckoo_key[i] = piece_keys[pc][s1] ^ piece_keys[pc][s2] ^ side_key per OGNI
-// mossa reversibile (pezzi non-pedone, coppie raggiungibili su board vuota;
-// 3668 in tutto, come SF). cuckoo_move[i] = s1 | (s2 << 6). between_tbl[s1][s2]
-// = case STRETTAMENTE tra s1 e s2 (0 per cavallo / case non allineate).
-static U64 cuckoo_key[8192];
-static int cuckoo_move[8192];
-// (between_tbl definita piu' sopra, prima di td_generate_moves: serve anche
-//  alle evasioni P2.3, non solo all'upcoming-repetition.)
+static constexpr int REV_SLOTS = 8192;           // power of two; 3,668 keys, load 0.45
+static U64 rev_key[REV_SLOTS];                   // 0 = empty slot (a real key is never 0)
+static int rev_move[REV_SLOTS];                  // from | to << 6
+// (between_tbl is defined earlier, before td_generate_moves: the evasions use it too.)
 
-static inline int cuckoo_h1(U64 h) { return (int)(h & 0x1FFF); }
-static inline int cuckoo_h2(U64 h) { return (int)((h >> 16) & 0x1FFF); }
+static inline int rev_slot(U64 key) { return (int)(key >> 51); }   // 13 top bits
 
-static void init_cuckoo() {
-  memset(cuckoo_key, 0, sizeof(cuckoo_key));
-  memset(cuckoo_move, 0, sizeof(cuckoo_move));
+// The move whose key is `key`, or -1 if no reversible move has that key.
+static inline int rev_move_of(U64 key) {
+  for (int i = rev_slot(key);; i = (i + 1) & (REV_SLOTS - 1)) {
+    if (rev_key[i] == key)
+      return rev_move[i];
+    if (!rev_key[i])
+      return -1;
+  }
+}
 
-  for (int s1 = 0; s1 < 64; s1++) {   // attacchi a scacchiera vuota (07_makemove.inc)
+static void init_cycle_tables() {
+  memset(rev_key, 0, sizeof(rev_key));
+  memset(rev_move, 0, sizeof(rev_move));
+
+  for (int s1 = 0; s1 < 64; s1++) {   // empty-board attacks (07_makemove.inc)
     empty_rook_att[s1] = get_rook_attacks(s1, 0ULL);
     empty_bishop_att[s1] = get_bishop_attacks(s1, 0ULL);
   }
+  // Squares strictly between two aligned squares: the rays from each end with the other end as the only blocker
+  // intersect exactly there (0 for knight jumps and squares not on a line).
   for (int s1 = 0; s1 < 64; s1++)
     for (int s2 = 0; s2 < 64; s2++) {
       between_tbl[s1][s2] = 0;
       if (s1 == s2)
         continue;
-      // Intersezione dei raggi con l'altra casa come unica occupazione =
-      // case strettamente comprese (gli estremi si elidono da soli).
       if (get_rook_attacks(s1, 0ULL) & (1ULL << s2))
-        between_tbl[s1][s2] =
-            get_rook_attacks(s1, 1ULL << s2) & get_rook_attacks(s2, 1ULL << s1);
+        between_tbl[s1][s2] = get_rook_attacks(s1, 1ULL << s2) & get_rook_attacks(s2, 1ULL << s1);
       else if (get_bishop_attacks(s1, 0ULL) & (1ULL << s2))
-        between_tbl[s1][s2] = get_bishop_attacks(s1, 1ULL << s2) &
-                              get_bishop_attacks(s2, 1ULL << s1);
+        between_tbl[s1][s2] = get_bishop_attacks(s1, 1ULL << s2) & get_bishop_attacks(s2, 1ULL << s1);
     }
 
-  static const int rev_pieces[10] = {N, B, R, Q, K, n, b, r, q, k};
-  for (int pi = 0; pi < 10; pi++) {
-    const int pc = rev_pieces[pi];
-    for (int s1 = 0; s1 < 64; s1++) {
-      U64 att;
-      switch (pc % 6) { // 1=N 2=B 3=R 4=Q 5=K (mai pedoni)
-      case 1:
-        att = knight_attacks[s1];
-        break;
-      case 2:
-        att = get_bishop_attacks(s1, 0ULL);
-        break;
-      case 3:
-        att = get_rook_attacks(s1, 0ULL);
-        break;
-      case 4:
-        att = get_queen_attacks(s1, 0ULL);
-        break;
-      default:
-        att = king_attacks[s1];
-        break;
-      }
-      for (int s2 = s1 + 1; s2 < 64; s2++) {
-        if (!(att & (1ULL << s2)))
-          continue;
-        U64 key = piece_keys[pc][s1] ^ piece_keys[pc][s2] ^ side_key;
-        int mv = s1 | (s2 << 6);
-        int i = cuckoo_h1(key);
-        while (true) { // inserimento cuckoo (2 sedi possibili)
-          U64 tk = cuckoo_key[i];
-          cuckoo_key[i] = key;
-          key = tk;
-          int tm = cuckoo_move[i];
-          cuckoo_move[i] = mv;
-          mv = tm;
-          if (key == 0)
-            break; // slot era vuoto: catena chiusa
-          i = (i == cuckoo_h1(key)) ? cuckoo_h2(key) : cuckoo_h1(key);
-        }
+  static const int movers[10] = {N, B, R, Q, K, n, b, r, q, k};
+  for (int pc : movers)
+    for (int from = 0; from < 64; from++) {
+      const int t = pc % 6;   // 1 knight, 2 bishop, 3 rook, 4 queen, 5 king
+      U64 reach = t == 1 ? knight_attacks[from] : t == 2 ? get_bishop_attacks(from, 0ULL)
+                : t == 3 ? get_rook_attacks(from, 0ULL) : t == 4 ? get_queen_attacks(from, 0ULL) : king_attacks[from];
+      reach &= ~((2ULL << from) - 1);   // each unordered pair once: destinations above `from`
+      while (reach) {
+        const int to = get_ls1b_index(reach);
+        reach &= reach - 1;
+        const U64 key = piece_keys[pc][from] ^ piece_keys[pc][to] ^ side_key;
+        int i = rev_slot(key);
+        while (rev_key[i])
+          i = (i + 1) & (REV_SLOTS - 1);
+        rev_key[i] = key;
+        rev_move[i] = from | (to << 6);
       }
     }
-  }
 }
 
-// True se il lato al tratto ha una mossa reversibile che chiude un ciclo verso
-// una posizione gia' vista nelle ultime `fifty` semimosse (port di SF
-// has_game_cycle sulla nostra repetition_table piatta: [repetition_index] =
-// posizione 1 ply fa, [repetition_index-1] = 2 ply fa, ...). Le entry create
-// dalle NULL move sono inerti: la loro moveKey differisce solo per side/ep, mai
-// per due piece-key, e non puo' combaciare con una chiave cuckoo -> nessun
-// falso positivo.
+// True if the side to move has a reversible move that recreates a position of the reversible window (the last
+// min(fifty, plies since the null move) plies), on our flat history: repetition_table[repetition_index] is the
+// position one ply ago, [repetition_index - d] the one d + 1 plies ago. Entries pushed by null moves are inert: their
+// key difference is side and en passant only, never two piece keys.
 static bool td_upcoming_repetition(ThreadData &td) {
   PROF_GUARD(prof_rep);
-  int end = td.fifty < td.plies_from_null ? td.fifty : td.plies_from_null;
-  if (end > td.repetition_index)
-    end = td.repetition_index;
-  if (end < 3)
+  const int window = std::min(std::min(td.fifty, td.plies_from_null), td.repetition_index);
+  if (window < 3)
     return false;
-  const U64 orig = td.hash_key;
-  // BAKE REPCYCLEOTHER (10/10/2026, segnalato dall'agente velocita'): il filtro "other" di SF19. Somma le differenze
-  // di chiave delle mosse dell'AVVERSARIO lungo la finestra; il ciclo vale solo se si annullano (i suoi pezzi sono
-  // tornati dov'erano), cioe' se a chiuderlo basta una mossa del lato al tratto. Senza (forma di SF16) la tabella
-  // cuckoo trovava anche cicli fatti da una mossa dell'avversario (~0,08-0,24% dei nodi). SPRT 8+0.08 UHO: +5,62 +-
-  // 4,47 su 6.500 partite, zero escluso; opzione ritirata. Chiave di k semimosse fa:
-  // repetition_table[repetition_index - (k - 1)].
-  U64 other = orig ^ td.repetition_table[td.repetition_index] ^ side_key;
-  for (int i = 3; i <= end; i += 2) {
-    const U64 prev = td.repetition_table[td.repetition_index - (i - 1)];
-    other ^= td.repetition_table[td.repetition_index - (i - 2)] ^ prev ^ side_key;
-    if (other)
+  const U64 now = td.hash_key;
+  const U64 *hist = td.repetition_table + td.repetition_index;   // hist[-d]: d + 1 plies ago
+  // Key change made by the opponent's moves inside the window; a cycle closable by one move of ours needs their
+  // pieces back where they were, i.e. this sum back to zero (baked 10/10/2026, +5.62 +- 4.47 over 6,500 games).
+  U64 theirs = now ^ hist[0] ^ side_key;
+  for (int back = 3; back <= window; back += 2) {
+    const U64 older = hist[-(back - 1)];
+    theirs ^= hist[-(back - 2)] ^ older ^ side_key;
+    if (theirs)
       continue;
-    const U64 move_key = orig ^ prev;
-    int j;
-    if ((j = cuckoo_h1(move_key), cuckoo_key[j] == move_key) ||
-        (j = cuckoo_h2(move_key), cuckoo_key[j] == move_key)) {
-      const int s1 = cuckoo_move[j] & 63, s2 = (cuckoo_move[j] >> 6) & 63;
-      if (between_tbl[s1][s2] & td.occupancies[both])
-        continue; // percorso bloccato
-      if (td.ply > i)
-        return true; // ciclo tutto dentro il search path
-      // Ciclo che pesca dietro la radice: vale solo se la mossa e' del lato al
-      // tratto E la vecchia posizione era gia' una ripetizione (regola SF).
-      const int occ_sq = get_bit(td.occupancies[both], s1) ? s1 : s2;
-      if (!get_bit(td.occupancies[td.side], occ_sq))
-        continue;
-      for (int k2 = i + 2; k2 <= end; k2 += 2)
-        if (td.repetition_table[td.repetition_index - (k2 - 1)] == prev)
-          return true;
-    }
+    const int mv = rev_move_of(now ^ older);
+    if (mv < 0)
+      continue;
+    const int a = mv & 63, b = (mv >> 6) & 63;
+    if (between_tbl[a][b] & td.occupancies[both])
+      continue;   // path blocked
+    if (td.ply > back)
+      return true;   // the whole cycle is inside the searched line
+    // Reaching behind the root: only a move of the side to move, and only if the older position was already a
+    // repetition in the game.
+    const int on = get_bit(td.occupancies[both], a) ? a : b;
+    if (!get_bit(td.occupancies[td.side], on))
+      continue;
+    for (int k = back + 2; k <= window; k += 2)
+      if (hist[-(k - 1)] == older)
+        return true;
   }
   return false;
 }

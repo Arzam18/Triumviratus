@@ -1,6 +1,3 @@
-// Origin: parts of this file follow Stockfish closely (the threat update of the network, the SEE threshold test, the
-// cuckoo tables of the repetition test), Copyright (C) 2004-2026 The Stockfish developers, GNU GPL v3,
-// https://github.com/official-stockfish/Stockfish. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 // search/06_nndirty.inc -- Le dirty della rete, scritte dalla make (07/10/2026, scacchiera unica v2).
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, prima di
 // 07_makemove.inc.
@@ -122,95 +119,65 @@ static inline U64 nn_piece_attacks(int pc, int s, U64 bAttacks, U64 rAttacks) {
   }
 }
 
-// Le tuple di minaccia che cambiano quando il pezzo pc compare in s (put) o ne sparisce (!put), sullo stato `tb` di
-// quel momento. ComputeRay: minacce scoperte dei pezzi lunghi lungo i raggi che passano per s; noRaysContaining
-// salta un raggio scoperto che contiene tutta la mossa (da|a).
-template <bool ComputeRay, typename Look>
+// The threat tuples that change when piece pc appears on s (put) or leaves it (!put), on the board `tb` of that
+// moment. Which pairs are features at all is fixed by the input features of the network: kings are never threatened,
+// a pawn threatens only knights and rooks and is counted as an attacker only of knights and rooks, a bishop or rook
+// threatens no queen, a line piece threatens a queen only if it is a queen. Written 20/10/2026 in three groups (the
+// order of the tuples does not matter, the accumulator adds them up; nnperft compares every accumulator with a
+// refresh):
+// - lines through s (Lines = true): a line piece that sees s also saw, or now sees, the first piece behind s on the
+//   same line; that threat closes when pc arrives and opens when it leaves (kings excluded as targets). A line that
+//   contains the whole move (from | to, `whole_move`) is skipped: there nothing opens or closes;
+// - outgoing: the pieces pc attacks from s;
+// - incoming: the pieces attacking s that make a feature with pc (knights, pawns for a knight or rook, line pieces).
+// The king has only the first group.
+template <bool Lines, typename Look>
 static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bool put, int s, NnDirtyThreats *dts,
-                                    U64 noRaysContaining = ~0ULL) {
-  const int pt = pc >= 6 ? pc - 6 : pc;
-  const U64 occupied = tb.occ;
-  const U64 rookQueens = tb.type[NN_ROOK] | tb.type[NN_QUEEN];
-  const U64 bishopQueens = tb.type[NN_BISHOP] | tb.type[NN_QUEEN];
-  const SliderPair sp = get_slider_pair(s, occupied);   // AA1: un calcolo per i due (magic.h)
-  const U64 rAttacks = pair_rook(sp);
-  const U64 bAttacks = pair_bishop(sp);
-  const U64 occupiedNoK = occupied ^ tb.type[NN_KING];
+                                    U64 whole_move = ~0ULL) {
+  const int kind = pc >= 6 ? pc - 6 : pc;
+  const SliderPair sp = get_slider_pair(s, tb.occ);   // AA1: both lines from one lookup (magic.h)
+  const U64 diag = pair_bishop(sp), orth = pair_rook(sp);
+  const U64 targets_any = tb.occ & ~tb.type[NN_KING];
+  const U64 seers = (diag & (tb.type[NN_BISHOP] | tb.type[NN_QUEEN])) | (orth & (tb.type[NN_ROOK] | tb.type[NN_QUEEN]));
 
-  // Filtro delle coppie non valide (cadrebbero comunque su feature morte).
-  U64 sliders = (rookQueens & rAttacks) | (bishopQueens & bAttacks);
-  const U64 directSliders = pt == NN_QUEEN ? sliders & tb.type[NN_QUEEN] : sliders;
-
-  auto process_sliders = [&](bool addDirectAttacks) {
-    while (sliders) {
-      const int sliderSq = get_ls1b_index(sliders);
-      pop_lsb_bb(sliders);
-      const int slider = look(sliderSq);
-      const U64 ray = nn_ray_pass[sliderSq][s];
-      const U64 discovered = ray & (rAttacks | bAttacks) & occupiedNoK;
-      if (discovered && (ray & noRaysContaining) != noRaysContaining) {
-        const int threatenedSq = get_ls1b_index(discovered);
-        const int threatenedPc = look(threatenedSq);
-        if (nn_can_slider_threat(threatenedPc, slider))
-          nn_add_threat(dts, !put, slider, threatenedPc, sliderSq, threatenedSq);
-      }
-      if (addDirectAttacks && nn_can_slider_threat(pc, slider))
-        nn_add_threat(dts, put, slider, pc, sliderSq, s);
+  if constexpr (Lines) {
+    for (U64 rest = seers; rest; rest &= rest - 1) {
+      const int from = get_ls1b_index(rest);
+      const U64 line = nn_ray_pass[from][s];
+      const U64 behind = line & (diag | orth) & targets_any;
+      if (!behind || (line & whole_move) == whole_move)
+        continue;
+      const int target = get_ls1b_index(behind);
+      const int seer = look(from), victim = look(target);
+      if (nn_can_slider_threat(victim, seer))
+        nn_add_threat(dts, !put, seer, victim, from, target);
     }
-  };
-
-  if (pt == NN_KING) {
-    if constexpr (ComputeRay)
-      process_sliders(false);
+  }
+  if (kind == NN_KING)
     return;
-  }
 
-  // Le relazioni pedone -> pedone non sono nel feature set: un pedone minaccia solo cavalli e torri, e i pedoni
-  // contano come attaccanti solo di cavalli e torri.
-  U64 threatened = nn_piece_attacks(pc, s, bAttacks, rAttacks) & occupiedNoK;
-  U64 incoming_threats = knight_attacks[s] & tb.type[NN_KNIGHT];
-  if (pt == NN_KNIGHT || pt == NN_ROOK) {
-    const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
-    incoming_threats |= (pawn_attacks[white][s] & bp) | (pawn_attacks[black][s] & wp);
-  }
+  U64 outgoing = nn_piece_attacks(pc, s, diag, orth) & targets_any;
+  if (kind == NN_PAWN)
+    outgoing &= tb.type[NN_KNIGHT] | tb.type[NN_ROOK];
+  else if (kind == NN_BISHOP || kind == NN_ROOK)
+    outgoing &= tb.type[NN_PAWN] | tb.type[NN_KNIGHT] | tb.type[NN_BISHOP] | tb.type[NN_ROOK];
 
-  switch (pt) {
-  case NN_PAWN: threatened &= tb.type[NN_KNIGHT] | tb.type[NN_ROOK]; break;
-  case NN_BISHOP:
-  case NN_ROOK:
-    threatened &= tb.type[NN_PAWN] | tb.type[NN_KNIGHT] | tb.type[NN_BISHOP] | tb.type[NN_ROOK];
-    break;
-  default: break;  // gia' occupiedNoK
-  }
+  U64 incoming = (knight_attacks[s] & tb.type[NN_KNIGHT]) | (kind == NN_QUEEN ? seers & tb.type[NN_QUEEN] : seers);
+  if (kind == NN_KNIGHT || kind == NN_ROOK)
+    incoming |= (pawn_attacks[white][s] & tb.type[NN_PAWN] & tb.color[black]) |
+                (pawn_attacks[black][s] & tb.type[NN_PAWN] & tb.color[white]);
 
 #ifdef NN_THREATS_VECTOR
-  // I pezzi lunghi non sono ancora consumati qui: i loro attacchi DIRETTI entrano fra gli attaccanti, e
-  // process_sliders si chiama solo per le minacce scoperte.
-  nn_write_multi<NN_THR_TSQ, NN_THR_TPC>(look, threatened, nn_threat(pc, 0, s, 0, put), dts);
-  nn_write_multi<NN_THR_PCSQ, NN_THR_PC>(look, directSliders | incoming_threats, nn_threat(0, pc, 0, s, put), dts);
+  nn_write_multi<NN_THR_TSQ, NN_THR_TPC>(look, outgoing, nn_threat(pc, 0, s, 0, put), dts);
+  nn_write_multi<NN_THR_PCSQ, NN_THR_PC>(look, incoming, nn_threat(0, pc, 0, s, put), dts);
 #else
-  while (threatened) {
-    const int threatenedSq = get_ls1b_index(threatened);
-    pop_lsb_bb(threatened);
-    nn_add_threat(dts, put, pc, look(threatenedSq), s, threatenedSq);
+  for (; outgoing; outgoing &= outgoing - 1) {
+    const int t = get_ls1b_index(outgoing);
+    nn_add_threat(dts, put, pc, look(t), s, t);
   }
-#endif
-
-  if constexpr (ComputeRay) {
-#ifdef NN_THREATS_VECTOR
-    process_sliders(false);
-#else
-    process_sliders(true);
-#endif
-  } else {
-    incoming_threats |= directSliders;
-  }
-
-#ifndef NN_THREATS_VECTOR
-  while (incoming_threats) {
-    const int srcSq = get_ls1b_index(incoming_threats);
-    pop_lsb_bb(incoming_threats);
-    nn_add_threat(dts, put, look(srcSq), pc, srcSq, s);
+  for (; incoming; incoming &= incoming - 1) {
+    const int a = get_ls1b_index(incoming);
+    nn_add_threat(dts, put, look(a), pc, a, s);
   }
 #endif
 }
