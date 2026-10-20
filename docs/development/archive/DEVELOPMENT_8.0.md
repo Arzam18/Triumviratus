@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../../images/logo_square.png" alt="Triumviratus" width="160">
+<picture><source media="(prefers-color-scheme: dark)" srcset="../../images/logo_mark_dark.svg"><img src="../../images/logo_mark.svg" alt="Triumviratus" width="130"></picture>
 
 # Triumviratus 8.0 — development log
 
