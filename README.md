@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="Triumviratus" width="200">
+<img src="docs/images/logo.svg" alt="Triumviratus" width="240">
 
 # Triumviratus
 
