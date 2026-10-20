@@ -193,7 +193,7 @@ static inline int hist_amount(int e, int depth, int mul, int sub, int cap) {
 
 // Continuation histories: the move (pc, to) after the moves made 1..6 plies back.
 // - weight per distance (ContDist*) and a factor that grows with the number of distances already rewarding the move
-//   (ContAgree*): values of ours from the 8.0 tuning (RW1);
+//   (ContAgree*): the values are those of Stockfish 19, never tuned by us (they were not among the RW1 levers);
 // - per expert: near (1-2) and far (3-6) weights, the fixed reward at distance 1 (ContNear), how many distances are
 //   updated when the node is in check (ContChk), the gravity of the quiet histories.
 // Defaults (ContNear 73, ContChk 2) give the old tree.

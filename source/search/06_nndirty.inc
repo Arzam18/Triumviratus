@@ -1,3 +1,6 @@
+// Origin: parts of this file follow Stockfish closely (the threat update of the network, the SEE threshold test, the
+// cuckoo tables of the repetition test), Copyright (C) 2004-2026 The Stockfish developers, GNU GPL v3,
+// https://github.com/official-stockfish/Stockfish. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 // search/06_nndirty.inc -- Le dirty della rete, scritte dalla make (07/10/2026, scacchiera unica v2).
 // Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, prima di
 // 07_makemove.inc.

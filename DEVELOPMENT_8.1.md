@@ -9,9 +9,13 @@ rules for contributions are in [`CONTRIBUTING.md`](docs/project/CONTRIBUTING.md)
 structure of the search first, then the tuning of its parameters, because a tuning made before a rewrite would no
 longer fit the rewritten code.
 
-**Goal.** 8.1 shares no line of code with Stockfish, with no loss of strength. The search and the inference of the
-network are rewritten block by block; every block passes a non-regression SPRT before the old code is removed. Known
-ideas stay, credited in the documents; the code and its formulas are our own.
+**Goal.** 8.1 moves away from Stockfish's code, with no loss of strength. The search and the inference of the network
+are rewritten block by block; every block passes a non-regression SPRT before the old code is removed. Known ideas
+stay, credited in the documents. Status on 20 October 2026 (audit against Stockfish 19): the text of the search is our
+own (about 0.4% of literal token sequences in common, the same as engines written independently), but its structure
+and many formulas still follow Stockfish 19, because each block was rewritten at the same search tree; three smaller
+parts still follow Stockfish's code closely (the threat update of the network, the SEE threshold test, the cuckoo
+tables of the repetition test) and carry its notice until they are rewritten.
 
 **Measurement rules**, as in 8.0: one test at a time on the test machine; every search change by an SPRT run to a
 decision, with at least 20,000 games; a short time control first, then a long one for the changes that pass; small

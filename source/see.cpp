@@ -1,3 +1,6 @@
+// Origin: parts of this file follow Stockfish closely (the threat update of the network, the SEE threshold test, the
+// cuckoo tables of the repetition test), Copyright (C) 2004-2026 The Stockfish developers, GNU GPL v3,
+// https://github.com/official-stockfish/Stockfish. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 /*
  * Static Exchange Evaluation (SEE)
  * Determines if a capture wins or loses material
