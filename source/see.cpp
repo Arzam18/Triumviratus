@@ -214,6 +214,7 @@ int td_see(ThreadData& td, int move) {
 //   17/10/2026, review by Bastiii);
 // - the least valuable attacker is found by an index (lowest set bit of the mask of the kinds present, W2,
 //   08/10/2026), not by a chain of tests per kind.
+// The two bounds of the resolved list are tested first (the walk is needed only between them).
 // Validation: -DTRIUMV_VERIFY_SEE2 compares every call with the previous form (abort at the first difference).
 static int see_ge_impl(ThreadData& td, int move, int threshold) {
     const int from = get_move_source(move);
@@ -238,6 +239,15 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
     int d = 0;
     gain[0] = ((captured != -1) ? see_piece_values[captured] : 0) + promo_gain;
     int standing = see_piece_values[piece];   // value of the piece now on `to`, the next victim
+
+    // Bounds of the resolved list, known before any attacker is looked up (20/10/2026, speed, same answers): the
+    // backward pass only lowers gain[0], so the result is at most gain[0]; and it gives gain[0] >= min(gain[0],
+    // -gain[1]) with gain[1] at most standing - gain[0], so the result is at least gain[0] - standing (after any
+    // recapture we can stop). Most calls are decided here.
+    if (gain[0] < threshold)
+        return 0;
+    if (gain[0] - standing >= threshold)
+        return 1;
 
     const U64 diag_sliders = td.bitboards[B] | td.bitboards[b] | td.bitboards[Q] | td.bitboards[q];
     const U64 orth_sliders = td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q];
@@ -286,7 +296,7 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
     }
     // Backwards: the side making capture d takes it only if it does better than stopping before it.
     while (d > 0) {
-        gain[d - 1] = std::min(gain[d - 1], -gain[d]);
+        gain[d - 1] = (std::min)(gain[d - 1], -gain[d]);   // parentheses: windows.h min macro under clang-cl
         d--;
     }
     return gain[0] >= threshold;

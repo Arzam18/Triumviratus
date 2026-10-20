@@ -171,6 +171,8 @@ static inline int ttm_grav(int e)    { return by_exp4(e, TtmGrav0, TtmGrav1, Ttm
 //   e += b - G/1024 * e*|b|/L
 // G = 1024 is the old update with the same truncation (e*|b|*1024 / (L*1024) = e*|b| / L). Lower G: the entry gets
 // closer to the limit (keeps more); higher G: it forgets sooner. The int16 clamp never acts at G = 1024.
+// (20/10/2026) The quotient in double instead of the 64-bit division (same values, checked call by call) was neutral
+// in the release build on the Xeon (-0.15% cycles in the middlegame, -0.03% in endgames): not kept.
 static inline void hist_learn(int16_t &e, int bonus, int limit, int grav) {
   const int b = std::clamp(bonus, -limit, limit);
   const int v = e;

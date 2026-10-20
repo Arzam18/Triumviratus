@@ -7,10 +7,25 @@
 // ---------------------------------------------------------------------------
 static int red_log[256];
 
+// Reciprocal of the first-ply divisor of score_quiets, M = ceil(2^40 / (1024 + ply x LpDecay)), per expert and ply
+// (20/10/2026, speed, same values): one 64-bit division per entry here, at the start of each search and at startup,
+// instead of one in every node that scores its quiet moves.
+static unsigned long long lp_recip_tbl[4][LOW_PLY_SIZE];
+static void build_lp_recip() {
+  const int decay[4] = {LpDecay0, LpDecay1, LpDecay2, LpDecay3};
+  for (int e = 0; e < 4; e++)
+    for (int ply = 0; ply < LOW_PLY_SIZE; ply++) {
+      const unsigned long long den = 1024ULL + (unsigned long long)ply * decay[e];
+      lp_recip_tbl[e][ply] = ((1ULL << 40) + den - 1) / den;
+    }
+}
+static const bool lp_recip_at_startup = (build_lp_recip(), true);
+
 static void build_reduction_table() {
   red_log[0] = 0;
   for (int i = 1; i < 256; i++)
     red_log[i] = int(LmrLogMul / 128.0 * std::log(double(i)));
+  build_lp_recip();
 }
 
 // ---------------------------------------------------------------------------

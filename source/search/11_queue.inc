@@ -503,12 +503,15 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int ply = f->ply;
   // A. First-ply history weight: 8 x entry x 1024 / (1024 + ply x LpDecay), per expert; LpDecay = 1024 is the old
   //    8 x entry / (1 + ply), same integer division. The divisor is constant in the node, so the division is a
-  //    multiplication by the 40-bit reciprocal M = ceil(2^40 / D), computed once here (a per-move idiv cost ~1% of
-  //    cycles, AA2 10/10/2026). Exact while |numerator| < 2^40 / D: numerator <= 8 x HistLimQuiet x 1024 (5.9e7 at the
+  //    multiplication by the 40-bit reciprocal M = ceil(2^40 / D) (a per-move idiv cost ~1% of cycles, AA2 10/10/2026),
+  //    read from a table per expert and ply since 20/10/2026 (build_lp_recip, 03_tables.inc; before, one 64-bit
+  //    division per node). Exact while |numerator| < 2^40 / D: numerator <= 8 x HistLimQuiet x 1024 (5.9e7 at the
   //    default 7183), D <= 1024 + 4 x 3072 = 13312 -> limit 8.3e7, i.e. HistLimQuiet up to ~10,000 (beyond that, lower
   //    the maximum of LpDecay).
+#ifdef TRIUMV_VERIFY_AA2
   const unsigned long long lp_den = 1024ULL + (unsigned long long)ply * by_exp4(tb_e, LpDecay0, LpDecay1, LpDecay2, LpDecay3);
-  const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? ((1ULL << 40) + lp_den - 1) / lp_den : 0;
+#endif
+  const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? lp_recip_tbl[tb_e][ply] : 0;
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
