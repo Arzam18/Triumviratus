@@ -287,3 +287,10 @@ lean positive but small (+0.75 ± 3.25 over 11,652), to be closed later. In bloc
 extension became a ladder of our own, a first rung and a step with its own weights, at the same tree (bench 209655);
 its new degrees of freedom and a smaller negative extension did not gain and stay off
 ([§4.4](docs/development/8.1/SEARCH_4_EXTENSIONS.md)). Block 4 is now ours except three generic gates.
+
+**Blocks 2 and 3 in our form (20 October 2026).** The reduction formula in use (block 2) and every pruning rule (block
+3) are rewritten in a form of our own at the same tree (bench 209655). Block 3 also has a data build that records
+which rule decided and what a search of the pruned move would have found; the levers per expert it suggested, and a
+28-parameter SPSA of the pruning margins, did not gain (the SPSA vector: −2.83 ± 4.35 over 6,130 games), so the values
+stay as they are ([§3.3](docs/development/8.1/SEARCH_3_PRUNING.md)). The search code is now ours apart from the base
+formulas of time management.

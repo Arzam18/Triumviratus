@@ -22,21 +22,40 @@ Reverse futility and futility pruning already have margins per expert of the net
 
 Status: planned, after block 2.
 
-## 3.3 Status and remaining steps (19 October 2026)
+## 3.3 Status (20 October 2026)
 
-Not rewritten yet: every rule keeps the form of Stockfish 19, with about 26 of its values and about ten numbers written
-in the code. The rules: razoring, reverse futility, null move, the reduction without a hash move, ProbCut, the
-move-count pruning, futility and exchange tests of captures, history pruning, futility and exchange test of quiet moves.
+Rewritten in a form of our own at the same tree: 60 fixed positions give the same node counts at depth 11, and the
+bench is unchanged (209655). The rules before the moves sit in three functions called from one place: `eval_gates`
+(razoring and reverse futility), `null_probe` (null move with its verification) and `capture_probe` (ProbCut), followed
+by the reduction without a hash move. The rules on each move are `capture_gate` (futility and exchange tests of
+captures), `quiet_gate` (history pruning, futility and exchange test of quiet moves) and `skip_move` (move-count
+pruning). The numbers that were written in the code are parameters.
 
-To do:
+A data build (`prunelog.h`, compiled only with `TRIUMV_PRUNELOG`) records which rule decided at each node and move,
+and searches a sample of the pruned nodes and skipped moves to see whether the decision lost something. From these
+data came the new levers, all off at their neutral value:
 
-1. The method of blocks 1, 4 and 5: each rule in a general form of our own (margins per expert, the terms of a node in
-   one place, numbers written in the code turned into parameters), reproducing the tree of 8.0 at the starting values;
-   new terms of our own start at 0.
-2. Outcome data for the pruning: a pruning decision is yes or no, so the fit is a classification, and the probes of
-   the data build can show the prunings that lose good moves.
-3. Long tuning, then bake with a long non-regression test.
-4. Idea, not started (`PrLearn`): pruning corrected by search outcomes, on the pattern of `RfLearn` (block 2). The data
+- margins per expert for move-count pruning, futility and exchange tests of captures, razoring, the null move and
+  ProbCut (`LmpExp`, `CaptFutExp`, `CaptSeeExp`, `RazorExp`, `NmpExp`, `ProbCutExp`), with `PrExpRootDepth` to apply
+  them only from a given depth;
+- `RfpDisagree`, a wider reverse futility margin where the two parts of the network disagree.
+
+Measured and not adopted:
+
+| Test | Result |
+|---|---|
+| Less pruning in endgames (expert 0) | −6.8 at 8+0.08 with HT, +0.2 at 10+0.1 without, −1.6 at 20+0.2 with HT |
+| More pruning in experts 2 and 3 | +2.6 ± 4.2 over 6,438 games on the Xeon, negative on a Zen 4 |
+| `RfpDisagree` 256 | negative, stopped |
+| SPSA of 28 pruning parameters (10+0.1, 2,691 iterations), whole vector | −2.83 ± 4.35 over 6,130 games |
+
+The SPSA regression found one parameter out of 28 with a significant gradient, which is what chance gives: the pruning
+margins sit on a flat optimum, and the tuned vector only adds the spread of its random walk. The values stay as they
+are. The levers stay in the code, off, for later attempts.
+
+Remaining:
+
+1. Idea, not started (`PrLearn`): pruning corrected by search outcomes, on the pattern of `RfLearn` (block 2). The data
    build probes a sample of the moves that the pruning rules skip, at the depth they would have had, and records
    whether they clear alpha; probing the skipped moves themselves avoids a fit that only sees the moves the rules
    kept. A logistic model of that outcome, with the features of the reduction plus the missed futility margin, the

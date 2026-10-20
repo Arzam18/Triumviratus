@@ -26,6 +26,7 @@ param(
     [string]$ExtraFlags = "",
     [switch]$NoPgo,
     [switch]$Tune,
+    [switch]$DevOptions,
     [switch]$NoStrictAliasing,
     [string]$ExpectedBench = "222811",
     # File separati (DEFAULT dal 09/10/2026): ogni .cpp del motore e' un'unita' a se' (involucro con il namespace della
@@ -132,6 +133,9 @@ $base = @('/c', '/nologo', '/std:c++17', '/EHsc', '/MT', '/O2', '/Oy', '/GS-', '
           '/clang:-ffp-contract=off', '-w', '-DNDEBUG', '-D_CONSOLE', '-DTRIUMV_EMBED_RESOURCE', '-DTRIUMV5_THREATS_INCR',
           '-DUSE_AVX2', '-DUSE_SSE41', '-DUSE_SSSE3', '-DUSE_SSE2', '-DUSE_SSE', '-DTRIUMV_RELEASE',
           "-DTRIUMV_RELEASE_DAY=$Day", "-I$SRC\fathom")
+# -DevOptions (20/10/2026): senza TRIUMV_RELEASE, cioe' con le opzioni di taratura visibili, per i test sul laptop Zen 4
+# con la variante VNNI (la release le piega in costanti e il motore le ignora).
+if ($DevOptions) { $base = @($base | Where-Object { $_ -ne '-DTRIUMV_RELEASE' }) }
 # Analisi degli alias per tipo: gcc la usa di default, clang-cl per Windows no. Misurata il 08/10/2026 sera (xperf,
 # 6 giri): -1,06% cicli/nodo in mediogioco, -0,76% nei finali; verificata con tutte le macro VERIFY_* e con gcc.
 if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
@@ -327,11 +331,11 @@ if (-not $NoPgo) {
 # --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
 #     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
 Say "build ottimizzate"
-$exe = if ($Official) { "$Out\Triumviratus_8.0_windows_universal.exe" } else { "$Out\Triumviratus_8.0_${Day}_universal.exe" }
-if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8\.0_', 'Triumviratus_8.0_PosSolver_' }
+$exe = if ($Official) { "$Out\Triumviratus_8.1_windows_universal.exe" } else { "$Out\Triumviratus_8.1_${Day}_universal.exe" }
+if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8.1_', 'Triumviratus_8.1_PosSolver_' }
 if ($Only) {
     if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
-    $exe = "$Out\Triumviratus_8.0_${Day}_v$Only.exe"
+    $exe = "$Out\Triumviratus_8.1_${Day}_v$Only.exe"
     $sp1 = if ($profs.ContainsKey($Only)) { @{ n = $Only; mode = 'use'; as = $Only; prof = $profs[$Only] } }
            else { @{ n = $Only; mode = 'none'; as = $Only; prof = '' } }
     $pobjs = Compile-Units @($sp1)

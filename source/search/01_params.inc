@@ -365,7 +365,25 @@
   P(LmrRankMix1, 512, 0, 1024)                                                                            \
   P(LmrRankMix2, 512, 0, 1024)                                                                            \
   P(LmrRankMix3, 512, 0, 1024)                                                                            \
-  /* potatura prima del ciclo mosse */                                                                    \
+  /* pruning before the moves */                                                                          \
+  /* Block 3 in our form (20/10/2026, 13_search.inc eval_gates, null_probe, capture_probe, capture_gate,           */ \
+  /* quiet_gate): numbers once written in the code as parameters at their old values, terms per expert of our    */ \
+  /* own at 0 (same tree, bench unchanged).                                                                       */ \
+  P(RazorExp0, 0, -400, 400) P(RazorExp1, 0, -400, 400) P(RazorExp2, 0, -400, 400) P(RazorExp3, 0, -400, 400)     \
+  P(RfpHuntDepth, 6, 2, 20)              /* reverse futility below this depth while hunting a mate         */ \
+  P(NmpExp0, 0, -200, 200) P(NmpExp1, 0, -200, 200) P(NmpExp2, 0, -200, 200) P(NmpExp3, 0, -200, 200)             \
+  P(NmpBetaFloor, 2000, 500, 4000)       /* no null move with beta below -NmpBetaFloor                     */ \
+  P(NmpDepthDiv, 3, 2, 6)                /* null-move reduction: + depth / NmpDepthDiv                     */ \
+  P(NmpVerifyNum, 3, 1, 4)               /* verification: no null move for NmpVerifyNum/4 of the depth     */ \
+  P(IirDepth, 6, 3, 12)                  /* one ply less without a hash move from this depth               */ \
+  P(ProbCutMinDepth, 3, 2, 8)                                                                              \
+  P(ProbCutRed, 3, 2, 6)                 /* ProbCut search ProbCutRed plies shallower, +RedImp improving   */ \
+  P(ProbCutRedImp, 2, 0, 4)                                                                                \
+  P(ProbCutExp0, 0, -200, 200) P(ProbCutExp1, 0, -200, 200) P(ProbCutExp2, 0, -200, 200)                         \
+  P(ProbCutExp3, 0, -200, 200)                                                                             \
+  P(LmpBase, 3, 0, 12)                   /* move count: (LmpBase + d^2), halved when not improving         */ \
+  P(CaptFutMaxDepth, 8, 2, 16)           /* capture futility below this corrected depth                    */ \
+  P(QuietFutMaxDepth, 12, 4, 20)         /* quiet futility below this corrected depth                      */ \
   P(RazorMul, 452, 100, 1200)                                                                             \
   P(RfpMaxDepth, 19, 4, 30)                                                                               \
   P(RfpMultBase, 50, 10, 120)                                                                             \
@@ -375,6 +393,10 @@
   P(RfpImproving, 2852, 0, 5000)                                                                          \
   P(RfpOppWorse, 335, 0, 1500)                                                                            \
   P(RfpCorrDiv, 198435, 50000, 800000)                                                                    \
+  /* RfpDisagree (20/10/2026, ours, off): reverse-futility margin + RfpDisagree/1024 per unit of |psqt - positional| */ \
+  /* above RfpDisThr of the expert (upper quartile of the disagreement in the prunelog data, 6,000 positions).     */ \
+  P(RfpDisagree, 0, -1024, 1024)         /* 256: -6.60 +- 9.04 (1,422, 12+0.12 noHT, UHO): DISCARDED 20/10 */ \
+  P(RfpDisThr0, 1326, 0, 8192) P(RfpDisThr1, 773, 0, 8192) P(RfpDisThr2, 763, 0, 8192) P(RfpDisThr3, 545, 0, 8192) \
   P(RfpBetaWeight, 690, 0, 1024)                                                                          \
   P(NmpDepthMul, 15, 0, 40)                                                                               \
   P(NmpImproving, 47, 0, 150)                                                                             \
@@ -395,6 +417,22 @@
   P(CaptFutHist, 134, 0, 400)            /* /1024 */                                                      \
   P(CaptSeeDepth, 179, 50, 400)                                                                           \
   P(CaptSeeHist, 34, 0, 120)             /* /1024 */                                                      \
+  /* Block 3, levers per expert (20/10/2026, ours, off): the prunelog data (tools/prunelog_analyze.py) show the     */ \
+  /* endgame expert losing 2-7 times more good moves to the move rules (capture futility 4.5% vs 1.3%, move count */ \
+  /* 2.2% vs 0.3%, capture exchange 2.0% vs 0.6%). LmpExp in 1/1024 of the move-count threshold; CaptFutExp and   */ \
+  /* CaptSeeExp in evaluation units added to the margin (pawn = 208). Positive = less pruning.                     */ \
+  P(LmpExp0, 0, -512, 2048) P(LmpExp1, 0, -512, 2048) P(LmpExp2, 0, -512, 2048) P(LmpExp3, 0, -512, 2048)           \
+  P(CaptFutExp0, 0, -400, 800) P(CaptFutExp1, 0, -400, 800) P(CaptFutExp2, 0, -400, 800)                           \
+  P(CaptFutExp3, 0, -400, 800)                                                                                       \
+  P(CaptSeeExp0, 0, -400, 800) P(CaptSeeExp1, 0, -400, 800) P(CaptSeeExp2, 0, -400, 800)                           \
+  P(CaptSeeExp3, 0, -400, 800)                                                                                       \
+  P(PrExpRootDepth, 0, 0, 40)            /* the levers above act from this iteration depth on (0 = always) */ \
+  /* 20/10/2026, endgame package LmpExp0=1024, CaptFutExp0=208, CaptSeeExp0=104 (endgame book, no draw            */ \
+  /* adjudication): 8+0.08 HT -6.81 +- 6.77 (918); 10+0.1 noHT +0.20 +- 4.46 (1,748); with PrExpRootDepth=20 at    */ \
+  /* 20+0.2 HT -1.62 +- 6.16 (856, endgame depth 32-35, gate open). Level once there is time: off, kept for SPSA. */ \
+  /* Opposite package, prune more in experts 2-3 (LmpExp2/3=-256, CaptFutExp2/3=-104, UHO): 10+0.1 noHT +1.30 +-  */ \
+  /* 3.75 (8,016), socket 1 at 12+0.12 noHT -15.90 +- 13.81 (634), all +0.04 +- 3.62 (8,650); clear minus on the  */ \
+  /* Zen 4 laptop at 12+0.12. DISCARDED 20/10/2026.                                                                */ \
   P(QuietHistPrune, 4045, 1000, 10000)                                                                    \
   P(QuietMainHistMul, 69, 0, 200)        /* /32 */                                                        \
   P(QuietFutDepth, 96, 40, 300)                                                                          \
@@ -440,6 +478,9 @@
   P(SingNegHigh, 4, 0, 4)                /* negative extension when the hash value clears beta             */ \
   P(SingNegCut, 3, 0, 4)                 /* negative extension on an expected cut node. 2: -1.98 +- 4.51   */ \
                                          /* (6,322, 8+0.08 HT, UHO, 19/10/2026), stopped; 3 stays.         */ \
+  P(SingleReply, 0, 0, 3)                /* ours, off (19/10/2026): plies for the only legal reply to check */ \
+                                         /* 1: -10.76 +- 13.26 (678, 8+0.08 HT, UHO), stopped. Single      */ \
+                                         /* replies: 0.6% of game positions, 6.5% of checks; bench +4%.    */ \
   /* SBAKE LDSE 14/10/2026 (utente): non regressione a 40+0.4 HT di tempo + Ldse insieme (tm53), lato release            \
      -9,37 +- 10,91 su 890 (era -13,7 a 660); dai PGN i due lati spendono lo stesso tempo per fase (+-4%) ma il lato      \
      senza leve va 0,1-0,25 ply piu' a fondo: sospettata Ldse (tarata a 10+0.1, controllo a TC lungo fermato a 216).    \
@@ -494,6 +535,14 @@
   P(LmrStatDiv, 377, 100, 1500)          /* /4096 */                                                      \
   P(LmrAllNode, 276, 0, 800)                                                                              \
   P(LmrNoTTFull, 1127, 0, 3000)                                                                           \
+  /* Block 2 in our form (20/10/2026, red_entry_v80 / red_final_v80 and the search of the move): numbers once      */ \
+  /* written in the code as parameters at their old values (same tree).                                          */ \
+  P(LmrGapMul, 3, 0, 8)                  /* quiet moves: + LmrGapMul * clamp(alpha - eval, -Lo, Hi)        */ \
+  P(LmrGapLo, 64, 0, 256)                                                                                  \
+  P(LmrGapHi, 96, 0, 256)                                                                                  \
+  P(LmrMinDepth, 2, 1, 4)                /* reduced search of the later moves from this depth              */ \
+  P(NegExtPlies, 2, 0, 3)                /* a negative reduction extends at most this much, once per line  */ \
+  P(LmrDeepRedMin, 2, 1, 4)              /* first move: the second ply off only above this depth           */ \
   P(DeeperMargin, 51, 0, 200)                                                                             \
   P(ShallowerMargin, 8, 0, 60)                                                                            \
   /* ResOwn (19/10/2026, ours, off): re-search depth after a reduced move fails high from its margin over alpha  */ \
@@ -1016,6 +1065,7 @@
                                          /* relativo ((noi - lui) / (noi + lui), solo se negativo); 0 = spento */ \
                                          /* BAKED 07/10 a 600: 6+0.06 +5,23 +- 4,72 / 6.378 (zero escluso, */ \
                                          /* s0 +2,5 s1 +8,0); 30+0.3 neutra +0,36 +- 5,13 / 3.876. Bench ugual. */ \
+  P(TmSingleMs, 500, 0, 2000)            /* 19/10/2026 (user): at most this many ms with one legal move    */ \
   P(TmRedLo, 496, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
   P(TmRedHi, 1879, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
                                          /* tranquille e critiche; prova a 1200 = rampa piu' corta, 40+0.4) */ \

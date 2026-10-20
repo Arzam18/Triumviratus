@@ -73,6 +73,9 @@ struct MoveQueue {
   int           depth;
   int           cut_threshold;   // QK_CUTS: SEE threshold
   bool          quiets_off;      // move-count pruning: no more quiet moves
+#ifdef TRIUMV_PRUNELOG
+  bool          pl_count_off;    // data build: move-count pruning applied move by move in skip_move (prunelog.h)
+#endif
   LmpChkCtx    *checks;          // check squares of the node, shared with legality (null = computed here)
   int           n_tact, n_all;   // tactical moves in [0, n_tact), quiet moves in [n_tact, n_all)
   int           cur;
@@ -217,6 +220,9 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.kind = kind;
   q.depth = depth;
   q.quiets_off = false;
+#ifdef TRIUMV_PRUNELOG
+  q.pl_count_off = false;
+#endif
   q.checks = nullptr;
   q.cut_threshold = 0;
   q.n_tact = q.n_all = q.cur = 0;

@@ -624,7 +624,7 @@ static void deepen(ThreadData &td) {
       const double heavy = lerp_clamped((double)effort, TmEffortLo, TmEffortHi, 0.969, 0.714, 0.693, 0.838);
       double total_time = g_clock.optimum * falling * reduction * instability * heavy;
       if (td.root_count == 1)
-        total_time = std::min(500.0, total_time);
+        total_time = std::min<double>(TmSingleMs, total_time);
       // Risposta prevista (TmExpect*, vedi ClockState): il tempo si riduce solo finche' valgono tutte e tre le
       // condizioni, ricontrollate a ogni iterazione; se una salta, la mossa riprende il tempo pieno.
       if (g_clock.expected && TmExpectScale < 1000 && td.root_depth >= g_clock.expect_depth - TmExpectDepth &&

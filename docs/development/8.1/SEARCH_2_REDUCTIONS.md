@@ -213,3 +213,10 @@ A note on the measurements: the Xeon of the tests has AVX-512 without VNNI, so t
 without VNNI. On processors with VNNI (Zen 4 among them) the universal executable of 8.0 picks its VNNI variant, and
 every comparison on the Zen 4 before 19 October gave 8.0 that advantage. Comparisons on such processors use the
 universal build of 8.1.
+
+## 2.9 The formula of 8.0 in our form (20 October 2026)
+
+With block 2 on hold, the formula in use is now written in a form of our own at the same tree (bench 209655, same node
+counts on 60 fixed positions at depth 11): `red_entry_v80` builds the reduction of a move from the terms of the node
+and of the move, and `red_final_v80` applies the corrections that depend on what the move does. The constants of the
+formula are parameters. `RedForm`, `RfLearn` and `ResOwn` stay as options, off.
