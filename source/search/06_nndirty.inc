@@ -1,35 +1,35 @@
-// search/06_nndirty.inc -- Le dirty della rete, scritte dalla make (07/10/2026, scacchiera unica v2).
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, prima di
+// search/06_nndirty.inc -- The network's dirty entries, written by the make (07/10/2026, single board v2).
+// Part of threads.cpp: it is NOT a translation unit of its own. It must be included only by threads.cpp, before
 // 07_makemove.inc.
 //
-// La make scrive sulla pila dell'handle della rete (NnStack, nn_dirty.h; td.nnstack) uno stato per mossa con il solo
-// pezzo mosso (NnDirtyPiece), nella numerazione del motore; la unmake lo toglie. Pedoni toccati (NnDirtyPawns) e tuple
-// di minaccia che cambiano (NnDirtyThreats) si calcolano solo quando si arriva a una valutazione (nn_dirty_catch_up),
-// per gli stati che ne mancano: molti nodi finiscono prima di valutare (tagli della TT, scacco, potature) e non le
-// pagano. La rete legge le dirty cosi' come sono e aggiorna gli accumulatori (consilium/cn.cpp); non ha
-// una scacchiera sua.
+// The make writes on the stack of the network handle (NnStack, nn_dirty.h; td.nnstack) one state per move with only the
+// moved piece (NnDirtyPiece), in the engine's numbering; the unmake removes it. Touched pawns (NnDirtyPawns) and the threat
+// tuples that change (NnDirtyThreats) are computed only when an evaluation is reached (nn_dirty_catch_up),
+// for the states that lack them: many nodes end before evaluating (TT cutoffs, check, pruning) and do not
+// pay for them. The network reads the dirty entries as they are and updates the accumulators (consilium/cn.cpp); it has
+// no board of its own.
 //
-// Il recupero ricava la scacchiera prima della prima mossa in sospeso da quella del thread, disfacendo le mosse in
-// sospeso su copie locali (bitboard, mailbox), poi rifa' le mosse in avanti. Per ogni mossa (nn_threat_steps) la si
-// scompone nei passi di una make (togliere, mettere, spostare, sostituire un pezzo) sui bitboard locali e per ogni passo
-// si emettono le tuple che cambiano, sullo stato di quel passo. I pezzi delle case lette si prendono dalla mailbox
-// PRIMA della mossa: le letture cadono sempre su case occupate nello stato del passo e non toccate dalla mossa (i pezzi
-// lunghi, i bersagli, gli attaccanti; mai la casa del passo stesso). Lo garantisce il controllo nnperft (accumulatori
-// interi confrontati col refresh a ogni valutazione).
-// Misure xperf (07/10/2026, DEVELOPMENT_8.0 §28): calcolare le minacce in ogni make costava +0,9-1,2% di cicli per
-// nodo rispetto alla vecchia copia pigra della scacchiera; questo recupero, con il confronto della finny table senza
-// salti, fa -0,4% (mediogioco) e -0,7% (finali) rispetto alla copia.
+// The catch-up derives the board before the first pending move from the thread's board, undoing the pending
+// moves on local copies (bitboards, mailbox), then redoes the moves forward. Every move (nn_threat_steps) is
+// broken down into the steps of a make (remove, put, move, replace a piece) on the local bitboards and for every step
+// the tuples that change are emitted, on the state of that step. The pieces of the squares read are taken from the mailbox
+// BEFORE the move: the reads always fall on squares occupied in the state of the step and not touched by the move (the
+// sliders, the targets, the attackers; never the square of the step itself). The nnperft check guarantees it (whole
+// accumulators compared with the refresh at every evaluation).
+// xperf measurements (07/10/2026, DEVELOPMENT_8.0 §28): computing the threats in every make cost +0.9-1.2% cycles per
+// node compared with the old lazy copy of the board; this catch-up, with the branchless finny-table
+// comparison, gives -0.4% (middlegame) and -0.7% (endgames) compared with the copy.
 
 #if defined(USE_AVX512) && !defined(TRIUMV_NO_THREATS_VECTOR_F)
   #define NN_THREATS_VECTOR
   #include <immintrin.h>
 #endif
 
-// Raggio da s1 attraverso s2 fino al bordo (s2 compresa, s1 esclusa); 0 se le case non sono allineate o coincidono.
+// Ray from s1 through s2 to the edge (s2 included, s1 excluded); 0 if the squares are not aligned or coincide.
 static U64 nn_ray_pass[64][64];
 
-// (Tabelle dei blocchi da innesto nn_pr_* e nn_ps_*, con nn_graft_tables_init: tolte il 10/10/2026 con i blocchi,
-// codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 e nel repo del training,
+// (Tables of the graft blocks nn_pr_* and nn_ps_*, with nn_graft_tables_init: removed on 10/10/2026 with the blocks,
+// code in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 and in the training repo,
 // 04_consilium/graft_engine_storico.)
 
 static void nn_dirty_init() {
@@ -45,7 +45,7 @@ static void nn_dirty_init() {
     }
 }
 
-// Fascia di materiale della rete (HalfKA a esperti) per numero di pezzi: <= 9, 10-15, 16-23, >= 24 (half_ka_v2_hm.h).
+// Material band of the network (HalfKA with experts) by number of pieces: <= 9, 10-15, 16-23, >= 24 (half_ka_v2_hm.h).
 static constexpr unsigned char nn_phase_of_count[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
                                                         2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 // ExpertFix (20/10/2026): the expert the network uses per piece count during this search, set in start_search (the
@@ -54,7 +54,7 @@ static constexpr unsigned char nn_phase_of_count[33] = {0, 0, 0, 0, 0, 0, 0, 0, 
 static unsigned char g_nn_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
                                            2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 
-// Scacchiera di lavoro dei passi: bitboard per tipo (P..K, entrambi i colori), per colore e occupazione.
+// Working board of the steps: bitboards per type (P..K, both colours), per colour and occupancy.
 struct NnTB {
   U64 type[6];
   U64 color[2];
@@ -67,8 +67,8 @@ static inline void nn_tb_toggle(NnTB &tb, int pc, U64 b) {
   tb.occ ^= b;
 }
 
-// Lettura del pezzo su una casa (codice 0..11, -1 = vuota) dalla mailbox locale del recupero, che e' sempre quella
-// prima della mossa in esame.
+// Reads the piece on a square (code 0..11, -1 = empty) from the local mailbox of the catch-up, which is always the one
+// before the move being processed.
 struct NnLookMailbox {
   const int *mb;
   int operator()(int s) const { return mb[s]; }
@@ -81,17 +81,17 @@ static inline void nn_add_threat(NnDirtyThreats *dts, bool add, int pc, int tpc,
   dts->list[dts->n++] = nn_threat(pc, tpc, pcSq, tSq, add);
 }
 
-// Un pezzo lungo che minaccia una donna e' una feature solo se e' a sua volta una donna (le coppie alfiere/torre ->
-// donna sono escluse dalla tabella delle feature).
+// A slider threatening a queen is a feature only if it is a queen itself (the bishop/rook ->
+// queen pairs are excluded from the feature table).
 static inline bool nn_can_slider_threat(int pc, int slider) {
   return pc % 6 != NN_QUEEN || slider % 6 == NN_QUEEN;
 }
 
 #ifdef NN_THREATS_VECTOR
-// Emissione vettoriale (AVX-512 F/BW): ogni gruppo di 16 case si compatta con vpcompressd sui suoi 16 bit della
-// maschera, con la casa e il pezzo gia' al loro posto nella tupla. Le scritture da 16 voci oltre il conteggio cadono
-// nelle 16 voci di scorta della lista (nn_dirty.h). Quattro gruppi fissi: nessun salto dipende dalla maschera. Nella
-// nostra numerazione il gruppo c sono le case 16c..16c+15, contigue anche nella mailbox.
+// Vector emission (AVX-512 F/BW): every group of 16 squares is compacted with vpcompressd on its 16 bits of the
+// mask, with the square and the piece already in their place in the tuple. The 16-entry writes beyond the count fall
+// into the 16 spare entries of the list (nn_dirty.h). Four fixed groups: no branch depends on the mask. In
+// our numbering group c is the squares 16c..16c+15, contiguous in the mailbox too.
 template <int SqShift, int PcShift, typename Look>
 static inline void nn_write_multi(const Look &look, U64 mask, std::uint32_t tmpl, NnDirtyThreats *dts) {
   std::uint32_t *write = dts->list + dts->n;
@@ -110,10 +110,10 @@ static inline void nn_write_multi(const Look &look, U64 mask, std::uint32_t tmpl
 }
 #endif
 
-// AA1 (10/10/2026, velocita', stesse tuple): gli attacchi lunghi del pezzo sono quelli che nn_piece_threats ha gia'
-// calcolato dalla stessa casa con la stessa occupazione (bAttacks, rAttacks): prima si ricalcolavano qui, 1 volta per
-// alfiere e torre e 2 per la donna, oltre alle 2 di nn_piece_threats (contatori, bench 15 su fens30: 1,19 chiamate e
-// 3,05 calcoli DualMagic per nodo; ora 1 per chiamata).
+// AA1 (10/10/2026, speed, same tuples): the slider attacks of the piece are those nn_piece_threats has already
+// computed from the same square with the same occupancy (bAttacks, rAttacks): before, they were recomputed here, once for
+// bishop and rook and twice for the queen, on top of the 2 in nn_piece_threats (counters, bench 15 on fens30: 1.19 calls and
+// 3.05 DualMagic computations per node; now 1 per call).
 static inline U64 nn_piece_attacks(int pc, int s, U64 bAttacks, U64 rAttacks) {
   switch (pc >= 6 ? pc - 6 : pc) {
   case NN_PAWN: return pawn_attacks[pc >= 6][s];
@@ -187,9 +187,9 @@ static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bo
 #endif
 }
 
-// I passi di una make, ciascuno con le sue tuple. Togliere: le minacce si calcolano prima, col pezzo ancora li'.
-// Mettere: dopo. Spostare: prima e dopo, saltando i raggi scoperti che contengono da|a. Sostituire (cattura): il
-// vecchio pezzo esce e il nuovo entra con la casa sempre occupata, senza raggi scoperti.
+// The steps of a make, each with its tuples. Remove: the threats are computed before, with the piece still there.
+// Put: after. Move: before and after, skipping the uncovered rays that contain from|to. Replace (capture): the
+// old piece leaves and the new one enters with the square always occupied, without uncovered rays.
 template <typename Look>
 static inline void nn_step_remove(NnTB &tb, const Look &look, int pc, int s, NnDirtyThreats *dts) {
   nn_piece_threats<true>(tb, look, pc, false, s, dts);
@@ -215,13 +215,13 @@ static inline void nn_step_swap(NnTB &tb, const Look &look, int oldPc, int newPc
   nn_piece_threats<false>(tb, look, newPc, true, s, dts);
 }
 
-// Tutte le tuple di una mossa, dalla scacchiera prima della mossa (tb, che esce allo stato dopo la mossa).
+// All the tuples of a move, from the board before the move (tb, which leaves in the state after the move).
 template <typename Look>
 static inline void nn_threat_steps(NnTB &tb, const Look &look, const NnDirtyPiece &dp, NnDirtyThreats *dts) {
   dts->n = 0;
   const int pc = dp.pc, from = dp.from;
   if (dp.to != NN_SQ_NONE && dp.add_sq != NN_SQ_NONE) {
-    // Arrocco: prima si tolgono re e torre, poi si rimettono (nel Chess960 le case si sovrappongono).
+    // Castling: first king and rook are removed, then put back (in Chess960 the squares overlap).
     nn_step_remove(tb, look, pc, from, dts);
     nn_step_remove(tb, look, dp.remove_pc, dp.remove_sq, dts);
     nn_step_put(tb, look, pc, dp.to, dts);
@@ -232,7 +232,7 @@ static inline void nn_threat_steps(NnTB &tb, const Look &look, const NnDirtyPiec
   const int to = promo ? dp.add_sq : dp.to;
   const int arriving = promo ? dp.add_pc : pc;
   if (dp.remove_sq != NN_SQ_NONE) {
-    if (dp.remove_sq != to) {  // en passant: prima il pedone catturato, poi il pedone che muove
+    if (dp.remove_sq != to) {  // en passant: first the captured pawn, then the moving pawn
       nn_step_remove(tb, look, dp.remove_pc, dp.remove_sq, dts);
       nn_step_move(tb, look, pc, from, to, dts);
     } else {
@@ -246,8 +246,8 @@ static inline void nn_threat_steps(NnTB &tb, const Look &look, const NnDirtyPiec
     nn_step_move(tb, look, pc, from, to, dts);
 }
 
-// I pedoni che la mossa toglie e aggiunge, coi pedoni di prima (blocchi PawnPair e PassedPawns). L'arrocco non tocca
-// pedoni: la torre e' in remove_pc, non un pedone.
+// The pawns the move removes and adds, with the pawns before (PawnPair and PassedPawns blocks). Castling touches no
+// pawns: the rook is in remove_pc, not a pawn.
 static inline void nn_fill_pawns(NnDirtyPawns &dpw, const NnDirtyPiece &dp, U64 whitePawns, U64 blackPawns) {
   const bool moverIsPawn = dp.pc == P || dp.pc == p;
   const bool victimIsPawn = dp.remove_sq != NN_SQ_NONE && (dp.remove_pc == P || dp.remove_pc == p);
@@ -262,31 +262,31 @@ static inline void nn_fill_pawns(NnDirtyPawns &dpw, const NnDirtyPiece &dp, U64 
     dpw.removedSq[dpw.nRemoved] = dp.from;
     dpw.removedC[dpw.nRemoved] = dp.pc >= 6;
     dpw.nRemoved++;
-    if (dp.to != NN_SQ_NONE) {  // la promozione non rimette un pedone
+    if (dp.to != NN_SQ_NONE) {  // a promotion does not put a pawn back
       dpw.addedSq = dp.to;
       dpw.addedC = dp.pc >= 6;
     }
   }
   if (victimIsPawn) {
-    dpw.removedSq[dpw.nRemoved] = dp.remove_sq;  // en passant: la casa del pedone, non `to`
+    dpw.removedSq[dpw.nRemoved] = dp.remove_sq;  // en passant: the pawn's square, not `to`
     dpw.removedC[dpw.nRemoved] = dp.remove_pc >= 6;
     dpw.nRemoved++;
   }
 }
 
-// Chiave della sola disposizione dei pezzi (pedoni + non pedoni dei due colori): non cambia con la mossa nulla, il
-// lato al tratto, l'en passant e gli arrocchi. Serve al controllo di sincronia (-DTRIUMV_VERIFY_NNSYNC).
+// Key of the piece placement only (pawns + non-pawns of both colours): it does not change with the null move, the
+// side to move, en passant and castling rights. It serves the synchronisation check (-DTRIUMV_VERIFY_NNSYNC).
 static inline U64 nn_piece_key(const ThreadData &td) { return td.pawn_key ^ td.np_key[white] ^ td.np_key[black]; }
 
-// Make: un nuovo stato sulla pila, scritto sulla scacchiera PRIMA della mossa (la make non ha ancora toccato nulla).
-// cap = pezzo catturato (-1 nessuno), capSq = sua casa; rookPc = -1 se non e' un arrocco, altrimenti la torre e le sue
-// case rf -> rt.
+// Make: a new state on the stack, written on the board BEFORE the move (the make has not touched anything yet).
+// cap = captured piece (-1 none), capSq = its square; rookPc = -1 if it is not castling, otherwise the rook and its
+// squares rf -> rt.
 static inline void nn_make_dirty(ThreadData &td, int piece, int source, int target, int promoted, int cap, int capSq,
                                  int rookPc, int rf, int rt) {
   NnStack &S = *td.nnstack;
   NnState &st = S.st[S.size++];
   st.computed[white] = st.computed[black] = 0;
-  // Posizione nella pila (nn_stack_of: passati di PassedPawns v1, R4), nella stessa linea di `computed`.
+  // Position in the stack (nn_stack_of: passers of PassedPawns v1, R4), in the same line as `computed`.
   st.idx = (std::uint8_t)(S.size - 1);
 
   NnDirtyPiece &dp = st.dp;
@@ -344,7 +344,7 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
   dp.phase = g_nn_phase_map[pieces - (cap != -1)];
   dp.phaseChanged = g_nn_phase_map[pieces] != dp.phase;
 #endif
-  // Minacce e pedoni: nn_dirty_catch_up, solo se si arriva a una valutazione.
+  // Threats and pawns: nn_dirty_catch_up, only if an evaluation is reached.
   // Prefetch of the network rows this move changes (19/10/2026): the memory latency runs under the hash probe and the
   // rest of the child node instead of at the start of its evaluation. Without a capture the third row repeats the
   // first (no branch). The rook of a castling move is left out (rare). Only where it pays (NN_MAKE_PREFETCH,
@@ -356,28 +356,28 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
 #endif
 }
 
-// La mossa appena registrata non si fa (illegale) o si disfa (unmake): lo stato esce dalla pila.
+// The move just recorded is not made (illegal) or is undone (unmake): the state leaves the stack.
 static inline void nn_unmake_dirty(ThreadData &td) {
   NnStack &S = *td.nnstack;
   --S.size;
-  // AA3 (10/10/2026, velocita', stesso stato): scrittura sempre fatta, con il minimo (cmov) invece del salto. Il salto
-  // dipende dal figlio, valutato o no: vero nel 51-59% delle unmake (contatori, bench 15-16 su fens30/eg30), e un
-  // predittore a 2 bit per sito lo sbaglia ~0,24-0,26 volte per nodo.
+  // AA3 (10/10/2026, speed, same state): the write is always done, with the minimum (cmov) instead of the branch. The branch
+  // depends on the child, evaluated or not: true in 51-59% of the unmakes (counters, bench 15-16 on fens30/eg30), and a
+  // 2-bit predictor per site gets it wrong ~0.24-0.26 times per node.
   S.ready = std::min(S.ready, S.size);
 }
 
-// Disfare e rifare una mossa sulle copie locali del recupero. Qui i salti restano: le mosse in sospeso sono quasi sempre una e i rami sono ben previsti. Provata una versione senza
-// salti (casa 64 = bitboard 0, XOR sempre, mailbox locale di 65 caselle con scritture sempre eseguite): meno istruzioni
-// e meno salti mal previsti, ma +1,2 punti di cicli per nodo in mediogioco (xperf 07/10): letture di tabelle e scritture
-// subito rilette a blocchi di 64 byte dal codice vettoriale costano piu' di rami prevedibili.
-static inline void nn_dp_toggle(NnTB &tb, const NnDirtyPiece &dp) {  // XOR: vale sia avanti sia indietro
+// Undo and redo a move on the local copies of the catch-up. Here the branches stay: the pending moves are almost always one and the branches are well predicted. A branchless
+// version was tried (square 64 = bitboard 0, XOR always, local mailbox of 65 squares with writes always executed): fewer instructions
+// and fewer mispredicted branches, but +1.2 points of cycles per node in the middlegame (xperf 07/10): table reads and writes
+// read back at once in 64-byte blocks by the vector code cost more than predictable branches.
+static inline void nn_dp_toggle(NnTB &tb, const NnDirtyPiece &dp) {  // XOR: works both forward and backward
   nn_tb_toggle(tb, dp.pc, 1ULL << dp.from);
   if (dp.to != NN_SQ_NONE) nn_tb_toggle(tb, dp.pc, 1ULL << dp.to);
   if (dp.remove_sq != NN_SQ_NONE) nn_tb_toggle(tb, dp.remove_pc, 1ULL << dp.remove_sq);
   if (dp.add_sq != NN_SQ_NONE) nn_tb_toggle(tb, dp.add_pc, 1ULL << dp.add_sq);
 }
-// Prima si vuotano le case d'arrivo, poi si rimettono i pezzi di partenza: nell'arrocco Chess960 le case si
-// sovrappongono.
+// First the arrival squares are emptied, then the starting pieces are put back: in Chess960 castling the squares
+// overlap.
 static inline void nn_mb_undo(int *mb, const NnDirtyPiece &dp) {
   if (dp.to != NN_SQ_NONE) mb[dp.to] = -1;
   if (dp.add_sq != NN_SQ_NONE) mb[dp.add_sq] = -1;
@@ -391,10 +391,10 @@ static inline void nn_mb_redo(int *mb, const NnDirtyPiece &dp) {
   if (dp.add_sq != NN_SQ_NONE) mb[dp.add_sq] = dp.add_pc;
 }
 
-// Passati del colore c: stessa regola della funzione passers della rete (consilium/cn.cpp, che la rete non
-// puo' esportare qui: motore e rete non condividono intestazioni). Un pedone e' passato se non cade nell'"ombra" (case
-// strettamente dietro, viste da c) dei pedoni avversari allargati alle colonne vicine, ne' in quella dei propri sulla
-// stessa colonna. Nella nostra numerazione il bianco avanza verso gli indici piu' bassi: la sua ombra sale di indice.
+// Passers of colour c: same rule as the network's passers function (consilium/cn.cpp, which the network cannot
+// export here: engine and network share no headers). A pawn is passed if it does not fall in the "shadow" (squares
+// strictly behind, seen from c) of the enemy pawns widened to the adjacent files, nor in that of its own pawns on the
+// same file. In our numbering white advances towards the lower indices: its shadow rises in index.
 static inline U64 nn_passers(int c, U64 own, U64 opp) {
   const U64 fileA = 0x0101010101010101ULL, fileH = fileA << 7;
   const auto back = [c](U64 b, int n) { return c == white ? b << n : b >> n; };
@@ -411,13 +411,13 @@ static inline U64 nn_passers(int c, U64 own, U64 opp) {
 
 
 
-// (Blocchi da innesto PassedRel e PassedState: recupero delle loro voci nella pila, nn_prel_* e nn_pst_*, e controllo
-// -DTRIUMV_VERIFY_GRAFT, tolti il 10/10/2026 con i blocchi; codice in _backup/Triumviratus_8.0_pre_rimozione_graft_
-// 2026-10-10 e nel repo del training, 04_consilium/graft_engine_storico.)
+// (Graft blocks PassedRel and PassedState: catch-up of their entries in the stack, nn_prel_* and nn_pst_*, and the check
+// -DTRIUMV_VERIFY_GRAFT, removed on 10/10/2026 with the blocks; code in _backup/Triumviratus_8.0_pre_rimozione_graft_
+// 2026-10-10 and in the training repo, 04_consilium/graft_engine_storico.)
 
-// Minacce e pedoni degli stati che ne mancano ([ready, size)), prima di ogni valutazione: la scacchiera prima della
-// prima mossa in sospeso si ricava da quella del thread disfacendo le mosse in sospeso, poi le mosse si rifanno in
-// avanti. Di solito il padre e' gia' stato valutato e la mossa in sospeso e' una sola.
+// Threats and pawns of the states that lack them ([ready, size)), before every evaluation: the board before the
+// first pending move is derived from the thread's board by undoing the pending moves, then the moves are redone
+// forward. Usually the parent has already been evaluated and there is only one pending move.
 static inline void nn_dirty_catch_up(ThreadData &td) {
   NnStack &S = *td.nnstack;
   const int first = S.ready, last = S.size;
@@ -435,8 +435,8 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
     nn_dp_toggle(tb, S.st[i].dp);
     nn_mb_undo(mb, S.st[i].dp);
   }
-  // R4 (10/10/2026): passati per PassedPawns v1, uno stato alla volta (NnStack::v1PassW/B). Quelli dello stato
-  // first - 1 sono gia' nella pila, salvo alla radice (~0): tb e' ora la sua scacchiera.
+  // R4 (10/10/2026): passers for PassedPawns v1, one state at a time (NnStack::v1PassW/B). Those of the state
+  // first - 1 are already in the stack, except at the root (~0): tb is now its board.
   U64 v1w = S.v1PassW[first - 1], v1b = S.v1PassB[first - 1];
   if (v1w == ~0ULL) {
     const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
@@ -446,9 +446,9 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
   for (int i = first; i < last; i++) {
     NnState &st = S.st[i];
     nn_fill_pawns(st.pawns, st.dp, tb.type[NN_PAWN] & tb.color[white], tb.type[NN_PAWN] & tb.color[black]);
-    nn_threat_steps(tb, NnLookMailbox{mb}, st.dp, &st.threats);  // tb esce allo stato dopo la mossa
+    nn_threat_steps(tb, NnLookMailbox{mb}, st.dp, &st.threats);  // tb leaves in the state after the move
     nn_mb_redo(mb, st.dp);
-    if (st.pawns.any) {  // R4: i passati cambiano solo con un evento di pedone
+    if (st.pawns.any) {  // R4: the passers change only with a pawn event
       const U64 wp = tb.type[NN_PAWN] & tb.color[white], bp = tb.type[NN_PAWN] & tb.color[black];
       v1w = nn_passers(white, wp, bp);
       v1b = nn_passers(black, bp, wp);
@@ -465,7 +465,7 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
 // corrections (09_history.inc). The expert of a perspective is the network's routing table over the non-pawn material
 // signatures (own side, opponent), the same lookup as nn_make_dirty above. C2Count holds the non-pawn counts of both
 // colours, so a line of captures and promotions can be followed without a board.
-static const unsigned char *const g_c2_router = nn_router_table();   // address of the network's copy: fixed
+// The calling thread's routing table (SmpRouteShift can give the odd helpers a shifted copy), asked at each use.
 
 struct C2Count {
   int n[2], b[2], r[2], q[2];
@@ -489,7 +489,7 @@ static inline void c2_count_add(C2Count &k, int pc, int d) {
   else if (t == Q) k.q[c] += d;
 }
 static inline int c2_sig(const C2Count &k, int c) { return cn_sig(k.n[c], k.b[c], k.r[c], k.q[c]); }
-static inline int c2_expert(const C2Count &k, int c) { return g_c2_router[c2_sig(k, c) * 54 + c2_sig(k, c ^ 1)]; }
+static inline int c2_expert(const C2Count &k, int c) { return nn_router_table()[c2_sig(k, c) * 54 + c2_sig(k, c ^ 1)]; }
 // Both experts in the layout of NnDirtyPiece::phase: White | Black << 4.
 static inline int c2_experts(const C2Count &k) { return c2_expert(k, white) | c2_expert(k, black) << 4; }
 // Experts of the thread's current position. Every state above the root carries them (nn_make_dirty: computed on a
@@ -501,12 +501,12 @@ static inline int c2_experts_td(const ThreadData &td) {
 }
 #endif
 
-// Controllo di sincronia (-DTRIUMV_VERIFY_NNSYNC, come TRIUMV_VERIFY_SEEQ): la pila della rete deve descrivere la
-// scacchiera del thread. Ogni stato porta la chiave dei pezzi dopo la sua mossa (la scrive la make riuscita; la radice
-// nn_root_sync). A ogni valutazione, per TUTTA la catena: la chiave di ogni stato e' quella dello stato prima con la
-// mossa descritta dalle sue dirty (pezzo che parte e arriva, catturato, promosso, torre dell'arrocco), e la chiave in
-// cima e' quella della scacchiera. Uno stato in piu', in meno o con dirty sbagliate rompe la catena. Abort al primo
-// disaccordo.
+// Synchronisation check (-DTRIUMV_VERIFY_NNSYNC, like TRIUMV_VERIFY_SEEQ): the network's stack must describe the
+// thread's board. Every state carries the piece key after its move (written by the successful make; at the root
+// nn_root_sync). At every evaluation, for the WHOLE chain: the key of every state is that of the previous state with the
+// move described by its dirty entries (piece leaving and arriving, captured, promoted, castling rook), and the key at the
+// top is that of the board. One state too many, too few or with wrong dirty entries breaks the chain. Abort at the first
+// disagreement.
 #ifdef TRIUMV_VERIFY_NNSYNC
 static inline U64 nn_dp_key_delta(const NnDirtyPiece &dp) {
   U64 d = piece_keys[dp.pc][dp.from];

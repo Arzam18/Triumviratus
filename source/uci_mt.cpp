@@ -22,20 +22,20 @@
 #include "perft.h"
 #include "chess960.h"
 #include "consilium_bridge.h"   // nn_acc_stats (diagnostic "accstats" command)
-#include <algorithm>       // std::sort (istogramma accessi, solo TRIUMV_PROFILE)
+#include <algorithm>       // std::sort (access histogram, TRIUMV_PROFILE only)
 #include <thread>
 
 #ifdef CLANG_PGO_GEN
-// clang-PGO instrument build (-fprofile-generate): il path di exit del motore non fa
-// scattare l'atexit di LLVM -> il quit-handler chiama questa per scrivere il profilo.
-// extern "C" deve stare a file scope (NON dentro un blocco). Assente nei build normali/optimize.
+// clang-PGO instrument build (-fprofile-generate): the engine's exit path does not
+// trigger LLVM's atexit -> the quit handler calls this to write the profile.
+// extern "C" must be at file scope (NOT inside a block). Absent in normal/optimize builds.
 extern "C" int __llvm_profile_write_file(void);
 #endif
 #include <string.h>
 #include <string>
 #ifndef _WIN32
-#include <unistd.h>   // getpid() per il suffisso per-processo di TMLog (su Windows
-                      // GetCurrentProcessId arriva da windows.h via defs.h)
+#include <unistd.h>   // getpid() for the per-process suffix of TMLog (on Windows
+                      // GetCurrentProcessId comes from windows.h via defs.h)
 #endif
 
 // Defined in main.cpp: resolve an NNUE filename/path to an existing path
@@ -43,7 +43,7 @@ extern "C" int __llvm_profile_write_file(void);
 // "EvalFile" handler to load a big net specified at runtime.
 std::string resolve_net_path(const std::string& name);
 
-// "Move Overhead" (UCI): ms riservati per mossa a lag di I/O e GUI. 10 come la gestione del tempo che usiamo.
+// "Move Overhead" (UCI): ms reserved per move for I/O and GUI lag. 10, as in the time management we use.
 int g_move_overhead_ms = 10;
 
 // parse user/GUI move string input (e.g. "e7e8q")
@@ -58,7 +58,7 @@ int parse_move(char* move_string)
     for (int move_count = 0; move_count < move_list->count; move_count++)
     {
         int move = move_list->moves[move_count];
-        // UCI_Chess960: la GUI manda l'arrocco come "re cattura la propria torre" (e1h1).
+        // UCI_Chess960: the GUI sends castling as "king captures its own rook" (e1h1).
         const int move_target = (g_chess960 && get_move_castling(move))
             ? castle_rook_sq[castle_index(get_move_target(move))] : get_move_target(move);
 
@@ -118,9 +118,9 @@ void parse_position(char* command)
             if (move == 0)
                 break;
 
-            // F-016 (2026-07-03): guard overflow repetition_table[2048] (partite ultra-lunghe
-            // in datagen/ultrabullet): scarta la meta' piu' VECCHIA della storia — inerte,
-            // e' oltre qualsiasi finestra-fifty (<=100 semimosse) usata dal rep-check.
+            // F-016 (2026-07-03): overflow guard for repetition_table[2048] (ultra-long games
+            // in datagen/ultrabullet): drops the OLDEST half of the history - inert,
+            // it is beyond any fifty-move window (<=100 plies) used by the repetition check.
             if (repetition_index >= 2048 - 300) {
                 memmove(repetition_table, repetition_table + 1024,
                         (size_t)(repetition_index + 1 - 1024) * sizeof(repetition_table[0]));
@@ -132,8 +132,8 @@ void parse_position(char* command)
             make_move(move, all_moves);
 
             while (*current_char && *current_char != ' ') current_char++;
-            // AUDIT D (T6): piu' spazi fra le mosse sono ammessi dal protocollo; prima uno spazio doppio
-            // fermava il parsing e le mosse successive venivano perse in silenzio.
+            // AUDIT D (T6): several spaces between moves are allowed by the protocol; before, a double space
+            // stopped the parsing and the following moves were silently lost.
             while (*current_char == ' ' || *current_char == '\t') current_char++;
         }
     }
@@ -144,7 +144,7 @@ void parse_position(char* command)
 // An explicit "go depth N" in the command still overrides this.
 int g_uci_depth = 0;
 
-// Azzera i limiti della ricerca prima di ogni "go" (e del bench).
+// Clears the search limits before every "go" (and the bench).
 void reset_time_control()
 {
     quit = 0;
@@ -153,7 +153,7 @@ void reset_time_control()
     g_limits = SearchLimits{};
 }
 
-// Valore intero dopo una parola chiave del comando "go" (0 se la parola manca).
+// Integer value after a keyword of the "go" command (0 if the word is missing).
 static long long go_value(const char* command, const char* key)
 {
     const size_t klen = strlen(key);
@@ -181,7 +181,7 @@ void parse_go(char* command)
 {
     reset_time_control();
     SearchLimits& L = g_limits;
-    // Orologio negativo (GUI con margine): vale come tempo minimo, non come "nessun orologio".
+    // Negative clock (GUI with a margin): counts as minimum time, not as "no clock".
     L.time[white] = (int)go_value(command, "wtime");
     L.time[black] = (int)go_value(command, "btime");
     if (go_flag(command, "wtime") && L.time[white] <= 0) L.time[white] = 1;
@@ -196,7 +196,7 @@ void parse_go(char* command)
     L.ponder      = go_flag(command, "ponder");
     int depth     = (int)go_value(command, "depth");
 
-    // "go searchmoves m1 m2 ...": la radice cerca solo queste. La lista finisce al primo token che non e' una mossa.
+    // "go searchmoves m1 m2 ...": the root searches only these. The list ends at the first token that is not a move.
     g_searchmoves_count = 0;
     if (const char* sm = strstr(command, "searchmoves"))
     {
@@ -216,7 +216,7 @@ void parse_go(char* command)
         }
     }
 
-    // Opzione "Depth" > 0: profondita' fissa e orologio ignorato, salvo "go depth N" esplicito.
+    // Option "Depth" > 0: fixed depth and clock ignored, unless an explicit "go depth N" is given.
     if (!depth && g_uci_depth > 0)
     {
         depth = g_uci_depth;
@@ -287,15 +287,15 @@ static bool parse_setoption(const char* input, const char* want,
 void uci_loop()
 {
     // Input buffer
-    static char input[65536];   // AUDIT D: era 10000 (~1.990 semimosse); oltre, fgets spezzava la riga
+    static char input[65536];   // AUDIT D: was 10000 (~1,990 plies); beyond that, fgets split the line
     
     // Engine settings
-    // 🔴 2026-09-07: era 1024 MB. Troppo poco per chi ci testa a TC lungo (CCRL
-    // usa 256, CEGT di piu', TCEC gira a 64 GB). Tutta l'aritmetica della TT e'
-    // gia' U64 (hash_entries, tt_base_index, l'indicizzazione), quindi il tetto
-    // era solo una costante. A 65536 MB la tabella ha 2,86e9 entry: sopra il
-    // range int32, ed e' il motivo per cui va alzato solo dopo aver verificato
-    // che nessun indice sia un int (verificato: nessuno).
+    // 🔴 2026-09-07: was 1024 MB. Too little for those who test us at long TC (CCRL
+    // uses 256, CEGT more, TCEC runs at 64 GB). All the TT arithmetic is
+    // already U64 (hash_entries, tt_base_index, the indexing), so the cap
+    // was only a constant. At 65536 MB the table has 2.86e9 entries: above the
+    // int32 range, which is why it is raised only after checking
+    // that no index is an int (checked: none).
     int max_hash = 65536;
     int mb = 64;
     
@@ -309,11 +309,11 @@ void uci_loop()
     // all-zero and Late Move Reductions are effectively disabled.
     init_threads(1);
 
-    // I/O con buffer (12/10/2026). Prima senza buffer: ogni printf di una riga "info" (uno per mossa della pv)
-    // diventava una scrittura sulla pipe, ~2,5-5 ms persi a mossa (go nodes 1000: 4,1 ms a muro contro 1,4; SF19 1,2).
-    // Le uscite restano puntuali: fflush dopo ogni riga info, currmove e bestmove, e il ciclo qui sotto fa fflush
-    // prima di ogni lettura (uciok, readyok, info string). stdin con buffer: nessuno legge piu' stdin di nascosto
-    // durante la ricerca (read_input/communicate di misc.cpp non sono chiamate).
+    // Buffered I/O (12/10/2026). Before, unbuffered: every printf of an "info" line (one per move of the pv)
+    // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4; SF19 1.2).
+    // Output stays prompt: fflush after every info, currmove and bestmove line, and the loop below does fflush
+    // before every read (uciok, readyok, info string). Buffered stdin: nobody reads stdin behind our back any more
+    // during the search (read_input/communicate of misc.cpp are not called).
     setvbuf(stdin, NULL, _IOFBF, 1 << 16);
     setvbuf(stdout, NULL, _IOFBF, 1 << 16);
 
@@ -334,7 +334,7 @@ void uci_loop()
         if (input[0] == '\n')
             continue;
 
-        // Remove newline (AUDIT D, T6: anche '\r' e spazi finali; "uci\r" da un GUI non riceveva uciok)
+        // Remove newline (AUDIT D, T6: also '\r' and trailing spaces; "uci\r" from a GUI did not get uciok)
         size_t len = strlen(input);
         while (len > 0 && (input[len-1] == '\n' || input[len-1] == '\r' ||
                            input[len-1] == ' ' || input[len-1] == '\t'))
@@ -346,14 +346,14 @@ void uci_loop()
         // "ucinewgame" -> its handler below would be dead code).
         if (strcmp(input, "uci") == 0)
         {
-            // NB: VERSION contiene gia' il separatore (" - 7.0") -> %s%s, senza spazio
-            // in mezzo. Con "%s %s" usciva "Triumviratus  - 7.0" (doppio spazio): l'id
-            // name e' l'identita' del motore per GUI e liste rating, deve essere pulito.
-            // La data di build in coda distingue le build giornaliere fra loro:
+            // NB: VERSION already contains the separator (" - 7.0") -> %s%s, without a space
+            // in between. With "%s %s" it printed "Triumviratus  - 7.0" (double space): the id
+            // name is the engine's identity for GUIs and rating lists, it must be clean.
+            // The build date at the end tells the daily builds apart:
             // "Triumviratus - 7.0 2026-08-06".
-            // Anche nel binario universale l'id name resta questo: e' il nome che GUI e liste (CCRL) registrano. La
-            // variante scelta si legge nella riga d'avvio (main.cpp), solo in terminale.
-            // Release ufficiale (14/10/2026, -DTRIUMV_OFFICIAL da build_universal.ps1 -Official): nome senza data.
+            // In the universal binary too the id name stays this: it is the name GUIs and lists (CCRL) record. The
+            // chosen variant is read in the startup line (main.cpp), in a terminal only.
+            // Official release (14/10/2026, -DTRIUMV_OFFICIAL from build_universal.ps1 -Official): name without date.
 #ifdef TRIUMV_OFFICIAL
             printf("id name %s%s\n", NAME, VERSION);
 #else
@@ -362,34 +362,34 @@ void uci_loop()
             printf("id author %s\n", AUTHOR);
             printf("option name Hash type spin default 64 min 1 max %d\n", max_hash);
             printf("option name Threads type spin default 1 min 1 max %d\n", max_threads);
-            // MultiPV (analisi stile Stockfish): opzione UFFICIALE, sempre advertised
-            // (anche in TRIUMV_RELEASE). Il setoption arriva via il generic handler
+            // MultiPV (Stockfish-style analysis): OFFICIAL option, always advertised
+            // (also in TRIUMV_RELEASE). The setoption arrives via the generic handler
             // -> set_search_param("MultiPV") in threads.cpp.
             printf("option name MultiPV type spin default 1 min 1 max 64\n");
-            // Opzioni ufficiali di analisi/utilizzo (sempre visibili, anche in release):
-            printf("option name UCI_ShowWDL type check default false\n");  // W/D/L nelle info-line (via generic handler)
-            printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), dalla 8.0
-            // Modalita' analisi (09/10/2026, search/01_params.inc): selettivita' per l'analisi, spenta in partita.
-            // Il setoption passa dal gestore generico (set_search_param), anche nella release.
+            // Official analysis/usage options (always visible, also in release):
+            printf("option name UCI_ShowWDL type check default false\n");  // W/D/L in the info lines (via generic handler)
+            printf("option name UCI_Chess960 type check default false\n"); // Fischer Random (chess960.h), since 8.0
+            // Analysis mode (09/10/2026, search/01_params.inc): selectivity for analysis, off in games.
+            // The setoption goes through the generic handler (set_search_param), also in the release.
             print_analysis_options();
-            printf("option name Clear Hash type button\n");                // svuota la TT su richiesta
-            // Ponder: la GUI decide se pondera. Dal 04/10/2026 l'opzione accesa da' il 25% di tempo ottimale in piu'
-            // (search/14_deepen.inc, clock_plan). Senza dichiararla molte GUI non mandano mai `go ponder`.
+            printf("option name Clear Hash type button\n");                // clears the TT on request
+            // Ponder: the GUI decides whether to ponder. Since 04/10/2026 the option on gives 25% more optimum time
+            // (search/14_deepen.inc, clock_plan). Without declaring it many GUIs never send `go ponder`.
             printf("option name Ponder type check default false\n");
 #ifdef TRIUMV_OFFICIAL
             printf("option name UCI_EngineAbout type string default %s%s by %s\n", NAME, VERSION, AUTHOR);
 #else
             printf("option name UCI_EngineAbout type string default %s%s build %s by %s\n", NAME, VERSION, build_date(), AUTHOR);
 #endif
-            printf("option name Move Overhead type spin default 10 min 0 max 5000\n"); // ms riservati a lag/GUI per mossa
+            printf("option name Move Overhead type spin default 10 min 0 max 5000\n"); // ms reserved per move for lag/GUI
             printf("option name EvalFile type string default %s\n", nn_default_net_name());
-            // Gruppo Syzygy standard: le GUI ChessBase/Fritz riconoscono un motore con tablebase dal set completo.
+            // Standard Syzygy group: the ChessBase/Fritz GUIs recognise an engine with tablebases from the full set.
             printf("option name SyzygyPath type string default <empty>\n");
             printf("option name SyzygyProbeDepth type spin default 1 min 1 max 100\n");
             printf("option name Syzygy50MoveRule type check default true\n");
             printf("option name SyzygyProbeLimit type spin default 7 min 0 max 7\n");
 #ifndef TRIUMV_RELEASE
-            // --- Opzioni di sviluppo e di taratura (nascoste nella release) ---
+            // --- Development and tuning options (hidden in the release) ---
             printf("option name Depth type spin default 0 min 0 max 64\n");
             printf("option name DataLog type check default false\n");
             printf("option name DataFile type string default triumviratus_dataset.txt\n");
@@ -403,12 +403,12 @@ void uci_loop()
                 printf("option name %s type spin default %d min %d max %d\n",
                        nn_eval_const_name(i), nn_eval_const_get(i),
                        nn_eval_const_lo(i), nn_eval_const_hi(i));
-            print_search_options();   // parametri della ricerca (search/01_params.inc)
+            print_search_options();   // search parameters (search/01_params.inc)
 #elif defined(TRIUMV_TUNE_TIME)
             print_search_options();   // tuning build of the time management: only the tuned levers (01_params.inc)
 #endif
-            // (SyzygyPath spostata in cima alla lista, subito dopo EvalFile — vedi sopra:
-            //  evita il troncamento delle liste lunghe nelle GUI ChessBase/Fritz.)
+            // (SyzygyPath moved to the top of the list, right after EvalFile - see above:
+            //  it avoids the truncation of long lists in the ChessBase/Fritz GUIs.)
             printf("uciok\n");
             fflush(stdout);
         }
@@ -416,12 +416,12 @@ void uci_loop()
         // UCI command: "isready"
         else if (strncmp(input, "isready", 7) == 0)
         {
-            // AUDIT D (T3/S4): stesso mutex di info e bestmove del thread di ricerca (stdout non bufferizzato),
-            // altrimenti un isready durante la ricerca poteva produrre "bestmove readyok".
+            // AUDIT D (T3/S4): same mutex as info and bestmove of the search thread (stdout unbuffered),
+            // otherwise an isready during the search could produce "bestmove readyok".
             extern std::mutex output_mutex;
             std::lock_guard<std::mutex> out_lock(output_mutex);
-            // Rete condivisa (01/10/2026): lo stato si dice una volta, al primo isready (all'avvio da GUI il motore
-            // tace fino all'handshake). Nelle build senza TRIUMV_SHARED_NET la stringa e' vuota e non esce nulla.
+            // Shared network (01/10/2026): the state is told once, at the first isready (when started by a GUI the engine
+            // is silent until the handshake). In builds without TRIUMV_SHARED_NET the string is empty and nothing is printed.
             static bool net_mem_said = false;
             if (!net_mem_said && *nn_net_memory_status()) {
                 printf("info string NNUE weights: %s\n", nn_net_memory_status());
@@ -440,11 +440,11 @@ void uci_loop()
         }
 
 #ifdef TRIUMV_PROFILE
-        // "featdump <file>" -> scrive l'istogramma degli accessi per riga di
-        // threatWeights, che alimenta gen_feat_perm.py (permutazione per localita').
-        // ⚠️ I conteggi sono nello spazio degli indici CORRENTE: raccoglierli su un
-        // binario che ha gia' una permutazione non-identita' darebbe una tabella da
-        // COMPORRE con quella, non da usare al suo posto.
+        // "featdump <file>" -> writes the access histogram per row of
+        // threatWeights, which feeds gen_feat_perm.py (locality permutation).
+        // ⚠️ The counts are in the CURRENT index space: collecting them on a
+        // binary that already has a non-identity permutation would give a table to
+        // COMPOSE with that one, not to use in its place.
         else if (strncmp(input, "featdump ", 9) == 0)
         {
             const char* path = input + 9;
@@ -461,7 +461,7 @@ void uci_loop()
                         tot += prof_feat_hist[i];
                     }
                 fclose(f);
-                // Istogramma HalfKA nello stesso giro, su <path>.psq
+                // HalfKA histogram in the same pass, on <path>.psq
                 char p2[1024];
                 snprintf(p2, sizeof(p2), "%s.psq", path);
                 FILE* g = fopen(p2, "w");
@@ -472,8 +472,8 @@ void uci_loop()
                             fprintf(g, "%d %llu\n", i, (unsigned long long) prof_psq_hist[i]);
                     fclose(g);
                 }
-                // Co-occorrenza sparsa su <path>.cooc: solo le coppie sopra soglia,
-                // altrimenti il file sarebbe da gigabyte.
+                // Sparse co-occurrence on <path>.cooc: only the pairs above a threshold,
+                // otherwise the file would be gigabytes.
                 if (prof_cooc)
                 {
                     char p3[1024];
@@ -519,20 +519,20 @@ void uci_loop()
             printf("nnueverify %s\n", on ? "on" : "off");
             fflush(stdout);
         }
-        // (07/10/2026: tolto il comando `lazymirror`. Le dirty della rete le scrive la make, non c'e' piu' un
-        // recupero pigro da accendere o spegnere.)
+        // (07/10/2026: the `lazymirror` command removed. The network's dirty entries are written by the make, there is
+        // no lazy catch-up to turn on or off any more.)
 
-        // "bench [depth]" — suite fissa di 8 posizioni a profondita' fissa
-        // (default 13): node-count CANONICO (la node-identity in un comando) +
-        // NPS. Deterministico a Threads=1 (il default). Stato azzerato come
-        // ucinewgame prima di ogni posizione.
+        // "bench [depth]" - fixed suite of 8 positions at fixed depth
+        // (default 13): CANONICAL node count (node identity in one command) +
+        // NPS. Deterministic at Threads=1 (the default). State cleared as by
+        // ucinewgame before every position.
         else if (strncmp(input, "bench", 5) == 0)
         {
-            // "bench [depth] [file.epd]": il file sostituisce le 8 posizioni fisse, una
-            // FEN per riga (max 64). Senza file il comando e' IDENTICO a prima: la firma
-            // canary (bench liscio) non cambia. Serve al profilo PER POSIZIONE, perche'
-            // due motori distribuiscono i nodi fra le 8 posizioni in modo diverso e la
-            // media aggregata mescola finali a 2 colonne con mediogiochi a 12.
+            // "bench [depth] [file.epd]": the file replaces the 8 fixed positions, one
+            // FEN per line (max 64). Without a file the command is IDENTICAL to before: the canary
+            // signature (plain bench) does not change. It serves the PER-POSITION profile, because
+            // two engines distribute the nodes among the 8 positions differently and the
+            // aggregate average mixes 2-file endgames with 12-file middlegames.
             int  bdepth     = 0;
             char bfile[512] = {0};
             sscanf(input + 5, "%d %511s", &bdepth, bfile);
@@ -584,7 +584,7 @@ void uci_loop()
             for (int bi = 0; bi < bench_n; bi++) {
                 parse_fen((char*)bench_list[bi]);
                 clear_hash_table();
-                search_clear();   // ogni posizione del bench parte da statistiche pulite
+                search_clear();   // every bench position starts from clean statistics
                 reset_time_control();
 #ifdef TRIUMV_PROFILE
                 unsigned long long _w = prof_now();
@@ -611,11 +611,11 @@ void uci_loop()
               unsigned long long acc = prof_eval + prof_mg + prof_make + prof_tt + prof_score;
               printf("--- PROFILE (%% of search wall) ---\n");
               printf("  eval (NNUE fwd) : %5.1f%%\n", 100.0 * (double)prof_eval  / (double)pw);
-              // Sotto-bucket della ricerca: sono DENTRO "other" (i loro guard stanno in
-              // funzioni chiamate fuori dai cinque guard principali), quindi vanno letti
-              // come scomposizione di quel 26-28%, non sommati agli altri.
-              // Voci della ricerca riscritta (04/10/2026): ordinamento = solo l'ordinamento parziale; history =
-              // aggiornamento delle statistiche a fine nodo; gives-check = legalita' e scacco prima della mossa.
+              // Sub-buckets of the search: they are INSIDE "other" (their guards are in
+              // functions called outside the five main guards), so they must be read
+              // as a breakdown of that 26-28%, not added to the others.
+              // Entries of the rewritten search (04/10/2026): ordering = the partial ordering only; history =
+              // update of the statistics at the end of the node; gives-check = legality and check before the move.
               printf("    movepicker    : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_mp   / (double)pw);
               printf("    corr history  : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_corr / (double)pw);
               printf("    cont history  : %5.1f%%   (dentro 'other')\n", 100.0 * (double)prof_hist / (double)pw);
@@ -636,9 +636,9 @@ void uci_loop()
               printf("  tt probe+store  : %5.1f%%\n", 100.0 * (double)prof_tt    / (double)pw);
               printf("  move scoring    : %5.1f%%\n", 100.0 * (double)prof_score / (double)pw);
               printf("  other (search)  : %5.1f%%\n", 100.0 * (double)(pw - acc) / (double)pw);
-              // Scomposizione del forward NNUE. La domanda che blocca il lavoro sulla
-              // sparsita' di L1: `ft_optimize` fu archiviato con la condizione "se fc_0
-              // e' sotto il 5% del tempo, chiuso", e quella misura non fu mai fatta.
+              // Breakdown of the NNUE forward. The question that blocks the work on the
+              // sparsity of L1: `ft_optimize` was archived with the condition "if fc_0
+              // is below 5% of the time, closed", and that measurement was never made.
               unsigned long long nn = prof_ft + prof_fc0 + prof_layers;
               if (nn) {
                 printf("--- NNUE forward (%% del wall / %% del forward) ---\n");
@@ -649,10 +649,10 @@ void uci_loop()
                 printf("  altri layer     : %5.1f%% / %5.1f%%\n",
                        100.0 * (double)prof_layers / (double)pw, 100.0 * (double)prof_layers / (double)nn);
                 printf("  (fc_0 sotto il 5%% del wall => ft_optimize e' chiuso)\n");
-                // Il divario fra `eval` e il forward: minacce e pedoni in ritardo + resto del bridge.
-                // --- Concentrazione degli accessi alle righe di threatWeights ---
-                // Decide se la PERMUTAZIONE PER LOCALITA' ha senso. Una riga e' 1024 byte
-                // (int8 x OutputDimensions) => 4 righe per pagina da 4 KB.
+                // The gap between `eval` and the forward: late threats and pawns + rest of the bridge.
+                // --- Concentration of the accesses to the rows of threatWeights ---
+                // Decides whether the LOCALITY PERMUTATION makes sense. A row is 1024 bytes
+                // (int8 x OutputDimensions) => 4 rows per 4 KB page.
                 {
                     static unsigned long long h[PROF_FEAT_N];
                     unsigned long long tot = 0;
@@ -676,15 +676,15 @@ void uci_loop()
                             printf("    top %4.0f%% delle righe (%5d) = %5.1f%% degli accessi\n",
                                    f * 100, k, 100.0 * (double)c / (double)tot);
                         }
-                        // Quante righe coprono il 90% degli accessi, e quanto spazio
-                        // occuperebbero se fossero CONTIGUE (oggi sono sparse su 63 MB).
+                        // How many rows cover 90% of the accesses, and how much space
+                        // they would take if they were CONTIGUOUS (today they are spread over 63 MB).
                         unsigned long long acc = 0;
                         int k90 = 0;
                         while (k90 < PROF_FEAT_N && acc < tot * 9 / 10) acc += h[k90++];
                         printf("  il 90%% degli accessi sta in %d righe = %.1f MB se contigue\n",
                                k90, k90 * 1024.0 / (1024 * 1024));
-                        // Stessa analisi per le righe HalfKA (2048 byte l'una, 46 MB):
-                        // il blocco piu' grosso del transformer, mai guardato.
+                        // Same analysis for the HalfKA rows (2048 bytes each, 46 MB):
+                        // the biggest block of the transformer, never looked at.
                         {
                             static unsigned long long q[PROF_PSQ_N];
                             unsigned long long qt = 0;
@@ -707,10 +707,10 @@ void uci_loop()
                                        k2, k2 * 2048.0 / (1024 * 1024));
                             }
                         }
-                        // Il calore e' concentrato in POCHE ZONE CONTIGUE o sparso?
-                        // Se e' a zone, la permutazione si fa riassegnando le tabelle
-                        // costanti di make_index => ZERO costo a runtime, niente LUT.
-                        // Granularita' di prova: blocchi da 256 righe (256 KB, 64 pagine).
+                        // Is the heat concentrated in FEW CONTIGUOUS ZONES or spread out?
+                        // If it is in zones, the permutation is done by reassigning the constant
+                        // tables of make_index => ZERO runtime cost, no LUT.
+                        // Trial granularity: blocks of 256 rows (256 KB, 64 pages).
                         {
                             const int BLK = 256, NB = PROF_FEAT_N / BLK + 1;
                             static unsigned long long b[512];
@@ -737,7 +737,7 @@ void uci_loop()
                        100.0 * (double)prof_catchup / (double)pw);
                 printf("  bridge/cache/scal: %5.1f%% del wall  (eval - forward - catch-up)\n",
                        100.0 * (double)(prof_eval - nn - prof_catchup) / (double)pw);
-                // Dentro il FT: dove va davvero il tempo.
+                // Inside the FT: where the time really goes.
                 unsigned long long ftsum = prof_acc_inc + prof_acc_refresh + prof_ft_out;
                 if (ftsum) {
                   printf("--- dentro il feature transformer ---\n");
@@ -775,15 +775,15 @@ void uci_loop()
                          (unsigned long long)prof_max_active, (unsigned long long)prof_max_inc,
                          (prof_max_active >= 260 || prof_max_inc >= 260) ? "<<< VICINO AL BOUND" : "");
                   if (prof_n_eval) {
-                      // 🔴 prof_n_inc conta UNA VOLTA PER PROSPETTIVA: evaluate() chiama
-                      // evaluate_side(WHITE) e evaluate_side(BLACK), ognuna incrementa di 1
-                      // (il ramo TRIUMV_PERSP_TOGETHER, tolto il 25/09, faceva +=2). Quindi il
-                      // massimo SANO e' 2,00 per eval = uno per prospettiva, non 1,00.
-                      // La soglia di allarme era a 1,2 e si accendeva su qualunque motore
-                      // sano: il 4/08/2026 stampava "update SPRECATI" con 1,83, che invece
-                      // vuol dire che il 91,5% degli slot prospettiva-eval e' andato per la
-                      // via incrementale e il resto per il refresh. Secondo falso allarme di
-                      // questo stesso contatore (il primo: prof_n_eval incrementato due volte).
+                      // 🔴 prof_n_inc counts ONCE PER PERSPECTIVE: evaluate() calls
+                      // evaluate_side(WHITE) and evaluate_side(BLACK), each adds 1
+                      // (the TRIUMV_PERSP_TOGETHER branch, removed on 25/09, did +=2). So the
+                      // SANE maximum is 2.00 per eval = one per perspective, not 1.00.
+                      // The alarm threshold was at 1.2 and lit up on any sane
+                      // engine: on 4/08/2026 it printed "update WASTED" with 1.83, which instead
+                      // means that 91.5% of the perspective-eval slots went the
+                      // incremental way and the rest the refresh. Second false alarm of
+                      // this same counter (the first: prof_n_eval incremented twice).
                       printf("  UPDATE vs EVAL   : %llu update incrementali, %llu valutazioni  "
                              "=> %.2f update per eval (max sano 2,00 = uno per prospettiva)  %s\n",
                              (unsigned long long) prof_n_inc, (unsigned long long) prof_n_eval,
@@ -807,8 +807,8 @@ void uci_loop()
             parse_fen(start_position);
         }
 
-        // (Comandi dei blocchi da innesto exportprel, exportpst, exportgraft e pstidx: tolti il 10/10/2026 con i
-        // blocchi; codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10.)
+        // (Commands of the graft blocks exportprel, exportpst, exportgraft and pstidx: removed on 10/10/2026 with the
+        // blocks; code in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10.)
 
         // DIAGNOSTIC: "eval" -> static NNUE eval of the current position (cp,
         // side-to-move relative), no search => byte-identical for cross-checks.
@@ -842,14 +842,14 @@ void uci_loop()
         {
             const int e = debug_eval_position();
             printf("eval %d\n", e);
-            // Riga richiesta dagli strumenti standard (nnue-pytorch
-            // cross_check_eval.py cerca esattamente questa forma). "internal units" e'
-            // letterale: questo valore NON passa per la normalizzazione NORM_CP=392
-            // applicata al `score cp` della search-info (print_search_info, search/13_iterdeep.inc), quindi e'
-            // direttamente confrontabile con l'uscita del trainer. (27/07/2026)
-            // 🔴 GREZZO, non `e`: `e` passa per nn_scale (blend psqt/positional, complessita',
-            // materiale, rule50), che il trainer NON ha. Confrontare `e` col trainer paragona
-            // due grandezze diverse — misurato R^2 0.73 anche su una coppia nota-buona.
+            // Line required by the standard tools (nnue-pytorch
+            // cross_check_eval.py looks for exactly this form). "internal units" is
+            // literal: this value does NOT go through the NORM_CP=392 normalisation
+            // applied to the `score cp` of the search info (print_search_info, search/13_iterdeep.inc), so it is
+            // directly comparable with the trainer's output. (27/07/2026)
+            // 🔴 RAW, not `e`: `e` goes through nn_scale (psqt/positional blend, complexity,
+            // material, rule50), which the trainer does NOT have. Comparing `e` with the trainer compares
+            // two different quantities - measured R^2 0.73 even on a known-good pair.
             printf("NNUE evaluation  %d (side to move, internal units)\n",
                    debug_eval_position_raw());
             fflush(stdout);
@@ -858,13 +858,13 @@ void uci_loop()
        // UCI command: "ucinewgame"
         else if (strncmp(input, "ucinewgame", 10) == 0)
         {
-            // Assicura che nessun thread stia cercando, poi resetta
+            // Makes sure no thread is searching, then resets
             stop_search_threads();
             wait_for_search_done();
             parse_fen(start_position);
             clear_hash_table();
-            search_clear();   // statistiche, correzioni e memoria della gestione del tempo: nuova partita
-            { extern std::atomic<int> g_optimism[2]; g_optimism[0] = g_optimism[1] = 0; }  // BUG FIX 2026-07-16: contempt dinamico non deve perdurare tra partite
+            search_clear();   // statistics, corrections and time-management memory: new game
+            { extern std::atomic<int> g_optimism[2]; g_optimism[0] = g_optimism[1] = 0; }  // BUG FIX 2026-07-16: dynamic contempt must not persist between games
         }
 
         // UCI command: "position"
@@ -894,7 +894,7 @@ void uci_loop()
             stopped = 1;
         }
 
-        // UCI command: "ponderhit" (01/10/2026): la mossa prevista e' stata giocata, il ponder diventa ricerca normale.
+        // UCI command: "ponderhit" (01/10/2026): the expected move was played, the ponder becomes a normal search.
         else if (strcmp(input, "ponderhit") == 0)
         {
             ponder_hit();
@@ -906,14 +906,14 @@ void uci_loop()
             stop_search_threads();
             wait_for_search_done();   // joins the master search (which joins helpers)
 #ifdef CLANG_PGO_GEN
-            __llvm_profile_write_file();   // scrive il profilo (atexit LLVM non scatta sul ns exit)
+            __llvm_profile_write_file();   // writes the profile (LLVM's atexit does not fire on our exit)
 #endif
             break;
         }
 
-        // UCI button: "setoption name Clear Hash" (nessun value) -> svuota la TT.
-        // Ferma i thread prima (come Hash/EvalFile): azzerare sotto una ricerca la
-        // corromperebbe. Prefisso distinto da "...name Hash value" -> nessuna collisione.
+        // UCI button: "setoption name Clear Hash" (no value) -> clears the TT.
+        // Stops the threads first (like Hash/EvalFile): clearing under a search would
+        // corrupt it. Prefix distinct from "...name Hash value" -> no collision.
         else if (strncmp(input, "setoption name Clear Hash", 25) == 0)
         {
             stop_search_threads();
@@ -930,9 +930,9 @@ void uci_loop()
             int newMb = atoi(input + 26);
             if (newMb < 1) newMb = 1;
             if (newMb > max_hash) newMb = max_hash;
-            // 08/10/2026: stessa dimensione = nessuna riallocazione. fastchess rimanda Hash dopo OGNI ucinewgame: la
-            // TT veniva liberata e riallocata a ogni partita, e su un nodo con la memoria frammentata le large pages
-            // potevano mancare (ripiego su pagine normali a caso, motore per motore). La pulizia della TT resta a
+            // 08/10/2026: same size = no reallocation. fastchess resends Hash after EVERY ucinewgame: the
+            // TT was freed and reallocated at every game, and on a node with fragmented memory the large pages
+            // could be missing (fallback to normal pages at random, engine by engine). The TT clearing stays at
             // ucinewgame.
             if (newMb != mb || !hash_table) {
                 mb = newMb;
@@ -940,8 +940,8 @@ void uci_loop()
             }
         }
 
-        // UCI command: "setoption name LargePages value 0|1" — ri-alloca subito
-        // la TT con l'allocatore scelto (serve per l'A/B NPS sullo stesso binario).
+        // UCI command: "setoption name LargePages value 0|1" - reallocates the TT
+        // at once with the chosen allocator (serves the NPS A/B on the same binary).
         else if (strncmp(input, "setoption name LargePages value ", 32) == 0)
         {
             stop_search_threads();
@@ -965,12 +965,12 @@ void uci_loop()
             char* e = val + strlen(val);              // trim stray CR/space/newline
             while (e > val && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\n')) *--e = '\0';
             std::string resolved = resolve_net_path(val);
-            // 08/10/2026: la stessa rete gia' caricata non si ricarica. fastchess rimanda EvalFile dopo OGNI
-            // ucinewgame: il lato con la rete esterna la ricaricava a ogni partita (~0,6 s, 245 MB di large pages
-            // allocati e liberati, area condivisa staccata e riattaccata), l'altro lato mai. Nell'SPRT ft2avg del
-            // 08/10 (6+0.06) quel lato sul socket 1 cercava 0,22 ply meno dell'altro (sul socket 0 0,02) e il
-            // socket 1 ha dato -20,8 Elo contro -0,1 del socket 0 con la stessa rete. Un file cambiato sotto lo
-            // stesso percorso richiede un percorso diverso o un riavvio.
+            // 08/10/2026: the same network already loaded is not reloaded. fastchess resends EvalFile after EVERY
+            // ucinewgame: the side with the external network reloaded it at every game (~0.6 s, 245 MB of large pages
+            // allocated and freed, shared area detached and reattached), the other side never. In the SPRT ft2avg of
+            // 08/10 (6+0.06) that side on socket 1 searched 0.22 ply less than the other (on socket 0 0.02) and
+            // socket 1 gave -20.8 Elo against -0.1 for socket 0 with the same network. A file changed under the
+            // same path needs a different path or a restart.
             static std::string s_loaded_net;
             if (!resolved.empty() && resolved == s_loaded_net)
                 printf("info string EvalFile: %s already loaded\n", resolved.c_str());
@@ -1004,13 +1004,13 @@ void uci_loop()
             fflush(stdout);
         }
 
-        // EvalScaleB0..B7 (15/08/2026): la stessa ricalibrazione, ma PER BUCKET di output
-        // della rete (bucket = (pezzi - 1) / 4, come network.cpp:170). Default tutti 60 =
-        // byte-identico al vecchio scalare unico.
-        // ⚠️ Va DOPO il ramo di EvalScale: "EvalScale" e' prefisso di "EvalScaleB0", quindi
-        //    con l'ordine invertito lo strncmp a 31 caratteri non li distinguerebbe... in
-        //    realta' non collide (il 31-esimo carattere e' 'v' contro 'B'), ma l'ordine
-        //    esplicito toglie il dubbio a chi legge.
+        // EvalScaleB0..B7 (15/08/2026): the same recalibration, but PER output BUCKET
+        // of the network (bucket = (pieces - 1) / 4, as network.cpp:170). Default all 60 =
+        // byte-identical to the old single scalar.
+        // ⚠️ It goes AFTER the EvalScale branch: "EvalScale" is a prefix of "EvalScaleB0", so
+        //    with the order reversed the strncmp at 31 characters would not tell them apart... in
+        //    fact they do not collide (the 31st character is 'v' against 'B'), but the explicit
+        //    order removes the doubt for the reader.
         else if (strncmp(input, "setoption name EvalScaleB", 25) == 0
                  && input[25] >= '0' && input[25] <= '7'
                  && strncmp(input + 26, " value ", 7) == 0)
@@ -1019,9 +1019,9 @@ void uci_loop()
             fflush(stdout);
         }
 
-        // Costanti del blend (EvalPsqtW, EvalPosW, EvalComplexDiv, ...): un solo ramo,
-        // i nomi stanno nella tabella di consilium_bridge.cpp. Va PRIMA del generic handler,
-        // altrimenti verrebbero ingoiate da quello senza avere effetto.
+        // Blend constants (EvalPsqtW, EvalPosW, EvalComplexDiv, ...): a single branch,
+        // the names are in the table of consilium_bridge.cpp. It goes BEFORE the generic handler,
+        // otherwise they would be swallowed by it without effect.
         else if (strncmp(input, "setoption name Eval", 19) == 0 && strstr(input, " value ")
                  && [&] {
                         char nm[64] = {0};
@@ -1079,15 +1079,15 @@ void uci_loop()
             set_data_log_file(path);
         }
 
-        // Chess960 (27/09/2026, chess960.h): gioca gli arrocchi 960, verificato con la suite perft ufficiale
-        // (tools/perft960.py, perft globale e tdperft). In release dal 27/09 sera: misura NPS PGO release
-        // pre/post 960 = +0,57% [+0,53, +0,62] (nessun costo), test nullo +0,00%.
+        // Chess960 (27/09/2026, chess960.h): plays 960 castling, verified with the official perft suite
+        // (tools/perft960.py, global perft and tdperft). In release since the evening of 27/09: NPS measurement PGO release
+        // pre/post 960 = +0.57% [+0.53, +0.62] (no cost), null test +0.00%.
         else if (strncmp(input, "setoption name UCI_Chess960 value ", 34) == 0)
         {
             const char* v = input + 34;
             g_chess960 = strncmp(v, "true", 4) == 0 || v[0] == '1';
         }
-        // "Move Overhead" (ms riservati per mossa a lag/GUI; prima hardcoded 50)
+        // "Move Overhead" (ms reserved per move for lag/GUI; formerly hard-coded 50)
         else if (strncmp(input, "setoption name Move Overhead value ", 35) == 0)
         {
             int v = atoi(input + 35);
@@ -1140,9 +1140,9 @@ void uci_loop()
                 {
                     memcpy(nm, p, nlen);
                     nm[nlen] = '\0';
-                    // FIX F-001 (2026-07-02): le GUI mandano i check come "true"/"false"
-                    // (atoi -> 0 per ENTRAMBI: un default-ON veniva spento in silenzio).
-                    // Parse esplicito prima dell'atoi (identico al fix gia' validato su 6.0).
+                    // FIX F-001 (2026-07-02): GUIs send checks as "true"/"false"
+                    // (atoi -> 0 for BOTH: a default-ON was silently turned off).
+                    // Explicit parse before the atoi (identical to the fix already validated on 6.0).
                     const char* vs = vp + 7;
                     int v;
                     if      (strncmp(vs, "true",  4) == 0 || strncmp(vs, "on",  2) == 0) v = 1;
@@ -1156,15 +1156,15 @@ void uci_loop()
         // DIAGNOSTIC: "perft N" - movegen + make/unmake speed on the current
         // position (no eval, no NNUE). Prints Nodes + Time(ms).
 #ifndef TRIUMV_FROZEN
-        // DIAGNOSTIC: "tdperft N" - perft sulla scacchiera per thread con verifica di chiavi, mailbox,
-        // occupazioni e pseudo-legalita' a ogni nodo (search/15_tdperft.inc). Solo build di sviluppo.
+        // DIAGNOSTIC: "tdperft N" - perft on the per-thread board with a check of keys, mailbox,
+        // occupancies and pseudo-legality at every node (search/15_tdperft.inc). Development builds only.
         else if (strncmp(input, "tdperft ", 8) == 0)
         {
             extern void td_perft_driver(int depth);
             td_perft_driver(atoi(input + 8));
         }
-        // DIAGNOSTIC: "nnperft N" - perft che valuta con la rete e confronta catena incrementale e refresh completo
-        // (search/16_tdperft.inc). Solo build di sviluppo.
+        // DIAGNOSTIC: "nnperft N" - perft that evaluates with the network and compares the incremental chain with a full
+        // refresh (search/16_tdperft.inc). Development builds only.
         // DIAGNOSTIC: "nnspeed N <fen file>" - the same tree without the checks, from every FEN of the file: time per
         // evaluation on work that does not depend on the network (21/10/2026, cost of Consilium-2).
         else if (strncmp(input, "nnspeed ", 8) == 0)

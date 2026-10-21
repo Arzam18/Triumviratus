@@ -182,14 +182,23 @@ static ThreadData *pick_thread() {
   if (num_threads == 1)
     return best;
   const int nt = (int)thread_data.size();
+  // SmpRouteShift with SmpRouteVote 0: the odd helpers searched with shifted experts; they neither vote nor can be
+  // chosen (always true without TRIUMV_C2 or with the shift off, so the choice is the one of before).
+#ifdef TRIUMV_C2
+  auto voter = [](int i) { return !(SmpRouteShift && !SmpRouteVote && (i & 1)); };
+#else
+  auto voter = [](int) { return true; };
+#endif
   int floor_score = infinity;
-  for (auto &t : thread_data)
-    floor_score = std::min(floor_score, t.root[0].score);
+  for (int i = 0; i < nt; i++)
+    if (voter(i))
+      floor_score = std::min(floor_score, thread_data[i].root[0].score);
   std::vector<long long> share(nt), support(nt, 0);
   for (int i = 0; i < nt; i++) {
     const ThreadData &t = thread_data[i];
-    share[i] = (long long)(t.root[0].score - floor_score + SmpVoteBase) * SmpVoteScore / 1024 +
-               (long long)SmpVoteDepth * t.completed_depth;
+    share[i] = voter(i) ? (long long)(t.root[0].score - floor_score + SmpVoteBase) * SmpVoteScore / 1024 +
+                              (long long)SmpVoteDepth * t.completed_depth
+                        : 0;
   }
   for (int i = 0; i < nt; i++)
     for (int j = 0; j < nt; j++)
@@ -197,6 +206,8 @@ static ThreadData *pick_thread() {
         support[i] += share[j];
   int bi = 0;
   for (int i = 0; i < nt; i++) {
+    if (!voter(i))
+      continue;
     const RootLine &b = thread_data[bi].root[0], &c = thread_data[i].root[0];
     const bool b_dec = b.score != -infinity && val_decided(b.score) && !b.lower && !b.upper;
     const bool c_dec = c.score != -infinity && val_decided(c.score) && !c.lower && !c.upper;
@@ -291,6 +302,8 @@ void search_position_mt(int depth) {
   }
 #ifdef TRIUMV_C2
   c2_eval_push();   // C2 evaluation terms (agent B, 21/10/2026; 13_search.inc): all 0 = evaluation unchanged
+  if (SmpRouteShift)   // SmpRouteShift: the shifted routing table, before the helpers start (deepen chooses it)
+    nn_router_alt_build(SmpRouteShift);
 #endif
   // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;

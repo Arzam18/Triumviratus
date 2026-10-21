@@ -74,17 +74,17 @@ static inline int get_lva(U64 bb[12], U64 occ[3], int square, int side, int* fro
     return -1;
 }
 
-// SeeFix (UCI "SeeFix", default ON) — ablazione del FIX P0.2: quando OFF, le mosse
-// quiet tornano a SEE=0 (come 3.7: quiet-SEE-pruning e filtro CheckOrdering inerti)
-// e l'en-passant torna a rimuovere il pedone dalla casa sbagliata. Definita in threads.cpp.
+// SeeFix (UCI "SeeFix", default ON) - ablation of FIX P0.2: when OFF, the quiet
+// moves go back to SEE=0 (as in 3.7: quiet SEE pruning and the CheckOrdering filter inert)
+// and en passant goes back to removing the pawn from the wrong square. Defined in threads.cpp.
 #ifdef TRIUMV_RELEASE
-// Release (06/10/2026): costanti (default di 01_params.inc; SeePinned verificata con static_assert).
+// Release (06/10/2026): constants (defaults of 01_params.inc; SeePinned checked with static_assert).
 constexpr bool g_see_fix = true;
 constexpr int  g_see_pinned = 1;
 static constexpr const int* g_see_val = see_piece_values;   // SeeVal* (agent SEE, 21/10/2026; static_assert there)
 #else
 extern bool g_see_fix;
-extern int  g_see_pinned;      // SeePinned (copia del parametro della ricerca, 01_params.inc)
+extern int  g_see_pinned;      // SeePinned (copy of the search parameter, 01_params.inc)
 #endif
 
 // --- C2 piece values (agent SEE) ---
@@ -181,23 +181,23 @@ int td_see(ThreadData& td, int move) {
         }
     }
     
-    // En passant: il pedone catturato NON sta su `to` ma su to±8.
+    // En passant: the captured pawn is NOT on `to` but on to±8.
     int captured_sq = to;
     if (get_move_enpassant(move)) {
         captured = (td.side == white) ? p : P;
         if (g_see_fix)
-            captured_sq = (td.side == white) ? to + 8 : to - 8;   // FIX P0.2b: era rimosso da `to`
+            captured_sq = (td.side == white) ? to + 8 : to - 8;   // FIX P0.2b: it was removed from `to`
     }
 
-    // Ablazione P0.2 (SeeFix off): comportamento 3.7 = SEE 0 per le quiet.
+    // Ablation P0.2 (SeeFix off): 3.7 behaviour = SEE 0 for quiet moves.
     if (captured == -1 && !g_see_fix) return 0;
 
-    // FIX P0.2 (2026-06-09): SEE anche per le mosse QUIET (prima: return 0).
-    // Per una quiet lo scambio inizia con la cattura avversaria meno cara su `to`
-    // (gain[0] = 0). Con il vecchio "return 0": (a) il SEE-pruning dei quiet
-    // (threads.cpp, SEEQuietMargin) non scattava MAI; (b) il filtro SEE>=-75 del
-    // CheckOrdering era un no-op. NB: le promozioni restano fuori scope (il
-    // chiamante le esclude gia' dal SEE-pruning).
+    // FIX P0.2 (2026-06-09): SEE for QUIET moves too (before: return 0).
+    // For a quiet move the exchange starts with the opponent's cheapest capture on `to`
+    // (gain[0] = 0). With the old "return 0": (a) the quiet SEE pruning
+    // (threads.cpp, SEEQuietMargin) NEVER fired; (b) the SEE>=-75 filter of
+    // CheckOrdering was a no-op. NB: promotions stay out of scope (the
+    // caller already excludes them from the SEE pruning).
 
     // Local copy for simulation
     U64 bb[12], occ[3];
@@ -208,7 +208,7 @@ int td_see(ThreadData& td, int move) {
     int depth = 0;
     int current_side = td.side;
 
-    // Initial gain (0 per le quiet: nessun pezzo incassato dalla mossa stessa)
+    // Initial gain (0 for quiet moves: no piece collected by the move itself)
     gain[0] = (captured != -1) ? val[captured] : 0;
 
     // Remove attacker from source
@@ -220,7 +220,7 @@ int td_see(ThreadData& td, int move) {
     if (captured != -1) {
         pop_bit(bb[captured], captured_sq);
         pop_bit(occ[current_side ^ 1], captured_sq);
-        if (captured_sq != to)                     // e.p.: libera anche occ[both]
+        if (captured_sq != to)                     // e.p.: frees occ[both] too
             pop_bit(occ[both], captured_sq);
     }
 
@@ -243,10 +243,10 @@ int td_see(ThreadData& td, int move) {
         
         gain[depth] = attacker_value - gain[depth - 1];
         
-        // Stand-pat pruning (swap-SEE classico: max(-gain[d-1], gain[d]) < 0).
-        // BUG FIX 2026-07-16: la seconda clausola era `gain[d-1] < 0`, insoddisfacibile
-        // (se gain[d-1]<0 allora gain[d]=val-gain[d-1]>0) -> break MORTO, prune mai attivo.
-        // Corretto = `gain[d-1] > 0`. Value-preserving (stessa SEE, solo esce prima) -> bench invariato.
+        // Stand-pat pruning (classic swap SEE: max(-gain[d-1], gain[d]) < 0).
+        // BUG FIX 2026-07-16: the second clause was `gain[d-1] < 0`, unsatisfiable
+        // (if gain[d-1]<0 then gain[d]=val-gain[d-1]>0) -> DEAD break, prune never active.
+        // Correct = `gain[d-1] > 0`. Value-preserving (same SEE, it only exits earlier) -> bench unchanged.
         if (gain[depth] < 0 && gain[depth - 1] > 0) break;
         
         attacker_value = val[attacker];
@@ -399,11 +399,11 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
     int to    = get_move_target(move);
     int piece = get_move_piece(move);
 
-    // Vittima su 'to': una lettura della scacchiera a caselle (04/10/2026) invece dello scan delle sei bitboard
-    // avversarie con un salto ciascuna. Per una mossa pseudo-legale 'to' e' vuota (-1) o ha un pezzo avversario.
+    // Victim on 'to': one read of the mailbox board (04/10/2026) instead of scanning the six enemy bitboards
+    // with a branch each. For a pseudo-legal move 'to' is empty (-1) or holds an enemy piece.
     int captured = td.piece_on[to];
 
-    U64 occupied = td.occupancies[both] ^ (1ULL << from);   // il mover lascia l'origine
+    U64 occupied = td.occupancies[both] ^ (1ULL << from);   // the mover leaves the origin
     if (get_move_enpassant(move)) {
         captured = (td.side == white) ? p : P;
         occupied ^= (td.side == white) ? (1ULL << (to + 8)) : (1ULL << (to - 8));
@@ -419,18 +419,18 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
         piece = promoted;
     }
 
-    // Bilancio se lo scambio si ferma subito dopo la nostra mossa.
+    // Balance if the exchange stops right after our move.
     int swap = ((captured != -1) ? val[captured] : 0) + promo_gain - threshold;
-    if (swap < 0) return 0;      // nemmeno incassando la vittima si arriva alla soglia
-    // L'avversario ricattura il nostro pezzo: se restiamo comunque sopra, deciso.
+    if (swap < 0) return 0;      // not even collecting the victim reaches the threshold
+    // The opponent recaptures our piece: if we stay above anyway, decided.
     swap = val[piece] - swap;
     if (swap <= 0) return 1;
 
-    // Attaccanti di 'to' di ENTRAMBI i lati. I bb[] restano interi (nessuna copia):
-    // si maschera con `occupied` a ogni giro, i pezzi "pelati" spariscono da soli.
+    // Attackers of 'to' of BOTH sides. The bb[] stay whole (no copy):
+    // they are masked with `occupied` at every round, the "peeled" pieces disappear by themselves.
     const U64 diag_sliders = td.bitboards[B] | td.bitboards[b] | td.bitboards[Q] | td.bitboards[q];
     const U64 orth_sliders = td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q];
-    // AA1 (10/10/2026): alfiere e torre da un solo calcolo (magic.h, get_slider_pair), qui e negli x-ray di W2.
+    // AA1 (10/10/2026): bishop and rook from a single computation (magic.h, get_slider_pair), here and in the x-rays of W2.
     const SliderPair sp0 = get_slider_pair(to, occupied);
     U64 attackers =
           (pawn_attacks[black][to] & td.bitboards[P])
@@ -441,16 +441,16 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
         | (pair_rook(sp0)   & orth_sliders);
 
     int stm = td.side;
-    int res = 1;                 // 1 = "la soglia regge" per il lato che ha mosso
+    int res = 1;                 // 1 = "the threshold holds" for the side that moved
 
     while (true) {
         stm ^= 1;
         attackers &= occupied;
-        U64 stm_att = attackers & td.occupancies[stm];   // attackers e' gia' <= occupied
-        if (!stm_att) break;                             // niente attaccanti: res corrente decide
-        // SeePinned (05/10/2026, audit del nucleo; regola di SF): finche' un inchiodatore avversario e' ancora sulla
-        // scacchiera (e non e' il pezzo appena catturato su `to`), i nostri pezzi inchiodati non ricatturano.
-        // Inchiodati e inchiodatori li calcola see_holds (11_queue.inc) una volta per posizione.
+        U64 stm_att = attackers & td.occupancies[stm];   // attackers is already <= occupied
+        if (!stm_att) break;                             // no attackers: the current res decides
+        // SeePinned (05/10/2026, core audit; SF's rule): while an enemy pinner is still on the
+        // board (and is not the piece just captured on `to`), our pinned pieces do not recapture.
+        // Pinned pieces and pinners are computed by see_holds (11_queue.inc) once per position.
         if (g_see_pinned && (td.see_pinners[stm ^ 1] & occupied & ~(1ULL << to))) {
             stm_att &= ~td.see_pinned[stm];
             if (!stm_att) break;
@@ -459,7 +459,7 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
 
         const int base = (stm == white) ? P : p;
         if constexpr (!Chain) {
-            // diagonali dopo pedone, alfiere, donna (tipi 0, 2, 4); ortogonali dopo torre e donna (3, 4)
+            // diagonals after pawn, bishop, queen (types 0, 2, 4); orthogonals after rook and queen (3, 4)
             static constexpr U64 diag_mask[5] = {~0ULL, 0, ~0ULL, 0, ~0ULL};
             static constexpr U64 orth_mask[5] = {0, 0, 0, ~0ULL, ~0ULL};
             const unsigned kinds = unsigned((stm_att & td.bitboards[base + 0]) != 0)
@@ -469,7 +469,7 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
                                  | unsigned((stm_att & td.bitboards[base + 4]) != 0) << 4
                                  | 32u;
             const int t = __builtin_ctz(kinds);
-            if (t == 5)                                         // re: cattura legale solo se INDIFESO
+            if (t == 5)                                         // king: capture legal only if UNDEFENDED
                 return ((attackers & occupied) & td.occupancies[stm ^ 1]) ? (res ^ 1) : res;
             if ((swap = val[base + t] - swap) < res) break;
             const U64 bb = stm_att & td.bitboards[base + t];
@@ -486,32 +486,32 @@ static int see_ge_prev(ThreadData& td, int move, int threshold) {
         }
 
         U64 bb;
-        if ((bb = stm_att & td.bitboards[base + 0])) {          // pedone
+        if ((bb = stm_att & td.bitboards[base + 0])) {          // pawn
             if ((swap = val[base + 0] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
             attackers |= get_bishop_attacks(to, occupied) & diag_sliders;  // x-ray diagonale
         }
-        else if ((bb = stm_att & td.bitboards[base + 1])) {     // cavallo
+        else if ((bb = stm_att & td.bitboards[base + 1])) {     // knight
             if ((swap = val[base + 1] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
         }
-        else if ((bb = stm_att & td.bitboards[base + 2])) {     // alfiere
+        else if ((bb = stm_att & td.bitboards[base + 2])) {     // bishop
             if ((swap = val[base + 2] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
             attackers |= get_bishop_attacks(to, occupied) & diag_sliders;
         }
-        else if ((bb = stm_att & td.bitboards[base + 3])) {     // torre
+        else if ((bb = stm_att & td.bitboards[base + 3])) {     // rook
             if ((swap = val[base + 3] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
             attackers |= get_rook_attacks(to, occupied) & orth_sliders;    // x-ray ortogonale
         }
-        else if ((bb = stm_att & td.bitboards[base + 4])) {     // donna
+        else if ((bb = stm_att & td.bitboards[base + 4])) {     // queen
             if ((swap = val[base + 4] - swap) < res) break;
             occupied ^= (bb & (0 - bb));
             attackers |= (get_bishop_attacks(to, occupied) & diag_sliders)
                        | (get_rook_attacks(to, occupied)   & orth_sliders);
         }
-        else {                                                  // re: cattura legale solo se INDIFESO
+        else {                                                  // king: capture legal only if UNDEFENDED
             return ((attackers & occupied) & td.occupancies[stm ^ 1]) ? (res ^ 1) : res;
         }
     }

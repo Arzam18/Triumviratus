@@ -5,17 +5,17 @@
 #include "defs.h"
 #include "movegen.h"
 
-// FIX Linux/GCC (2026-07-12): <cmath> DEVE essere incluso PRIMA della macro
-// `infinity` sotto. Su libstdc++ (Debian/Ubuntu g++), <cmath> include a
-// cascata i template TR1 (bessel/ellittiche/zeta) che usano testualmente
-// `std::numeric_limits<_Tp>::infinity()` — il preprocessore sostituisce
-// alla cieca QUALSIASI occorrenza del token "infinity", anche dentro gli
-// header di sistema, corrompendo quelle chiamate se <cmath> viene
-// (ri-)incluso DOPO la nostra macro. Pre-includerlo qui sfrutta gli
-// include-guard di <cmath>: le inclusioni successive (es. threads.cpp)
-// diventano no-op e non rivedono mai piu' il token grezzo. MSVC non ha
-// questo problema (niente header TR1 libstdc++), quindi la build Windows
-// non lo mostra — ma il fix e' innocuo e a costo zero anche li'.
+// FIX Linux/GCC (2026-07-12): <cmath> MUST be included BEFORE the macro
+// `infinity` below. On libstdc++ (Debian/Ubuntu g++), <cmath> includes in
+// cascade the TR1 templates (bessel/elliptic/zeta) that use literally
+// `std::numeric_limits<_Tp>::infinity()` - the preprocessor blindly replaces
+// ANY occurrence of the token "infinity", even inside the
+// system headers, corrupting those calls if <cmath> is
+// (re-)included AFTER our macro. Pre-including it here exploits the
+// include guards of <cmath>: the later inclusions (e.g. threads.cpp)
+// become no-ops and never see the raw token again. MSVC does not have
+// this problem (no libstdc++ TR1 headers), so the Windows build
+// does not show it - but the fix is harmless and free there too.
 #include <cmath>
 
 // Score bounds for mating scores.
@@ -30,19 +30,19 @@
 #define mate_score 30000
 
 // max ply that we can reach within a search.
-// 🔴 2026-09-07: era 64. Oltre questo ply td_negamax (:7569) e td_quiescence
-// (:6489) NON cercano piu': restituiscono la eval statica, in silenzio. A 10s e
-// 1 thread la seldepth resta sotto i 30, ma le misure SMP del 07/09 (10 s, 16-40
-// thread) hanno toccato **seldepth 42-54**, e a TC lungo con molti thread il
-// tetto si raggiunge davvero — proprio nelle linee forzate, dove fermarsi costa
-// di piu'. Stockfish usa MAX_PLY = 246.
-// Costo: gli array ply-indicizzati di ThreadData sono [max_ply + 8]; il solo
-// quadratico e' pv_table, 20 KB -> 72 KB. Su una ThreadData da 21,25 MB e' lo
-// 0,24%. Le costanti derivate (TB_VALUE_WIN in syzygy.cpp, le bande corr_max in
-// threads.cpp) sono scritte in funzione di max_ply e restano corrette da sole:
-// il minimo score TB e' TB_VALUE_WIN - max_ply = mate_score - 2*max_ply, che e'
-// esattamente il bordo che CorrTBGuard usa.
-// Vincolo invariato: mate_value - mate_score = 1000 deve superare max_ply.
+// 🔴 2026-09-07: was 64. Beyond this ply td_negamax (:7569) and td_quiescence
+// (:6489) do NOT search any more: they return the static eval, silently. At 10s and
+// 1 thread the seldepth stays below 30, but the SMP measurements of 07/09 (10 s, 16-40
+// threads) reached **seldepth 42-54**, and at long TC with many threads the
+// cap is really reached - precisely in the forcing lines, where stopping costs
+// most. Stockfish uses MAX_PLY = 246.
+// Cost: the ply-indexed arrays of ThreadData are [max_ply + 8]; the only
+// quadratic one is pv_table, 20 KB -> 72 KB. On a ThreadData of 21.25 MB that is
+// 0.24%. The derived constants (TB_VALUE_WIN in syzygy.cpp, the corr_max bands in
+// threads.cpp) are written as functions of max_ply and stay correct by themselves:
+// the minimum TB score is TB_VALUE_WIN - max_ply = mate_score - 2*max_ply, which is
+// exactly the edge CorrTBGuard uses.
+// Unchanged constraint: mate_value - mate_score = 1000 must exceed max_ply.
 #define max_ply 128
 
 // MVV LVA [attacker][victim]

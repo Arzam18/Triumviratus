@@ -1,11 +1,11 @@
-// Chess960: fondamenta (fase 1). Vedi chess960.h e docs/audit_8.0/I_CHESS960.md.
+// Chess960: foundations (stage 1). See chess960.h and docs/audit_8.0/I_CHESS960.md.
 #include "chess960.h"
 #include "defs.h"
 
 bool g_chess960 = false;
 Castling960 g_c960;
 
-// Torre della parte `color` sulla colonna `file` della traversa di base? Ritorna la casa o no_sq.
+// Rook of side `color` on file `file` of the back rank? Returns the square or no_sq.
 static int rook_on_file(int color, int file)
 {
     const int sq = (color == white ? 56 : 0) + file;   // a1 = 56, a8 = 0 (convenzione del motore)
@@ -13,7 +13,7 @@ static int rook_on_file(int color, int file)
     return get_bit(bitboards[rook], sq) ? sq : no_sq;
 }
 
-// Torre piu' esterna dal lato indicato (X-FEN): a partire dall'angolo verso il re.
+// Outermost rook on the given side (X-FEN): starting from the corner towards the king.
 static int outer_rook(int color, bool king_side, int king_file)
 {
     if (king_side) {
@@ -60,8 +60,8 @@ int c960_parse_castling(const char* p, const char* end)
         g_c960.rook_from[idx] = rsq;
     }
 
-    // Maschera: muovere il re toglie entrambi i diritti del suo colore, muovere (o catturare) una torre
-    // d'arrocco toglie il suo. Con re in e1/e8 e torri negli angoli coincide con la vecchia tabella fissa.
+    // Mask: moving the king removes both rights of its colour, moving (or capturing) a castling
+    // rook removes its own. With the king on e1/e8 and rooks in the corners it coincides with the old fixed table.
     for (int c = white; c <= black; c++)
         if (g_c960.king_from[c] != no_sq)
             g_c960.rights_mask[g_c960.king_from[c]] &= ~(c == white ? (wk | wq) : (bk | bq));
@@ -71,8 +71,8 @@ int c960_parse_castling(const char* p, const char* end)
     return dropped;
 }
 
-// ---- Fase 2: collegamento al motore -----------------------------------------------------------------
-extern int castling_rights[64];      // movegen.cpp: castle &= castling_rights[origine/destinazione]
+// ---- Stage 2: connection to the engine ------------------------------------------------------------
+extern int castling_rights[64];      // movegen.cpp: castle &= castling_rights[origin/destination]
 int castle_rook_sq[4] = {h1, a1, h8, a8};
 int castle_king_sq[2] = {e1, e8};
 

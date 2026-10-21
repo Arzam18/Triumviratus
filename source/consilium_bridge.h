@@ -100,6 +100,10 @@ NnStack* nn_pos_stack(void* handle);
 // Consilium-2: the routing table of the loaded network (2,916 cells -> expert 0..7), for the make. The cell of a
 // perspective is cn_sig(own side) * 54 + cn_sig(opponent); the signature counts N, B, R (capped at 2) and Q (at 1).
 const unsigned char* nn_router_table(void);
+// SmpRouteShift (21/10/2026): build the shifted copy (main thread, before the helpers start), and choose it (alt 1) or
+// the network's table (alt 0) for the calling thread; the make, Persp and nn_router_table follow that choice.
+void nn_router_alt_build(int shift);
+void nn_thread_router(int alt);
 static inline int cn_sig(int n, int b, int r, int q) {
     return (n < 2 ? n : 2) * 18 + (b < 2 ? b : 2) * 6 + (r < 2 ? r : 2) * 2 + (q < 1 ? q : 1);
 }

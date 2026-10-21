@@ -1,13 +1,13 @@
-// cstats.h -- precisione delle correzioni della valutazione (06/10/2026, rapporto docs/audit_8.0/N_CORREZIONI.md 4.1),
-// SOLO con -DTRIUMV_CORRSTATS. Nel punto in cui la ricerca impara le correzioni (fine nodo, 13_search.inc) si
-// accumulano, per esperto della rete x fascia del contatore delle 50 mosse x tipo di limite, i residui
-//   r0 = best - eval della rete (senza correzione)   e   r1 = best - eval corretta:
-// conteggio, somma, somma dei quadrati. Da qui: quanta varianza dell'errore spiegano le correzioni (1 - q1/q0) e il
-// residuo medio per esperto e per fascia (se e' ~0 in ogni fascia, una tabella per esperto non ha niente da imparare).
-// Il numero assoluto e' distorto dai limiti (residuo censurato); il confronto fra varianti sullo stesso insieme no.
-// A fine processo, se la variabile d'ambiente CSTATS_FILE e' impostata, aggiunge al file una riga per cella non vuota:
-// "esperto fascia limite n s0 q0 s1 q1". Script: match_moe/corrstats.py.
-// Senza TRIUMV_CORRSTATS la macro CSTAT non fa nulla: codice generato identico (bench invariato).
+// cstats.h -- precision of the evaluation corrections (06/10/2026, report docs/audit_8.0/N_CORREZIONI.md 4.1),
+// ONLY with -DTRIUMV_CORRSTATS. At the point where the search learns the corrections (end of node, 13_search.inc) the
+// residuals are accumulated, per network expert x fifty-move band x bound type,
+//   r0 = best - network eval (without correction)   and   r1 = best - corrected eval:
+// count, sum, sum of squares. From here: how much of the error variance the corrections explain (1 - q1/q0) and the
+// mean residual per expert and per band (if it is ~0 in every band, a per-expert table has nothing to learn).
+// The absolute number is distorted by the bounds (censored residual); the comparison between variants on the same set is not.
+// At the end of the process, if the environment variable CSTATS_FILE is set, it appends to the file one line per non-empty cell:
+// "expert band bound n s0 q0 s1 q1". Script: match_moe/corrstats.py.
+// Without TRIUMV_CORRSTATS the CSTAT macro does nothing: identical generated code (bench unchanged).
 #pragma once
 
 #ifdef TRIUMV_CORRSTATS

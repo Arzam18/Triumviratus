@@ -1,6 +1,6 @@
-// Binario universale a file separati (09/10/2026, build_universal.ps1 -MultiTU): main della sola variante, per le build
-// strumentate del training PGO (al posto di entry.cpp). Stesso codice del blocco TRIUMV_STANDALONE di variant.cpp: i
-// costruttori globali della variante stanno in .tv<n>$m e il CRT non li esegue, li esegue questo main.
+// Universal binary with separate files (09/10/2026, build_universal.ps1 -MultiTU): main of the single variant, for the
+// instrumented builds of the PGO training (instead of entry.cpp). Same code as the TRIUMV_STANDALONE block of variant.cpp: the
+// global constructors of the variant are in .tv<n>$m and the CRT does not run them, this main runs them.
 #include "vns.h"
 
 namespace TRIUMV_VNS { int main(); }

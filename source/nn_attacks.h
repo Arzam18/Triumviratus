@@ -1,9 +1,9 @@
-// nn_attacks.h -- Gli attacchi del motore visti dalla rete (07/10/2026, scacchiera unica v2).
+// nn_attacks.h -- The engine's attacks as seen by the network (07/10/2026, single board v2).
 //
-// La rete enumera le minacce attive nel refresh (FullThreats::append_active_indices) sulla nostra scacchiera, nella
-// nostra numerazione (a8 = 0): usa quindi le NOSTRE tabelle di attacco (attacks.cpp, magic.cpp), non quelle della
-// rete. Qui solo le dichiarazioni, identiche a quelle di attacks.h e magic.h, senza includere defs.h (le sue macro
-// non devono entrare nelle unita' della rete).
+// The network enumerates the active threats in the refresh (FullThreats::append_active_indices) on our board, in
+// our numbering (a8 = 0): it therefore uses OUR attack tables (attacks.cpp, magic.cpp), not those of the
+// network. Here only the declarations, identical to those of attacks.h and magic.h, without including defs.h (its macros
+// must not enter the network's units).
 
 #ifndef NN_ATTACKS_H_INCLUDED
 #define NN_ATTACKS_H_INCLUDED

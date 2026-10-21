@@ -1,7 +1,7 @@
-// Binario universale a file separati (09/10/2026, build_universal.ps1 -MultiTU): namespace e sezione dei costruttori
-// globali della variante -DTRIUMV_VID=<n>, condivisi da tutti gli involucri della variante (un involucro per ogni .cpp
-// del motore, come le unita' della build separata). Stesse regole di variant.cpp: i costruttori vanno in .tv<n>$m e
-// li esegue entry.cpp (o standalone.cpp) solo per la variante scelta.
+// Universal binary with separate files (09/10/2026, build_universal.ps1 -MultiTU): namespace and section of the global
+// constructors of the variant -DTRIUMV_VID=<n>, shared by all the wrappers of the variant (one wrapper for every .cpp
+// of the engine, like the units of the separate build). Same rules as variant.cpp: the constructors go into .tv<n>$m and
+// entry.cpp (or standalone.cpp) runs them only for the chosen variant.
 #pragma once
 
 #if TRIUMV_VID == 1

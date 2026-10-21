@@ -23,9 +23,9 @@
 #define hash_flag_exact 0
 #define hash_flag_alpha 1
 #define hash_flag_beta 2
-// hash_flag_none (5.1): BOUND_NONE per le entry "eval-only" (no score/move/depth validi).
-// Vale 3 = valore libero del campo flag a 2 bit; i consumatori confrontano == exact/alpha/beta
-// (0/1/2) -> flag=3 IGNORATO ovunque. Definito qui (serve a probe_tt, piu' sotto).
+// hash_flag_none (5.1): BOUND_NONE for the "eval-only" entries (no valid score/move/depth).
+// It is 3 = free value of the 2-bit flag field; the consumers compare == exact/alpha/beta
+// (0/1/2) -> flag=3 IGNORED everywhere. Defined here (probe_tt below needs it).
 #define hash_flag_none 3
 
 // ABDADA busy flag - indicates node is being searched
@@ -38,22 +38,22 @@
  * - key: 8 bytes (position hash XOR data for lockless)
  * - data: 8 bytes packed (move, score, depth, flag, busy)
  */
-#define tt_eval_none 32001   // (ripetuto piu' sotto con lo stesso testo: serve gia' qui a TT16)
+#define tt_eval_none 32001   // (repeated below with the same text: TT16 already needs it here)
 
 // ===== TT16 (NPS 25/09/2026) ==================================================
-// Entry da 16 byte, bucket da 4 entry = 64 byte = UNA linea di cache.
-// Prima (vecchia TT, tolta il 25/09/2026 dopo lo SPRT: TT16 +6,30 ± 5,06 su 5.365 partite;
-// sorgente in _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup/tt.h): entry da 24 byte in bucket da 2, cioe' 48 byte, e con
-// l'indice a modulo META' dei bucket attraversava due linee: due miss per probe. Il
-// profilo xperf del 25/09 (campioni su LLCMisses) dava alla TT ~4,6% dei miss del
-// motore contro ~1,2% di SF, che usa cluster da 32 byte allineati.
-//   kw   = ((chiave & 0xFFFFFFFFFFFF) << 16 | eval16) XOR data
-//   data = mossa | score | depth | flag | age | pv   (layout invariato, pack_tt_data)
-// Lo XOR lega le due parole come prima (lockless): una scrittura concorrente spezzata
-// fa fallire la verifica della chiave, e l'eval ci sta DENTRO, quindi e' protetta
-// dallo stesso controllo (prima aveva un suo frammento di chiave a 16 bit).
-// La verifica usa i 48 bit BASSI della chiave; l'indice (tt_base_index, mulhi) usa
-// quelli ALTI: le due cose restano quasi indipendenti.
+// 16-byte entry, bucket of 4 entries = 64 bytes = ONE cache line.
+// Before (old TT, removed on 25/09/2026 after the SPRT: TT16 +6.30 ± 5.06 over 5,365 games;
+// source in _backup/Triumviratus_8.0_src_2026-09-25_pre_cleanup/tt.h): 24-byte entries in buckets of 2, i.e. 48 bytes, and with
+// the index modulo HALF the buckets it crossed two lines: two misses per probe. The
+// xperf profile of 25/09 (samples on LLCMisses) gave the TT ~4.6% of the engine's misses
+// against ~1.2% for SF, which uses aligned 32-byte clusters.
+//   kw   = ((key & 0xFFFFFFFFFFFF) << 16 | eval16) XOR data
+//   data = move | score | depth | flag | age | pv   (layout unchanged, pack_tt_data)
+// The XOR binds the two words as before (lockless): a torn concurrent write
+// makes the key check fail, and the eval sits INSIDE it, so it is protected
+// by the same check (before it had its own 16-bit key fragment).
+// The check uses the LOW 48 bits of the key; the index (tt_base_index, mulhi) uses
+// the HIGH ones: the two stay almost independent.
 struct alignas(16) tt_entry {
     U64 kw;
     U64 data;
@@ -79,10 +79,10 @@ inline int tt_unpack_eval16(U64 w) {
 // Data packing/unpacking.
 // Bit layout of `data` (64 bit): move[0..23] score[24..39] depth[40..47]
 // flag[48..49] spare[50..57] age[58..62] pv[63].
-// FIX P0.1 (2026-06-09): mossa a 24 bit (i bit 21/22/23 = double/ep/castling).
-// P1.1/4.0 (2026-06-11): STATIC EVAL nella TT a 16 BIT, nel campo `ext`
-// dell'entry da 24B (vedi sopra). Il motore e' eval-bound (58% del tempo-nodo =
-// forward NNUE): un TT-hit che porta l'eval statica salva la forward.
+// FIX P0.1 (2026-06-09): 24-bit move (bits 21/22/23 = double/ep/castling).
+// P1.1/4.0 (2026-06-11): STATIC EVAL in the TT on 16 BITS, in the `ext` field
+// of the 24B entry (see above). The engine is eval-bound (58% of the node time =
+// NNUE forward): a TT hit that carries the static eval saves the forward.
 #define tt_eval_none 32001
 
 inline U64 pack_tt_data(int move, int score, int depth, int flag, int age, int pv = 0) {
@@ -101,24 +101,24 @@ inline int unpack_flag(U64 data) { return (data >> 48) & 0x3; }
 inline int unpack_age(U64 data) { return (data >> 58) & 0x1F; }
 inline int unpack_pv(U64 data) { return (data >> 63) & 0x1; }
 
-// 5.1 EvalTTWrite (SF-style): l'entry eval-only memorizza l'UNADJUSTED (pre-rule50/scale,
-// fifty-independent) via pack_ext normale; in lettura nn_finalize() lo ri-finalizza col fifty
-// corrente -> esatto su QUALSIASI trasposizione (niente vincolo same-fifty = max cache-hit).
+// 5.1 EvalTTWrite (SF-style): the eval-only entry stores the UNADJUSTED value (pre-rule50/scale,
+// fifty-independent) via the normal pack_ext; on reading nn_finalize() re-finalizes it with the current
+// fifty counter -> exact on ANY transposition (no same-fifty constraint = max cache hits).
 
 // Global TT
 extern tt_entry* hash_table;
 extern U64 hash_entries;
-// Vero quando hash_entries e' una potenza di due: allora l'indice di bucket si
-// ricava con un AND invece che con un `%`, dando lo STESSO indice.
-// ⚠️ IN PRATICA NON SI ATTIVA MAI, e il commento precedente diceva il contrario.
-// hash_entries = byte / sizeof(tt_entry) con sizeof(tt_entry) = 24: 24 non divide
-// una potenza di due in una potenza di due, quindi a NESSUNA taglia realistica il
-// conto torna. A 256 MB le entry sono 11.184.808. Verificato su 16, 64, 128, 256,
-// 512 e 1024 MB: mai. Il ramo resta perche' e' corretto e si accenderebbe da solo
-// se un giorno la entry diventasse di 16 o 32 byte, ma NON crederci come
-// ottimizzazione viva: oggi si passa sempre dal modulo.
-// Il tentativo di togliere quella divisione con un reciproco esatto e' documentato
-// piu' sotto, sopra tt_base_index: misurato NEUTRO e rimosso.
+// True when hash_entries is a power of two: then the bucket index is
+// obtained with an AND instead of a `%`, giving the SAME index.
+// ⚠️ IN PRACTICE IT NEVER TRIGGERS, and the previous comment said the opposite.
+// hash_entries = bytes / sizeof(tt_entry) with sizeof(tt_entry) = 24: 24 does not divide
+// a power of two into a power of two, so at NO realistic size does the
+// arithmetic work out. At 256 MB there are 11,184,808 entries. Checked on 16, 64, 128, 256,
+// 512 and 1024 MB: never. The branch stays because it is correct and would turn on by itself
+// if one day the entry became 16 or 32 bytes, but do NOT believe in it as a
+// live optimisation: today the modulo is always used.
+// The attempt to remove that division with an exact reciprocal is documented
+// further below, above tt_base_index: measured NEUTRAL and removed.
 extern bool g_tt_pow2;
 extern int current_age;
 
@@ -127,21 +127,21 @@ extern int current_age;
 // maps to a bucket of 4 consecutive entries; probe scans the bucket, store picks
 // an age-aware victim (prefer empty -> oldest -> shallowest).
 
-// 5.1: TT "two-level" (UCI "TTTwoLevel") — schema #1 nei paper (Maastricht): ogni
-// indice = bucket di 2 slot, slot0 = DEPTH-PREFERRED (tieni le entry profonde),
-// slot1 = ALWAYS-REPLACE (tieni la piu' RECENTE = recency per la ri-visitazione).
-// Mutuamente esclusivo col 4way. Mira al gap ttrate (move-availability) misurato 25% vs 46% SF.
+// 5.1: "two-level" TT (UCI "TTTwoLevel") - scheme #1 in the papers (Maastricht): every
+// index = bucket of 2 slots, slot0 = DEPTH-PREFERRED (keep the deep entries),
+// slot1 = ALWAYS-REPLACE (keep the most RECENT = recency for revisits).
+// Mutually exclusive with 4way. It targets the ttrate gap (move availability) measured 25% vs 46% SF.
 extern bool g_tt_twolevel;
 
-// TTMove24 (UCI "TTMove24", default ON) — ablazione del FIX P0.1: quando OFF lo
-// store tronca la mossa a 21 bit come la 3.7 (i flag double/ep/castling si perdono
-// di nuovo). Definita in threads.cpp.
-// P1.10a (UCI "TTAgeRefresh", default ON) — un probe-hit rinfresca l'age
-// dell'entry: le posizioni CALDE ma scritte in search vecchie non vengono piu'
-// evictate per anzianita' (SF fa lo stesso). Definita in threads.cpp.
+// TTMove24 (UCI "TTMove24", default ON) - ablation of FIX P0.1: when OFF the
+// store truncates the move to 21 bits as in 3.7 (the double/ep/castling flags are lost
+// again). Defined in threads.cpp.
+// P1.10a (UCI "TTAgeRefresh", default ON) - a probe hit refreshes the age
+// of the entry: HOT positions written in old searches are no longer
+// evicted for age (SF does the same). Defined in threads.cpp.
 #ifdef TRIUMV_RELEASE
-// Release (06/10/2026): nessuna opzione le cambia, quindi costanti che il compilatore piega in store_tt/probe.
-// I valori sono i default di threads.cpp (01_params.inc).
+// Release (06/10/2026): no option changes them, so constants the compiler folds into store_tt/probe.
+// The values are the defaults of threads.cpp (01_params.inc).
 constexpr bool g_ttmove24 = true;
 constexpr int  g_tt_keep_margin = 3;
 constexpr int  g_tt_keep_pv = 2;       // TtKeepPv (CENSUS 21/10/2026)
@@ -150,16 +150,16 @@ constexpr bool g_tt_move_keep = true;
 constexpr bool g_tt_age_refresh = false;
 #else
 extern bool g_ttmove24;
-extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
+extern int g_tt_keep_margin;   // TTKeepMargin (endgame study 26/09): see store_tt
 extern int g_tt_keep_pv;       // TtKeepPv: extra margin of PV entries (CENSUS 21/10/2026)
 extern int g_tt_age_weight;    // TtAgeWeight: plies per search of age in the victim value (CENSUS 21/10/2026)
-extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
+extern bool g_tt_move_keep;   // TTMoveKeep: keeps the TT move on fail lows without a move (SF)
 extern bool g_tt_age_refresh;
 #endif
 
-// LargePages (UCI, default ON) — alloca la TT su large pages 2MB (VirtualAlloc
-// MEM_LARGE_PAGES, come i pesi NNUE). Toggle per l'A/B NPS pulito sullo STESSO
-// binario: OFF = new[] (heap normale = baseline pre-modifica). Definita in threads.cpp.
+// LargePages (UCI, default ON) - allocates the TT on 2MB large pages (VirtualAlloc
+// MEM_LARGE_PAGES, like the NNUE weights). Toggle for a clean NPS A/B on the SAME
+// binary: OFF = new[] (normal heap = pre-change baseline). Defined in threads.cpp.
 extern bool g_large_pages;
 
 // External variables needed for compatibility functions
@@ -179,8 +179,8 @@ extern U64 side_key;
 
 #include "large_pages.h"   // large_pages_alloc / free / available (no windows.h in this header)
 
-// TT16: la tabella e' un array di tt_bucket (alignas(64)): l'operatore new allineato del
-// C++17 garantisce l'allineamento anche sul ripiego heap. hash_table resta un tt_entry*.
+// TT16: the table is an array of tt_bucket (alignas(64)): the aligned operator new of
+// C++17 guarantees the alignment on the heap fallback too. hash_table stays a tt_entry*.
 inline void init_hash_table(int mb) {
     static bool tt_on_large_pages = false;
 
@@ -219,13 +219,13 @@ inline void init_hash_table(int mb) {
     }
     hash_table   = reinterpret_cast<tt_entry*>(tab);
     hash_entries = buckets * TT_WAYS;
-    g_tt_pow2    = false;   // non usato da TT16 (indice via mulhi)
+    g_tt_pow2    = false;   // not used by TT16 (index via mulhi)
 
     const int actual_mb = (int)(buckets * sizeof(tt_bucket) / (1024 * 1024));
-    // 🔴 FIX 01/10/2026: tt_on_large_pages dice solo da QUALE allocatore viene la tabella (serve al free).
-    // large_pages_alloc su Windows non torna mai null: senza SeLockMemoryPrivilege ripiega in silenzio
-    // su pagine da 4 KB, e qui si stampava "ON" lo stesso. Sullo Xeon il privilegio non c'e': nessun motore ha
-    // mai avuto large pages, e la riga diceva il contrario. large_pages_available() prova un'allocazione vera da 2 MB.
+    // 🔴 FIX 01/10/2026: tt_on_large_pages says only WHICH allocator the table comes from (needed by the free).
+    // large_pages_alloc on Windows never returns null: without SeLockMemoryPrivilege it silently falls back
+    // to 4 KB pages, and here "ON" was printed anyway. On the Xeon the privilege is missing: no engine has
+    // ever had large pages, and the line said the opposite. large_pages_available() tries a real 2 MB allocation.
     static const bool lp_real = large_pages_available();
     const char* lp = !g_large_pages                  ? "off (disabled)"
                    : tt_on_large_pages && lp_real    ? "ON"
@@ -251,20 +251,20 @@ inline int hashfull() {
 
 // Increment age (call at start of each search)
 inline void new_search() {
-    current_age = (current_age + 1) & 0x1F;   // age a 5 bit (vedi pack_tt_data)
+    current_age = (current_age + 1) & 0x1F;   // 5-bit age (see pack_tt_data)
 }
 
-// TT prefetch (toggle "TTPrefetch"). ⚠️ COMMENTO CORRETTO 2026-07-26: diceva
-// "default OFF" e "vale ri-misurare", ma era gia' stato **BAKATO ON** (vedi
-// threads.cpp: `g_tt_prefetch = true`, +1.88% NPS misurato, riconfermato +2.75%
-// nell'audit del 25/07). Il commento stantio ha tenuto chiuso un fronte NPS che
-// era gia' vinto: un auditor l'ha letto e ha riportato il prefetch come non
-// ancora provato. Se un commento contraddice il default vivo, vince il codice.
-// Ritestato 2026-07-13 (Reckless #1085): il tentativo 2026-06-07 era
-// NPS-neutral, ma nel frattempo era stato bakato TTTwoLevel (bucket a 2 slot),
-// che cambia il pattern di accesso -> da li' il guadagno.
-// Prefetch della PRIMA cacheline del bucket subito dopo il calcolo della chiave
-// figlia in td_make_move (post-legalita': la variante pre-legalita' era -2.5%).
+// TT prefetch (toggle "TTPrefetch"). ⚠️ COMMENT CORRECTED 2026-07-26: it said
+// "default OFF" and "worth re-measuring", but it had already been **BAKED ON** (see
+// threads.cpp: `g_tt_prefetch = true`, +1.88% NPS measured, reconfirmed +2.75%
+// in the audit of 25/07). The stale comment kept closed an NPS front that
+// was already won: an auditor read it and reported the prefetch as not
+// yet tried. If a comment contradicts the live default, the code wins.
+// Retested 2026-07-13 (Reckless #1085): the attempt of 2026-06-07 was
+// NPS-neutral, but meanwhile TTTwoLevel (2-slot buckets) had been baked,
+// which changes the access pattern -> hence the gain.
+// Prefetch of the FIRST cache line of the bucket right after computing the child's
+// key in td_make_move (post-legality: the pre-legality variant was -2.5%).
 #if defined(_MSC_VER)
     #include <intrin.h>
     #define TT_PREFETCH(addr) _mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_T0)
@@ -273,9 +273,9 @@ inline void new_search() {
 #endif
 
 // ===== TT16: indirizzamento, probe, store =========================================
-// Indice del bucket con la moltiplicazione alta (come SF): niente divisione a 64 bit.
-// Con la entry da 24 byte il modulo era inevitabile; qui il numero di bucket e' libero
-// e mulhi(key, buckets) e' uniforme su [0, buckets).
+// Bucket index with the high multiplication (as SF): no 64-bit division.
+// With the 24-byte entry the modulo was unavoidable; here the number of buckets is free
+// and mulhi(key, buckets) is uniform on [0, buckets).
 inline U64 tt_mulhi64(U64 a, U64 b) {
 #if defined(__SIZEOF_INT128__)
     return (U64)(((unsigned __int128)a * (unsigned __int128)b) >> 64);
@@ -290,24 +290,24 @@ inline U64 tt_mulhi64(U64 a, U64 b) {
 inline U64 tt_base_index(U64 key) { return tt_mulhi64(key, hash_entries / TT_WAYS) * TT_WAYS; }
 inline int tt_ways() { return TT_WAYS; }
 
-// TT A VETTORE (10/10/2026, velocita', stessa via, stessi valori). Con AVX-512 il bucket (64 byte, una linea) entra in
-// UN registro: v = [kw0 d0 kw1 d1 kw2 d2 kw3 d3]. Scambiando le due parole di ogni via (sw), v ^ sw ha kw ^ data nelle
-// corsie pari e v | sw dice se la via e' vuota: il confronto delle quattro vie e' un confronto vettoriale con maschera.
-// Bit 2i della maschera = via i non vuota con la chiave giusta; il bit piu' basso e' la prima via, come prima.
-// Perche': nel codice clang -O3 di probe_tt il confronto scalare costava ~13 istruzioni per via (due letture, xor,
-// shift, confronto, or, test, and e le copie di d[i] e w[i] sullo stack per l'indice variabile), ~58 per lettura su
-// ~90; qui ~12, piu' due estrazioni dal registro per la via trovata. Contatori (bench 12 sulle 30 posizioni del
-// mediogioco): 1,10 letture e 0,75 scritture per nodo. La riga e' gia' anticipata dalla make (prefetch del figlio):
-// il guadagno e' di istruzioni, non di attesa. Nella lettura i valori della via trovata si prendono DAL REGISTRO
-// (stessa istantanea della verifica, come il BUG FIX del 16/07/2026 sulle letture spezzate con piu' thread).
-// Era fra le idee scartate di X4 (08/10, "~20 istruzioni per lettura, stima < 0,2%", senza misura): il conteggio sul
-// codice vero e' circa il doppio, e la stessa ricerca serve anche alla scrittura. -DTRIUMV_NO_TT_VEC torna alle vie
-// scalari; -DTRIUMV_VERIFY_TTSTORE confronta anche questa scrittura con tt_find/tt_victim.
+// VECTOR TT (10/10/2026, speed, same way, same values). With AVX-512 the bucket (64 bytes, one line) fits in
+// ONE register: v = [kw0 d0 kw1 d1 kw2 d2 kw3 d3]. Swapping the two words of every way (sw), v ^ sw has kw ^ data in the
+// even lanes and v | sw says whether the way is empty: the comparison of the four ways is a masked vector compare.
+// Bit 2i of the mask = way i non-empty with the right key; the lowest bit is the first way, as before.
+// Why: in the clang -O3 code of probe_tt the scalar comparison cost ~13 instructions per way (two loads, xor,
+// shift, compare, or, test, and and the copies of d[i] and w[i] on the stack for the variable index), ~58 per read out of
+// ~90; here ~12, plus two extractions from the register for the way found. Counters (bench 12 on the 30 middlegame
+// positions): 1.10 reads and 0.75 writes per node. The line is already fetched ahead by the make (child prefetch):
+// the gain is in instructions, not in waiting. In the read the values of the way found are taken FROM THE REGISTER
+// (same snapshot as the check, like the BUG FIX of 16/07/2026 on torn reads with several threads).
+// It was among the ideas discarded by X4 (08/10, "~20 instructions per read, estimate < 0.2%", without measurement): the count on the
+// real code is about double, and the same search also serves the write. -DTRIUMV_NO_TT_VEC goes back to the scalar
+// ways; -DTRIUMV_VERIFY_TTSTORE compares this write too with tt_find/tt_victim.
 #if defined(USE_AVX512) && defined(__AVX512F__) && !defined(TRIUMV_NO_TT_VEC)
 #define TRIUMV_TT_VEC 1
 #include <immintrin.h>
 inline unsigned tt_match4(__m512i v, U64 tag, __m512i& w) {
-    const __m512i sw = _mm512_shuffle_epi32(v, _MM_PERM_BADC);   // in ogni via: [data, kw]
+    const __m512i sw = _mm512_shuffle_epi32(v, _MM_PERM_BADC);   // in every way: [data, kw]
     w = _mm512_xor_si512(v, sw);                                  // corsie pari: kw ^ data
     const __m512i o = _mm512_or_si512(v, sw);                     // kw | data (0 = via vuota)
     const __mmask8 tag_ok = _mm512_mask_cmpeq_epu64_mask(0x55, _mm512_srli_epi64(w, 16), _mm512_set1_epi64((long long)tag));
@@ -318,10 +318,10 @@ inline U64 tt_lane(__m512i v, int lane) {
 }
 #endif
 
-// Slot del bucket che contiene questa posizione, o nullptr.
-// 04/10/2026 sera — le quattro vie si confrontano SENZA SALTI (maschera a 4 bit, poi un solo salto "trovata o no"):
-// il ciclo con uscita anticipata era mal predetto quasi a ogni lettura (xperf). A piu' vie uguali vince la prima,
-// come prima.
+// Slot of the bucket that holds this position, or nullptr.
+// Evening of 04/10/2026 - the four ways are compared BRANCHLESS (4-bit mask, then a single "found or not" branch):
+// the loop with early exit was mispredicted almost at every read (xperf). With several equal ways the first wins,
+// as before.
 inline tt_entry* tt_find(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
     const U64 tag = tt_tag(key);
@@ -333,8 +333,8 @@ inline tt_entry* tt_find(U64 key) {
     return found ? &b[get_ls1b_index(found)] : nullptr;
 }
 
-// Vittima: slot vuoto, altrimenti il valore piu' basso di depth - 8*distanza d'eta'
-// (stessa regola della vecchia tt_victim, ora su 4 vie dentro una sola linea).
+// Victim: empty slot, otherwise the lowest value of depth - 8*age distance
+// (same rule as the old tt_victim, now on 4 ways inside a single line).
 inline tt_entry* tt_victim(U64 key) {
     tt_entry* b = &hash_table[tt_base_index(key)];
     tt_entry* best = &b[0];
@@ -344,7 +344,7 @@ inline tt_entry* tt_victim(U64 key) {
         if (e->kw == 0 && e->data == 0) return e;
         int rel_age = (current_age - unpack_age(e->data)) & 0x1F;
         int depth = unpack_depth(e->data);
-        int val = depth - g_tt_age_weight * rel_age;   // 04/10/2026: era 2; ogni ricerca di eta' vale 8 ply, come SF
+        int val = depth - g_tt_age_weight * rel_age;   // 04/10/2026: was 2; every search of age is worth 8 plies, as SF
         if (val < best_val) { best_val = val; best = e; }
     }
     return best;
@@ -356,11 +356,11 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
     const U64 tag = tt_tag(hash_key);
 #ifdef TRIUMV_TT_VEC
     {
-        // TT a vettore (10/10/2026, vedi tt_match4): stessa via, stessi valori, presi dal registro della verifica.
+        // Vector TT (10/10/2026, see tt_match4): same way, same values, taken from the register of the check.
         __m512i w4;
         const __m512i v4 = _mm512_load_si512(reinterpret_cast<const void*>(b));
         const unsigned m = tt_match4(v4, tag, w4);
-#ifdef TRIUMV_VERIFY_TTSTORE   // verifica: la stessa via (o nessuna) della ricerca scalare
+#ifdef TRIUMV_VERIFY_TTSTORE   // check: the same way (or none) as the scalar search
         if ((m ? &b[get_ls1b_index(m) >> 1] : nullptr) != tt_find(hash_key)) {
             printf("info string TTVEC: via diversa nella lettura\n"); fflush(stdout); abort();
         }
@@ -370,7 +370,7 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
             tt_entry* entry = &b[lane >> 1];
             const U64 data = tt_lane(v4, lane + 1);
             const U64 wi   = tt_lane(w4, lane);
-#ifdef TRIUMV_VERIFY_TTSTORE   // (un solo thread) le parole estratte dal registro sono quelle della via
+#ifdef TRIUMV_VERIFY_TTSTORE   // (a single thread) the words extracted from the register are those of the way
             if (data != entry->data || wi != (entry->kw ^ entry->data)) {
                 printf("info string TTVEC: parole diverse\n"); fflush(stdout); abort();
             }
@@ -394,8 +394,8 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
         return false;
     }
 #else
-    // Un solo snapshot delle due parole per via: la verifica e l'unpack leggono gli STESSI valori (niente torn read
-    // fra verifica e uso, cfr. BUG FIX 2026-07-16). 04/10/2026 sera: le quattro vie senza salti, come in tt_find.
+    // A single snapshot of the two words per way: the check and the unpack read the SAME values (no torn read
+    // between check and use, cf. BUG FIX 2026-07-16). Evening of 04/10/2026: the four ways branchless, as in tt_find.
     U64 d[TT_WAYS], w[TT_WAYS];
     unsigned found = 0;
     for (int i = 0; i < TT_WAYS; i++) {
@@ -440,17 +440,17 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
     else if (score < -mate_score) score -= ply;
 
     int ev16 = tt_eval16(eval);
-    // 06/10/2026 (velocita', albero identico): UNA lettura del bucket trova la posizione e, se manca, la vittima.
-    // Prima tt_find e tt_victim ricalcolavano ciascuna l'indice (moltiplicazione alta) e rileggevano le quattro vie, e
-    // tt_victim sceglieva con due salti per via sul dato (via vuota? valore piu' basso?). Contatori (bench 14 su
-    // fens30): 0,75 scritture per nodo, 0,44 con la ricerca della vittima.
+    // 06/10/2026 (speed, identical tree): ONE read of the bucket finds the position and, if missing, the victim.
+    // Before, tt_find and tt_victim each recomputed the index (high multiplication) and reread the four ways, and
+    // tt_victim chose with two branches per way on the data (empty way? lowest value?). Counters (bench 14 on
+    // fens30): 0.75 writes per node, 0.44 with the victim search.
     tt_entry* const b = &hash_table[tt_base_index(hash_key)];
     const U64 tag = tt_tag(hash_key);
     U64 kk[TT_WAYS], dd[TT_WAYS];
     unsigned found = 0;
 #ifdef TRIUMV_TT_VEC
     {
-        // TT a vettore (10/10/2026, vedi tt_match4): bit 2i -> bit i (pext), cosi' il resto e' quello di prima.
+        // Vector TT (10/10/2026, see tt_match4): bit 2i -> bit i (pext), so the rest is the old code.
         __m512i w4;
         found = _pext_u32(tt_match4(_mm512_load_si512(reinterpret_cast<const void*>(b)), tag, w4), 0x55u);
     }
@@ -463,7 +463,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
 #endif
     tt_entry* entry;
     if (found) {
-        entry = &b[get_ls1b_index(found)];   // a piu' vie uguali vince la prima, come tt_find
+        entry = &b[get_ls1b_index(found)];   // with several equal ways the first wins, as in tt_find
 #ifdef TRIUMV_VERIFY_TTSTORE
         if (entry != tt_find(hash_key)) { printf("info string TTSTORE: via diversa\n"); fflush(stdout); abort(); }
 #endif
@@ -474,26 +474,26 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         // otherwise the entry is simply overwritten below. With one thread the tag always matches: identical tree.
         if (((old_w >> 16) != tag)) goto write_entry;
         if (g_tt_move_keep && move == 0) move = unpack_move(old_data);
-        if (ev16 == 0) ev16 = (int)(old_w & 0xFFFF);   // conserva l'eval se lo store non ne porta
-        // TTKeepMargin (studio finali 26/09/2026, docs/audit_8.0/H_FINALI.md). Nei finali, a profondita' >= 12,
-        // l'entry c'e' quanto in SF (74%) e e' profonda abbastanza piu' spesso (32% contro 26%), ma il suo
-        // bound serve alla finestra meno spesso (53% contro 66%): teniamo l'entry PIU' PROFONDA anche se il
-        // suo bound e' vecchio. SF sovrascrive se  depth + 2*pv > vecchia - 4  (tt.cpp, TTWriter::write):
-        // preferisce l'informazione fresca fino a 3 ply piu' corta. Con margine m > 0 si tiene la vecchia
-        // solo se e' piu' profonda di oltre m ply (+2 sui nodi PV). 0 = regola storica, byte-identico.
+        if (ev16 == 0) ev16 = (int)(old_w & 0xFFFF);   // keeps the eval if the store does not carry one
+        // TTKeepMargin (endgame study 26/09/2026, docs/audit_8.0/H_FINALI.md). In endgames, at depth >= 12,
+        // the entry is there as often as in SF (74%) and is deep enough more often (32% against 26%), but its
+        // bound serves the window less often (53% against 66%): we keep the DEEPER entry even if its
+        // bound is old. SF overwrites if  depth + 2*pv > old - 4  (tt.cpp, TTWriter::write):
+        // it prefers fresh information up to 3 plies shorter. With margin m > 0 the old one is kept
+        // only if it is deeper by more than m plies (+2 on PV nodes). 0 = historical rule, byte-identical.
         const int keep_margin = g_tt_keep_margin > 0 ? g_tt_keep_margin + (pv ? g_tt_keep_pv : 0) : 0;
         if (unpack_age(old_data) == current_age && unpack_depth(old_data) > depth + keep_margin && flag != hash_flag_exact) {
-            // Conserva l'entry piu' profonda; aggiorna l'eval se mancava.
+            // Keeps the deeper entry; updates the eval if it was missing.
             const U64 w  = (old_w & ~0xFFFFULL) | (U64)ev16;
             if (w != old_w) entry->kw = w ^ old_data;
             return;
         }
     } else {
-        // Vittima senza salti, stessa regola di tt_victim: la prima via vuota, altrimenti il valore depth - 8 * eta'
-        // piu' basso e a parita' la via piu' bassa. Chiave = valore * 4 + via (valore in [-248, 255]), le vie vuote a
-        // -2^20 + via: la chiave minima e' la via scelta da tt_victim, e i suoi due bit bassi sono la via.
+        // Branchless victim, same rule as tt_victim: the first empty way, otherwise the lowest value depth - 8 * age
+        // and on ties the lowest way. Key = value * 4 + way (value in [-248, 255]), the empty ways at
+        // -2^20 + way: the minimum key is the way chosen by tt_victim, and its two low bits are the way.
 #ifdef TRIUMV_TT_VEC
-        for (int i = 0; i < TT_WAYS; i++) {   // la linea e' appena stata letta nel registro: qui e' in L1
+        for (int i = 0; i < TT_WAYS; i++) {   // the line has just been read into the register: here it is in L1
             kk[i] = b[i].kw;
             dd[i] = b[i].data;
         }
@@ -506,7 +506,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
             best = key < best ? key : best;
         }
         entry = &b[best & 3];
-#ifdef TRIUMV_VERIFY_TTSTORE   // verifica: la stessa via di tt_victim
+#ifdef TRIUMV_VERIFY_TTSTORE   // check: the same way as tt_victim
         if (entry != tt_victim(hash_key)) { printf("info string TTSTORE: vittima diversa\n"); fflush(stdout); abort(); }
 #endif
     }
@@ -518,8 +518,8 @@ write_entry:
 }
 
 
-// Cache-only dello static eval su un MISS (EvalTTWrite, default OFF): entry flag_none
-// nello slot vittima naturale, cosi' lo store reale la ritrova e la aggiorna in place.
+// Cache-only of the static eval on a MISS (EvalTTWrite, default OFF): flag_none entry
+// in the natural victim slot, so the real store finds it again and updates it in place.
 inline void tt_cache_eval(U64 hash_key, int unadjusted) {
     const int ev16 = tt_eval16(unadjusted);
     if (ev16 == 0) return;

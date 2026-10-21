@@ -6,8 +6,8 @@
 #include "threads.h"
 
 // Piece values for SEE
-// 04/10/2026: valori nelle unita' dei margini della ricerca (pedone 208), gli stessi di unit_value in
-// search/09_history.inc. Prima 100/320/330/500/900.
+// 04/10/2026: values in the units of the search margins (pawn 208), the same as unit_value in
+// search/09_history.inc. Before 100/320/330/500/900.
 // 21/10/2026 (agent SEE): constexpr, so that the release can check the parameters SeeVal* against it (01_params.inc).
 static constexpr int see_piece_values[12] = {
     208, 781, 825, 1276, 2538, 20000,  // P N B R Q K
@@ -30,8 +30,8 @@ const int* see_c2_offsets(const ThreadData& td);
 // Static Exchange Evaluation for thread-local state
 int td_see(ThreadData& td, int move);
 
-// F-008: SEE a SOGLIA con early-exit (stile SF see_ge). Ritorna 1 se
-// td_see(move) >= threshold, 0 altrimenti — senza simulare lo scambio completo.
+// F-008: THRESHOLD SEE with early exit (SF see_ge style). Returns 1 if
+// td_see(move) >= threshold, 0 otherwise - without simulating the full exchange.
 int td_see_ge(ThreadData& td, int move, int threshold);
 
 #endif

@@ -1,10 +1,10 @@
-// sstats.h -- contatori di ricerca per profondita' (03/10/2026), SOLO con -DTRIUMV_SSTATS.
-// Servono a confrontare le decisioni della nostra ricerca con quelle di Stockfish 19, che riceve una copia identica
-// di questo file (scratchpad sfstats). Un thread, una posizione per processo: a fine processo, se la variabile
-// d'ambiente SSTATS_FILE e' impostata, aggiunge al file una riga "chiave profondita' valore" per ogni contatore non
-// nullo. La profondita' e' quella del nodo all'INGRESSO (prima di IIR, estensioni, depth-- interni).
-// Senza TRIUMV_SSTATS le macro SSTAT/SSTATV non fanno nulla: codice generato identico (bench invariato).
-// Script: match_moe/search_stats_vs_sf19.py (confronto con SF), match_moe/prune_grid.py (prove di opzioni).
+// sstats.h -- search counters per depth (03/10/2026), ONLY with -DTRIUMV_SSTATS.
+// They serve to compare the decisions of our search with those of Stockfish 19, which receives an identical copy
+// of this file (scratchpad sfstats). One thread, one position per process: at the end of the process, if the environment
+// variable SSTATS_FILE is set, it appends to the file a line "key depth value" for every non-zero
+// counter. The depth is that of the node at ENTRY (before IIR, extensions, internal depth--).
+// Without TRIUMV_SSTATS the SSTAT/SSTATV macros do nothing: identical generated code (bench unchanged).
+// Scripts: match_moe/search_stats_vs_sf19.py (comparison with SF), match_moe/prune_grid.py (option trials).
 #pragma once
 
 #ifdef TRIUMV_SSTATS
@@ -14,31 +14,31 @@
 
 namespace SStats {
 enum Key {
-    NODES,      // ingressi nella ricerca principale (depth > 0)
-    QNODES,     // ingressi in quiescenza
-    LOOP,       // nodi che arrivano al ciclo delle mosse
+    NODES,      // entries into the main search (depth > 0)
+    QNODES,     // entries into quiescence
+    LOOP,       // nodes that reach the move loop
     RAZOR, RFP, NMP_TRY, NMP_CUT, PROBCUT,
-    LEGAL,      // mosse considerate nel ciclo (prima delle potature)
-    MADE,       // mosse effettivamente giocate (dopo le potature del ciclo)
-    MADE_Q, MADE_C, MADE_CHK, // ... di cui quiete (non scacco), catture/promozioni (non scacco), scacchi
-    LMR_N,      // mosse cercate con il ramo LMR (dopo la prima)
-    LMR_SUM,    // somma delle riduzioni positive applicate (ply)
-    LMR_NEG,    // riduzioni negative (estensioni da LMR)
-    LMR_RES,    // ri-ricerche a profondita' piena dopo un fail-high ridotto
-    RED_Q, RED_C, RED_CHK,    // mosse effettivamente ridotte (riduzione > 0) per categoria
-    PR_LMP, PR_FUT, PR_SEE, PR_HIST, PR_CAPFUT, // mosse potate nel ciclo, per regola
+    LEGAL,      // moves considered in the loop (before the pruning)
+    MADE,       // moves actually played (after the pruning of the loop)
+    MADE_Q, MADE_C, MADE_CHK, // ... of which quiet (not check), captures/promotions (not check), checks
+    LMR_N,      // moves searched with the LMR branch (after the first)
+    LMR_SUM,    // sum of the positive reductions applied (plies)
+    LMR_NEG,    // negative reductions (extensions from LMR)
+    LMR_RES,    // full-depth re-searches after a reduced fail high
+    RED_Q, RED_C, RED_CHK,    // moves actually reduced (reduction > 0) per category
+    PR_LMP, PR_FUT, PR_SEE, PR_HIST, PR_CAPFUT, // moves pruned in the loop, per rule
     SING_TRY, EXT1, EXT2, EXT3, EXTNEG, MULTICUT,
-    FH,         // fail-high nel ciclo
-    FH_FIRST,   // fail-high alla prima mossa giocata
-    FH_MOVESUM, // somma del numero d'ordine della mossa che fa fail-high
-    FH_HASTT,   // fail-high in nodi con una mossa TT
-    FH_TT,      // fail-high fatti dalla mossa TT
-    FH_CAP,     // fail-high fatti da una cattura/promozione
-    FH_QUIET,   // fail-high fatti da una quieta
-    // solo Triumviratus: perche' la futility quiet non scatta (quiete dalla 2a mossa in poi)
+    FH,         // fail highs in the loop
+    FH_FIRST,   // fail highs at the first move played
+    FH_MOVESUM, // sum of the order number of the move that fails high
+    FH_HASTT,   // fail highs in nodes with a TT move
+    FH_TT,      // fail highs made by the TT move
+    FH_CAP,     // fail highs made by a capture/promotion
+    FH_QUIET,   // fail highs made by a quiet move
+    // Triumviratus only: why the quiet futility does not fire (quiet moves from the 2nd move on)
     QCONS, FUT_PV, FUT_INCHECK, FUT_DEEP, FUT_EVALUP, FUT_TRY, FUT_PDSUM, FUT_GAPSUM,
-    TT_HIT, TT_MOVE,   // nodi principali (ply > 0) con entry TT trovata / con mossa TT
-    FH_FIRST_CAP,      // fail-high fatti da una cattura giocata come prima mossa
+    TT_HIT, TT_MOVE,   // main nodes (ply > 0) with a TT entry found / with a TT move
+    FH_FIRST_CAP,      // fail highs made by a capture played as the first move
     NKEYS
 };
 inline const char* const kName[NKEYS] = {

@@ -1,5 +1,5 @@
-// search/10_order.inc -- Validazione delle mosse, ripetizioni, ordinamento delle mosse.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/10_order.inc -- Move validation, repetitions, move ordering.
+// Part of threads.cpp: it is NOT a translation unit of its own.
 // The first two sections (validation, upcoming repetition) are the engine's own; the repetition table was
 // rewritten on 20/10/2026 (open addressing instead of the cuckoo pair of tables).
 
@@ -33,8 +33,8 @@ static inline bool td_is_pseudo_legal(ThreadData &td, int move) {
   if (!get_bit(td.bitboards[piece], source))
     return false;
 
-  // Chess960: l'arrocco va verificato PRIMA del controllo "destinazione amica" qui sotto, perche' il re puo'
-  // arrivare sulla casa della propria torre o restare fermo. Stessa regola della generazione (chess960.h).
+  // Chess960: castling must be checked BEFORE the "friendly destination" test below, because the king can
+  // arrive on the square of its own rook or stay still. Same rule as the generation (chess960.h).
   if (g_chess960 && castling) {
     if (get_move_capture(move) || promoted || enpass || dbl)
       return false;
@@ -286,9 +286,9 @@ static bool td_upcoming_repetition(ThreadData &td) {
   return false;
 }
 
-// Patta per ripetizione. La posizione corrente e' ripetuta se compare di nuovo nella finestra reversibile
-// (min(fifty, plies dalla mossa nulla)); conta come patta se la volta precedente e' dentro l'albero cercato, o se
-// era gia' a sua volta una ripetizione (tre volte nella storia della partita).
+// Draw by repetition. The current position is repeated if it appears again in the reversible window
+// (min(fifty, plies since the null move)); it counts as a draw if the previous occurrence is inside the searched tree, or if
+// it was itself already a repetition (three times in the game history).
 static bool repeated_draw(const ThreadData &td) {
   int end = td.fifty < td.plies_from_null ? td.fifty : td.plies_from_null;
   if (end > td.repetition_index)

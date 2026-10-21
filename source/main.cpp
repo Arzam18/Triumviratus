@@ -13,7 +13,7 @@
 // Syzygy tablebase probing (Fathom)
 #include "syzygy.h"
 
-// Banner di avvio
+// Startup banner
 #include "presentation.h"
 
 #include <string>
@@ -24,23 +24,23 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#include <io.h>            // _isatty/_fileno: rileva se stdin e' un terminale (no GUI)
+#include <io.h>            // _isatty/_fileno: detects whether stdin is a terminal (no GUI)
 #define STDIN_IS_TTY (_isatty(_fileno(stdin)) != 0)
 #else
-#include <unistd.h>        // readlink (/proc/self/exe) per risolvere la dir dell'eseguibile
-#include <sys/resource.h>  // setrlimit(RLIMIT_STACK): stack grande per i thread di ricerca
+#include <unistd.h>        // readlink (/proc/self/exe) to resolve the executable's directory
+#include <sys/resource.h>  // setrlimit(RLIMIT_STACK): big stack for the search threads
 #define STDIN_IS_TTY (isatty(fileno(stdin)) != 0)
 #endif
 
-// Startup SILENZIOSO quando il motore e' lanciato da una GUI (stdin non e' un
-// TTY). Un motore UCI deve essere MUTO finche' non risponde a "uci" con
-// id/option/uciok: banner o info string PRIMA di "id name" possono corrompere il
-// modo in cui una GUI severa (ChessBase/Fritz) registra le opzioni del motore
-// (es. poi non gli invia mai SyzygyPath -> tablebase mai usate). Gli umani in
-// terminale vedono comunque banner + info. Letto da main e da consilium_bridge.
+// SILENT startup when the engine is launched by a GUI (stdin is not a
+// TTY). A UCI engine must be SILENT until it answers "uci" with
+// id/option/uciok: a banner or info string BEFORE "id name" can corrupt the
+// way a strict GUI (ChessBase/Fritz) registers the engine's options
+// (e.g. it then never sends SyzygyPath -> tablebases never used). Humans in a
+// terminal still see banner + info. Read by main and by consilium_bridge.
 bool g_startup_quiet = false;
 #ifdef TRIUMV_VID
-extern "C" const char *g_triumv_isa;   // binario universale: nome della variante scelta (universal/entry.cpp)
+extern "C" const char *g_triumv_isa;   // universal binary: name of the chosen variant (universal/entry.cpp)
 #endif
 
 // Resolve an NNUE net filename to a path that exists, INDEPENDENT of the current
@@ -135,14 +135,14 @@ static std::string default_syzygy_dir()
 int main()
 {
 #ifndef _WIN32
-    // Linux: i thread di ricerca (std::thread = pthread) nascono con stack pari a
-    // RLIMIT_STACK (default ~8 MB). La ricorsione di td_negamax (depth + qsearch +
-    // estensioni, fino a ply 64) con frame grandi lo sfora -> stack-overflow/SEGV.
-    // Su Windows lo stack dei thread e' la riserva scritta nell'header dell'exe. Fino al 26/09/2026 era
-    // 1 MB (il commento qui diceva il contrario): con max_ply 128 il caso peggiore stimato era ~0,78 MB.
-    // Da allora il vcxproj imposta StackReserveSize = 8 MB (AUDIT D).
-    // Alziamo il soft limit a 256 MB PRIMA di creare qualunque thread (i pthread
-    // creati dopo ereditano lo stack grande).
+    // Linux: the search threads (std::thread = pthread) are born with a stack equal to
+    // RLIMIT_STACK (default ~8 MB). The recursion of td_negamax (depth + qsearch +
+    // extensions, up to ply 64) with big frames exceeds it -> stack overflow/SEGV.
+    // On Windows the thread stack is the reserve written in the exe header. Until 26/09/2026 it was
+    // 1 MB (the comment here said the opposite): with max_ply 128 the estimated worst case was ~0.78 MB.
+    // Since then the vcxproj sets StackReserveSize = 8 MB (AUDIT D).
+    // We raise the soft limit to 256 MB BEFORE creating any thread (the pthreads
+    // created afterwards inherit the big stack).
     {
         struct rlimit rl;
         if (getrlimit(RLIMIT_STACK, &rl) == 0) {
@@ -155,10 +155,10 @@ int main()
         }
     }
 #endif
-    // Rileva se siamo lanciati da una GUI (stdin non-TTY) -> startup muto.
+    // Detects whether we were launched by a GUI (stdin non-TTY) -> silent startup.
     g_startup_quiet = !STDIN_IS_TTY;
 
-    // Banner di presentazione (solo in terminale interattivo, mai verso una GUI)
+    // Presentation banner (only in an interactive terminal, never towards a GUI)
     // if (!g_startup_quiet)
     //     ascii_art();
 
@@ -178,15 +178,15 @@ int main()
     // a Stockfish reference net here, which silently made a dev-build bench/SPRT run on
     // different weights than a release build unless EvalFile was set explicitly -> never
     // again; both build kinds load our own net by default now).
-    // TRANN3 (4 blocchi: threats+halfka+pawnpair+passedpawns). UNA sola fonte di verita'
-    // per il nome (CN_DEFAULT_NET_FILE in consilium_bridge.cpp), esposta via bridge: una stringa
-    // duplicata qui e' gia' costata un quasi-incidente (release che spediva lo zerograft).
+    // TRANN3 (4 blocks: threats+halfka+pawnpair+passedpawns). ONE single source of truth
+    // for the name (CN_DEFAULT_NET_FILE in consilium_bridge.cpp), exposed via the bridge: a string
+    // duplicated here already caused a near-incident (a release that shipped the zerograft net).
     const char* netName = nn_default_net_name();
     std::string netPath = resolve_net_path(netName);
-    // Un file accanto all'exe/progetto (se c'e') VINCE sempre — override comodo in
-    // sviluppo. Senza file, il nome nudo instrada sul net EMBEDDATO nell'exe
-    // (risorsa RCDATA su Windows, incbin su Linux/Android). "EvalFile" a runtime
-    // continua a caricare qualsiasi path esplicito dal disco.
+    // A file next to the exe/project (if present) ALWAYS WINS - a handy override in
+    // development. Without a file, the bare name routes to the net EMBEDDED in the exe
+    // (RCDATA resource on Windows, incbin on Linux/Android). "EvalFile" at runtime
+    // keeps loading any explicit path from disk.
     const char* loadArg = netPath.empty() ? netName : netPath.c_str();
     if (!nn_load_net(loadArg))
     {
@@ -199,7 +199,7 @@ int main()
         printf("info string Net: %s (%s; Consilium = TRANN3, mixture of 4 phase experts, threat + HalfKA + PawnPair + PassedPawns inputs)\n",
                netName, netPath.empty() ? "embedded" : netPath.c_str());
 #ifdef TRIUMV_VID
-        // Binario universale: la variante scelta per questa CPU (solo in terminale; l'id name non cambia).
+        // Universal binary: the variant chosen for this CPU (terminal only; the id name does not change).
         printf("info string Build: universal, variant %s\n", g_triumv_isa);
 #endif
         fflush(stdout);
@@ -209,9 +209,9 @@ int main()
 
     // Auto-load Syzygy tablebases from a "Syzygy" folder next to the exe
     // (x64\Release\Syzygy). The "SyzygyPath" UCI option overrides this at runtime.
-    // Audit D (27/09/2026, tenuto apposta): scatta solo se quella cartella esiste, cioe' se qualcuno ce l'ha messa;
-    // una GUI che manda SyzygyPath vuoto (o "<empty>") le scarica (syzygy_init), quindi le condizioni di un
-    // tester restano quelle che imposta. L'info string qui sotto rende visibile il caricamento.
+    // Audit D (27/09/2026, kept on purpose): it fires only if that folder exists, i.e. if someone put it there;
+    // a GUI that sends an empty SyzygyPath (or "<empty>") unloads them (syzygy_init), so a
+    // tester's conditions stay those the tester sets. The info string below makes the loading visible.
     {
         std::string tbDir = default_syzygy_dir();
         if (syzygy_init(tbDir.c_str()) && !g_startup_quiet)

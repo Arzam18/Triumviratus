@@ -116,6 +116,14 @@ unsigned char g_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
                                  2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 #ifdef TRIUMV_C2
 std::uint8_t g_router[ROUTER_CELLS];
+std::uint8_t g_router_alt[ROUTER_CELLS];
+thread_local const std::uint8_t* t_router = nullptr;
+void router_alt_build(int shift) {
+    for (int i = 0; i < ROUTER_CELLS; i++) {
+        const int e = g_router[i] + shift;
+        g_router_alt[i] = (std::uint8_t)(e < 0 ? 0 : e > NEXPERTS - 1 ? NEXPERTS - 1 : e);
+    }
+}
 #endif
 
 namespace {
@@ -454,7 +462,10 @@ inline int side_sig(const Board& b, int c) {
 // Cost diagnosis only (21/10/2026): every perspective on expert 0, so no expert change ever forces a refresh.
 inline int expert_of(const Board&, int) { return 0; }
 #else
-inline int expert_of(const Board& b, int p) { return g_router[side_sig(b, p) * ROUTER_SIG + side_sig(b, p ^ 1)]; }
+inline int expert_of(const Board& b, int p) {
+    const std::uint8_t* rt = t_router ? t_router : g_router;   // SmpRouteShift: the thread's table (cn.h)
+    return rt[side_sig(b, p) * ROUTER_SIG + side_sig(b, p ^ 1)];
+}
 #endif
 #endif
 

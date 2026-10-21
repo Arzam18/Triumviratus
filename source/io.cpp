@@ -3,7 +3,7 @@
 // and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #include "defs.h"
 #include "chess960.h"
-#include "attacks.h" // A3: pawn_attacks, per il filtro e.p. fantasma
+#include "attacks.h" // A3: pawn_attacks, for the phantom e.p. filter
 #include "io.h"
 #include "movegen.h"
 #include <cstdio>
@@ -68,7 +68,7 @@ void print_board()
         (castle & bq) ? 'q' : '-');
     if (g_chess960)
     {
-        // Case lette dalla FEN (vedi chess960.h): re bianco/nero, torri per K Q k q.
+        // Squares read from the FEN (see chess960.h): white/black king, rooks for K Q k q.
         printf("     Chess960:  re %s/%s, torri", g_c960.king_from[0] != no_sq ? square_to_coordinates[g_c960.king_from[0]] : "-",
                g_c960.king_from[1] != no_sq ? square_to_coordinates[g_c960.king_from[1]] : "-");
         for (int i = 0; i < 4; i++)
@@ -115,7 +115,7 @@ std::string board_to_fen()
     std::string cr;
     if (g_chess960)
     {
-        // Shredder-FEN: la colonna della torre (KQkq sarebbe ambiguo con due torri dallo stesso lato)
+        // Shredder-FEN: the rook's file (KQkq would be ambiguous with two rooks on the same side)
         const char base[4] = {'A', 'A', 'a', 'a'};
         for (int i = 0; i < 4; i++)
             if (castle & c960_bit(i)) cr += char(base[i] + (castle_rook_sq[i] & 7));
@@ -162,7 +162,7 @@ void reset_board()
     memset(repetition_table, 0ULL, sizeof(repetition_table));
 }
 
-// Ply di partita della posizione data (dal numero di mossa della FEN), per la gestione del tempo (TmFenPly).
+// Game ply of the given position (from the FEN move number), for the time management (TmFenPly).
 int g_fen_ply = 0;
 
 // parse FEN string - IMPROVED to parse halfmove clock
@@ -213,8 +213,8 @@ void parse_fen(const char* fen)
     fen += 2;
 
     // Parse castling rights
-    // Chess960 (chess960.h): X-FEN o Shredder-FEN, case di re e torri lette dalla scacchiera e portate nel
-    // motore. Negli scacchi normali si torna alle case di sempre (h1/a1/h8/a8, maschera fissa).
+    // Chess960 (chess960.h): X-FEN or Shredder-FEN, king and rook squares read from the board and carried into the
+    // engine. In normal chess the usual squares come back (h1/a1/h8/a8, fixed mask).
     if (g_chess960)
     {
         const char* field = fen;
@@ -247,8 +247,8 @@ void parse_fen(const char* fen)
     {
         int file = fen[0] - 'a';
         int rank = 8 - (fen[1] - '0');
-        // AUDIT D (26/09/2026): una casa en passant incoerente col lato al tratto (e3 col Bianco al tratto)
-        // faceva "catturare en passant" un pedone amico e mandava in crash il motore. Si ignora, come SF.
+        // AUDIT D (26/09/2026): an en passant square inconsistent with the side to move (e3 with White to move)
+        // made a friendly pawn "capture en passant" and crashed the engine. It is ignored, as SF does.
         const bool ep_ok = (side == white && fen[1] == '6') || (side == black && fen[1] == '3');
         enpassant = ep_ok ? rank * 8 + file : no_sq;
         fen += 2;
@@ -272,8 +272,8 @@ void parse_fen(const char* fen)
         }
     }
 
-    // Numero di mossa: la gestione del tempo lo usa come ply di partita (TmFenPly, 05/10/2026, audit del nucleo):
-    // dai libri .epd (UHO "... 0 9") la partita non parte da ply 0. Stessa regola di SF: 2*(fullmove-1) + nero.
+    // Move number: the time management uses it as game ply (TmFenPly, 05/10/2026, core audit):
+    // from .epd books (UHO "... 0 9") the game does not start at ply 0. Same rule as SF: 2*(fullmove-1) + black.
     if (*fen == ' ')
     {
         fen++;
@@ -294,15 +294,15 @@ void parse_fen(const char* fen)
     occupancies[both] |= occupancies[white];
     occupancies[both] |= occupancies[black];
 
-    // A3 FIX 2026-07-25: la FEN e' un confine di fiducia (arriva dalla GUI, dai
-    // libri, dagli script di datagen) e non era validata affatto. Una FEN
-    // illegale non e' solo "sbagliata", corrompe memoria:
-    //   - >32 pezzi -> nn_build_piece_list scrive oltre pieces[33]/squares[33]
-    //     e lo stesso loop non limitato in debug_eval_position e' raggiungibile dal comando "eval";
-    //   - re mancante -> get_ls1b_index(0) = -1 usato come indice di casa
-    //     (es. nella ricerca in search/*.inc e in misc.cpp).
-    // Qui si rifiuta e si torna alla posizione iniziale: la ricorsione termina
-    // subito perche' start_position e' valida per costruzione.
+    // A3 FIX 2026-07-25: the FEN is a trust boundary (it comes from the GUI, from the
+    // books, from the datagen scripts) and it was not validated at all. An
+    // illegal FEN is not just "wrong", it corrupts memory:
+    //   - >32 pieces -> nn_build_piece_list writes beyond pieces[33]/squares[33]
+    //     and the same unbounded loop in debug_eval_position is reachable from the "eval" command;
+    //   - missing king -> get_ls1b_index(0) = -1 used as a square index
+    //     (e.g. in the search in search/*.inc and in misc.cpp).
+    // Here it is rejected and we go back to the starting position: the recursion ends
+    // at once because start_position is valid by construction.
     if (count_bits(bitboards[K]) != 1 || count_bits(bitboards[k]) != 1 ||
         count_bits(occupancies[both]) > 32)
     {
@@ -325,21 +325,21 @@ void parse_fen(const char* fen)
         return;
     }
 
-    // E.p. fantasma: se nessun pedone del lato al tratto puo' realmente catturare
-    // sulla casa dichiarata, quella casa cambia la chiave Zobrist senza cambiare
-    // la posizione -> la stessa posizione prende due chiavi e la TT non si
-    // riconosce (misurato: 22566 vs 21406 nodi a TT calda). SF filtra allo stesso
-    // modo in position.cpp. pawn_attacks[side^1][ep] = da dove un pedone del lato
-    // al tratto arriverebbe a catturare in ep.
+    // Phantom e.p.: if no pawn of the side to move can really capture
+    // on the declared square, that square changes the Zobrist key without changing
+    // the position -> the same position gets two keys and the TT does not
+    // recognise it (measured: 22566 vs 21406 nodes with a warm TT). SF filters in the same
+    // way in position.cpp. pawn_attacks[side^1][ep] = where a pawn of the side
+    // to move would capture on ep from.
     if (enpassant != no_sq &&
         !(pawn_attacks[side ^ 1][enpassant] & bitboards[side == white ? P : p]))
         enpassant = no_sq;
 
-    // AUDIT D (27/09/2026): diritti d'arrocco incoerenti con la scacchiera. Il motore conosce solo l'arrocco
-    // classico (re in e1/e8, torri negli angoli); una FEN Chess960 o sbagliata con "KQkq" e il re altrove
-    // faceva generare arrocchi dalle case sbagliate. Si tiene solo il diritto che la posizione rende
-    // possibile (le lettere Shredder A-H erano gia' ignorate dallo switch sopra). Posizioni normali: invariate.
-    // Col 960 acceso la verifica equivalente la fa c960_parse_castling.
+    // AUDIT D (27/09/2026): castling rights inconsistent with the board. The engine knows only classic
+    // castling (king on e1/e8, rooks in the corners); a Chess960 or wrong FEN with "KQkq" and the king elsewhere
+    // made castling be generated from the wrong squares. Only the right the position makes
+    // possible is kept (the Shredder letters A-H were already ignored by the switch above). Normal positions: unchanged.
+    // With 960 on the equivalent check is done by c960_parse_castling.
     const int castle_in = castle;
     if (!g_chess960)
     {

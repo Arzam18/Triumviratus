@@ -1,13 +1,13 @@
-// search/15_tdperft.inc -- `tdperft N`: perft sulla scacchiera PER THREAD (quella della ricerca), con verifiche.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Solo build di sviluppo (#ifndef TRIUMV_FROZEN).
+// search/15_tdperft.inc -- `tdperft N`: perft on the PER-THREAD board (the search one), with checks.
+// Part of threads.cpp: it is NOT a translation unit of its own. Development builds only (#ifndef TRIUMV_FROZEN).
 //
-// Nato nell'audit D (26/09/2026, 171 posizioni, 482M nodi, 0 errori) e portato nel sorgente il 27/09 per il
-// Chess960 (tools/perft960.py --cmd tdperft). Il perft classico usa make_move GLOBALE: questo invece passa da
-// td_generate_moves / td_make_move / td_unmake_move, e a ogni nodo controlla:
-//   - hash, pawn key, chiavi non-pedone e minori/maggiori ricalcolate da zero contro quelle incrementali;
-//   - la mailbox contro le bitboard;
-//   - td_is_pseudo_legal sulle mosse del PADRE (come una mossa TT o killer arrivata da un'altra posizione):
-//     falso positivo = accetta una mossa che qui non si genera (plfp, deve essere 0).
+// Born in audit D (26/09/2026, 171 positions, 482M nodes, 0 errors) and brought into the source on 27/09 for
+// Chess960 (tools/perft960.py --cmd tdperft). The classic perft uses the GLOBAL make_move: this one instead goes through
+// td_generate_moves / td_make_move / td_unmake_move, and at every node checks:
+//   - hash, pawn key, non-pawn and minor/major keys recomputed from scratch against the incremental ones;
+//   - the mailbox against the bitboards;
+//   - td_is_pseudo_legal on the PARENT's moves (like a TT or killer move arriving from another position):
+//     false positive = accepts a move that is not generated here (plfp, must be 0).
 #ifndef TRIUMV_FROZEN
 static U64 tdp_key_mism = 0, tdp_pl_fp = 0, tdp_pl_fn = 0, tdp_nodes_checked = 0;
 static void tdp_check_keys(ThreadData &td) {
@@ -48,8 +48,8 @@ static void tdp_check_keys(ThreadData &td) {
     tdp_key_mism++;
   }
 }
-// GL (15/10/2026): a ogni nodo il generatore legale (movegen_legal.h) deve dare esattamente le mosse del generatore di
-// sempre che la make accetta, per tutte le mosse e per le due fasi della coda (tattiche e quiete), sotto scacco e no.
+// GL (15/10/2026): at every node the legal generator (movegen_legal.h) must give exactly the moves of the usual
+// generator that the make accepts, for all moves and for the two stages of the queue (tacticals and quiets), in check and not.
 static U64 tdp_legal_mism = 0;
 static void tdp_old_legal(ThreadData &td, moves *out, bool captures_only, bool quiets_only, bool promo_quiet,
                           bool promo_queen_only) {
@@ -92,7 +92,7 @@ static void tdp_check_legal(ThreadData &td) {
 static U64 tdp_rec(ThreadData &td, int depth, const moves *parent) {
   moves ml[1];
   td_generate_moves(td, ml);
-  // La pseudo-legalita' delle mosse del padre si controlla contro la lista pseudo-legale di sempre.
+  // The pseudo-legality of the parent's moves is checked against the usual pseudo-legal list.
   tdp_check_legal(td);
   moves pl_list[1];
   if (td.side == white)
@@ -100,7 +100,7 @@ static U64 tdp_rec(ThreadData &td, int depth, const moves *parent) {
   else
     td_generate_moves_side<black>(td, pl_list, false, false, -1, false, false, false);
   const moves *gen = td_lists_legal() ? pl_list : ml;
-  if (parent) {  // mosse del padre (come killer/TT move da un'altra posizione): pseudo-legale solo se generata qui
+  if (parent) {  // parent's moves (like a killer/TT move from another position): pseudo-legal only if generated here
     for (int i = 0; i < parent->count; i++) {
       const int m = parent->moves[i];
       bool in_list = false;
@@ -134,7 +134,7 @@ void td_perft_driver(int depth) {
   tdp_check_keys(td);
   tdp_legal_mism = 0;
   tdp_check_legal(td);
-  // perft vero: conta le foglie a profondita' depth (tdp_rec conta le foglie quando depth==0)
+  // true perft: counts the leaves at depth depth (tdp_rec counts the leaves when depth==0)
   U64 leaves = 0;
   moves ml[1];
   td_generate_moves(td, ml);
@@ -160,14 +160,14 @@ void td_perft_driver(int depth) {
   fflush(stdout);
 }
 
-// `nnperft N` (07/10/2026, scacchiera unica): perft sulla scacchiera per thread che VALUTA con la rete, col
-// controllo nnueverify acceso (catena incrementale contro refresh completo, accumulatori interi). Si valuta a ogni
-// foglia e in un nodo interno su tre (scelto dalla chiave), cosi' la catena incrementale ha lunghezze diverse; in
-// un nodo interno su cinque non sotto scacco si inserisce anche una mossa nulla. Copre tutte le mosse della suite:
-// arrocchi (anche Chess960), en passant, promozioni, catture di promozione. Si controllano anche le chiavi e la
-// mailbox (come tdperft) e, dalla v2, che la pila delle dirty abbia uno stato per ogni mossa fatta dalla radice.
+// `nnperft N` (07/10/2026, single board): perft on the per-thread board that EVALUATES with the network, with the
+// nnueverify check on (incremental chain against full refresh, whole accumulators). It evaluates at every
+// leaf and at one internal node in three (chosen by the key), so that the incremental chain has different lengths; at
+// one internal node in five not in check a null move is also inserted. It covers all the moves of the suite:
+// castling (Chess960 too), en passant, promotions, promotion captures. The keys and the
+// mailbox are checked too (as in tdperft) and, since v2, that the dirty stack has one state for every move made from the root.
 static U64 nnp_evals = 0;
-static int nnp_moves = 0;  // mosse (non nulle) fatte dalla radice
+static int nnp_moves = 0;  // (non-null) moves made from the root
 static bool nnp_lean = false;  // nnspeed: only the evaluation, no checks
 static inline void nnp_eval(ThreadData &td) {
   td_nn_eval(td);
@@ -209,7 +209,7 @@ static U64 nnp_rec(ThreadData &td, int depth) {
   U64 n = 0;
   const int ksq = get_ls1b_index(td.side == white ? td.bitboards[K] : td.bitboards[k]);
   if (depth >= 2 && td.hash_key % 5 == 0 && !td_is_square_attacked(td, ksq, td.side ^ 1)) {
-    // mossa nulla: cambia solo il lato (e l'en passant); la rete non registra nulla
+    // null move: only the side changes (and the en passant); the network records nothing
     const int ep = td.enpassant;
     const U64 hk = td.hash_key;
     if (ep != no_sq) td.hash_key ^= enpassant_keys[ep];

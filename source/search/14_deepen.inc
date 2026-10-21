@@ -318,7 +318,7 @@ static void report_lines(ThreadData &td, int depth) {
 }
 
 // ============================================================================
-// APPROFONDIMENTO ITERATIVO (un thread)
+// ITERATIVE DEEPENING (one thread)
 // ============================================================================
 static inline bool line_before(const RootLine &a, const RootLine &b) {
   return a.score != b.score ? a.score > b.score : a.prev_score > b.prev_score;
@@ -328,25 +328,25 @@ static void settle_lines(ThreadData &td, int from, int to) {
   std::stable_sort(td.root + from, td.root + to, line_before);
 }
 
-// AnDirect (Pos Solver, 15/10/2026): le raccolte di posizioni indicano come chiave la vittoria piu' diretta, e chi
-// analizza vuole vedere quella; noi (e SF19) scegliamo spesso una mossa tranquilla con un punteggio un po' piu' alto.
-// Con due linee esatte entrambe sopra DirectFrom e distanti al massimo DirectGap, se la seconda e' forzante (scacco,
-// cattura, promozione) e la prima no, si scambiano. Va chiamata con la scacchiera alla radice.
-// Mossa diretta alla radice (AnDirect, AnDirLine): scacco, cattura, promozione, o sacrificio (mossa tranquilla con
-// scambio statico negativo). Senza il sacrificio AnDirect perdeva IQ4 162 (chiave Bd5, scambiata con lo scacco Nf5+).
+// AnDirect (Pos Solver, 15/10/2026): the position collections give the most direct win as the key, and whoever
+// analyses wants to see that one; we (and SF19) often choose a quiet move with a slightly higher score.
+// With two exact lines both above DirectFrom and at most DirectGap apart, if the second is forcing (check,
+// capture, promotion) and the first is not, they are swapped. It must be called with the board at the root.
+// Direct move at the root (AnDirect, AnDirLine): check, capture, promotion, or sacrifice (quiet move with
+// negative static exchange). Without the sacrifice AnDirect lost IQ4 162 (key Bd5, swapped with the check Nf5+).
 static bool root_direct(ThreadData &td, MoveSafety &s, int m) {
   return is_tactical(m) || checks_before(td, s, m) || !see_holds(td, m, 0);
 }
 
-// La prima linea e' tranquilla e nettamente vincente (soglia DirectFrom): le condizioni di AnDirect e AnDirLine.
+// The first line is quiet and clearly winning (threshold DirectFrom): the conditions of AnDirect and AnDirLine.
 static bool root_quiet_win(ThreadData &td, MoveSafety &s) {
   const RootLine &a = td.root[0];
   return a.score != -infinity && !a.upper && !a.lower && !val_decided(a.score) &&
          units_to_cp(a.score) >= DirectFrom && !root_direct(td, s, a.pv[0]);
 }
 
-// 15/10/2026 sera: restituisce true se ha scambiato; deepen rimette l'ordine prima dell'iterazione successiva, cosi'
-// l'albero resta quello di AnShadow e cambiano solo la linea mostrata e la bestmove.
+// Evening of 15/10/2026: returns true if it swapped; deepen restores the order before the next iteration, so
+// the tree stays that of AnShadow and only the line shown and the bestmove change.
 static bool an_direct(ThreadData &td, int lines) {
   if (!(td.an_bits & AN_DIRECT) || lines < 2)
     return false;
@@ -379,7 +379,7 @@ static void prepare_frames(ThreadData &td) {
 }
 
 static void set_thread_optimism(ThreadData &td, int avg) {
-  // optimism nelle unita' della rete: lo score medio torna in quelle unita' prima della formula.
+  // optimism in network units: the mean score goes back to those units before the formula.
   const int net = (int)((long long)avg * 1024 / EvalUnits);
   const int o = OptStrength * net / (std::abs(net) + OptDiv);
   td.opt[td.side] = o;
@@ -388,23 +388,23 @@ static void set_thread_optimism(ThreadData &td, int avg) {
 }
 
 // ---------------------------------------------------------------------------
-// MODALITA' ANALISI (09/10/2026; opzioni e origine delle idee in search/01_params.inc).
+// ANALYSIS MODE (09/10/2026; options and origin of the ideas in search/01_params.inc).
 // ---------------------------------------------------------------------------
 
-// GoldDigger (AnGold). Meccanismo di ShashChess (amchess), build -DGOLD_DIGGER, letto nel sorgente pubblico: la radice
-// viene classificata (stile di Shashin dalla probabilita' di vittoria della valutazione: difesa/"Petrosian" <= 24%,
-// equilibrio/"Capablanca" ~50%, attacco/"Tal" 80-89%, vantaggio netto >= 95%) e marcata con tre fatti statici (una
-// cattura possibile con un pezzo che vale piu' del catturato, un pedone oltre la meta' scacchiera, un re attaccato con
-// peso > 5). Da li': razoring piu' prudente, margine della futility del nodo (la nostra RFP) x1,5 o x1,2, mossa nulla
-// saltata quando il calore tattico arriva a 4 (gd_skip_null, 13_search.inc), riduzioni al 97% o 103% e piccoli ritocchi
-// per stile, finestra d'aspirazione piu' stretta in equilibrio e piu' larga in attacco. Codice nostro sulla nostra
-// ricerca; non portati: fortezze, soglia del numero di mosse per stile, e tutto cio' che ShashChess fa anche senza
-// GoldDigger. Statico una volta per ricerca, stile ricalcolato a ogni iterazione col punteggio dell'iterazione prima.
+// GoldDigger (AnGold). Mechanism of ShashChess (amchess), build -DGOLD_DIGGER, read in the public source: the root
+// is classified (Shashin style from the win probability of the evaluation: defence/"Petrosian" <= 24%,
+// balance/"Capablanca" ~50%, attack/"Tal" 80-89%, clear advantage >= 95%) and marked with three static facts (a
+// possible capture with a piece worth more than the captured one, a pawn beyond the middle of the board, a king attacked with
+// weight > 5). From there: more cautious razoring, node futility margin (our RFP) x1.5 or x1.2, null move
+// skipped when the tactical heat reaches 4 (gd_skip_null, 13_search.inc), reductions at 97% or 103% and small tweaks
+// per style, aspiration window narrower in balance and wider in attack. Our code on our
+// search; not ported: fortresses, move-count threshold per style, and everything ShashChess does even without
+// GoldDigger. Static once per search, style recomputed at every iteration with the score of the previous iteration.
 struct GdRoot { bool sacrificial, near_promo, king_danger, many_moves; };
 
 static GdRoot gd_root_facts(ThreadData &td) {
   GdRoot g{};
-  for (int i = 0; i < td.root_count; i++) {   // mosse di radice: gia' legali
+  for (int i = 0; i < td.root_count; i++) {   // root moves: already legal
     const int m = td.root[i].pv[0];
     if (!get_move_capture(m) || kPieceKind[move_piece(m)] == K)
       continue;
@@ -434,7 +434,7 @@ static GdRoot gd_root_facts(ThreadData &td) {
 static void gd_iteration(ThreadData &td, const GdRoot &g, int score) {
   int w, d, l;
   wdl_from_cp(units_to_cp(score), w, d, l);
-  const int wp = (w + d / 2 + 5) / 10;   // probabilita' di vittoria in percento
+  const int wp = (w + d / 2 + 5) / 10;   // win probability in percent
   const bool petrosian = wp <= 24, aggressive = wp >= 80 && wp <= 89, high_tal = wp >= 95;
   const bool strategical = wp >= 45 && wp <= 55 && !g.king_danger && !g.near_promo;
   td.gd_style = aggressive ? 1 : strategical ? 2 : petrosian ? 3 : high_tal ? 4 : 0;
@@ -444,12 +444,12 @@ static void gd_iteration(ThreadData &td, const GdRoot &g, int score) {
   td.gd_razor = (aggressive || g.sacrificial) ? 150 : strategical ? 50 : 0;
 }
 
-// Valori effettivi della modalita' analisi per l'iterazione corrente (dopo lt_update). In partita (an_bits = 0)
-// riproducono esattamente il calcolo di prima: deep_w dai parametri DeepKnee/DeepSpan, leve = Deep* x deep_w / 1024.
-static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDeep, preset AnDeep 0 per l'iterazione
+// Effective values of the analysis mode for the current iteration (after lt_update). In games (an_bits = 0)
+// they reproduce exactly the old computation: deep_w from the parameters DeepKnee/DeepSpan, levers = Deep* x deep_w / 1024.
+static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDeep, preset AnDeep 0 for the iteration
   const bool on = td.an_bits != 0;
   int deep = on && !plain ? g_an_deep : 0;
-  if (on && (td.an_bits & AN_SMP) && (td.thread_id & 1))   // AnSmp: i thread helper dispari col preset piu' largo
+  if (on && (td.an_bits & AN_SMP) && (td.thread_id & 1))   // AnSmp: the odd helper threads with the wider preset
     deep = 3;
   const bool ext = on && (td.an_bits & AN_EXT);
   if (deep || ext) {
@@ -463,7 +463,7 @@ static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDe
     td.dz_sing = (ext ? kAnSing : 0) * w / 1024;
     td.dz_ext = (ext ? kAnExt : 0) * w / 1024;
   } else {
-    // Idea 2 (Deep*): peso 0..1024 dei termini "profondi", da DeepKnee a DeepKnee + DeepSpan.
+    // Idea 2 (Deep*): weight 0..1024 of the "deep" terms, from DeepKnee to DeepKnee + DeepSpan.
     td.deep_w = std::clamp((td.root_depth - DeepKnee) * 1024 / DeepSpan, 0, 1024);
     const int w = td.deep_w;
     td.dz_rfp = DeepRfp * w / 1024;
@@ -487,10 +487,15 @@ static void deepen(ThreadData &td) {
 #endif
   NodeFrame *root = &td.frames[FRAME_OFFSET];
   prepare_frames(td);
+#ifdef TRIUMV_C2
+  // SmpRouteShift (21/10/2026): the odd helpers evaluate with the shifted routing table (built in start_search), set
+  // here, in the thread itself, before its first evaluation; every other thread with the network's table.
+  nn_thread_router(SmpRouteShift && (td.thread_id & 1));
+#endif
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
-  td.root_side = td.side;   // Contempt: la patta vale meno per chi muove alla radice
-  // DrawDefend: dal punteggio con cui si e' chiusa la mossa precedente (fisso per tutta la ricerca e uguale per tutti i
-  // thread; ricalcolarlo a ogni iterazione lo spegnerebbe appena la ricerca trova la patta che cercava).
+  td.root_side = td.side;   // Contempt: the draw is worth less for the side to move at the root
+  // DrawDefend: from the score with which the previous move closed (fixed for the whole search and the same for all the
+  // threads; recomputing it at every iteration would turn it off as soon as the search finds the draw it was looking for).
   td.draw_defend = 0;
   if (DrawDefend && g_clock.have_prev && g_clock.prev_best != -infinity && g_clock.prev_best <= -DrawDefendFrom)
     td.draw_defend = (int)((long long)DrawDefend *
@@ -504,14 +509,14 @@ static void deepen(ThreadData &td) {
     td.c2_conv_root = c2_conv_root_decide(td, static_evaluate(td));
 #endif
   td.deep_w = 0;
-  td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
+  td.lt_lmr_log_mul = -1;   // forces the construction of the thread's table at the first iteration (root_depth is 0)
   lt_update(td);
-  // Modalita' analisi: decisa una volta per ricerca (un setoption durante la ricerca vale dalla prossima).
-  // Pos Solver (TRIUMV_POS_SOLVER): sempre accesa, qualunque cosa mandi la GUI (utente 14/10/2026).
+  // Analysis mode: decided once per search (a setoption during the search applies from the next one).
+  // Pos Solver (TRIUMV_POS_SOLVER): always on, whatever the GUI sends (user 14/10/2026).
   const bool analyse = PSV(false, true) || g_analyse_mode || (g_analyse_infinite && g_limits.infinite);
   td.an_bits = analyse ? (g_an_bits | AN_ACTIVE) : 0;
-  // Una riga per ricerca, solo dal thread principale e solo in analisi (in partita an_bits = 0: niente stampa), con
-  // il preset in uso: chi analizza vede che la modalita' e' accesa e con quali componenti.
+  // One line per search, from the main thread only and only in analysis (in games an_bits = 0: no printing), with
+  // the preset in use: whoever analyses sees that the mode is on and with which components.
   if (main && (td.an_bits & AN_ACTIVE)) {
     static const struct { const char *name; int bit; } kAnNames[] = {
       {"AnExt", AN_EXT}, {"AnNmpVerify", AN_NMPV}, {"AnQsChecks", AN_QSCHK}, {"AnSmp", AN_SMP},
@@ -566,7 +571,7 @@ static void deepen(ThreadData &td) {
 
   int best = -infinity;
   bool direct_swapped = false;
-  int quiet_hist[3] = {-infinity, -infinity, -infinity};   // AnShQuiet: punteggio delle ultime tre iterazioni
+  int quiet_hist[3] = {-infinity, -infinity, -infinity};   // AnShQuiet: score of the last three iterations
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
@@ -577,13 +582,13 @@ static void deepen(ThreadData &td) {
         td.root[0].score > -infinity)
       td.c2_conv_root = c2_conv_root_decide(td, td.root[0].score);
 #endif
-    if (direct_swapped) {   // AnDirect: la ricerca riparte dall'ordine vero delle linee
+    if (direct_swapped) {   // AnDirect: the search restarts from the true order of the lines
       std::swap(td.root[0], td.root[1]);
       direct_swapped = false;
     }
-    lt_update(td);   // rampa "tempo lungo": valori effettivi delle leve Lt* per questa profondita' di radice
-    // Posizione tranquilla e stabile vista dalla ricerca (AnShQuiet, AnQDeep): da QuietFrom, punteggio entro QuietCp per
-    // tre iterazioni, prime due mosse non dirette.
+    lt_update(td);   // "long time" ramp: effective values of the Lt* levers for this root depth
+    // Quiet and stable position as seen by the search (AnShQuiet, AnQDeep): from QuietFrom, score within QuietCp for
+    // three iterations, first two moves not direct.
     bool quiet_now = false;
     if ((td.an_bits & (AN_SHQUIET | AN_QDEEP)) && td.root_count >= 2 && td.root_depth > QuietFrom &&
         quiet_hist[2] != -infinity && !val_decided(quiet_hist[0]) &&
@@ -608,27 +613,27 @@ static void deepen(ThreadData &td) {
     if (!g_clock.increase_depth)
       again++;
 
-    // Varianti di AnShadow (ShadowFrom/ShadowMargin): in questa iterazione si cercano solo le linee mostrate.
+    // Variants of AnShadow (ShadowFrom/ShadowMargin): in this iteration only the lines shown are searched.
     int iter_lines = lines;
     if (lines > shown &&
         (td.root_depth < ShadowFrom ||
          (ShadowMargin && td.root[shown].score != -infinity && td.root[0].score != -infinity &&
           td.root[0].score - td.root[shown].score > ShadowMargin)))
       iter_lines = shown;
-    // AnShQuiet: posizione tranquilla e stabile -> una linea sola in questa iterazione.
+    // AnShQuiet: quiet and stable position -> a single line in this iteration.
     if ((td.an_bits & AN_SHQUIET) && quiet_now && iter_lines > shown)
       iter_lines = shown;
     for (td.pv_idx = 0; td.pv_idx < iter_lines; td.pv_idx++) {
       td.pv_last = td.root_count;
-      // AnDirLine: con la prima linea tranquilla e vincente, la linea nascosta di AnShadow cerca solo le mosse dirette,
-      // portate in testa al resto della lista (ordine relativo invariato).
+      // AnDirLine: with the first line quiet and winning, the hidden line of AnShadow searches only the direct moves,
+      // brought to the head of the rest of the list (relative order unchanged).
       if ((td.an_bits & AN_DIRLINE) && td.pv_idx == shown && td.pv_idx >= 1) {
         MoveSafety s;
         s.ready = false;
         if (root_quiet_win(td, s)) {
           RootLine *first = td.root + td.pv_idx, *last = td.root + td.root_count;
           RootLine *mid = std::stable_partition(first, last, [&](const RootLine &rl) { return root_direct(td, s, rl.pv[0]); });
-          if (mid != first)   // senza mosse dirette la seconda linea resta quella normale
+          if (mid != first)   // without direct moves the second line stays the normal one
             td.pv_last = (int)(mid - td.root);
         }
       }
@@ -700,9 +705,9 @@ static void deepen(ThreadData &td) {
       if (stop_threads.load(std::memory_order_relaxed))
         break;
     }
-    // AnStopKeep (14/10/2026 notte, solo con piu' linee): fermata a meta' iterazione, le linee da pv_idx in giu' hanno
-    // punteggi di profondita' diverse; quella con un limite superiore fresco (fallimento basso non ancora risolto)
-    // torna al valore completo dell'iterazione prima invece di finire dietro a punteggi vecchi delle altre.
+    // AnStopKeep (night of 14/10/2026, only with several lines): stopped mid-iteration, the lines from pv_idx down have
+    // scores of different depths; the one with a fresh upper bound (fail low not yet resolved)
+    // goes back to the full value of the previous iteration instead of ending up behind old scores of the others.
     if ((td.an_bits & AN_STOPKEEP) && lines > 1 && stop_threads.load(std::memory_order_relaxed)) {
       for (int i = td.pv_idx; i < td.root_count; i++) {
         RootLine &rl = td.root[i];
@@ -722,10 +727,10 @@ static void deepen(ThreadData &td) {
       quiet_hist[1] = quiet_hist[0];
       quiet_hist[0] = td.root[0].score;
     }
-    if (!direct_swapped)   // ricerca fermata a meta' iterazione: la regola vale anche per la linea ristampata
+    if (!direct_swapped)   // search stopped mid-iteration: the rule applies to the reprinted line too
       direct_swapped = an_direct(td, iter_lines);
 
-    // Un matto gia' provato non si dimentica: se l'iterazione lo perde, si torna alla linea che lo aveva.
+    // A mate already proved is not forgotten: if the iteration loses it, we go back to the line that had it.
     RootLine &top = td.root[0];
     const bool stopped = stop_threads.load(std::memory_order_relaxed);
     const bool forgot_mate = last_best_score != -infinity && val_mating(last_best_score) &&
@@ -756,13 +761,13 @@ static void deepen(ThreadData &td) {
       td.root[0].lower = td.root[0].upper = false;
     }
 
-    // V0 (08/10/2026): a ricerca fermata a meta' iterazione le linee sono state riordinate con i risultati parziali
-    // (solo mosse cercate per intero: root_record non gira dopo uno stop), ma la linea si stampava solo a iterazione
-    // finita. La bestmove poteva allora non essere la prima mossa dell'ultima pv stampata (fastchess: "Bestmove
-    // does not match beginning of last PV", ~1 volta ogni 3 partite). Si ristampa la linea definitiva, dopo il
-    // recupero del matto e della linea perduta.
-    // 14/10/2026 notte: anche con MultiPV >= 2 (prima solo con una linea): la bestmove poteva non essere la linea 1
-    // mostrata (Arasan 36: linea 1 c5b6, bestmove f2g3). In partita MultiPV e' 1: nulla cambia.
+    // V0 (08/10/2026): with the search stopped mid-iteration the lines have been reordered with the partial results
+    // (only fully searched moves: root_record does not run after a stop), but the line was printed only at the end of an
+    // iteration. The bestmove could then not be the first move of the last pv printed (fastchess: "Bestmove
+    // does not match beginning of last PV", ~once every 3 games). The final line is reprinted, after the
+    // recovery of the mate and of the lost line.
+    // Night of 14/10/2026: also with MultiPV >= 2 (before only with one line): the bestmove could differ from line 1
+    // shown (Arasan 36: line 1 c5b6, bestmove f2g3). In games MultiPV is 1: nothing changes.
     if (main && stopped && td.completed_depth > 0)
       report_lines(td, td.root_depth);
 
@@ -788,25 +793,25 @@ static void deepen(ThreadData &td) {
       double total_time = g_clock.optimum * v.trend * v.settle * v.churn * v.focus;
       if (td.root_count == 1)
         total_time = std::min<double>(TmSingleMs, total_time);
-      // Risposta prevista (TmExpect*, vedi ClockState): il tempo si riduce solo finche' valgono tutte e tre le
-      // condizioni, ricontrollate a ogni iterazione; se una salta, la mossa riprende il tempo pieno.
+      // Expected reply (TmExpect*, see ClockState): the time is reduced only while all three
+      // conditions hold, rechecked at every iteration; if one fails, the move gets the full time back.
       if (g_clock.expected && TmExpectScale < 1000 && td.root_depth >= g_clock.expect_depth - TmExpectDepth &&
           td.root[0].pv[0] == g_clock.expect_move && td.root[0].score >= g_clock.expect_score - TmExpectMargin)
         total_time *= TmExpectScale / 1000.0;
-      // Sorpresa (TmSurpriseScale): l'avversario non ha giocato la risposta prevista, piu' tempo a questa mossa, ma
-      // solo con l'orologio ancora sopra TmSurpriseClock % di quello di inizio partita.
+      // Surprise (TmSurpriseScale): the opponent did not play the expected reply, more time for this move, but
+      // only with the clock still above TmSurpriseClock % of the one at the start of the game.
       if (g_clock.surprise && TmSurpriseScale > 1000 &&
           100.0 * g_limits.time[td.root_side] >= TmSurpriseClock * g_clock.start_clock) {
-        // TmSurpriseGrade (0 = spenta, tempi identici): peso del tempo in piu' secondo quanto la risposta ha cambiato
-        // il punteggio.
+        // TmSurpriseGrade (0 = off, identical timing): weight of the extra time according to how much the reply changed
+        // the score.
         if (TmSurpriseGrade) {
           const double w = std::clamp(1.0 + (double)(g_clock.expect_score - best) / TmSurpriseGrade, 0.0, 2.0);
           total_time *= 1.0 + (TmSurpriseScale / 1000.0 - 1.0) * w;
         } else
           total_time *= TmSurpriseScale / 1000.0;
       }
-      // TmDefendMul (08/10/2026, audit X3; BAKATA a 500 l'11/10/2026): in difesa (radice fra -TmDefendTo e -TmDefendFrom) piu' tempo; il
-      // tetto resta il massimo della mossa. Contro SF19 in difesa sbagliamo 2-3 volte piu' di lui.
+      // TmDefendMul (08/10/2026, audit X3; BAKED at 500 on 11/10/2026): in defence (root between -TmDefendTo and -TmDefendFrom) more time; the
+      // cap stays the move's maximum. Against SF19 in defence we err 2-3 times more often than it does.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;
       // TmTrans (20/10/2026, ours, 0 = off): the captures in the first TmTransPlies moves of the principal variation
@@ -836,7 +841,7 @@ static void deepen(ThreadData &td) {
         total_time *= trans ? 1 + TmTransMul / 1000.0 : 1 - TmTransRest / 1000.0;
       }
       const int elapsed = get_time_ms() - g_limits.start_ms;
-#ifdef TRIUMV_TMDEBUG   // diagnosi della gestione del tempo (08/10/2026): i fattori a ogni iterazione completata
+#ifdef TRIUMV_TMDEBUG   // time-management diagnostics (08/10/2026): the factors at every completed iteration
       printf("info string tm d %d el %d opt %d max %d fall %.3f red %.3f tr %.3f inst %.3f ch %.2f heavy %.3f "
              "effort %llu exp %d sur %d best %d prev %.0f iter %d tot %.0f\n",
              td.root_depth, elapsed, g_clock.optimum, g_clock.maximum, v.trend, v.settle, time_red, v.churn,

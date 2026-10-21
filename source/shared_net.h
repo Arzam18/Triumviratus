@@ -1,18 +1,18 @@
-// shared_net.h -- rete NNUE in memoria condivisa fra processi (01/10/2026), solo con -DTRIUMV_SHARED_NET.
+// shared_net.h -- NNUE network in memory shared between processes (01/10/2026), only with -DTRIUMV_SHARED_NET.
 //
-// Perche'. Con molti motori sulla stessa macchina (match a 76, SPSA) ogni processo teneva la SUA copia dei pesi:
-// circa 245 MB l'uno, 18 GB a 76 motori, e soprattutto 19 copie diverse degli stessi dati in concorrenza per la
-// stessa L3 di socket. Misurato il 01/10: un motore perde il 46% di NPS con 18 altri motori sul socket. Con la rete
-// condivisa i processi leggono le STESSE pagine fisiche, quindi le righe calde della rete si dividono la cache invece
-// di sfrattarsi a vicenda, e la RAM scende a una copia per nodo NUMA.
+// Why. With many engines on the same machine (matches with 76, SPSA) every process kept ITS OWN copy of the weights:
+// about 245 MB each, 18 GB with 76 engines, and above all 19 different copies of the same data competing for the
+// same socket L3. Measured on 01/10: an engine loses 46% of NPS with 18 other engines on the socket. With the shared
+// network the processes read the SAME physical pages, so the hot rows of the network share the cache instead
+// of evicting each other, and the RAM drops to one copy per NUMA node.
 //
-// Come fa Stockfish (src/shm.h, SystemWideSharedConstant): il primo processo che carica una rete crea un'area con
-// nome (CreateFileMapping su pagefile), ci copia l'oggetto Network intero (e' copiabile byte per byte: pesi in array,
-// nomi in FixedString) e la segna pronta; gli altri la aprono in SOLA LETTURA e liberano la propria copia.
-// Il nome contiene l'hash del contenuto della rete, la sua dimensione e il nodo NUMA del processo: reti diverse o
-// layout diversi non si mescolano mai, e ogni socket ha la sua copia nella propria memoria (la crea il primo processo
-// di quel nodo, che la tocca per primo). Large pages se possibile, poi pagine normali, poi la copia locale di sempre.
-// Tutto sotto un mutex con nome: un processo che muore a meta' copia lascia "ready" a zero e gli altri non la usano.
+// As Stockfish does (src/shm.h, SystemWideSharedConstant): the first process that loads a network creates a named
+// area (CreateFileMapping on the pagefile), copies into it the whole Network object (it is byte-copyable: weights in arrays,
+// names in FixedString) and marks it ready; the others open it READ-ONLY and free their own copy.
+// The name contains the hash of the network's content, its size and the process's NUMA node: different networks or
+// different layouts never mix, and every socket has its copy in its own memory (created by the first process
+// of that node, which touches it first). Large pages if possible, then normal pages, then the usual local copy.
+// All under a named mutex: a process dying mid-copy leaves "ready" at zero and the others do not use it.
 #pragma once
 #if defined(TRIUMV_SHARED_NET) && defined(_WIN32)
 
@@ -59,7 +59,7 @@ inline int numa_node() {
     return GetNumaProcessorNodeEx(&pn, &node) ? int(node) : 0;
 }
 
-// Rilascia la vista precedente (ricaricamento della rete). L'area sparisce quando l'ultimo processo la chiude.
+// Releases the previous view (network reload). The area disappears when the last process closes it.
 inline void release() {
     View& v = current();
     if (v.base) UnmapViewOfFile(v.base);
@@ -67,9 +67,9 @@ inline void release() {
     v = View{};
 }
 
-// Apre in sola lettura un'area gia' esistente (prima come large pages, poi normale) e controlla la testata.
-// 1 = aperta e pronta; 0 = non esiste; -1 = esiste ma non e' (ancora) pronta o non corrisponde.
-// Si puo' chiamare anche senza il mutex: chi crea scrive `ready` per ultimo, dopo la barriera.
+// Opens read-only an already existing area (first as large pages, then normal) and checks the header.
+// 1 = open and ready; 0 = does not exist; -1 = exists but is not (yet) ready or does not match.
+// It can be called without the mutex too: the creator writes `ready` last, after the barrier.
 inline int open_ready(const char* name, std::uint64_t hash, std::size_t size, int node, View& v, const void*& result,
                       std::string& status) {
     if ((v.map = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) == nullptr)
@@ -89,8 +89,8 @@ inline int open_ready(const char* name, std::uint64_t hash, std::size_t size, in
     return -1;
 }
 
-// Ritorna un puntatore all'oggetto condiviso (sola lettura per chi lo apre, scritto una volta da chi lo crea),
-// oppure nullptr: allora il chiamante tiene la sua copia locale. `status` descrive l'esito per l'info string.
+// Returns a pointer to the shared object (read-only for whoever opens it, written once by whoever creates it),
+// or nullptr: then the caller keeps its local copy. `status` describes the outcome for the info string.
 inline const void* attach(const void* src, std::size_t size, std::uint64_t hash, std::string& status) {
     release();
     const int node = numa_node();
@@ -106,13 +106,13 @@ inline const void* attach(const void* src, std::size_t size, std::uint64_t hash,
     View v;
     const void* result = nullptr;
 
-    // Attesa del mutex senza arrendersi (08/10/2026). Prima, dopo 120 s, il processo teneva la sua copia privata.
-    // Chi crea l'area tiene il mutex anche mentre il sistema cerca le large pages, e su un nodo con la memoria
-    // frammentata da ore di match questo puo' durare minuti: nell'SPRT del 08/10 (6+0.06, 140 motori) 9 motori
-    // sono rimasti con una copia privata (402 MB invece di 175), tutti avviati nello stesso secondo, e il socket 1
-    // ha dato -20,8 +- 3,6 Elo contro -0,1 +- 3,2 del socket 0 con la stessa rete, costante dall'inizio alla fine.
-    // Ora si aspetta a passi di 1 s e a ogni passo si prova ad aprire l'area gia' pronta senza mutex; la copia
-    // privata resta solo dopo 15 minuti.
+    // Waiting for the mutex without giving up (08/10/2026). Before, after 120 s, the process kept its private copy.
+    // Whoever creates the area holds the mutex also while the system looks for large pages, and on a node with memory
+    // fragmented by hours of matches this can take minutes: in the SPRT of 08/10 (6+0.06, 140 engines) 9 engines
+    // were left with a private copy (402 MB instead of 175), all started in the same second, and socket 1
+    // gave -20.8 +- 3.6 Elo against -0.1 +- 3.2 for socket 0 with the same network, constant from start to end.
+    // Now it waits in steps of 1 s and at every step tries to open the already ready area without the mutex; the private
+    // copy remains only after 15 minutes.
     DWORD w = WAIT_TIMEOUT;
     for (int s = 0; s < 900 && w == WAIT_TIMEOUT; ++s) {
         w = WaitForSingleObject(mtx, 1000);
@@ -124,13 +124,13 @@ inline const void* attach(const void* src, std::size_t size, std::uint64_t hash,
     }
     if (w != WAIT_OBJECT_0 && w != WAIT_ABANDONED) { CloseHandle(mtx); status = "local (mutex timeout)"; return nullptr; }
 
-    // 1) L'area esiste gia': la apre in sola lettura.
+    // 1) The area already exists: it opens it read-only.
     const int op = open_ready(name, hash, size, node, v, result, status);
     if (op == -1) {
         status = "local (shared area not ready)";
     } else if (op == 0) {
-        // 2) Non esiste: la crea, prima con large pages (serve SeLockMemoryPrivilege), poi con pagine normali.
-        DWORD lpErr = 0;   // perche' le large pages non sono riuscite (0 = privilegio non ottenuto)
+        // 2) It does not exist: it creates it, first with large pages (needs SeLockMemoryPrivilege), then with normal pages.
+        DWORD lpErr = 0;   // why the large pages failed (0 = privilege not obtained)
         bool large = with_lock_memory_privilege(
           [&](std::size_t lp) {
               const std::size_t sz = (total + lp - 1) / lp * lp;
@@ -149,7 +149,7 @@ inline const void* attach(const void* src, std::size_t size, std::uint64_t hash,
         }
         if (v.base) {
             Header* h = static_cast<Header*>(v.base);
-            std::memcpy(static_cast<char*>(v.base) + HeaderBytes, src, size);   // tocca le pagine: nodo locale
+            std::memcpy(static_cast<char*>(v.base) + HeaderBytes, src, size);   // touches the pages: local node
             h->magic = Magic; h->hash = hash; h->size = size; h->largePages = large ? 1 : 0;
             MemoryBarrier();
             h->ready = 1;

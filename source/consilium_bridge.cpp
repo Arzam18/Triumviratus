@@ -617,7 +617,10 @@ void nn_set_phase_map(const unsigned char* map) {
 NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->stack; }
 
 #ifdef TRIUMV_C2
-const unsigned char* nn_router_table(void) { return cn::g_router; }
+// The routing table of the calling thread (SmpRouteShift: the shifted copy on the odd helpers, else the network's).
+const unsigned char* nn_router_table(void) { return cn::t_router ? cn::t_router : cn::g_router; }
+void nn_router_alt_build(int shift) { cn::router_alt_build(shift); }
+void nn_thread_router(int alt) { cn::t_router = alt ? cn::g_router_alt : nullptr; }
 
 // --- C2 signals for the search (agent A) ---
 int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white) {

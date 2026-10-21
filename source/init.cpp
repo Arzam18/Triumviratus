@@ -46,7 +46,7 @@ char mapPieceToPromotion(int piece) {
 }
 
 int quit = 0;
-int movestogo = 0;   // FIX F-003: 0 = "non ricevuto dalla GUI" (vedi reset_time_control)
+int movestogo = 0;   // FIX F-003: 0 = "not received from the GUI" (see reset_time_control)
 int movetime = -1;
 int time_uci = -1;
 int inc = 0;
@@ -61,13 +61,13 @@ int side;
 int enpassant = no_sq;
 int castle;
 U64 hash_key;
-U64 repetition_table[2048];   // vedi defs.h (fix OOB 2026-06-12)
+U64 repetition_table[2048];   // see defs.h (OOB fix 2026-06-12)
 int repetition_index;
 int ply;
 int fifty;
 
-// 16 righe, non 12: le righe 12..15 restano a zero e servono a td_keys_update (search/07_makemove.inc) per leggere
-// "la chiave del pezzo catturato" anche quando non c'e' nessuna cattura (indice 15), senza un salto.
+// 16 rows, not 12: rows 12..15 stay at zero and serve td_keys_update (search/07_makemove.inc) to read
+// "the key of the captured piece" even when there is no capture (index 15), without a branch.
 U64 piece_keys[16][64];
 U64 enpassant_keys[64];
 U64 castle_keys[16];

@@ -160,6 +160,13 @@ extern unsigned char g_phase_map[33];   // expert per piece count (ExpertFix: se
 #ifdef TRIUMV_C2
 // Routing table of the last network loaded (copied at load: the make and Persp read it without the Net).
 extern std::uint8_t g_router[ROUTER_CELLS];
+// SmpRouteShift (21/10/2026): a second table with every expert shifted by a number of material classes, built by the
+// main thread before the helpers start (router_alt_build), and the table the calling thread uses (nullptr = g_router).
+// The make (nn_router_table in the bridge) and Persp (expert_of) read the same pointer, so a thread is consistent with
+// itself; thread 0 always reads g_router.
+extern std::uint8_t g_router_alt[ROUTER_CELLS];
+extern thread_local const std::uint8_t* t_router;
+void router_alt_build(int shift);
 inline int router_sig(int n, int b, int r, int q) {
     return (n < 2 ? n : 2) * 18 + (b < 2 ? b : 2) * 6 + (r < 2 ? r : 2) * 2 + (q < 1 ? q : 1);
 }

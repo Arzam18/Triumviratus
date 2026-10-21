@@ -1,9 +1,9 @@
-// search/03_tables.inc -- Tabelle della ricerca: riduzioni, statistiche condivise fra i thread, preparazione dei
-// thread e della loro scacchiera.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/03_tables.inc -- Search tables: reductions, statistics shared between the threads, preparation of the
+// threads and of their board.
+// Part of threads.cpp: it is NOT a translation unit of its own.
 
 // ---------------------------------------------------------------------------
-// Riduzioni tardive: red_log[i] = LmrLogMul/128 * ln(i), ricalcolata a ogni ricerca (LmrLogMul e' un'opzione).
+// Late reductions: red_log[i] = LmrLogMul/128 * ln(i), recomputed at every search (LmrLogMul is an option).
 // ---------------------------------------------------------------------------
 static int red_log[256];
 
@@ -29,13 +29,13 @@ static void build_reduction_table() {
 }
 
 // ---------------------------------------------------------------------------
-// Chiave della tabella hash (nostra, 05/10/2026). Con HashFiftyStep > 0 la chiave porta anche la fascia del
-// contatore delle 50 mosse: una fascia ogni HashFiftyStep semimosse sopra HashFiftyFrom (fino a 15 fasce). Una
-// posizione raggiunta a 70 semimosse dall'ultima cattura non e' la stessa posizione raggiunta a 10: il limite
-// salvato in hash e' stato cercato con un'altra distanza dalla patta e la rete la valuta smorzata. Sotto From la
-// chiave e' quella di sempre: apertura e mediogioco non perdono trasposizioni. La chiave della scacchiera (td.hash_key)
-// resta intatta per le ripetizioni e per la cache delle valutazioni (che salva l'eval senza smorzamento).
-// A HashFiftyStep = 0 la funzione restituisce td.hash_key: albero identico, nella release il ramo sparisce.
+// Hash table key (ours, 05/10/2026). With HashFiftyStep > 0 the key also carries the band of the
+// fifty-move counter: one band every HashFiftyStep plies above HashFiftyFrom (up to 15 bands). A
+// position reached 70 plies after the last capture is not the same position reached at 10: the bound
+// stored in the hash was searched at another distance from the draw and the network evaluates it damped. Below From the
+// key is the usual one: opening and middlegame lose no transpositions. The board key (td.hash_key)
+// stays intact for repetitions and for the evaluation cache (which stores the eval without damping).
+// At HashFiftyStep = 0 the function returns td.hash_key: identical tree, in the release the branch disappears.
 // ---------------------------------------------------------------------------
 static constexpr U64 fifty_hash_keys[16] = {
     0, 0x2B4AE6736F4FC7BEULL, 0xEAD209722A16E0CBULL, 0x89AE5F87DF9B4018ULL, 0x8B26E98280A48722ULL,
@@ -50,27 +50,27 @@ static inline U64 tt_key(const ThreadData &td) {
 }
 
 // ---------------------------------------------------------------------------
-// Statistiche condivise fra i thread. Le tabelle di seguito (continuation), di struttura pedonale e di correzione
-// sono una sola per tutto il motore e crescono col numero di thread: ogni thread porta la sua fetta di spazio e
-// tutti imparano nella stessa tabella. Le scritture concorrenti su int16 sono innocue per una statistica.
+// Statistics shared between the threads. The follow-up (continuation), pawn-structure and correction tables
+// are one for the whole engine and grow with the number of threads: every thread brings its slice of space and
+// all learn in the same table. Concurrent writes on int16 are harmless for a statistic.
 // ---------------------------------------------------------------------------
-struct CorrSlot {           // le correzioni lette con chiavi diverse ma nello stesso array
+struct CorrSlot {           // the corrections read with different keys but in the same array
   int16_t pawn, minor, np_white, np_black;
-  // 06/10/2026: tolto il campo `major` di CorrMajorW (idea chiusa: -2,1 +- 20,7). Slot da 10 a 8 byte: riga da 16
-  // byte, quattro righe per linea di cache, tabella da 1,31 a 1,05 MB per thread (rapporto N_CORREZIONI 4.6).
-  // Misura xperf a macchina quieta (06/10/2026, PGO release, 6 giri): cicli/nodo mediogioco +0,00%, finali +0,26%:
-  // neutro in velocita'. Tenuto perche' toglie un campo morto.
+  // 06/10/2026: removed the `major` field of CorrMajorW (closed idea: -2.1 +- 20.7). Slot from 10 to 8 bytes: row of 16
+  // bytes, four rows per cache line, table from 1.31 to 1.05 MB per thread (report N_CORREZIONI 4.6).
+  // xperf measurement on a quiet machine (06/10/2026, PGO release, 6 rounds): cycles/node middlegame +0.00%, endgames +0.26%:
+  // neutral in speed. Kept because it removes a dead field.
 };
 
 struct SharedStats {
-  // follow[in_check][capture][pezzo][casa] -> riga pezzo x casa della mossa successiva. Pezzo 12 = sentinella.
+  // follow[in_check][capture][piece][square] -> piece x square row of the next move. Piece 12 = sentinel.
   PieceToRow (*follow)[2][NO_PC + 1][64] = nullptr;
-  PieceToRow* pawn_rows = nullptr;      // [indice struttura pedonale]
-  CorrSlot  (*corr)[2] = nullptr;       // [indice chiave][lato al tratto]
-  int16_t   (*corr_x)[2] = nullptr;     // CorrExpertW: pedoni per esperto, in aggiunta alla condivisa [indice][lato]
+  PieceToRow* pawn_rows = nullptr;      // [pawn-structure index]
+  CorrSlot  (*corr)[2] = nullptr;       // [key index][side to move]
+  int16_t   (*corr_x)[2] = nullptr;     // CorrExpertW: pawns per expert, on top of the shared one [index][side]
   U64 pawn_mask = 0;
   U64 corr_mask = 0;
-  int slots = 0;                        // potenza di due >= numero di thread
+  int slots = 0;                        // power of two >= number of threads
 #ifdef TRIUMV_C2
   // --- C2 ordering (agent ORDER) --- C2StructHistW: [pawn-king signature][piece][to], 4096 rows whatever the number
   // of threads (the key takes ~230 values over the bench), shared like the pawn rows (09_history.inc).
@@ -85,13 +85,13 @@ constexpr int CORR_ROWS_PER_SLOT = 65536;
 constexpr int C2_STRUCT_ROWS = 1 << 12;   // the maximum of C2StructHistBits
 #endif
 
-// V1 (08/10/2026, velocita', albero identico): le tabelle condivise su large pages, come TT e rete. Con un thread sono
-// ~21 MB (follow 5,5 MB, pawn_rows 13,6 MB, corr 1 MB, corr_x 256 KB) letti a caso a ogni nodo (5 righe di
-// continuazione per quieta, 4 correzioni): su pagine da 4 KB sono ~5.200 pagine contro ~1.500 voci dello STLB di
-// questo Xeon, su pagine da 2 MB 11. Profilo del 05/10: td_prefetch_child 2,9% e corr_signal 2,0% dei cicli, entrambi
-// costi di memoria. Senza il privilegio SeLockMemoryPrivilege large_pages_alloc ripiega su VirtualAlloc
-// normale (Windows) o su allocazione allineata + madvise (Linux). La memoria torna azzerata, poi la riempie
-// shared_stats_reset come prima.
+// V1 (08/10/2026, speed, identical tree): the shared tables on large pages, like TT and network. With one thread they are
+// ~21 MB (follow 5.5 MB, pawn_rows 13.6 MB, corr 1 MB, corr_x 256 KB) read at random at every node (5 continuation
+// rows per quiet move, 4 corrections): on 4 KB pages they are ~5,200 pages against ~1,500 STLB entries of
+// this Xeon, on 2 MB pages 11. Profile of 05/10: td_prefetch_child 2.9% and corr_signal 2.0% of the cycles, both
+// memory costs. Without the SeLockMemoryPrivilege privilege large_pages_alloc falls back to normal VirtualAlloc
+// (Windows) or to aligned allocation + madvise (Linux). The memory comes back zeroed, then
+// shared_stats_reset fills it as before.
 template <typename T>
 static T *lp_alloc(size_t bytes) {
   return static_cast<T *>(large_pages_alloc(bytes));
@@ -146,7 +146,7 @@ static void thread_stats_reset(ThreadData &td) {
   td.tt_move_hist = 0;
 }
 
-// Stato della gestione del tempo che vive fra una mossa e l'altra della partita (13_deepen.inc).
+// Time-management state that lives between one move of the game and the next (13_deepen.inc).
 static void clock_memory_reset();
 
 void search_clear() {
@@ -166,11 +166,11 @@ void search_clear() {
 // ---------------------------------------------------------------------------
 // Thread
 // ---------------------------------------------------------------------------
-// AA3 (10/10/2026, velocita', stessa scacchiera): la make copia qui, prima di toccarli, i 64 byte contigui di
-// ThreadData da hash_key a plies_from_null (chiave, sei chiavi parziali, contatore delle 50 mosse, ply dalla mossa nulla)
-// e le tre occupazioni; la unmake li rimette con due copie invece di ricalcolarli (td_keys_update: sei XOR in memoria
-// lette e riscritte, td_occ_update con il salto sulla cattura). Come lo StateInfo di SF, che do_move copia e undo_move
-// lascia indietro.
+// AA3 (10/10/2026, speed, same board): the make copies here, before touching them, the 64 contiguous bytes of
+// ThreadData from hash_key to plies_from_null (key, six partial keys, fifty-move counter, plies since the null move)
+// and the three occupancies; the unmake restores them with two copies instead of recomputing them (td_keys_update: six XORs in memory
+// read and rewritten, td_occ_update with the branch on the capture). Like SF's StateInfo, which do_move copies and undo_move
+// leaves behind.
 struct UndoInfo {
   int captured_piece;
   int captured_square;
@@ -202,7 +202,7 @@ void init_threads(int thread_count) {
   static bool cycle_ready = false;
   if (!cycle_ready) {
     init_cycle_tables();
-    nn_dirty_init();   // raggi per le minacce scoperte delle dirty della rete (06_nndirty.inc)
+    nn_dirty_init();   // rays for the uncovered threats of the network's dirty entries (06_nndirty.inc)
     cycle_ready = true;
   }
 
@@ -229,7 +229,7 @@ void copy_board_to_thread(ThreadData &td) {
   td.castle = castle;
   td.hash_key = hash_key;
   td.fifty = fifty;
-  // Mailbox e chiavi parziali: calcolate qui per intero, poi mantenute da make/unmake.
+  // Mailbox and partial keys: computed here in full, then maintained by make/unmake.
   for (int sq = 0; sq < 64; sq++)
     td.piece_on[sq] = -1;
   td.pawn_key = 0;
@@ -257,7 +257,7 @@ void copy_board_to_thread(ThreadData &td) {
   memcpy(td.repetition_table, repetition_table, sizeof(repetition_table));
   td.repetition_index = repetition_index;
   td.ply = 0;
-  td.see_pin_key = ~td.hash_key;   // SeePinned: inchiodature da ricalcolare alla prima SEE
+  td.see_pin_key = ~td.hash_key;   // SeePinned: pins to be recomputed at the first SEE
 #ifdef TRIUMV_C2
   td.c2_see_pair = -1;             // --- C2 piece values (agent SEE) ---: regime table rebuilt at the first use
 #endif

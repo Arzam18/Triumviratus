@@ -1,13 +1,13 @@
-// search/13_search.inc -- Ricerca principale.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/13_search.inc -- Main search.
+// Part of threads.cpp: it is NOT a translation unit of its own.
 //
-// Un nodo passa per quattro fasi, ognuna una funzione: ingresso (patte, matti, hash, tablebase), valutazione e
-// tagli prima delle mosse, ciclo delle mosse, apprendimento a fine nodo. Lo stato del nodo vive in NodeState.
+// A node goes through four stages, each a function: entry (draws, mates, hash, tablebases), evaluation and
+// cuts before the moves, move loop, learning at the end of the node. The node state lives in NodeState.
 
-// AN (09/10/2026): la ricerca esiste in due copie, partita (AN = false) e modalita' analisi (AN = true), scelte una
-// volta alla radice (deepen). In partita ogni termine dell'analisi e' una costante: con i parametri Deep* congelati a 0
-// della release il compilatore li toglie, come prima della modalita' analisi (xperf: la versione con i termini letti a
-// ogni nodo costava ~1% di cicli in partita). Le due copie danno gli stessi valori di prima nei rispettivi modi.
+// AN (09/10/2026): the search exists in two copies, game (AN = false) and analysis mode (AN = true), chosen once
+// at the root (deepen). In games every analysis term is a constant: with the Deep* parameters frozen at 0
+// in the release the compiler removes them, as before the analysis mode (xperf: the version with the terms read at
+// every node cost ~1% of cycles in games). The two copies give the same values as before in their respective modes.
 template <bool AN>
 static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth, bool cut, bool pv);
 
@@ -20,29 +20,29 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
 #define PL_RULE(x) ((void)0)
 #endif
 
-constexpr int TRACKED = 32;   // mosse provate ricordate per i malus
+constexpr int TRACKED = 32;   // tried moves remembered for the maluses
 
 struct NodeState {
   bool pv, root, cut, all;
   bool in_check, improving, opp_worse, tact_hash, prior_capture, hunt_mate;
-  bool crystal;                   // AnCrystal: nodo della linea principale precedente vicino alla radice (crystal_node)
-  bool no_early;                  // AnKingDanger / AnCycle: niente potature prima delle mosse (solo in analisi)
-  bool no_lmr;                    // AnKingDanger / AnCycle: niente riduzioni LMR positive (solo in analisi)
+  bool crystal;                   // AnCrystal: node of the previous principal variation near the root (crystal_node)
+  bool no_early;                  // AnKingDanger / AnCycle: no pruning before the moves (analysis only)
+  bool no_lmr;                    // AnKingDanger / AnCycle: no positive LMR reductions (analysis only)
   int  alpha, beta, depth;
   int  best, best_move, cap_value;
-  int  moves;                     // mosse legali cercate (il contatore del frame lo riusa la ricerca singolare)
+  int  moves;                     // legal moves searched (the frame's counter is reused by the singular search)
   int  eval, eval_raw, signal;
-  int  signal_x;                  // correzioni sperimentali solo nella valutazione, non nella selettivita' (CorrExpertW)
+  int  signal_x;                  // experimental corrections in the evaluation only, not in the selectivity (CorrExpertW)
   int  prev_to;
   int  excluded;
   int  prior_red;
   HashView h;
   int  quiets[TRACKED], n_quiets;
-  unsigned char quiet_ctx[TRACKED];   // ThreatHist: contesto di minaccia di ciascuna quieta provata
-  int  best_ctx;                  // ThreatHist: contesto della mossa migliore (0 se tattica)
+  unsigned char quiet_ctx[TRACKED];   // ThreatHist: threat context of each quiet move tried
+  int  best_ctx;                  // ThreatHist: context of the best move (0 if tactical)
   int  tacts[TRACKED], n_tacts;
-  U64  causal;                    // CausalRed: case della confutazione dell'ultima quieta fallita bassa (0 = nessuna)
-  int  expert;                   // esperto della rete per il materiale del nodo (net_phase), per i margini *Exp*
+  U64  causal;                    // CausalRed: squares of the refutation of the last quiet move that failed low (0 = none)
+  int  expert;                   // network expert for the node's material (net_phase), for the *Exp* margins
   int  disagree;                 // |psqt - positional| of the network on this node, -1 when the eval came from the hash
 #ifdef TRIUMV_C2
   // C2 search ideas (agent A): the Consilium-2 experts of the node, read only when an idea needs them (g_c2_node).
@@ -97,24 +97,24 @@ static void redres_probes(ThreadData &td, NodeFrame *f, const NodeState &n, int 
 }
 #endif
 
-// Margini per esperto (10/10/2026, nostra): Consilium valuta con quattro esperti per fascia di materiale (net_phase),
-// e la fiducia nella valutazione statica non e' la stessa nei quattro. Le leve RfpExp*, FutExp*, LmrExp* spostano
-// il margine della futility inversa, quello della futility delle quiete e la riduzione LMR secondo l'esperto del nodo
-// (estensione delle correzioni per esperto, CorrPhase +3,2). Tutte a 0 = albero invariato; nella release, con i
-// parametri costanti a 0, il compilatore toglie anche il calcolo dell'esperto.
+// Per-expert margins (10/10/2026, ours): Consilium evaluates with four experts per material band (net_phase),
+// and the trust in the static evaluation is not the same in the four. The levers RfpExp*, FutExp*, LmrExp* shift
+// the reverse futility margin, the quiet-move futility margin and the LMR reduction according to the node's expert
+// (extension of the per-expert corrections, CorrPhase +3.2). All at 0 = tree unchanged; in the release, with the
+// parameters constant at 0, the compiler also removes the computation of the expert.
 static inline int by_expert(int e, int v0, int v1, int v2, int v3) {
   return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3;
 }
 
-// CausalRed (09/10/2026, idea di giugno "potatura causale", riscritta sulla ricerca attuale). Quando una nostra mossa
-// quieta fallisce bassa, la mossa dell'avversario che la confuta (il taglio beta nel figlio) dice dove sta il problema:
-// la casa da cui parte, quella dove arriva e le case che il pezzo attacca da li'. Le quiete sorelle provate dopo che
-// non toccano nessuna di queste case (ne' partenza ne' arrivo) di solito non cambiano nulla contro quella confutazione,
-// e si riducono di piu'. Mai potate: la ricerca ridotta che supera alpha si ripete a profondita' piena come sempre.
-// Gli scacchi, la mossa hash e le spinte dei passati restano fuori. Precedente noto: la "minaccia" della mossa nulla
-// usata da Stockfish 1.x-2.x per potare le mosse non collegate (connected_threat); qui la minaccia e' la confutazione
-// delle sorelle e la mossa si riduce, non si pota.
-// Case attaccate dal pezzo pc (codice P..k) dalla casa sq con l'occupazione occ.
+// CausalRed (09/10/2026, June idea "causal pruning", rewritten on the current search). When one of our quiet moves
+// fails low, the opponent's move that refutes it (the beta cutoff in the child) says where the problem is:
+// the square it starts from, the one it arrives on and the squares the piece attacks from there. The sibling quiet moves tried
+// afterwards that touch none of these squares (neither start nor arrival) usually change nothing against that refutation,
+// and are reduced more. Never pruned: the reduced search that beats alpha is repeated at full depth as always.
+// Checks, the hash move and passer pushes stay out. Known precedent: the "threat" of the null move
+// used by Stockfish 1.x-2.x to prune unconnected moves (connected_threat); here the threat is the refutation
+// of the siblings and the move is reduced, not pruned.
+// Squares attacked by the piece pc (code P..k) from the square sq with the occupancy occ.
 static inline U64 piece_attacks(int pc, int sq, U64 occ) {
   switch (pc % 6) {
     case 0: return pawn_attacks[pc >= 6 ? black : white][sq];
@@ -163,11 +163,11 @@ static inline U64 causal_mask(const ThreadData &td, int refute) {
   return piece_attacks(pc, to, td.occupancies[both]) | (1ULL << from) | (1ULL << to);
 }
 
-static constexpr int NO_VALUE = 1 << 30;   // "nessun valore": la fase non ha chiuso il nodo
+static constexpr int NO_VALUE = 1 << 30;   // "no value": the stage did not close the node
 
-// Reciproci a 40 bit di 256*depth + LmrAllDivBase (divisore della riduzione ai nodi all, vedi move_loop): M =
-// ceil(2^40 / D). 12/10/2026 sera: con LmrAllDivBase e HistDiv* parametri, nella release le tabelle restano costanti
-// calcolate in compilazione; nel dev si ricalcolano a ogni setoption e all'avvio (param_tables_refresh).
+// 40-bit reciprocals of 256*depth + LmrAllDivBase (divisor of the reduction at all nodes, see move_loop): M =
+// ceil(2^40 / D). Evening of 12/10/2026: with LmrAllDivBase and HistDiv* as parameters, in the release the tables stay constants
+// computed at compile time; in dev they are recomputed at every setoption and at startup (param_tables_refresh).
 static constexpr auto make_all_node_recip = [](int base) {
   std::array<unsigned long long, max_ply + 8> r{};
   for (int d = 0; d < max_ply + 8; d++) {
@@ -303,7 +303,7 @@ static void param_tables_refresh() {
 static const bool param_tables_ready = (param_tables_refresh(), true);
 #endif
 #undef HIST_DIV_LIST
-// W1 (08/10/2026): reciproci di depth + 1 (media del valore di taglio in node_close), stesso troncamento.
+// W1 (08/10/2026): reciprocals of depth + 1 (mean of the cutoff value in node_close), same truncation.
 static constexpr auto succ_recip = [] {
   std::array<unsigned long long, max_ply + 8> r{};
   for (int d = 0; d < max_ply + 8; d++)
@@ -312,9 +312,9 @@ static constexpr auto succ_recip = [] {
 }();
 
 // ---------------------------------------------------------------------------
-// Rampa "tempo lungo" (05/10/2026). Ogni leva ha uno scostamento Lt*: il valore effettivo e' base + Lt * peso, con il
-// peso (0..1024) fissato per iterazione dalla profondita' di radice (lt_update, 14_deepen.inc). Con lo scostamento a 0
-// l'accessor restituisce la leva base: nella release (costanti) il ramo sparisce e il codice e' quello di prima.
+// "Long time" ramp (05/10/2026). Every lever has an offset Lt*: the effective value is base + Lt * weight, with the
+// weight (0..1024) fixed per iteration by the root depth (lt_update, 14_deepen.inc). With the offset at 0
+// the accessor returns the base lever: in the release (constants) the branch disappears and the code is the old one.
 // ---------------------------------------------------------------------------
 static inline int lt_value(int base, int offset, int w) { return base + offset * w / 1024; }
 
@@ -331,7 +331,7 @@ static inline void lt_update(ThreadData &td) {
   td.lt_nmp_verify_depth  = lt_value(NmpVerifyDepth, NmpVerifyDepthLt, w);
   if (LmrLogMulLt) {
     const int mul = lt_value(LmrLogMul, LmrLogMulLt, w);
-    if (mul != td.lt_lmr_log_mul) {   // stessa formula di build_reduction_table, col moltiplicatore effettivo
+    if (mul != td.lt_lmr_log_mul) {   // same formula as build_reduction_table, with the effective multiplier
       td.lt_lmr_log_mul = mul;
       td.lt_red_log[0] = 0;
       for (int i = 1; i < 256; i++)
@@ -346,8 +346,8 @@ static inline int e_lmr_no_tt_full(const ThreadData &td)    { return LmrNoTTFull
 static inline int e_nmp_improving(const ThreadData &td)     { return NmpImprovingLt ? td.lt_nmp_improving : NmpImproving; }
 static inline int e_quiet_fut_alpha(const ThreadData &td)   { return QuietFutAlphaLt ? td.lt_quiet_fut_alpha : QuietFutAlpha; }
 static inline int e_rfp_max_depth(const ThreadData &td)     { return RfpMaxDepthLt ? td.lt_rfp_max_depth : RfpMaxDepth; }
-// Sempre il valore del thread (09/10/2026): lt_update lo calcola per iterazione e la modalita' analisi (AN_NMPV) lo
-// sovrascrive; letto solo dopo una mossa nulla riuscita, quindi senza costo. In partita vale NmpVerifyDepth.
+// Always the thread's value (09/10/2026): lt_update computes it per iteration and the analysis mode (AN_NMPV)
+// overwrites it; read only after a successful null move, so at no cost. In games it equals NmpVerifyDepth.
 static inline int e_nmp_verify_depth(const ThreadData &td)  { return td.lt_nmp_verify_depth; }
 static inline const int *e_red_log(const ThreadData &td)    { return LmrLogMulLt ? td.lt_red_log : red_log; }
 
@@ -560,28 +560,28 @@ static inline int red_final_ours(const NodeFrame *f, const NodeState &n, int mov
 }
 
 // ---------------------------------------------------------------------------
-// Idee nostre del 04/10/2026 (docs/audit_8.0/M_STUDIO_IDEE_RICERCA.md). Tutte spente di default: con i parametri
-// a 0 i termini valgono 0 e nella release (parametri costanti) il compilatore li toglie.
+// Our ideas of 04/10/2026 (docs/audit_8.0/M_STUDIO_IDEE_RICERCA.md). All off by default: with the parameters
+// at 0 the terms are 0 and in the release (constant parameters) the compiler removes them.
 // ---------------------------------------------------------------------------
 
-// Idea 2 (Deep*): scostamento "profondo" pesato da td.deep_w (0..1024, cresce con la profondita' di radice).
-// Dal 09/10/2026 le sei leve che la modalita' analisi usa (Rfp, Fut, Lmr, Nmp, Sing, Ext) arrivano gia' pesate nei
-// campi td.dz_* (deepen, per iterazione): stesso valore di prima, ma la modalita' analisi le puo' accendere anche
-// nella release, dove i parametri sono costanti. deep_term resta per DeepHist e DeepTtPv.
+// Idea 2 (Deep*): "deep" offset weighted by td.deep_w (0..1024, grows with the root depth).
+// Since 09/10/2026 the six levers the analysis mode uses (Rfp, Fut, Lmr, Nmp, Sing, Ext) arrive already weighted in the
+// fields td.dz_* (deepen, per iteration): same value as before, but the analysis mode can turn them on also
+// in the release, where the parameters are constants. deep_term stays for DeepHist and DeepTtPv.
 static inline int deep_term(const ThreadData &td, int offset) { return offset * td.deep_w / 1024; }
 
-// Crystal (AnCrystal, modalita' analisi): il nodo sta sulla linea principale dell'iterazione precedente, vicino
-// alla radice? In partita crystal_ply = -1 e il test e' sempre falso.
+// Crystal (AnCrystal, analysis mode): is the node on the principal variation of the previous iteration, near
+// the root? In games crystal_ply = -1 and the test is always false.
 static inline bool crystal_node(const ThreadData &td, const NodeFrame *f) {
   return f->ply <= td.crystal_ply && f->follow_pv;
 }
 
-// Re in pericolo (AnKingDanger, Pos Solver, 14/10/2026; idea di Crystal, codice nostro): almeno 3 delle case intorno
-// al re del lato `s` sono attaccate dall'avversario. Fino a 8 controlli di attacco: si calcola solo in analisi con il
-// componente acceso.
-// AnNmpZug: al massimo 5 mosse legali, come Crystal. Prima versione con le pseudo-legali (14/10/2026 notte): non
-// scattava quasi mai (1 posizione su 383 con la ricerca diversa). Chiamata solo fuori scacco (mossa nulla), dove
-// legal_before vale.
+// King in danger (AnKingDanger, Pos Solver, 14/10/2026; idea of Crystal, our code): at least 3 of the squares around
+// the king of side `s` are attacked by the opponent. Up to 8 attack tests: computed only in analysis with the
+// component on.
+// AnNmpZug: at most 5 legal moves, as in Crystal. First version with the pseudo-legal ones (night of 14/10/2026): it
+// almost never fired (1 position out of 383 with a different search). Called only out of check (null move), where
+// legal_before holds.
 // The same count serves the endgame rule NmpFewMoves (18/10/2026) with its own limit.
 static bool few_moves(ThreadData &td, int limit = 5) {
   moves ml;
@@ -608,10 +608,10 @@ static bool king_in_danger(ThreadData &td, int s) {
   return false;
 }
 
-// GoldDigger (AnGold, idea di ShashChess/amchess, codice nostro): la mossa nulla si salta quando il "calore" tattico
-// arriva a 4. La parte della radice (re in pericolo o sacrificio possibile +10, posizione di vantaggio netto +2,
-// attacco +2, pedone avanzato +2, piu' di 30 mosse legali +1) e' in td.gd_heat; qui si aggiungono il materiale non
-// pedoni di chi muove (> 2000, +1) e la profondita' (> 8 e > 12, +1 ciascuna). In partita gd_heat = -1000.
+// GoldDigger (AnGold, idea of ShashChess/amchess, our code): the null move is skipped when the tactical "heat"
+// reaches 4. The root part (king in danger or possible sacrifice +10, clearly winning position +2,
+// attack +2, advanced pawn +2, more than 30 legal moves +1) is in td.gd_heat; here are added the non-pawn
+// material of the side to move (> 2000, +1) and the depth (> 8 and > 12, +1 each). In games gd_heat = -1000.
 static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
   if (td.gd_heat < -100)
     return false;
@@ -622,7 +622,7 @@ static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
   return td.gd_heat + (npm > 2000) + (n.depth > 8) + (n.depth > 12) >= 4;
 }
 
-// Controllo del tempo e dei limiti (solo il thread 0, ogni 512 nodi).
+// Time and limit check (thread 0 only, every 512 nodes).
 static int g_poll_countdown = 0;
 static void poll_limits(ThreadData &td) {
   if (td.thread_id != 0 || --g_poll_countdown > 0)
@@ -642,7 +642,7 @@ static void poll_limits(ThreadData &td) {
     stop_threads.store(true, std::memory_order_relaxed);
 }
 
-// Statistiche di un nodo che ha trovato la mossa migliore: premio a lei, malus alle mosse provate prima.
+// Statistics of a node that found the best move: reward to it, malus to the moves tried before.
 static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
   PROF_GUARD(prof_hist);
   const int bm = n.best_move;
@@ -670,7 +670,7 @@ static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
   } else
     learn_capture(td, bm, bonus * cb / 1024, n.expert);
 
-  // La mossa che ha portato qui, se quieta e cercata subito (prima mossa, o seconda dopo la mossa hash), era debole.
+  // The move that led here, if quiet and searched at once (first move, or second after the hash move), was weak.
   if (n.prev_to >= 0 && f[-1].move_count == 1 + (f[-1].tt_hit ? 1 : 0) && !n.prior_capture)
     learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -malus * PrevContMalus / 1024, n.expert);
 
@@ -679,11 +679,11 @@ static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // --------------------------------------------------------------------------
-// Fase 1: ingresso del nodo. Ritorna un valore se il nodo si chiude qui.
+// Stage 1: node entry. Returns a value if the node closes here.
 // --------------------------------------------------------------------------
 static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
-  // La soglia e' il valore della patta per chi muove (0 senza Contempt): cosi' alpha non scende mai (05/10/2026,
-  // audit dei porting: con la soglia 0 Contempt abbassava alpha dal lato di radice).
+  // The threshold is the draw value for the side to move (0 without Contempt): so alpha never drops (05/10/2026,
+  // porting audit: with threshold 0 Contempt lowered alpha on the root side).
   if (!n.root && n.alpha < contempt(td) && td_upcoming_repetition(td)) {
     n.alpha = draw_score(td);
     if (n.alpha >= n.beta)
@@ -698,7 +698,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (!n.root) {
     if (stop_threads.load(std::memory_order_relaxed) || td.ply >= max_ply || drawn_here(td, n.in_check))
       return (td.ply >= max_ply && !n.in_check) ? static_evaluate(td) : draw_score(td);
-    // BAKE INSUFMATERIAL (11/10/2026, agente AE): materiale insufficiente dopo una cattura (12_quiesce.inc).
+    // BAKE INSUFMATERIAL (11/10/2026, agent AE): insufficient material after a capture (12_quiesce.inc).
     if (f[-1].captured >= 0 && insufficient_material(td))
       return draw_score(td);
     n.alpha = std::max(mated_at(td.ply), n.alpha);
@@ -853,7 +853,7 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // --------------------------------------------------------------------------
-// Fase 2: valutazione e tagli prima del ciclo delle mosse.
+// Stage 2: evaluation and cuts before the move loop.
 // --------------------------------------------------------------------------
 static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
   n.eval_raw = tt_eval_none;
@@ -1098,7 +1098,7 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // --------------------------------------------------------------------------
-// Fase 3: il ciclo delle mosse.
+// Stage 3: the move loop.
 // --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
@@ -1328,8 +1328,8 @@ static int prunelog_node(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 #endif
 
-// Spinta di un pedone passato in 6a o 7a traversa in un finale (nostra). La rete vede i pedoni passati con il suo
-// blocco PassedPawns; la ricerca li tratterebbe come quiete qualsiasi e potrebbe ridurli di parecchi ply.
+// Push of a passed pawn to the 6th or 7th rank in an endgame (ours). The network sees passed pawns with its
+// PassedPawns block; the search would treat them as any quiet move and could reduce them by several plies.
 static bool passed_push(const ThreadData &td, int m) {
   if (kPieceKind[move_piece(m)] != P || get_move_capture(m) || get_move_promoted(m))
     return false;
@@ -1349,7 +1349,7 @@ static bool passed_push(const ThreadData &td, int m) {
   return !(files & ahead & td.bitboards[us == white ? p : P]);
 }
 
-// La mossa e' uno spostamento avanti e indietro senza progresso (stessa pedina fra le stesse case)?
+// Is the move a back-and-forth shuffle without progress (same piece between the same squares)?
 static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
   if (is_tactical(m) || td.fifty < ShuffleFifty || td.plies_from_null < ShuffleNull || f->ply < ShufflePly)
     return false;
@@ -1357,9 +1357,9 @@ static inline bool shuffles(const ThreadData &td, const NodeFrame *f, int m) {
   return move_ok(m2) && move_ok(m4) && move_from(m) == move_to(m2) && move_from(m2) == move_to(m4);
 }
 
-// Estensione singolare della mossa hash. Ritorna l'estensione; un valore >= beta chiude il nodo (in *cutoff).
-// SING_SKIPPED: la ricerca di esclusione non si e' fatta (mossa non hash o condizioni mancanti); move_loop la legge
-// come estensione 0, e solo in quel caso prova la LDSE (Ldse*).
+// Singular extension of the hash move. Returns the extension; a value >= beta closes the node (in *cutoff).
+// SING_SKIPPED: the exclusion search was not done (not the hash move or conditions missing); move_loop reads it
+// as extension 0, and only in that case tries the LDSE (Ldse*).
 static constexpr int SING_SKIPPED = -99;
 template <bool AN>
 static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int new_depth, int *cutoff) {
@@ -1428,7 +1428,7 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   return 0;
 }
 
-// Aggiorna la mossa di radice appena cercata (statistiche, linea, cambi di mossa migliore).
+// Updates the root move just searched (statistics, line, best-move changes).
 static void root_record(ThreadData &td, NodeState &n, int m, int value, U64 spent, int move_no) {
   RootLine *rl = nullptr;
   for (int i = 0; i < td.root_count; i++)
@@ -1535,16 +1535,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     int buf[256];
     only_reply = legalgen::generate_legal_tv<legalgen::ALL>(td, buf) == 1;
   }
-  int first_quiet_no = 0;                     // LmrRank: numero della prima quieta ordinata del nodo
-  // Idea 2: termine di riduzione fisso per il nodo (0 se spento).
+  int first_quiet_no = 0;                     // LmrRank: number of the node's first ordered quiet move
+  // Idea 2: fixed reduction term for the node (0 if off).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
-  const int gd_style = AN ? td.gd_style : 0;   // AnGold: stile della radice (0 in partita)
+  const int gd_style = AN ? td.gd_style : 0;   // AnGold: style of the root (0 in games)
 
   while ((m = queue_next(q)) != 0) {
     const bool gen_legal = queue_move_legal(q, m);
     if (m == n.excluded || (!gen_legal && !legal_before(td, s, m)))
       continue;
-    int root_rank = 0;   // posizione della mossa nella lista della radice (ordine dell'iterazione precedente)
+    int root_rank = 0;   // position of the move in the root list (order of the previous iteration)
     if (n.root) {
       bool listed = false;
       for (int i = td.pv_idx; i < td.pv_last; i++)
@@ -1553,10 +1553,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         continue;
     }
     f->move_count = ++n.moves;
-    // "info currmove" alla radice (come la 7.0 e gli SF vecchi: solo thread principale, solo dopo 3 s; SF19 usa invece
-    // 10 milioni di nodi del thread principale, NODES_LIMIT_OUTPUT, corretto il 16/10/2026): le GUI mostrano la
-    // mossa in esame. Persa con la riscrittura del 04/10, segnalata da Maurizio Platino il 12/10/2026 (Fritz 18).
-    // Il tempo la tiene fuori da bench e partite brevi; a radice il ciclo gira poche volte, costo nullo.
+    // "info currmove" at the root (like 7.0 and the old SFs: main thread only, only after 3 s; SF19 instead uses
+    // 10 million nodes of the main thread, NODES_LIMIT_OUTPUT, corrected on 16/10/2026): the GUIs show the
+    // move being examined. Lost with the rewrite of 04/10, reported by Maurizio Platino on 12/10/2026 (Fritz 18).
+    // The time keeps it out of bench and short games; at the root the loop runs few times, zero cost.
     if (n.root && td.thread_id == 0 && get_time_ms() - g_limits.start_ms > 3000) {
       std::lock_guard<std::mutex> lock(output_mutex);
       printf("info depth %d currmove ", td.root_depth);
@@ -1573,12 +1573,12 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
       red_window_ours = red_window * 1024 / td.root_delta;
     }
-    // LmrRank (blocco 2 della 8.1, 16/10/2026, nostra; docs/development/8.1/SEARCH_2_REDUCTIONS.md nel repo): per una
-    // quieta della lista ordinata, la riduzione di base non legge solo il suo numero d'ordine. Il numero "effettivo"
-    // e' il numero della prima quieta del nodo piu' una mossa ogni LmrRankScale punti di distacco dal punteggio della
-    // quieta migliore: la decima mossa con un punteggio vicino alla prima non e' la decima di una coda di mosse
-    // cattive, e nella coda non ordinata (sotto il limite di fill_quiets) il distacco vale piu' dell'ordine di
-    // generazione. I due numeri si mescolano con un peso per esperto (LmrRankMix0-3). Spenta: n.moves, come prima.
+    // LmrRank (block 2 of 8.1, 16/10/2026, ours; docs/development/8.1/SEARCH_2_REDUCTIONS.md in the repo): for a
+    // quiet move of the ordered list, the base reduction does not read only its order number. The "effective" number
+    // is the number of the node's first quiet move plus one move every LmrRankScale points of gap from the score of the
+    // best quiet move: the tenth move with a score close to the first is not the tenth of a tail of bad
+    // moves, and in the unordered tail (below the limit of fill_quiets) the gap is worth more than the generation
+    // order. The two numbers are mixed with a weight per expert (LmrRankMix0-3). Off: n.moves, as before.
     int red_move_no = n.moves;
     if (LmrRank && q.rank_ok) {
       if (!first_quiet_no)
@@ -1603,7 +1603,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 #endif
 
     const bool passer = PassedPushRed && !tact && passed_push(td, m);
-    const int ctx = tact ? 0 : quiet_ctx(q, m);   // ThreatHist: 0 se spenta
+    const int ctx = tact ? 0 : quiet_ctx(q, m);   // ThreatHist: 0 if off
     if (!passer && skip_move<AN>(td, f, n, q, m, tact, gives, r, ctx)) {
 #ifdef TRIUMV_PRUNELOG
       if (!AN && prunelog_move_pick(td.thread_id, pl_rule))
@@ -1619,16 +1619,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     const bool sing_skipped = ext == SING_SKIPPED;
     if (sing_skipped)
       ext = 0;
-    // LDSE (nostra, 05/10/2026; l'idea e' in Reckless e Stormphrax): a profondita' bassa, dove la singolare non si
-    // prova, la mossa hash con limite inferiore o esatto si estende di un ply se la valutazione statica sta sotto
-    // alpha di LdseMargin. La hash dice che quella mossa ha tenuto un valore, l'eval dice che la posizione e' brutta:
-    // il nodo si regge su di lei, e vicino all'orizzonte un ply in piu' decide se quel valore era vero.
-    // LdseMode (bit): 1 = solo nei nodi cut (forma di Reckless), 2 = solo limite inferiore, non esatto (forma di
-    // Stormphrax), 4 = non con entry della sola quiescenza.
-    // LdseMax (05/10/2026): con Ldse accesa ogni nodo cut lungo una linea puo' estendere di nuovo, e la profondita'
-    // scende di un ply ogni due invece di uno per ply. A profondita' fissa l'albero resta lo stesso nella posizione
-    // tipica (media geometrica x1,02-x1,06 su 80 posizioni, prof. 8-14) ma alcuni finali di torre crescono x5-x16. Il
-    // tetto conta le estensioni Ldse sulla linea (NodeFrame::ldse_path); 0 = nessun tetto, come prima.
+    // LDSE (ours, 05/10/2026; the idea is in Reckless and Stormphrax): at low depth, where the singular search is not
+    // tried, the hash move with a lower or exact bound is extended by one ply if the static evaluation is below
+    // alpha by LdseMargin. The hash says that move held a value, the eval says the position is bad:
+    // the node rests on it, and near the horizon one more ply decides whether that value was true.
+    // LdseMode (bits): 1 = cut nodes only (Reckless form), 2 = lower bound only, not exact (Stormphrax
+    // form), 4 = not with entries from quiescence only.
+    // LdseMax (05/10/2026): with Ldse on, every cut node along a line can extend again, and the depth
+    // drops by one ply every two instead of one per ply. At fixed depth the tree stays the same in the typical
+    // position (geometric mean x1.02-x1.06 over 80 positions, depth 8-14) but some rook endgames grow x5-x16. The
+    // cap counts the Ldse extensions on the line (NodeFrame::ldse_path); 0 = no cap, as before.
     const bool ldse = LdseMargin && ext == 0 && sing_skipped && m == n.h.move && !n.root && !n.excluded &&
                       !n.in_check && n.depth <= LdseDepth && val_known(n.h.value) && bound_covers(n.h.bound, true) &&
                       f->static_eval <= n.alpha - LdseMargin && (n.cut || !(LdseMode & 1)) &&
@@ -1673,7 +1673,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 #endif
 
     if (tact) {
-      // Pezzo davvero catturato (per l'en passant e' il pedone, non la casa d'arrivo vuota).
+      // Piece actually captured (for en passant it is the pawn, not the empty arrival square).
       const int took = kPieceKind[u.captured_piece & 15];
       f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
     }
@@ -1689,8 +1689,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 #endif
     } else
       r = red_final_v80(td, f, n, m, r, tact, gives, passer, node_red);
-    // AnGold, ritocchi delle riduzioni lontano dalla radice (unita' 1/1024 di ply): in attacco catture e scacchi
-    // -60, in difesa le quiete -40, in manovra le quiete senza scacco +80 da profondita' 9.
+    // AnGold, tweaks of the reductions far from the root (units 1/1024 ply): in attack captures and checks
+    // -60, in defence the quiet moves -40, in manoeuvring the quiet moves without check +80 from depth 9.
     if (gd_style && n.depth > 5 && f->ply > 1) {
       if (gd_style == 1 && (tact || gives))
         r -= 60;
@@ -1715,10 +1715,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     const int redlog_alpha = n.alpha;
 #endif
     if (n.depth >= LmrMinDepth && n.moves > 1) {
-      // NegExtMax (08/10/2026): con riduzione negativa la mossa si cerca fino a 2 ply PIU' a fondo, e lungo una linea
-      // queste estensioni si sommano come quelle di Ldse prima della sua guardia (LdseMax). Stesso rimedio: un tetto al
-      // numero di estensioni da riduzione negativa sulla linea (NodeFrame::negext_path).
-      // BAKE NEGEXTMAX (11/10/2026, vedi 01_params.inc): tetto fisso a una estensione per linea, opzione ritirata.
+      // NegExtMax (08/10/2026): with a negative reduction the move is searched up to 2 plies DEEPER, and along a line
+      // these extensions add up like those of Ldse before its guard (LdseMax). Same remedy: a cap on the
+      // number of extensions from negative reduction on the line (NodeFrame::negext_path).
+      // BAKE NEGEXTMAX (11/10/2026, see 01_params.inc): fixed cap of one extension per line, option retired.
       if (RfLearn) {   // ours, off: the reduction learned from search outcomes (see learned_logit)
         const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
         const int z = learned_logit(f, n, m, red_move_no, tact, gives, passer, causal_hit, r);
@@ -1807,7 +1807,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       }
 #endif
       const int neg_cap = f->negext_path < 1 ? NegExtPlies : 0;   // at most one such extension per line
-      if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: niente riduzione, le riduzioni negative restano
+      if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: no reduction, the negative reductions stay
         r = 0;
       if (AN && n.root && (td.an_bits & AN_ROOTALT) && root_rank >= 1 && root_rank <= 2 && r > 0)   // AnRootAlt
         r = 0;
@@ -1898,11 +1898,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         if (value >= n.beta) {
           f->cutoff_cnt += (ext < CutoffExtCap) || n.pv;
           if (CausalRed)
-            f->refute = m;   // per il padre: la mossa che confuta la sua
+            f->refute = m;   // for the parent: the move that refutes its own
           break;
         }
         if (n.depth > AlphaRedLo && n.depth < AlphaRedHi && !val_decided(value) &&
-            !(AN && (td.an_bits & AN_KEEPDEPTH) && f->ply <= kAnKeepPly))   // AnKeepDepth: vicino alla radice no
+            !(AN && (td.an_bits & AN_KEEPDEPTH) && f->ply <= kAnKeepPly))   // AnKeepDepth: not near the root
           n.depth -= AlphaRed;
         n.alpha = value;
       }
@@ -1919,16 +1919,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 
 // --------------------------------------------------------------------------
-// Fase 4: fine del nodo.
+// Stage 4: end of the node.
 // --------------------------------------------------------------------------
 static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
-  // La linea del bucket hash di questo nodo, letta all'ingresso, dopo il sottoalbero e' spesso uscita dalla cache:
-  // la si richiama adesso, con le statistiche da aggiornare a coprire l'attesa, prima della hash_write in fondo.
+  // The line of this node's hash bucket, read at entry, has often left the cache after the subtree:
+  // it is fetched again now, with the statistics to update covering the wait, before the hash_write at the end.
   TT_PREFETCH(&hash_table[tt_base_index(tt_key(td))]);
   if (n.best >= n.beta && !val_decided(n.best) && !val_decided(n.alpha)) {
-    // W1 (08/10/2026): divisione per depth + 1 col reciproco a 40 bit; |x| < 2^15 * (max_ply + 8) < 2^24, esatto
-    // (numpy: 0 differenze per |x| <= 32768 * (d + 1), d < 260).
+    // W1 (08/10/2026): division by depth + 1 with the 40-bit reciprocal; |x| < 2^15 * (max_ply + 8) < 2^24, exact
+    // (numpy: 0 differences for |x| <= 32768 * (d + 1), d < 260).
     const long long x = (long long)n.best * n.depth + n.beta;
     const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
     const int q = (int)((mag * succ_recip[n.depth]) >> 40);
@@ -1936,7 +1936,7 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
 
   if (!n.moves)
-    n.best = n.excluded ? n.alpha : n.in_check ? mated_at(td.ply) : contempt(td);   // stallo: patta (Contempt)
+    n.best = n.excluded ? n.alpha : n.in_check ? mated_at(td.ply) : contempt(td);   // stalemate: draw (Contempt)
   else if (n.best_move) {
     reward_best(td, f, n);
     if (!n.pv)
@@ -1973,14 +1973,14 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
                n.best >= n.beta ? BOUND_LOW : (n.pv && n.best_move) ? BOUND_EXACT : BOUND_UP,
                n.moves ? n.depth : std::min(max_ply - 1, n.depth + MateHashDepth), n.best_move, n.eval_raw);
 
-  // CorrLearnMode (06/10/2026, rapporto N_CORREZIONI 4.5): a 0 la condizione di sempre.
+  // CorrLearnMode (06/10/2026, report N_CORREZIONI 4.5): at 0 the usual condition.
   const bool learn_ok = !((CorrLearnMode & 1) && n.excluded && !n.moves) && !((CorrLearnMode & 2) && n.excluded) &&
                         !((CorrLearnMode & 4) && val_decided(n.best));
   const bool dir_ok = (n.best > f->static_eval) == (n.best_move != 0) ||
                       ((CorrLearnMode & 8) && n.pv && n.best_move && n.best < n.beta);
 #ifdef TRIUMV_CORRSTATS
-  // Residuo prima e dopo la correzione (cstats.h), PRIMA del filtro di direzione (che sceglierebbe il segno):
-  // nodi fuori scacco, non esclusi, senza cattura migliore, con un'eval della rete nota.
+  // Residual before and after the correction (cstats.h), BEFORE the direction filter (which would choose the sign):
+  // nodes out of check, not excluded, without a better capture, with a known network eval.
   if (!n.in_check && !n.excluded && !(n.best_move && get_move_capture(n.best_move)) && n.eval_raw != tt_eval_none &&
       !val_decided(n.best)) {
     const int plain = eval_refade(n.eval_raw, td.fifty);
@@ -2026,11 +2026,11 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
   n.causal = 0;
-  // LdseMax: estensioni Ldse sulla linea fino a qui. f->ldse torna a 0 finche' move_loop non estende una mossa, cosi'
-  // i figli della mossa nulla e del probcut non ne ereditano una.
+  // LdseMax: Ldse extensions on the line up to here. f->ldse goes back to 0 until move_loop extends a move, so
+  // the children of the null move and of probcut do not inherit one.
   f->ldse = 0;
   f->ldse_path = f[-1].ldse_path + f[-1].ldse;
-  // Stesso conteggio per le estensioni da riduzione negativa (move_loop; BAKE NEGEXTMAX 11/10/2026).
+  // Same count for the extensions from negative reduction (move_loop; BAKE NEGEXTMAX 11/10/2026).
   f->negext = 0;
   f->negext_path = f[-1].negext_path + f[-1].negext;
 #ifdef TRIUMV_C2
@@ -2042,8 +2042,8 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;
-  n.crystal = AN && crystal_node(td, f);   // dopo node_open, che decide follow_pv
-  // AnKingDanger / AnCycle (Pos Solver, 14/10/2026): in partita an_bits = 0 e i due flag restano falsi.
+  n.crystal = AN && crystal_node(td, f);   // after node_open, which decides follow_pv
+  // AnKingDanger / AnCycle (Pos Solver, 14/10/2026): in games an_bits = 0 and the two flags stay false.
   n.no_early = n.no_lmr = false;
   if (AN && (td.an_bits & (AN_KDANGER | AN_CYCLE)) && !n.root) {
     if ((td.an_bits & AN_CYCLE) && td_upcoming_repetition(td))
@@ -2068,7 +2068,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
     if ((v = prune_before_moves<AN>(td, f, n)) != NO_VALUE) return v;
   }
 
-  // Limite inferiore dalla hash ben sopra beta: basta quello.
+  // Lower bound from the hash well above beta: that is enough.
   const int hash_beta = n.beta + ProbCutTTMargin;
   if (bound_covers(n.h.bound, true) && n.h.depth >= n.depth - SmallPcSlack && n.h.value >= hash_beta && !val_decided(n.beta) &&
       val_known(n.h.value) && !val_decided(n.h.value))

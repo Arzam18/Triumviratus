@@ -147,7 +147,7 @@ U64 get_queen_attacks(int square, U64 occupancy) {
 // AA1 (10/10/2026): the bishop/rook pair of one computation, in an xmm register (magic.h).
 SliderPair get_slider_pair(int square, U64 occupancy) { return slider_pair(square, occupancy); }
 #define TRIUMV_AA1_PAIR_DONE
-// Le funzioni a tabelle restano, con un altro nome, per la verifica.
+// The table-based functions remain, under another name, for verification.
 #define get_bishop_attacks pext_bishop_attacks
 #define get_rook_attacks pext_rook_attacks
 #define get_queen_attacks pext_queen_attacks
@@ -206,7 +206,7 @@ U64 get_queen_attacks(int square, U64 occupancy)
 }
 
 #ifndef TRIUMV_AA1_PAIR_DONE
-// AA1 senza DualMagic (build senza AVX2 o -DTRIUMV_NO_DUALHQ): le due tabelle, come prima.
+// AA1 without DualMagic (builds without AVX2 or -DTRIUMV_NO_DUALHQ): the two tables, as before.
 SliderPair get_slider_pair(int square, U64 occupancy)
 {
     const U64 b = get_bishop_attacks(square, occupancy), r = get_rook_attacks(square, occupancy);
