@@ -59,9 +59,43 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // PGO, same day) it costs instead: +2.28% in the middlegame, +11.7% in endgames. So on by default only in the AVX-512
 // build without VNNI of Consilium-2 (Skylake-SP/X); off in vnni512 and avx512icl (Zen 4/5, Ice Lake and later; not
 // measured on Intel with VNNI). -DCN_FORCE_W1 turns it on in any AVX2 or AVX-512 build, to be measured per processor.
-#if !defined(CN_NO_W1) && ((defined(CN_FORCE_W1) && (defined(USE_AVX2) || defined(USE_AVX512))) \
-                           || (defined(USE_AVX512) && !defined(USE_VNNI) && defined(TRIUMV_C2)) \
-                           || (defined(USE_AVX2) && !defined(USE_AVX512) && (!defined(USE_PEXT) || defined(USE_AVXVNNI))))
+//
+// CN_W2 (21/10/2026, consumer processors; -DCN_W2, default below): the W1 layout with the low byte of every int16 word
+// (element j of the block) stored + 128, so it reads as an unsigned byte e' = e + 128 in 0..255. The 16-bit word is
+// then exactly 256 o + e' (o = the high element, signed): added as it is, with no widening at all, it sums the low
+// elements plus 256 times the high ones plus 128 per row; vpsraw by 8 gives o, summed in a register of its own (O).
+// After the rows of a tile: high = high + O, low = low + sum of words - 256 O - 128 (rows added - rows removed).
+// Integers modulo 2^16, so the same accumulator as every other path. Per pair of registers and row: one shift and two
+// adds instead of two widenings and two adds (W1: vpmaddubsw + vpsraw; otherwise two vpmovsxbw), so 25% fewer vector
+// operations on every processor; the correction costs four operations per pair and tile (break-even at four rows).
+// Instruction tables (uops.info): Zen 4 vpmovsxbw zmm 1/cycle on FP1/2 only, vpsraw zmm 1/cycle, vpaddw zmm 2/cycle;
+// Intel P cores (AVX2) vpmovsxbw ymm 1/cycle on port 5 only, vpsraw/vpaddw on p01/p015. Implies the W1 interleave.
+// On by default, with CN_SQ_MADD below, in the AVX-512 build without VNNI of Consilium-2 (21/10/2026, xperf on the Xeon,
+// Skylake-SP, deterministic PGO, against W1: W2 -0.72% cycles per node in the middlegame and -0.29% in endgames,
+// W2 + CN_SQ_MADD -1.06% and -0.66%, a null build of the same source +0.15% and +0.47%). The other builds wait for Zen 4
+// and Intel Core Ultra. -DCN_NO_W2 and -DCN_NO_SQ_MADD turn them off (with -DCN_NO_W1 as well for vpmovsxbw).
+#if defined(USE_AVX512) && !defined(USE_VNNI) && defined(TRIUMV_C2)
+    #if !defined(CN_NO_W2) && !defined(CN_W2)
+        #define CN_W2 1
+    #endif
+    #if !defined(CN_NO_SQ_MADD) && !defined(CN_SQ_MADD)
+        #define CN_SQ_MADD 1
+    #endif
+#endif
+#if defined(CN_W2) && !(defined(USE_AVX2) || defined(USE_AVX512))
+    #undef CN_W2
+#endif
+// g++ folds the load of a W2 block into both of its users (vpaddw and vpsraw with memory operands), reading every
+// block twice (MinGW 13, 21/10/2026); an empty asm on the register keeps one load. Clang and MSVC load once already.
+#if defined(CN_W2) && defined(__GNUC__) && !defined(__clang__)
+    #define CN_W2_REG(x) __asm__("" : "+v"(x))
+#else
+    #define CN_W2_REG(x) ((void)0)
+#endif
+#if defined(CN_W2) \
+    || (!defined(CN_NO_W1) && ((defined(CN_FORCE_W1) && (defined(USE_AVX2) || defined(USE_AVX512))) \
+                               || (defined(USE_AVX512) && !defined(USE_VNNI) && defined(TRIUMV_C2)) \
+                               || (defined(USE_AVX2) && !defined(USE_AVX512) && (!defined(USE_PEXT) || defined(USE_AVXVNNI)))))
     #define CN_W1 1
     #if defined(USE_AVX512)
         #define CN_W1_BLOCK 64
@@ -72,6 +106,21 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 
 // Independent chains of the sparse first layer: three when it uses vpdpbusd (latency about five cycles, AVX-512 VNNI
 // or AVX-VNNI), two otherwise. -DCN_DOT_CHAINS=2 goes back to two (not measured on a VNNI processor here).
+// -DCN_DOT_CHAINS=4 (21/10/2026): four chains in the AVX-512 VNNI path (Zen 5, Cascade Lake, Sapphire Rapids); the
+// AVX2 path keeps three (16 registers: four chains of four accumulators would spill).
+
+// Squares of the layers after l1 (21/10/2026; OFF by default, -DCN_SQ_MADD): vpmaddwd of ax with itself instead of
+// vpmulld. ax = min(|x|, cut) <= 16383 leaves the high 16 bits of every 32-bit lane zero, so the pair sum is
+// ax * ax + 0 * 0, the same value. Intel: vpmulld is 2 uops with latency 10 on the P cores and one every 4 cycles
+// (ymm) on Gracemont, vpmaddwd 1 uop with latency 5 (P) or one every 2 cycles (Gracemont) (uops.info); equal on AMD.
+// (They differ only for x = INT_MIN, where abs stays negative: the l1 and l2 sums are bounded far below it.)
+#ifdef CN_SQ_MADD
+    #define CN_SQ512(a) _mm512_madd_epi16(a, a)
+    #define CN_SQ256(a) _mm256_madd_epi16(a, a)
+#else
+    #define CN_SQ512(a) _mm512_mullo_epi32(a, a)
+    #define CN_SQ256(a) _mm256_mullo_epi32(a, a)
+#endif
 #ifndef CN_DOT_CHAINS
     #if defined(USE_VNNI)
         #define CN_DOT_CHAINS 3
@@ -400,6 +449,16 @@ u64 passers(int c, u64 own, u64 opp) {
 // one tile of registers at a time: every accumulator value is read and written once whatever the number of rows.
 // Integer sums modulo 2^16 do not depend on the order (spec 4), so incremental and refresh give the same result.
 
+// -DCN_PREFETCH_MID (21/10/2026; OFF by default): one more line per row, the one in the middle where the second half
+// starts (the second AVX-512 tile, the fifth AVX2 one). Those lines are read only after every row of the first half,
+// when the rows come from DRAM or L3 (HalfKA, 196 MB) a second round trip per row unless the hardware streamer caught
+// the row; meant for the laptops with LPDDR5 (high latency in cycles). Only a hint: no value changes.
+#ifdef CN_PREFETCH_MID
+    #define CN_PREFETCH_HALF(w) CN_PREFETCH((w) + L1 / 2)
+#else
+    #define CN_PREFETCH_HALF(w) ((void)0)
+#endif
+
 struct RowList {
     static constexpr int CAP16 = 512, CAP8 = 1024;
     const Net* net;
@@ -417,6 +476,7 @@ struct RowList {
     // miss buffers.)
     void push8(const std::int8_t* w, int add) {
         CN_PREFETCH(w);
+        CN_PREFETCH_HALF(w);
         CN_PREFETCH(w + L1);
         a8[n8a] = w;
         s8[n8s] = w;
@@ -428,6 +488,7 @@ struct RowList {
         CN_ROWHIT(r, valid);
         const std::int8_t* w = net->wThr[thr_slot(r)];
         CN_PREFETCH(w);
+        CN_PREFETCH_HALF(w);
         CN_PREFETCH(w + L1);
         a8[n8a] = w;
         s8[n8s] = w;
@@ -436,6 +497,7 @@ struct RowList {
     }
     void push16(const std::int16_t* w, int add) {
         CN_PREFETCH(w);
+        CN_PREFETCH_HALF(w);
         CN_PREFETCH(w + L1);
         a16[n16a] = w;
         s16[n16s] = w;
@@ -521,7 +583,36 @@ void apply_psqt(const RowList& L, const std::int32_t* src, std::int32_t* dst) {
 template <int R, bool WithPsqt>
 inline void rows8_512(const RowList& L, __m512i* r, __m256i& ps, int t) {
     constexpr int W = 32;
-#ifdef CN_W1
+#if defined(CN_W2)
+    // CN_W2: the words summed as they are into the low register, their high bytes (vpsraw 8) into o; the correction
+    // after the rows (see CN_W2 at the top). Nothing to do for empty lists (a refresh whose cache entry is current).
+    if (L.n8a + L.n8s == 0) return;
+    __m512i o[R / 2];
+    for (int k = 0; k < R / 2; k++) o[k] = _mm512_setzero_si512();
+    for (int i = 0; i < L.n8a; i++) {
+        for (int k = 0; k < R; k += 2) {
+            __m512i w = _mm512_load_si512(L.a8[i] + t + k * W);
+            CN_W2_REG(w);
+            r[k]     = _mm512_add_epi16(r[k], w);
+            o[k / 2] = _mm512_add_epi16(o[k / 2], _mm512_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_add_epi32(ps, _mm256_load_si256((const __m256i*)(L.a8[i] + L1)));
+    }
+    for (int i = 0; i < L.n8s; i++) {
+        for (int k = 0; k < R; k += 2) {
+            __m512i w = _mm512_load_si512(L.s8[i] + t + k * W);
+            CN_W2_REG(w);
+            r[k]     = _mm512_sub_epi16(r[k], w);
+            o[k / 2] = _mm512_sub_epi16(o[k / 2], _mm512_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_sub_epi32(ps, _mm256_load_si256((const __m256i*)(L.s8[i] + L1)));
+    }
+    const __m512i bias = _mm512_set1_epi16(short(std::uint16_t(-128 * (L.n8a - L.n8s))));
+    for (int k = 0; k < R; k += 2) {
+        r[k + 1] = _mm512_add_epi16(r[k + 1], o[k / 2]);
+        r[k]     = _mm512_sub_epi16(_mm512_add_epi16(r[k], bias), _mm512_slli_epi16(o[k / 2], 8));
+    }
+#elif defined(CN_W1)
     const __m512i even = _mm512_set1_epi16(1);   // u8 pairs (1, 0): vpmaddubsw keeps the signed even byte
     for (int i = 0; i < L.n8a; i++) {
         for (int k = 0; k < R; k += 2) {
@@ -602,7 +693,35 @@ inline void rows16_256(const RowList& L, __m256i* r, __m256i& ps, int t) {
 template <int R, bool WithPsqt>
 inline void rows8_256(const RowList& L, __m256i* r, __m256i& ps, int t) {
     constexpr int W = 16;
-#ifdef CN_W1
+#if defined(CN_W2)
+    // CN_W2 (see the top): words summed as they are, high bytes into o, one correction after the rows.
+    if (L.n8a + L.n8s == 0) return;
+    __m256i o[R / 2];
+    for (int k = 0; k < R / 2; k++) o[k] = _mm256_setzero_si256();
+    for (int i = 0; i < L.n8a; i++) {
+        for (int k = 0; k < R; k += 2) {
+            __m256i w = _mm256_load_si256((const __m256i*)(L.a8[i] + t + k * W));
+            CN_W2_REG(w);
+            r[k]     = _mm256_add_epi16(r[k], w);
+            o[k / 2] = _mm256_add_epi16(o[k / 2], _mm256_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_add_epi32(ps, _mm256_load_si256((const __m256i*)(L.a8[i] + L1)));
+    }
+    for (int i = 0; i < L.n8s; i++) {
+        for (int k = 0; k < R; k += 2) {
+            __m256i w = _mm256_load_si256((const __m256i*)(L.s8[i] + t + k * W));
+            CN_W2_REG(w);
+            r[k]     = _mm256_sub_epi16(r[k], w);
+            o[k / 2] = _mm256_sub_epi16(o[k / 2], _mm256_srai_epi16(w, 8));
+        }
+        if (WithPsqt) ps = _mm256_sub_epi32(ps, _mm256_load_si256((const __m256i*)(L.s8[i] + L1)));
+    }
+    const __m256i bias = _mm256_set1_epi16(short(std::uint16_t(-128 * (L.n8a - L.n8s))));
+    for (int k = 0; k < R; k += 2) {
+        r[k + 1] = _mm256_add_epi16(r[k + 1], o[k / 2]);
+        r[k]     = _mm256_sub_epi16(_mm256_add_epi16(r[k], bias), _mm256_slli_epi16(o[k / 2], 8));
+    }
+#elif defined(CN_W1)
     // Interleaved int8 rows (CN_W1): one 32-byte load per pair of registers, widened on ports 0/1.
     const __m256i even = _mm256_set1_epi16(1);   // u8 pairs (1, 0): vpmaddubsw keeps the signed even byte
     for (int i = 0; i < L.n8a; i++) {
@@ -943,10 +1062,11 @@ inline __m512i dot4(__m512i acc, __m512i x, __m512i w) {
 
 // Layers after l1 in registers (spec 5.3-5.8). Squares of |x| cut at 16383 (l1) and 8191 (l2), which is exact
 // (spec 5.4), so 32-bit products cannot overflow.
+// The square is CN_SQ512 (vpmulld, or vpmaddwd with -DCN_SQ_MADD: see the top of the file).
 inline void act16(__m512i x, int cut, int sqShift, int vShift, __m128i& sq, __m128i& val) {
     const __m512i zero = _mm512_setzero_si512(), top = _mm512_set1_epi32(127);
     const __m512i ax = _mm512_min_epi32(_mm512_abs_epi32(x), _mm512_set1_epi32(cut));
-    const __m512i q  = _mm512_min_epi32(_mm512_srli_epi32(_mm512_mullo_epi32(ax, ax), sqShift), top);
+    const __m512i q  = _mm512_min_epi32(_mm512_srli_epi32(CN_SQ512(ax), sqShift), top);
     const __m512i v  = _mm512_min_epi32(_mm512_max_epi32(_mm512_srai_epi32(x, vShift), zero), top);
     sq  = _mm512_cvtepi32_epi8(q);
     val = _mm512_cvtepi32_epi8(v);
@@ -1004,7 +1124,32 @@ Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket CN_P
 #endif
     __m512i a2 = _mm512_setzero_si512(), a3 = a2;
     int i = 0;
-#if CN_DOT_CHAINS >= 3 && defined(USE_VNNI)
+#if CN_DOT_CHAINS >= 4 && defined(USE_VNNI)
+    // Four independent chains (-DCN_DOT_CHAINS=4, 21/10/2026): vpdpbusd zmm issues two per cycle with a latency of 3 on
+    // Zen 5 (desktop, full 512-bit pipes) and of 5-6 on Cascade Lake/Sapphire Rapids, so 6 to 12 products must be in
+    // flight; three chains hold 6. Integer sums, same result.
+    __m512i a4 = a2, a5 = a2, a6 = a2, a7 = a2;
+    for (; i + 3 < n; i += 4) {
+        const __m512i  x0 = _mm512_set1_epi32(in[nz[i]]), x1 = _mm512_set1_epi32(in[nz[i + 1]]);
+        const __m512i  x2 = _mm512_set1_epi32(in[nz[i + 2]]), x3 = _mm512_set1_epi32(in[nz[i + 3]]);
+        const __m512i* w0 = reinterpret_cast<const __m512i*>(st.w1g[nz[i]]);
+        const __m512i* w1 = reinterpret_cast<const __m512i*>(st.w1g[nz[i + 1]]);
+        const __m512i* w2 = reinterpret_cast<const __m512i*>(st.w1g[nz[i + 2]]);
+        const __m512i* w3 = reinterpret_cast<const __m512i*>(st.w1g[nz[i + 3]]);
+        a0 = dot4(a0, x0, _mm512_load_si512(w0));
+        a1 = dot4(a1, x0, _mm512_load_si512(w0 + 1));
+        a2 = dot4(a2, x1, _mm512_load_si512(w1));
+        a3 = dot4(a3, x1, _mm512_load_si512(w1 + 1));
+        a4 = dot4(a4, x2, _mm512_load_si512(w2));
+        a5 = dot4(a5, x2, _mm512_load_si512(w2 + 1));
+        a6 = dot4(a6, x3, _mm512_load_si512(w3));
+        a7 = dot4(a7, x3, _mm512_load_si512(w3 + 1));
+    }
+    a0 = _mm512_add_epi32(a0, a4);
+    a1 = _mm512_add_epi32(a1, a5);
+    a2 = _mm512_add_epi32(a2, a6);
+    a3 = _mm512_add_epi32(a3, a7);
+#elif CN_DOT_CHAINS >= 3 && defined(USE_VNNI)
     // Three independent chains (vpdpbusd has a latency of about five cycles); integer sums, same result.
     __m512i a4 = a2, a5 = a2;
     for (; i + 2 < n; i += 3) {
@@ -1106,7 +1251,7 @@ inline __m256i act32(const __m256i* x, int cut, int sqShift, int vShift, bool sq
     for (int k = 0; k < 4; k++) {
         if (square) {
             const __m256i ax = _mm256_min_epi32(_mm256_abs_epi32(x[k]), c);
-            r[k] = _mm256_min_epi32(_mm256_srli_epi32(_mm256_mullo_epi32(ax, ax), sqShift), top);
+            r[k] = _mm256_min_epi32(_mm256_srli_epi32(CN_SQ256(ax), sqShift), top);
         } else
             r[k] = _mm256_min_epi32(_mm256_max_epi32(_mm256_srai_epi32(x[k], vShift), zero), top);
     }
@@ -1543,9 +1688,20 @@ bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::str
 #endif
             return e;
         };
+#ifdef CN_W2
+        // CN_W2: the element that lands in the low byte of its word (first half of the block) is stored + 128.
+        auto val = [](std::size_t e, F v) -> F {
+            if (sizeof(F) == 1 && e % CN_W1_BLOCK < CN_W1_BLOCK / 2) return F(std::uint8_t(std::uint8_t(v) ^ 0x80u));
+            return v;
+        };
+        bool ok2 = r.template tensor_f<F>(std::size_t(nrows) * L1, [rows, slot, pos, val](std::size_t k, F v) {
+            rows[slot(int(k / L1))][pos(k % L1)] = val(k % L1, v);
+        });
+#else
         bool ok2 = r.template tensor_f<F>(std::size_t(nrows) * L1, [rows, slot, pos](std::size_t k, F v) {
             rows[slot(int(k / L1))][pos(k % L1)] = v;
         });
+#endif
         return ok2 && r.template tensor_f<std::int32_t>(std::size_t(nrows) * NPSQT, [rows, slot](std::size_t k, std::int32_t v) {
             std::memcpy(reinterpret_cast<char*>(rows[slot(int(k / NPSQT))] + L1) + 4 * (k % NPSQT), &v, 4);
         });
@@ -1610,6 +1766,9 @@ bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::str
     h ^= layout;
 #ifdef CN_W1
     h ^= 0x5731'0000'0000'0000ULL;   // interleaved int8 rows: another layout of the same file
+#endif
+#ifdef CN_W2
+    h ^= 0x0032'5732'0000'0000ULL;   // and their low bytes stored + 128 (CN_W2)
 #endif
 #ifdef CN_THRPERM
     h ^= THR_PERM_ID;   // and so does the order of the threat rows
@@ -1742,6 +1901,32 @@ void apply_refresh(const RowList& LH, const RowList& LO, Acc& entry, Acc& dst) {
     refresh_tile<true>(LH, LO, entry, dst, 0);
     refresh_tile<false>(LH, LO, entry, dst, L1 / 2);
 }
+#elif defined(USE_AVX2) && defined(CN_AVX2_FUSED)
+// -DCN_AVX2_FUSED (21/10/2026; OFF by default): the single-pass refresh and king step in the AVX2 builds as well
+// (Intel hybrid processors with AVX-VNNI, Zen 3, Zen 1/2), eight tiles of 8 registers. Without it a refresh is two
+// whole passes of apply and a king step three, plus a loop over the 1024 values for S(parent) - entry + entry and a
+// 2 KB accumulator on the stack. The same integer operations in the same order per value, so the same accumulators.
+template <bool WithPsqt>
+inline void refresh_tile(const RowList& LH, const RowList& LO, Acc& entry, Acc& dst, int t) {
+    constexpr int R = 8, W = 16;
+    __m256i       r[R];
+    __m256i       ps = WithPsqt ? _mm256_loadu_si256((const __m256i*)entry.psqt) : _mm256_setzero_si256();
+    for (int k = 0; k < R; k++) r[k] = _mm256_loadu_si256((const __m256i*)(entry.v + t + k * W));
+    rows16_256<R, WithPsqt>(LH, r, ps, t);
+    rows8_256<R, WithPsqt>(LH, r, ps, t);
+    for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(entry.v + t + k * W), r[k]);
+    if (WithPsqt) _mm256_storeu_si256((__m256i*)entry.psqt, ps);
+    rows8_256<R, WithPsqt>(LO, r, ps, t);   // added int8 rows only (the board's)
+    for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(dst.v + t + k * W), r[k]);
+    if (WithPsqt) _mm256_storeu_si256((__m256i*)dst.psqt, ps);
+}
+
+void apply_refresh(const RowList& LH, const RowList& LO, Acc& entry, Acc& dst) {
+    CN_TIME(1);
+    constexpr int TILE = 8 * 16;
+    refresh_tile<true>(LH, LO, entry, dst, 0);
+    for (int t = TILE; t < L1; t += TILE) refresh_tile<false>(LH, LO, entry, dst, t);
+}
 #else
 void apply_refresh(const RowList& LH, const RowList& LO, Acc& entry, Acc& dst) {
     apply(LH, entry, entry);
@@ -1818,6 +2003,52 @@ void apply_kingstep(const RowList& LP, const RowList& LN, const RowList& LO, con
     CN_TIME(1);
     kingstep_tile<true>(LP, LN, LO, sPar, ePar, eNew, dst, 0);
     for (int t = 8 * 32; t < L1; t += 8 * 32) kingstep_tile<false>(LP, LN, LO, sPar, ePar, eNew, dst, t);
+}
+#elif defined(USE_AVX2) && defined(CN_AVX2_FUSED)
+// CN_AVX2_FUSED (see apply_refresh): with 16 registers only one accumulator tile is live, so S(parent) - parent entry
+// waits in dst (stored, then read back from L1) while the child's entry is brought to the board. The order of the
+// steps is the AVX-512 one: the child's entry is read after the parent's was written.
+template <bool WithPsqt>
+inline void kingstep_tile(const RowList& LP, const RowList& LN, const RowList& LO, const Acc& sPar, Acc& ePar,
+                          Acc& eNew, Acc& dst, int t) {
+    constexpr int R = 8, W = 16;
+    __m256i       r[R];
+    __m256i       ps = WithPsqt ? _mm256_loadu_si256((const __m256i*)ePar.psqt) : _mm256_setzero_si256();
+    for (int k = 0; k < R; k++) r[k] = _mm256_loadu_si256((const __m256i*)(ePar.v + t + k * W));
+    rows16_256<R, WithPsqt>(LP, r, ps, t);
+    rows8_256<R, WithPsqt>(LP, r, ps, t);
+    for (int k = 0; k < R; k++) {
+        _mm256_storeu_si256((__m256i*)(ePar.v + t + k * W), r[k]);
+        _mm256_storeu_si256((__m256i*)(dst.v + t + k * W),
+                            _mm256_sub_epi16(_mm256_loadu_si256((const __m256i*)(sPar.v + t + k * W)), r[k]));
+    }
+    if (WithPsqt) {
+        _mm256_storeu_si256((__m256i*)ePar.psqt, ps);
+        _mm256_storeu_si256((__m256i*)dst.psqt, _mm256_sub_epi32(_mm256_loadu_si256((const __m256i*)sPar.psqt), ps));
+        ps = _mm256_loadu_si256((const __m256i*)eNew.psqt);
+    }
+    for (int k = 0; k < R; k++) r[k] = _mm256_loadu_si256((const __m256i*)(eNew.v + t + k * W));
+    rows16_256<R, WithPsqt>(LN, r, ps, t);
+    rows8_256<R, WithPsqt>(LN, r, ps, t);
+    for (int k = 0; k < R; k++) {
+        _mm256_storeu_si256((__m256i*)(eNew.v + t + k * W), r[k]);
+        r[k] = _mm256_add_epi16(r[k], _mm256_loadu_si256((const __m256i*)(dst.v + t + k * W)));
+    }
+    if (WithPsqt) {
+        _mm256_storeu_si256((__m256i*)eNew.psqt, ps);
+        ps = _mm256_add_epi32(ps, _mm256_loadu_si256((const __m256i*)dst.psqt));
+    }
+    rows8_256<R, WithPsqt>(LO, r, ps, t);   // the O rows of the move (int8)
+    for (int k = 0; k < R; k++) _mm256_storeu_si256((__m256i*)(dst.v + t + k * W), r[k]);
+    if (WithPsqt) _mm256_storeu_si256((__m256i*)dst.psqt, ps);
+}
+
+void apply_kingstep(const RowList& LP, const RowList& LN, const RowList& LO, const Acc& sPar, Acc& ePar, Acc& eNew,
+                    Acc& dst) {
+    CN_TIME(1);
+    constexpr int TILE = 8 * 16;
+    kingstep_tile<true>(LP, LN, LO, sPar, ePar, eNew, dst, 0);
+    for (int t = TILE; t < L1; t += TILE) kingstep_tile<false>(LP, LN, LO, sPar, ePar, eNew, dst, t);
 }
 #else
 void apply_kingstep(const RowList& LP, const RowList& LN, const RowList& LO, const Acc& sPar, Acc& ePar, Acc& eNew,
