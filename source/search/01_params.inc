@@ -1110,6 +1110,8 @@
                                          /* BAKED 20/10 at 500 (user): +2.35 +- 4.21 over 5,758 (10+0.1 noHT), ~1% of moves */ \
   P(TmTransPlies, 4, 1, 12)              /* PV moves whose captures are counted */ \
   P(TmTransRest, 0, 0, 500)              /* /1000: time given back by the other moves (keeps self-play level) */ \
+  P(ExpertFix, 0, 0, 32)                 /* 20/10/2026, ours, OFF: 32 = -27.7 +- 18.2 over 352 g. 10+0.1 HT, stopped */ \
+                                         /* (15_threads.inc): no expert change in the tree, fewer rows in cache */ \
   /* Base of our own (budget_own, 14_deepen.inc, 20/10/2026), off at 0: moves left from material and ply, share of */ \
   /*  the reserve growing with its log; to be tuned against an external engine (in self-play spending more wins). */ \
   /*  Verdict of our own, two attempts on 20/10/2026, both REMOVED (copy in _backup/..._pre_pulizia_verdetto_):   */ \
@@ -1127,7 +1129,58 @@
   P(TmOwnCap, 200, 50, 500)              /* /1000: the target never exceeds this fraction of the clock     */ \
   P(TmOwnCeil, 600, 150, 1200)           /* /100: ceiling = this x target (and the clock cap)              */
 
-#ifdef TRIUMV_RELEASE
+// ---------------------------------------------------------------------------
+// TUNING BUILD OF THE TIME MANAGEMENT (20/10/2026): -DTRIUMV_RELEASE -DTRIUMV_TUNE_TIME. Every parameter is a constant
+// as in the release (the dev build, with ~750 variables read from memory, is 10% slower: an SPSA against another
+// engine must not pay that), except the levers listed here, which stay variables, are listed as UCI options and are
+// set by setoption. The list is the SPSA TV1 (Tuning_SPSA/spsa_lab/presets/crea_preset_tv1.py): the six levers of our
+// own base, the 22 of the iteration verdict, TmPrevRed and TmDeepenShare. To tune others, add a TP_TUNE_ line.
+// The selection by name uses a probe: TP_TUNE_<name> expands to "~, 1," only for the listed names, so TP_TUNED(name)
+// takes the second argument, 1 for them and 0 for every other name.
+// ---------------------------------------------------------------------------
+#define TP_PROBE ~, 1,
+#define TP_ARG2_(a, b, ...) b
+#define TP_ARG2(...) TP_ARG2_(__VA_ARGS__)
+#define TP_TUNED_(x) TP_ARG2(x, 0, )
+#define TP_TUNED(name) TP_TUNED_(TP_TUNE_##name)
+#define TP_CAT_(a, b) a##b
+#define TP_CAT(a, b) TP_CAT_(a, b)
+#define TP_TUNE_TmOwnShare TP_PROBE
+#define TP_TUNE_TmMlBase TP_PROBE
+#define TP_TUNE_TmMlPiece TP_PROBE
+#define TP_TUNE_TmMlPly TP_PROBE
+#define TP_TUNE_TmOwnCeil TP_PROBE
+#define TP_TUNE_TmOwnCap TP_PROBE
+#define TP_TUNE_TmFallBase TP_PROBE
+#define TP_TUNE_TmFallPrev TP_PROBE
+#define TP_TUNE_TmFallIter TP_PROBE
+#define TP_TUNE_TmFallMin TP_PROBE
+#define TP_TUNE_TmFallMax TP_PROBE
+#define TP_TUNE_TmRedLo TP_PROBE
+#define TP_TUNE_TmRedHi TP_PROBE
+#define TP_TUNE_TmRedY0 TP_PROBE
+#define TP_TUNE_TmRedY1 TP_PROBE
+#define TP_TUNE_TmRedMin TP_PROBE
+#define TP_TUNE_TmRedMax TP_PROBE
+#define TP_TUNE_TmSettlePrev TP_PROBE
+#define TP_TUNE_TmSettleDiv TP_PROBE
+#define TP_TUNE_TmInstabBase TP_PROBE
+#define TP_TUNE_TmInstabMul TP_PROBE
+#define TP_TUNE_TmEffortLo TP_PROBE
+#define TP_TUNE_TmEffortHi TP_PROBE
+#define TP_TUNE_TmEffortY0 TP_PROBE
+#define TP_TUNE_TmEffortY1 TP_PROBE
+#define TP_TUNE_TmEffortMin TP_PROBE
+#define TP_TUNE_TmEffortMax TP_PROBE
+#define TP_TUNE_TmJumpGuard TP_PROBE
+#define TP_TUNE_TmPrevRed TP_PROBE
+#define TP_TUNE_TmDeepenShare TP_PROBE
+
+#if defined(TRIUMV_RELEASE) && defined(TRIUMV_TUNE_TIME)
+  #define TP_DECL_0(name, def) static constexpr int name = def;
+  #define TP_DECL_1(name, def) static int name = def;
+  #define TP_DECLARE(name, def, lo, hi) TP_CAT(TP_DECL_, TP_TUNED(name))(name, def)
+#elif defined(TRIUMV_RELEASE)
   #define TP_DECLARE(name, def, lo, hi) static constexpr int name = def;
 #else
   #define TP_DECLARE(name, def, lo, hi) static int name = def;
@@ -1288,6 +1341,11 @@ void print_search_options() {
 #define TP_PRINT(name, def, lo, hi) printf("option name " #name " type spin default %d min %d max %d\n", def, lo, hi);
   TRIUMV_SEARCH_PARAMS(TP_PRINT)
 #undef TP_PRINT
+#elif defined(TRIUMV_TUNE_TIME)   // only the tuned levers (see TP_TUNED above)
+#define TP_PRINT(name, def, lo, hi)                                                                        \
+  if (TP_TUNED(name)) printf("option name " #name " type spin default %d min %d max %d\n", def, lo, hi);
+  TRIUMV_SEARCH_PARAMS(TP_PRINT)
+#undef TP_PRINT
 #endif
 }
 
@@ -1354,6 +1412,16 @@ bool set_search_param(const char* name, int value) {
   if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
   TRIUMV_SEARCH_PARAMS(TP_SET)
 #undef TP_SET
+#elif defined(TRIUMV_TUNE_TIME)
+  // Only the tuned levers are variables; the time levers feed no table built from the parameters, so no sync.
+#define TP_SET_1(pname, lo, hi)                                                                           \
+  if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); return true; }
+#define TP_SET_0(pname, lo, hi)
+#define TP_SET(pname, def, lo, hi) TP_CAT(TP_SET_, TP_TUNED(pname))(pname, lo, hi)
+  TRIUMV_SEARCH_PARAMS(TP_SET)
+#undef TP_SET
+#undef TP_SET_0
+#undef TP_SET_1
 #endif
   return false;
 }

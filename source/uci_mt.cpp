@@ -404,6 +404,8 @@ void uci_loop()
                        nn_eval_const_name(i), nn_eval_const_get(i),
                        nn_eval_const_lo(i), nn_eval_const_hi(i));
             print_search_options();   // parametri della ricerca (search/01_params.inc)
+#elif defined(TRIUMV_TUNE_TIME)
+            print_search_options();   // tuning build of the time management: only the tuned levers (01_params.inc)
 #endif
             // (SyzygyPath spostata in cima alla lista, subito dopo EvalFile — vedi sopra:
             //  evita il troncamento delle liste lunghe nelle GUI ChessBase/Fritz.)

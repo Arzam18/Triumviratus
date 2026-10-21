@@ -48,6 +48,11 @@ static void nn_dirty_init() {
 // Fascia di materiale della rete (HalfKA a esperti) per numero di pezzi: <= 9, 10-15, 16-23, >= 24 (half_ka_v2_hm.h).
 static constexpr unsigned char nn_phase_of_count[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
                                                         2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
+// ExpertFix (20/10/2026): the expert the network uses per piece count during this search, set in start_search (the
+// bands above, or the root's expert kept for a margin of pieces). The network side reads cn::g_phase_map, set at the
+// same moment through nn_set_phase_map.
+static unsigned char g_nn_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
+                                           2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 
 // Scacchiera di lavoro dei passi: bitboard per tipo (P..K, entrambi i colori), per colore e occupazione.
 struct NnTB {
@@ -300,8 +305,8 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
     dp.add_sq = (std::uint8_t)(promoted ? target : NN_SQ_NONE);
   }
   const int pieces = count_bits(td.occupancies[both]);
-  dp.phase = nn_phase_of_count[pieces - (cap != -1)];
-  dp.phaseChanged = nn_phase_of_count[pieces] != dp.phase;
+  dp.phase = g_nn_phase_map[pieces - (cap != -1)];
+  dp.phaseChanged = g_nn_phase_map[pieces] != dp.phase;
   // Minacce e pedoni: nn_dirty_catch_up, solo se si arriva a una valutazione.
   // Prefetch of the network rows this move changes (19/10/2026): the memory latency runs under the hash probe and the
   // rest of the child node instead of at the start of its evaluation. Without a capture the third row repeats the

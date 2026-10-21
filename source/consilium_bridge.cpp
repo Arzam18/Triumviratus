@@ -509,6 +509,10 @@ void nn_pos_set_optimism(void* handle, int w, int b) {
 
 void nn_pos_set(void* handle) { cn::reset(*static_cast<CnPos*>(handle)->h); }
 
+void nn_set_phase_map(const unsigned char* map) {
+    for (int c = 0; c <= 32; c++) cn::g_phase_map[c] = map[c] <= 3 ? map[c] : 3;
+}
+
 NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->stack; }
 
 void nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from, int toPc, int to, int capPc,

@@ -95,6 +95,10 @@ struct CnTimer {
 namespace cn {
 
 int g_bucket_override = -1;
+// Expert per piece count. Default = the bands of the network (<= 9, 10-15, 16-23, >= 24, as PHASE_OF_COUNT below);
+// ExpertFix replaces it at the start of a search (consilium_bridge nn_set_phase_map).
+unsigned char g_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
+                                 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 
 namespace {
 
@@ -425,7 +429,7 @@ struct Persp {
     const std::int8_t  (*pd)[64];
     Persp(int p_, const Board& b) : p(p_) {
         ksq   = CN_LSB(b.bb[KING + 6 * p]);
-        phase = PHASE_OF_COUNT[CN_POPCNT(b.occ[2])];
+        phase = g_phase_map[CN_POPCNT(b.occ[2])];
         mh    = mirror_hka(ksq);
         mo    = mirror_oth(ksq);
         oo    = orient(p, mo);

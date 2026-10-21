@@ -112,6 +112,7 @@ void prefetch_move(const Net& net, const std::uint64_t* bb, int phase, int pc, i
                    int capSq);
 
 extern int g_bucket_override;     // EvalBucketOverride probe: -1 normal, 0..7 forces the output bucket
+extern unsigned char g_phase_map[33];   // expert per piece count (ExpertFix: set by the search at each start)
 
 }  // namespace cn
 

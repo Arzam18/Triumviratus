@@ -273,6 +273,22 @@ void search_position_mt(int depth) {
 
   int list[256];
   copy_board_to_thread(thread_data[0]);
+  // ExpertFix (20/10/2026, ours, 0 = off): the network keeps the expert of the root while the piece count stays within
+  // ExpertFix pieces of the root's band; beyond, the expert of the count as usual (32 = the root's expert everywhere).
+  // Fewer expert changes inside the tree (each costs a refresh-like update) and fewer HalfKA rows in use, so they stay
+  // in cache; the price is the neighbouring expert's view after captures that cross a band (Z1: same mean, 20-40 cp
+  // of noise one band away). xperf with 32: -4.9% cycles per node in the middlegame, -2.8% in endgames.
+  {
+    const int root_ph = nn_phase_of_count[count_bits(occupancies[both])];
+    int lo = 32, hi = 0;   // piece counts of the root's band
+    for (int c = 0; c <= 32; c++)
+      if (nn_phase_of_count[c] == root_ph) lo = std::min(lo, c), hi = std::max(hi, c);
+    for (int c = 0; c <= 32; c++) {
+      const int dist = c < lo ? lo - c : c > hi ? c - hi : 0;
+      g_nn_phase_map[c] = ExpertFix && dist <= ExpertFix ? (unsigned char)root_ph : nn_phase_of_count[c];
+    }
+    nn_set_phase_map(g_nn_phase_map);
+  }
   // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale

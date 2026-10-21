@@ -89,6 +89,10 @@ void  nn_pos_set_optimism(void* handle, int w, int b);   // OptPerThread
 // Back to the root: the stack returns to one state, and the root accumulator is computed at the first evaluation.
 void  nn_pos_set(void* handle);
 
+// ExpertFix (20/10/2026): expert of the network per piece count (33 entries, 0..3), set by the engine at the start of
+// a search (the normal bands, or the root's expert kept for a margin of pieces). Call only between searches.
+void  nn_set_phase_map(const unsigned char* map);
+
 // The handle's dirty stack, written directly by the engine's make and unmake.
 NnStack* nn_pos_stack(void* handle);
 
