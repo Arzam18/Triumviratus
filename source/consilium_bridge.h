@@ -96,6 +96,65 @@ void  nn_set_phase_map(const unsigned char* map);
 // The handle's dirty stack, written directly by the engine's make and unmake.
 NnStack* nn_pos_stack(void* handle);
 
+#ifdef TRIUMV_C2
+// Consilium-2: the routing table of the loaded network (2,916 cells -> expert 0..7), for the make. The cell of a
+// perspective is cn_sig(own side) * 54 + cn_sig(opponent); the signature counts N, B, R (capped at 2) and Q (at 1).
+const unsigned char* nn_router_table(void);
+static inline int cn_sig(int n, int b, int r, int q) {
+    return (n < 2 ? n : 2) * 18 + (b < 2 ? b : 2) * 6 + (r < 2 ? r : 2) * 2 + (q < 1 ? q : 1);
+}
+
+// --- C2 signals for the search (agent A) ---
+// What the pawn-king subnetwork adds linearly to the positional output (its two outputs that feed the skip of the
+// stack), in the network's internal units, from the view of the side to move given by side_white. bb[12] as in
+// nn_pos_eval; only pawns and kings are read. Uses the handle's pawn-king cache (computes and stores on a miss), so it
+// is cheap for a position the thread evaluates anyway. 0 when no network is loaded.
+int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white);
+
+// --- C2 signals (agent B) ---
+// What only Consilium-2 has, for the code outside the main search loop (21/10/2026). bb[12] as in nn_pos_eval.
+// nn_pk_signature: the pawn-king subnetwork of the board (from the thread's cache, computed and stored on a miss),
+// reduced to the signs of the `bits` most variable of its 32 outputs against their medians (bit i = output of rank i
+// above its median; ranks and medians measured at load): a coarse key of the pawn structure as the network reads it
+// (CorrPkW). With compute = 0 the subnetwork is never run: -1 when the board's entry is not in the cache. What the
+// subnetwork adds to the evaluation (cn::pk_effect) is used inside the bridge (C2Conv*).
+long long nn_pk_signature(void* handle, const unsigned long long* bb, int side_white, int bits, int compute);
+// What the pawn-king subnetwork added to the positional output (side to move, positional units) in the last network
+// evaluation of the thread (nn_pos_eval; not refreshed by an evaluation taken from the hash). Computed only while
+// nn_want_pk_effect(1) or C2ConvW is on (one more pass of the layers after l1 per evaluation); otherwise stale/0.
+// The search does not read it (it can belong to another position): it uses nn_pk_effect_fresh/now below.
+void      nn_want_pk_effect(int on);
+int       nn_last_pk_effect(void* handle);
+
+// --- Conversion push (the author's idea: push toward the endgame when it is winning), 21/10/2026 ---
+// Shared by the search version (C2ConvOrder/C2ConvRed, 13_search.inc) and the evaluation version (C2ConvW,
+// consilium_bridge.cpp c2_adjust), so that the two read "ahead or behind, and by how much" with one rule and can be
+// tested separately or together. All OFF by default.
+// c2_conv_lean: how far a signed opinion v (side to move's view) goes beyond the dead zone |v| <= from, capped at
+// cap: 0 inside the zone, else sign(v) * (min(|v|, max(from, cap)) - from). Positive = the side to move is ahead.
+static inline int c2_conv_lean(int v, int from, int cap) {
+    const int mag = v < 0 ? -v : v;
+    const int top = from > cap ? from : cap;
+    const int a   = (mag < top ? mag : top) - from;
+    return a <= 0 ? 0 : (v > 0 ? a : -a);
+}
+// The exact pawn-king effect (cn::pk_effect: what the subnetwork adds to the positional output, side to move's view,
+// positional units) of the thread's CURRENT position, for the search version (C2ConvPkSrc 1). Never a value left by
+// another position: nn_pk_effect_fresh is valid only right after nn_pos_eval evaluated this very position with the
+// network (incremental path; the search knows it from nn_last_disagree >= 0) and costs one pass of the layers after
+// l1 (none when C2ConvW already computed it in that evaluation); nn_pk_effect_now works at any time: it brings the
+// accumulators of the top state up to date (the children need them anyway), reruns the forward pass and adds that
+// pass (the engine must have caught up the dirty stack first, as for nn_pos_eval). 0 when no network is loaded.
+// With nnueverify on, both are compared with the value from scratch (a difference counts as a bad evaluation).
+int nn_pk_effect_fresh(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                       int side_white);
+int nn_pk_effect_now(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                     int side_white);
+// Evaluation terms of the search parameters C2Conv* and C2EvalExp0..7 (01_params.inc), set at the start of each
+// search (15_threads.inc). All 0 = the evaluation is unchanged. conv = {weight /1024, from, cap}; exp_scale[8] /1024.
+void     nn_set_c2_eval(const int* conv, const int* exp_scale);
+#endif
+
 // Memory hint from the make (board before the move, bb[12] as above; phase = material band after the move): asks for
 // the network rows the move will change, so they are in cache when the child evaluates. Changes no state. Without a
 // capture capPc/capSq repeat pc/from; a promotion arrives as toPc.

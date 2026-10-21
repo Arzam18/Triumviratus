@@ -144,11 +144,15 @@ extern bool g_tt_twolevel;
 // I valori sono i default di threads.cpp (01_params.inc).
 constexpr bool g_ttmove24 = true;
 constexpr int  g_tt_keep_margin = 3;
+constexpr int  g_tt_keep_pv = 2;       // TtKeepPv (CENSUS 21/10/2026)
+constexpr int  g_tt_age_weight = 8;    // TtAgeWeight (CENSUS 21/10/2026)
 constexpr bool g_tt_move_keep = true;
 constexpr bool g_tt_age_refresh = false;
 #else
 extern bool g_ttmove24;
 extern int g_tt_keep_margin;   // TTKeepMargin (studio finali 26/09): vedi store_tt
+extern int g_tt_keep_pv;       // TtKeepPv: extra margin of PV entries (CENSUS 21/10/2026)
+extern int g_tt_age_weight;    // TtAgeWeight: plies per search of age in the victim value (CENSUS 21/10/2026)
 extern bool g_tt_move_keep;   // TTMoveKeep: conserva la TT move sui fail-low senza mossa (SF)
 extern bool g_tt_age_refresh;
 #endif
@@ -340,7 +344,7 @@ inline tt_entry* tt_victim(U64 key) {
         if (e->kw == 0 && e->data == 0) return e;
         int rel_age = (current_age - unpack_age(e->data)) & 0x1F;
         int depth = unpack_depth(e->data);
-        int val = depth - 8 * rel_age;   // 04/10/2026: era 2; ogni ricerca di eta' vale 8 ply, come SF
+        int val = depth - g_tt_age_weight * rel_age;   // 04/10/2026: era 2; ogni ricerca di eta' vale 8 ply, come SF
         if (val < best_val) { best_val = val; best = e; }
     }
     return best;
@@ -477,7 +481,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         // suo bound e' vecchio. SF sovrascrive se  depth + 2*pv > vecchia - 4  (tt.cpp, TTWriter::write):
         // preferisce l'informazione fresca fino a 3 ply piu' corta. Con margine m > 0 si tiene la vecchia
         // solo se e' piu' profonda di oltre m ply (+2 sui nodi PV). 0 = regola storica, byte-identico.
-        const int keep_margin = g_tt_keep_margin > 0 ? g_tt_keep_margin + (pv ? 2 : 0) : 0;
+        const int keep_margin = g_tt_keep_margin > 0 ? g_tt_keep_margin + (pv ? g_tt_keep_pv : 0) : 0;
         if (unpack_age(old_data) == current_age && unpack_depth(old_data) > depth + keep_margin && flag != hash_flag_exact) {
             // Conserva l'entry piu' profonda; aggiorna l'eval se mancava.
             const U64 w  = (old_w & ~0xFFFFULL) | (U64)ev16;
@@ -497,7 +501,7 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         int best = 1 << 30;
         for (int i = 0; i < TT_WAYS; i++) {
             const int rel_age = (current_age - unpack_age(dd[i])) & 0x1F;
-            const int val = unpack_depth(dd[i]) - 8 * rel_age;
+            const int val = unpack_depth(dd[i]) - g_tt_age_weight * rel_age;   // TtAgeWeight <= 16: val >= -496
             const int key = ((kk[i] | dd[i]) == 0 ? -(1 << 20) : val * 4) + i;
             best = key < best ? key : best;
         }

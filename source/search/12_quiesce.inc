@@ -441,6 +441,9 @@ struct QsWalk {
   int ex;         // expert of the node (piece count band of the network)
   int fut_base;   // stand + futility margin of the expert; -infinity in check (nothing is pruned on value)
   int prev_to;    // target square of the previous move: a recapture there is never pruned on value
+#ifdef TRIUMV_C2
+  C2Mat cm;       // C2SwitchQs: material and experts of the node (written only when the lever is on)
+#endif
 };
 
 // Pull a value that lies above beta toward beta by a mix weight (/1024); 1024 keeps the value.
@@ -457,7 +460,15 @@ static inline bool qs_worth(ThreadData &td, const QsWalk &w, int m, bool gives, 
     if (seen > QsGate)
       return false;
     const int fut = w.fut_base + unit_value[victim_kind(td, m)] * QsVictimW / 1024;
+#ifdef TRIUMV_C2
+    // C2 idea 2 (21/10/2026, agent A; OFF by default, SPRT pending): a capture that gives another expert to either
+    // perspective is judged by another learned regime after the move, so the stand plus the victim is a weaker bound:
+    // the test needs C2SwitchQs more (the value the skipped move raises 'best' to stays the plain one).
+    const int c2_wide = (C2SwitchQs && c2_switches(td, w.cm, m)) ? C2SwitchQs : 0;
+    if (fut + c2_wide <= alpha) {
+#else
     if (fut <= alpha) {   // even winning the victim for free leaves the node under alpha
+#endif
       best = std::max(best, fut);
       return false;
     }
@@ -522,6 +533,10 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     }
     alpha = std::max(alpha, best);
     w.fut_base = f->static_eval + by_exp4(w.ex, QsFut0, QsFut1, QsFut2, QsFut3);
+#ifdef TRIUMV_C2
+    if (C2SwitchQs)
+      c2_mat_init(td, w.cm);
+#endif
   }
 
   // ---- 3. The walk ----------------------------------------------------------

@@ -650,7 +650,7 @@
   P(TmExp0, 0, -500, 1000)               /* 20/10: TMLOG data show the verdict stops a little early in endgames  */ \
                                          /* (move changes later 4.9% vs 3.2-4.1%, least time). 300 on the endgame */ \
                                          /* book, no draw adj, 10+0.1 noHT: +0.66 +- 2.16 over 5,226 (first 1,372 */ \
-                                         /* +3.55): neutral, back to 0 (user). Kept for the TM tuning vs SF19.     */ \
+                                         /* +3.55): neutral, back to 0 (user). Kept for the TM tuning.              */ \
   P(TmExp1, 0, -500, 1000)                                                                                 \
   P(TmExp2, 0, -500, 1000)                                                                                 \
   P(TmExp3, 0, -500, 1000)                                                                                 \
@@ -663,7 +663,7 @@
      a meno di salti grossi"). SPRT UHO 8+0.08 (TC critico), tm32 (bench 325747, invariato con la guardia),         \
      TmFenPly=1 su entrambi: -2,52 +- 7,33 su 2.210 partite (socket -1,89 / -3,14), piatta. Scatta nello 0,25% delle \
      mosse (salto >= +2,00 sulla mossa prima), in una partita su nove. */                                            \
-  P(TmJumpGuard, 200, 0, 2000)           /* cp stampati di salto per la guardia (0 = spenta)               */ \
+  P(TmJumpGuard, 209, 0, 2000)           /* cp stampati di salto per la guardia (0 = spenta)               */ \
   P(HashDamp, 41, 0, 200)                /* BAKE 06/10/2026 (era 0, vedi in testa): taglio da limite      */ \
                                          /* inferiore spinto verso beta (decimi)                         */ \
   P(HashNearMiss, 0, 0, 400)            /* 12/10/2026, ripescaggio: entry un ply corta, sotto alpha di tanto */ \
@@ -693,8 +693,8 @@
   /* 10/10/2026, margini per esperto della rete (nostra; esperto = fascia di pezzi <=9, 10-15, 16-23, >=24, come      \
      net_phase): si sommano al moltiplicatore della futility inversa (RfpExp, base RfpMultBase 50), al margine della  \
      futility delle quiete (FutExp). Tutte a 0 = albero invariato. BAKE EXP1 12/10/2026 (vedi in testa): valori dello \
-     SPSA EXP1, [EXP1 0->nuovo]. LmrExp e LmrScaleExp tolte il 18/10/2026: la riduzione del blocco 2 ha un'ampiezza  \
-     per esperto sua (RfA0-3, ReA0-3). */                                                                             \
+     SPSA EXP1, [EXP1 0->nuovo]. LmrExp e LmrScaleExp tolte il 18/10/2026 col blocco 2 e RIMESSE il 19/10/2026 col   \
+     ripristino della riduzione di 8.0 (RedForm 0): agiscono nella riduzione attiva; RfA0-3, ReA0-3 solo con RedForm. */ \
   P(RfpExp0, PSV(3, 0), -40, 40)         /* esperto 0: <= 9 pezzi  [EXP1 0->3]; Pos Solver 0 */           \
   P(RfpExp1, PSV(1, 0), -40, 40)         /* esperto 1: 10-15 pezzi [EXP1 0->1] */                         \
   P(RfpExp2, PSV(-3, 0), -40, 40)        /* esperto 2: 16-23 pezzi [EXP1 0->-3] */                        \
@@ -1005,17 +1005,86 @@
   /*  give check with SEE >= 0 are also searched when at most QsChecksPieces pieces are on the board (the quiesce */ \
   /*  QCHK form of analysis mode). 0 = off, identical tree.                                                        */ \
   P(QsChecksPieces, 0, 0, 32)                                                                              \
+  /* C2 search ideas (21/10/2026, agent A): search levers that read what only Consilium-2 gives (the expert of each */ \
+  /*  perspective from the routing table of the net, the per-move expert change written by the make, the pawn-king   */ \
+  /*  subnetwork). Code under TRIUMV_C2 in 09_history, 11_queue, 12_quiesce, 13_search: in other builds the options */ \
+  /*  exist and do nothing. ALL OFF BY DEFAULT (identical tree; C2 bench 329525 ep19, 336968 ep22); SPRT pending. REPORT_A.md. */ \
+  /*  On the net of 21/10 the routing follows the OPPONENT's non-pawn material (99.4% of the cells): the expert of   */ \
+  /*  the side to move's perspective is 0 = opponent with at most a minor, 1 = a rook, 2 = two minors or rook+minor,  */ \
+  /*  3 = a queen, 4 = 10-13 units, 5 = 14-18, 6 = 19-25, 7 = 26-31 (N=B=3, R=5, Q=9); the opponent's perspective     */ \
+  /*  reads OUR material on the same scale.                                                                           */ \
+  /*  1. Margins per C2 expert, added to the old per-band terms: RFP multiplier (as RfpExp), quiet futility (as       */ \
+  /*     FutExp), reduction in 1/1024 ply (as LmrExp), null-move floor (as NmpExp). C2ExpSide picks the expert:        */ \
+  /*     0 = side to move's perspective (opponent's material), 1 = opponent's perspective (our material).              */ \
+  P(C2ExpSide, 0, 0, 1)                                                                                    \
+  P(C2Rfp0, 0, -40, 40) P(C2Rfp1, 0, -40, 40) P(C2Rfp2, 0, -40, 40) P(C2Rfp3, 0, -40, 40)                  \
+  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, 0, -40, 40) P(C2Rfp6, 0, -40, 40) P(C2Rfp7, 0, -40, 40)                  \
+  P(C2Fut0, 0, -200, 200) P(C2Fut1, 0, -200, 200) P(C2Fut2, 0, -200, 200) P(C2Fut3, 0, -200, 200)          \
+  P(C2Fut4, 0, -200, 200) P(C2Fut5, 0, -200, 200) P(C2Fut6, 0, -200, 200) P(C2Fut7, 0, -200, 200)          \
+  P(C2Lmr0, 0, -1536, 1536) P(C2Lmr1, 0, -1536, 1536) P(C2Lmr2, 0, -1536, 1536) P(C2Lmr3, 0, -1536, 1536)  \
+  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, 0, -1536, 1536) P(C2Lmr6, 0, -1536, 1536) P(C2Lmr7, 0, -1536, 1536)  \
+  P(C2Nmp0, 0, -200, 200) P(C2Nmp1, 0, -200, 200) P(C2Nmp2, 0, -200, 200) P(C2Nmp3, 0, -200, 200)          \
+  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 0, -200, 200) P(C2Nmp6, 0, -200, 200) P(C2Nmp7, 0, -200, 200)          \
+  /*  2. Expert-switching captures (a capture or promotion after which the routing table gives another expert to    */ \
+  /*     either perspective): ordering bonus in the main search, less reduction (1/1024 ply, positive = less, stops  */ \
+  /*     at zero), and a wider futility margin for such captures in the quiescence (evaluation units).               */ \
+  P(C2SwitchOrder, 0, -8192, 8192)                                                                         \
+  P(C2SwitchRed, 0, -3072, 3072)                                                                           \
+  P(C2SwitchQs, 0, -400, 800)                                                                              \
+  /*  3. Conversion push (the author's idea): when the side to move is ahead by more than C2ConvMargin on the blend   */ \
+  /*     (C2ConvEvalW * static evaluation + C2ConvPkW * pawn-king skip) / 1024, a trade of pieces of the same class   */ \
+  /*     gets an ordering bonus (C2ConvOrder) and less reduction (C2ConvRed, 1/1024 ply); when it is behind by the    */ \
+  /*     margin the same trades get the opposite. C2ConvOrder and C2ConvRed switch it on; the other three only shape. */ \
+  P(C2ConvOrder, 0, -8192, 8192)                                                                           \
+  P(C2ConvRed, 0, -3072, 3072)                                                                             \
+  P(C2ConvMargin, 300, 0, 3000)                                                                            \
+  /*     The skip is small: in the bench nodes |skip| < 8 network units in 83% and < 16 in 98% (pawn ~ 208-356     */ \
+  /*     search units), so C2ConvPkW must be ~8-16x to weigh like a fraction of a pawn (8192 = 8x).                  */ \
+  P(C2ConvEvalW, 1024, 0, 4096)                                                                            \
+  P(C2ConvPkW, 8192, 0, 32768)                                                                             \
+  /*     Conversion push, second form (21/10/2026; OFF: the defaults below leave the blend above unchanged).         */ \
+  /*     C2ConvPkSrc picks the pawn-king term of the blend: 0 = the linear skip x C2ConvPkW (above); 1 = the EXACT    */ \
+  /*     effect of the subnetwork (cn::pk_effect, what it adds to the positional output; skip ~1% of it) x C2ConvEffW, */ \
+  /*     computed for the node's own position (one tail pass at a fresh evaluation, else a forward pass at the move   */ \
+  /*     loop; only when C2ConvOrder/C2ConvRed are on). Positional units ~ 1/1.35 search units: 1024 = 0.75 of a     */ \
+  /*     static-evaluation point, 1347 = par. Bench 21/10: |effect| mean 74, 27% of evaluations above 100.           */ \
+  /*     C2ConvExpMax ("an expert thinks the endgame is winning"): the static evaluation enters the blend only when   */ \
+  /*     both perspectives use a C2 expert <= C2ConvExpMax (0-3 = endgame experts, the opponent with at most a lone   */ \
+  /*     queen), so the push follows the opinion of an endgame expert; 7 = every expert (the first form).            */ \
+  /*     The "ahead" rule is c2_conv_lean (consilium_bridge.h), shared with C2ConvW: ahead when blend > C2ConvMargin. */ \
+  /*     Same judgement as C2ConvW: C2ConvEvalW 0, C2ConvPkSrc 1, C2ConvEffW 1024, C2ConvMargin = C2ConvFrom.        */ \
+  P(C2ConvPkSrc, 0, 0, 1)                                                                                  \
+  P(C2ConvEffW, 1024, 0, 8192)                                                                             \
+  P(C2ConvExpMax, 7, 0, 7)                                                                                 \
+  /*  4. Pawn history per expert: the key of the pawn-structure history gets a constant per expert (1 = the side to */ \
+  /*     move's expert, 2 = the pair of experts), as CorrPhase does for the corrections. 0 = one table as before.    */ \
+  P(C2PawnHist, 0, 0, 2)                                                                                   \
+  /*  5. Pawn-king volatility: d = change of the pawn-king skip (mover's view) made by a pawn or king move or a     */ \
+  /*     pawn capture, clamped to +-C2PkScale. Reduction (1/1024 ply at d = C2PkScale): C2PkRed signed (moves the     */ \
+  /*     subnetwork likes are reduced less, the others more), C2PkVol on |d|; C2PkOrder orders quiet pawn and king   */ \
+  /*     moves. In the bench |d| < 8 in 57% of these moves, < 16 in 84%, < 32 in 99% (network units): scale 32.       */ \
+  P(C2PkRed, 0, -3072, 3072)                                                                               \
+  P(C2PkVol, 0, -3072, 3072)                                                                               \
+  P(C2PkOrder, 0, -16384, 16384)                                                                           \
+  P(C2PkScale, 32, 4, 1024)                                                                                \
+  /*  6. Null move per expert: no null move when bit e of C2NmpMask is set, e = the opponent's expert, which reads  */ \
+  /*     the material of the side that would pass (1 = at most a minor, 3 = also a lone rook).                       */ \
+  P(C2NmpMask, 0, 0, 255)                                                                                  \
+  /*  7. Asymmetric experts: the two perspectives use different experts (the routing table separates the material */ \
+  /*     of the two sides): RFP margin plus C2AsymRfp (evaluation units), reduction minus C2AsymLmr (1/1024 ply).     */ \
+  P(C2AsymRfp, 0, -400, 400)                                                                               \
+  P(C2AsymLmr, 0, -3072, 3072)                                                                             \
   /* tra un'iterazione e l'altra (14_deepen.inc) */                                                          \
   P(LowPlyFill, 102, -500, 500)          /* valore iniziale della storia dei primi ply a ogni ricerca       */ \
   P(QuietHistDecay, 729, 0, 1024)        /* /1024: storie delle quiete conservate fra le mosse              */ \
-  P(TmEffortLo, 75800, 40000, 100000)    /* quota dei nodi sulla mossa migliore (x100000): rampa del tempo */ \
-  P(TmEffortHi, 104510, 60000, 140000)                                                                     \
+  P(TmEffortLo, 82932, 40000, 100000)    /* quota dei nodi sulla mossa migliore (x100000): rampa del tempo */ \
+  P(TmEffortHi, 101788, 60000, 140000)                                                                     \
   /* gestione del tempo (in millesimi) */                                                                 \
-  P(TmFallBase, 1148, 500, 2500)         /* /100: fallingEval = (base + a*(prev-best) + b*(iter-best)) */ \
-  P(TmFallPrev, 230, 0, 600)                                                                              \
-  P(TmFallIter, 110, 0, 400)                                                                              \
-  P(TmInstabBase, 1077, 500, 2000)                                                                        \
-  P(TmInstabMul, 2229, 0, 5000)                                                                           \
+  P(TmFallBase, 1170, 500, 2500)         /* /100: fallingEval = (base + a*(prev-best) + b*(iter-best)) */ \
+  P(TmFallPrev, 240, 0, 600)                                                                              \
+  P(TmFallIter, 114, 0, 400)                                                                              \
+  P(TmInstabBase, 1091, 500, 2000)                                                                        \
+  P(TmInstabMul, 2120, 0, 5000)                                                                           \
   P(TmFenPly, 0, 0, 1)                   /* 1: ply di partita = numero di mossa della FEN + mosse giocate */ \
   /* Risposta prevista (nostra, 05/10/2026, idea dell'utente): se l'avversario gioca la risposta della nostra linea  \
      principale, la hash e' gia' calda e la mossa che avevamo previsto di solito regge. Il tempo della mossa si        \
@@ -1049,77 +1118,87 @@
      solo le nostre mosse di radice): il punteggio ne e' la misura disponibile. 0 = spenta (regola si'/no). Da       \
      misurare a 40+0.4, dove la sorpresa ha reso; valore di prova 300 unita' interne (~85 cp). */                    \
   P(TmSurpriseGrade, 0, 0, 2000)         /* unita' interne: d per il peso doppio (0 = spenta)              */  \
-  /* Ramo con incremento (blitz di CCRL), 05/10/2026: le costanti di clock_plan come parametri per uno SPSA del  \
-     tempo contro un motore esterno (in self-play il lato che spende di piu' vince). Default = valori di prima: la \
-     divisione IEEE e' arrotondata correttamente (12112 / 1e6 == 0.012112). */                                  \
-  P(TmOptBase, 12112, 4000, 30000)       /* /1e6: quota ottimale = base + (ply + 3.23)^pow * c */           \
-  P(TmOptPow, 46866, 25000, 70000)       /* /1e5: crescita della quota col ply di partita */                \
-  P(TmOptC, 29869, 12000, 50000)         /* /1e7: c = TmOptC + TmOptCLog * log10(secondi sull'orologio) */   \
-  P(TmOptCLog, 33554, 0, 90000)          /* /1e8 */                                                         \
-  P(TmOptClockCap, 19404, 8000, 32000)   /* /1e5: tetto della quota ottimale sul tempo rimasto */           \
-  P(TmMaxCBase, 33744, 20000, 50000)     /* /1e4: tempo massimo = (base + log * log10 s + ply/div) x ottimo */ \
-  P(TmMaxCLog, 30608, 0, 60000)          /* /1e4 */                                                         \
-  P(TmMaxPlyDiv, 12352, 4000, 30000)     /* /1e3 */                                                         \
-  P(TmMaxMultCap, 6873, 3000, 10000)     /* /1e3: tetto del moltiplicatore del massimo (06/10/2026, rapporto */ \
-                                         /* Q_TEMPO: sopra ~14 s di orologio decide lui; prova a 5000, 40+0.4) */ \
-                                         /* 06/10: 5000 -27,1 +- 17,0 / 308, 8000 -3,6 +- 10,2 / ~950: resta 6873 */ \
   P(TmBehindMul, 600, 0, 2000)           /* /1000 (07/10/2026, idea dell'utente): con meno orologio            */ \
                                          /* dell'avversario l'ottimo si riduce di TmBehindMul x svantaggio   */ \
                                          /* relativo ((noi - lui) / (noi + lui), solo se negativo); 0 = spento */ \
                                          /* BAKED 07/10 a 600: 6+0.06 +5,23 +- 4,72 / 6.378 (zero escluso, */ \
                                          /* s0 +2,5 s1 +8,0); 30+0.3 neutra +0,36 +- 5,13 / 3.876. Bench ugual. */ \
   P(TmSingleMs, 500, 0, 2000)            /* 19/10/2026 (user): at most this many ms with one legal move    */ \
-  P(TmRedLo, 496, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
-  P(TmRedHi, 1879, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
+  P(TmRedLo, 481, 0, 3000)               /* /100: rampa di time_red sulla stabilita' della mossa migliore  */ \
+  P(TmRedHi, 1984, 500, 4000)            /* /100 (rapporto Q2_TEMPO_INSTABILITA: unico fattore che distingue */ \
                                          /* tranquille e critiche; prova a 1200 = rampa piu' corta, 40+0.4) */ \
   P(TmMaxClock, 8097, 6500, 8800)        /* /1e4: il massimo non supera questa frazione dell'orologio */    \
-  /* idea 8: ramo movestogo (il 40/15 di CCRL), finora costanti mai tarate su di noi; default = valori attuali */ \
-  P(TmMtgBase, 880, 300, 2000)           /* /1000: quota ottimale = (base + ply*1000/TmMtgPly) / orizzonte */ \
-  P(TmMtgPly, 1164, 300, 4000)           /* /10 */                                                        \
-  P(TmMtgClock, 880, 300, 1000)          /* /1000: tetto della quota sul tempo rimasto */                 \
-  P(TmMtgMaxBase, 1300, 800, 3000)       /* /1000: massimo = (base + TmMtgMaxHorizon*orizzonte) x ottimo */ \
-  P(TmMtgMaxHorizon, 110, 0, 400)        /* /1000 */ \
-  /* Time management in our form (20/10/2026): the remaining constants of the two stages (budget and verdict, */     \
-  /*  see 14_deepen.inc) as parameters; defaults give the same times to the millisecond (n / 10^k is the       */    \
-  /*  correctly rounded double of the literal it replaces).                                                     */   \
-  P(TmHorizon, 50, 10, 100)              /* moves over which the clock is spread */ \
-  P(TmShortClock, 1000, 0, 5000)         /* ms: below, the horizon is a fraction of the clock */ \
-  P(TmShortHorizon, 50, 10, 200)         /* /1000: horizon = clock ms x this (1 move per 20 ms) */ \
-  P(TmOverheadMoves, 2, 0, 10)           /* overhead counted on horizon + this moves */ \
-  P(TmOpenLog, 3272, 1000, 6000)         /* /1e4: opening factor = log * log10(reserve) - base */ \
-  P(TmOpenBase, 4141, 0, 10000)          /* /1e4 */ \
-  P(TmOptCMax, 4905, 2000, 10000)        /* /1e6: cap of the coefficient of the share */ \
-  P(TmMaxCMin, 31441, 10000, 50000)      /* /1e4: floor of the ceiling multiple */ \
-  P(TmPlyShift, 322713, 0, 1000000)      /* /1e5: ply offset of the power law of the share */ \
+  /* Time management in our form (20/10/2026): the remaining constants of the verdict (14_deepen.inc) as        */     \
+  /*  parameters. The inherited budget (power law of the share, opening factor, horizon of 50 moves, movestogo   */    \
+  /*  branch) and its 24 constants were REMOVED on 21/10/2026 (user): budget_own is the only budget (copy in      */    \
+  /*  _backup/Triumviratus_8.0_pre_bake_tv1_2026-10-21).                                                          */   \
   P(TmPonderDiv, 4, 1, 16)               /* with ponder the target grows by 1/this */ \
-  P(TmPrevRed, 850, 500, 1500)           /* /1000: settle ramp assumed before the first move */ \
-  P(TmFallMin, 576, 300, 1000)           /* /1000: clamp of the trend factor */ \
-  P(TmFallMax, 1728, 1000, 3000)         /* /1000 */ \
-  P(TmRedY0, 639, 300, 1500)             /* /1000: settle ramp, value at TmRedLo plies held */ \
-  P(TmRedY1, 1712, 800, 3000)            /* /1000: value at TmRedHi plies held */ \
-  P(TmRedMin, 629, 300, 1500)            /* /1000: clamp of the settle ramp */ \
-  P(TmRedMax, 1544, 800, 3000)           /* /1000 */ \
-  P(TmSettlePrev, 1468, 500, 3000)       /* /1000: settle = (this + previous ramp) / (div x ramp) */ \
-  P(TmSettleDiv, 2284, 1000, 4000)       /* /1000 */ \
-  P(TmEffortY0, 969, 500, 1500)          /* /1000: focus ramp, value at TmEffortLo */ \
-  P(TmEffortY1, 714, 300, 1200)          /* /1000: value at TmEffortHi */ \
-  P(TmEffortMin, 693, 300, 1200)         /* /1000: clamp of the focus ramp */ \
-  P(TmEffortMax, 838, 500, 1500)         /* /1000 */ \
-  P(TmDeepenShare, 500, 100, 1000)       /* /1000: past this share of the time the next iteration keeps its depth */ \
+  P(TmPrevRed, 821, 500, 1500)           /* /1000: settle ramp assumed before the first move */ \
+  P(TmFallMin, 636, 300, 1000)           /* /1000: clamp of the trend factor */ \
+  P(TmFallMax, 1555, 1000, 3000)         /* /1000 */ \
+  P(TmRedY0, 638, 300, 1500)             /* /1000: settle ramp, value at TmRedLo plies held */ \
+  P(TmRedY1, 1570, 800, 3000)            /* /1000: value at TmRedHi plies held */ \
+  P(TmRedMin, 593, 300, 1500)            /* /1000: clamp of the settle ramp */ \
+  P(TmRedMax, 1650, 800, 3000)           /* /1000 */ \
+  P(TmSettlePrev, 1601, 500, 3000)       /* /1000: settle = (this + previous ramp) / (div x ramp) */ \
+  P(TmSettleDiv, 2277, 1000, 4000)       /* /1000 */ \
+  P(TmEffortY0, 853, 500, 1500)          /* /1000: focus ramp, value at TmEffortLo */ \
+  P(TmEffortY1, 732, 300, 1200)          /* /1000: value at TmEffortHi */ \
+  P(TmEffortMin, 669, 300, 1200)         /* /1000: clamp of the focus ramp */ \
+  P(TmEffortMax, 800, 500, 1500)         /* /1000 */ \
+  P(TmDeepenShare, 528, 100, 1000)       /* /1000: past this share of the time the next iteration keeps its depth */ \
   P(TmTransMul, 500, 0, 2000)            /* /1000 (20/10/2026, ours): more time when the PV trades into another expert. */ \
                                          /* BAKED 20/10 at 500 (user): +2.35 +- 4.21 over 5,758 (10+0.1 noHT), ~1% of moves */ \
   P(TmTransPlies, 4, 1, 12)              /* PV moves whose captures are counted */ \
   P(TmTransRest, 0, 0, 500)              /* /1000: time given back by the other moves (keeps self-play level) */ \
+  /* C2 ideas outside the search loop (21/10/2026, agent B). Read only by Consilium-2 builds (-DTRIUMV_C2): without   */ \
+  /*  it the options exist and do nothing. Every lever at default = identical behaviour (C2 bench 329525 ep19, 336968 ep22). */ \
+  /*  OFF by default; SPRT pending for each. Code: 06_nndirty.inc (C2 signals), 09_history.inc (corrections),        */ \
+  /*  14_deepen.inc (time), consilium_bridge.cpp (evaluation terms, pushed there by start of search, 15_threads.inc). */ \
+  /*  TmC2Trans: what triggers TmTransMul/TmTransRest. 0 = the old piece bands (net_phase), 1 = the C2 expert of     */ \
+  /*  either perspective differs after the first TmTransPlies moves of the PV (captures and promotions), 2 = either. */ \
+  P(TmC2Trans, 0, 0, 2)                                                                                    \
+  P(TmC2Edge, 0, 0, 1000)                /* /1000: share x (1 + Edge x share of the single non-pawn captures that */ \
+                                         /* would switch a C2 expert at the root): more time near a routing edge  */ \
+  P(TmC2Exp0, 0, -500, 1000)             /* /1000: share x (1 + TmC2ExpK/1000) by the C2 expert of the root's     */ \
+  P(TmC2Exp1, 0, -500, 1000)             /* side to move (learned routing, not piece bands). For SPSA; all 0 =    */ \
+  P(TmC2Exp2, 0, -500, 1000)             /* identical times                                                       */ \
+  P(TmC2Exp3, 0, -500, 1000)                                                                               \
+  P(TmC2Exp4, 0, -500, 1000)                                                                               \
+  P(TmC2Exp5, 0, -500, 1000)                                                                               \
+  P(TmC2Exp6, 0, -500, 1000)                                                                               \
+  P(TmC2Exp7, 0, -500, 1000)                                                                               \
+  P(CorrC2Key, 0, 0, 2)                  /* salt of the pawn/minor corrections (CorrPhase): 0 = piece band; 1 =   */ \
+                                         /* C2 expert of the side to move; 2 = C2 expert pair (own, opponent)     */ \
+  P(CorrPkW, 0, 0, 40000)                /* correction keyed by the pawn-king subnetwork's output, quantized to   */ \
+                                         /* CorrPkBits signs (0 = off; table shared with CorrExpertW)            */ \
+  P(CorrPkUpd, 128, 0, 400)              /* step of that table, /128                                              */ \
+  P(CorrPkBits, 12, 4, 32)               /* signs of the pk outputs in the key (most variable outputs first)      */ \
+  P(CorrPkCompute, 0, 0, 1)              /* 0: key only from the pawn-king cache (a miss = no term); 1: compute it */ \
+  P(C2ConvW, 0, 0, 4096)                 /* endgame conversion (the author's idea): what the pawn-king subnetwork */ \
+                                         /* adds to the positional output, beyond C2ConvFrom and up to C2ConvCap  */ \
+                                         /* (positional units), x C2ConvW/1024 x share of non-pawn material      */ \
+                                         /* already traded. Bench 21/10: |that| mean 74 (|positional| 415), 27%  */ \
+                                         /* of evaluations above 100, 4.4% above 200                              */ \
+  P(C2ConvFrom, 100, 0, 2000)            /* dead zone and cap of c2_conv_lean (consilium_bridge.h), the "ahead"   */ \
+  P(C2ConvCap, 400, 0, 4000)             /* rule shared with the search version (C2ConvOrder/C2ConvRed)           */ \
+  P(C2EvalExp0, 0, -256, 256)            /* /1024: evaluation x (1 + K/1024) by the C2 expert of the side to move */ \
+  P(C2EvalExp1, 0, -256, 256)            /* (both network heads, before the evaluation constants). For SPSA      */ \
+  P(C2EvalExp2, 0, -256, 256)                                                                              \
+  P(C2EvalExp3, 0, -256, 256)                                                                              \
+  P(C2EvalExp4, 0, -256, 256)                                                                              \
+  P(C2EvalExp5, 0, -256, 256)                                                                              \
+  P(C2EvalExp6, 0, -256, 256)                                                                              \
+  P(C2EvalExp7, 0, -256, 256)                                                                              \
   P(ExpertFix, 0, 0, 32)                 /* 20/10/2026, ours, OFF: 32 = -27.7 +- 18.2 over 352 g. 10+0.1 HT, stopped */ \
                                          /* (15_threads.inc): no expert change in the tree, fewer rows in cache */ \
-  /* Base of our own (budget_own, 14_deepen.inc, 20/10/2026), off at 0: moves left from material and ply, share of */ \
-  /*  the reserve growing with its log; to be tuned against an external engine (in self-play spending more wins). */ \
+  /* Base of our own (budget_own, 14_deepen.inc, 20/10/2026): moves left from material and ply, share of the      */ \
+  /*  reserve growing with its log. Switch TmOwn baked on 20/10 (-0.23 +- 3.87 over 7,468 at 10+0.1 noHT, laptop    */ \
+  /*  8+0.08 -1.06 +- 5.39 over 3,922; 4% less time per move, same depth) and retired on 21/10 with the old budget. */ \
   /*  Verdict of our own, two attempts on 20/10/2026, both REMOVED (copy in _backup/..._pre_pulizia_verdetto_):   */ \
   /*  fitted chance that the move still changes (data build -DTRIUMV_TMLOG, 651,766 searches): -27 over 556, more */ \
   /*  very short and very long moves; own forms of the stability/score/node factors fitted to follow the         */ \
   /*  inherited verdict (log corr 0.96): -12 over 830. The verdict stays the inherited one (iteration_verdict).    */ \
-  P(TmOwn, 1, 0, 1)                      /* BAKED 20/10 (user): -0.23 +- 3.87 over 7,468 (10+0.1 noHT), laptop */ \
-                                         /* 8+0.08 -1.06 +- 5.39 over 3,922; 4% less time per move, same depth */ \
   P(TmMlBase, 2113, 0, 6000)             /* /100: moves left = base + piece x pieces - ply x game ply       */ \
   P(TmMlPiece, 109, 0, 400)              /* /100                                                            */ \
   P(TmMlPly, 87, 0, 400)                 /* /1000                                                           */ \
@@ -1127,7 +1206,65 @@
   P(TmOwnShare, 700, 200, 2500)          /* /1000: share of the reserve = share + log x log10(reserve s)    */ \
   P(TmOwnShareLog, 500, 0, 1500)         /* /1000                                                           */ \
   P(TmOwnCap, 200, 50, 500)              /* /1000: the target never exceeds this fraction of the clock     */ \
-  P(TmOwnCeil, 600, 150, 1200)           /* /100: ceiling = this x target (and the clock cap)              */
+  P(TmOwnCeil, 600, 150, 1200)           /* /100: ceiling = this x target (and the clock cap)              */ \
+  /* Ramp to the long-game values (21/10/2026, ours): the six budget levers above (TmMl*, TmOwnShare/Cap/Ceil) keep */ \
+  /*  their fitted values at short time controls and take those of TM_LONG_LEVERS (below) at long ones, linear in  */ \
+  /*  between, on the game time fixed at the first move: start clock + TmLongIncMoves x increment (25+0.25 = 35 s, */ \
+  /*  15+0.15 = 21 s).                                                                                              */ \
+  P(TmLongFrom, 21000, 0, 600000)        /* ms of game time: at or below, the values above                 */ \
+  P(TmLongTo, 35000, 0, 600000)          /* ms of game time: at or above, the long values                  */ \
+  P(TmLongIncMoves, 40, 0, 200)          /* moves of increment counted in the game time                    */ \
+  /* ------------------------------------------------------------------------------------------------------------ */ \
+  /* CENSUS 21/10/2026 (CENSUS.md in the work folder of the census): the numbers still written in the search, each  */ \
+  /* the value of Stockfish 19 in the same role, made parameters at their old values for the SPSA on Consilium-2.   */ \
+  /* No formula changed: bench 209655 (Consilium) and 336968 (Consilium-2) as before. Integer parameters replace   */ \
+  /* integer literals one for one (same operations, same truncation); TmChangesKeep / 1000.0 = 0.5 is exact. The    */ \
+  /* ranges keep the sign and every order the code needs (RootAvgMin < RootAvgMax for the clamp, AlphaRed at most  */ \
+  /* the smallest AlphaRedLo so that the depth stays >= 1). Never measured by us: probable flat levers are marked.  */ \
+  /* -- pruning and reductions --                                                                                  */ \
+  P(PriorRedHigh, 3, 1, 8)               /* parent reduced >= this many plies, opponent not worsening: depth+1 */ \
+  P(PriorRedLow, 2, 1, 8)                /* parent reduced >= this, the two evals above PriorRedEvalSum: depth-1 */ \
+  P(PriorRedMinDepth, 2, 1, 8)           /* ... only from this depth                                        */ \
+  P(SmallPcSlack, 4, 0, 8)               /* hash lower bound >= beta + ProbCutTTMargin cuts this short of depth */ \
+  P(AlphaRedLo, 3, 3, 8)                 /* alpha raised, AlphaRedLo < depth < AlphaRedHi: depth -= AlphaRed */ \
+  P(AlphaRedHi, 12, 6, 24)                                                                                 \
+  P(AlphaRed, 3, 1, 3)                   /* <= minimum of AlphaRedLo: the depth stays >= 1                   */ \
+  P(CutoffExtCap, 2, 1, 4)               /* a fail high counts as a child cutoff with extension below this   */ \
+  P(NudgePly, 2, 0, 6)                   /* equal score may take the best move within this of the root depth */ \
+  P(ShuffleFifty, 10, 4, 30)             /* shuffling move (no singular test): fifty counter >= this,        */ \
+  P(ShuffleNull, 6, 2, 16)               /*   plies from the null move >= this,                              */ \
+  P(ShufflePly, 20, 8, 40)               /*   ply >= this (SF: non-regression rule, "not to be tuned")       */ \
+  P(HuntDepth, 16, 8, 30)                /* mate hunt (RfpHuntDepth, no singular test) from this root depth  */ \
+  P(HuntScore, 2000, 1000, 4000)         /*   with |root score| >= this                                      */ \
+  P(ProbCutHashDepth, 1, 0, 3)           /* ProbCut stores its value at cut depth + this                     */ \
+  P(TbHashDepth, 6, 0, 12)               /* tablebase result stored at depth + this                          */ \
+  P(MateHashDepth, 6, 0, 12)             /* node without legal moves stored at depth + this                  */ \
+  /* -- extensions --                                                                                              */ \
+  P(CorrSingMax, 256, 64, 600)           /* clamp of the correction reward after a multi-cut (limit / 4)     */ \
+  /* -- histories and ordering --                                                                                  */ \
+  P(BonusTriedDiv, 256, 64, 1024)        /* non-PV: bonus grows by bonus * moves tried / this                */ \
+  P(PawnHistSplit, -4, -64, 0)           /* pawn history: PawnBonusScale above this amount, PawnMalusScale at or below */ \
+  P(HistLimPawn, 8192, 2048, 16384)      /* limit of the pawn history (LIM_PAWN)                             */ \
+  P(HistLimTtMove, 8192, 2048, 16384)    /* limit of the hash-move history (LIM_TTMOVE)                      */ \
+  P(HistLimCorr, 1024, 256, 4096)        /* limit of the correction histories (LIM_CORR)                     */ \
+  P(CorrEvalDiv, 131072, 65536, 262144)  /* correction signal per evaluation unit: one scale for all Corr*W  */ \
+  P(HistInitQuiet, -5, -64, 0)           /* starting values of the tables at a new game: quiet history,      */ \
+  P(HistInitCapt, -742, -2000, 0)        /*   capture history,                                               */ \
+  P(HistInitFollow, -586, -2000, 0)      /*   continuation histories,                                        */ \
+  P(HistInitPawn, -1338, -3000, 0)       /*   pawn history,                                                  */ \
+  P(HistInitCorr, -5, -64, 0)            /*   correction histories,                                          */ \
+  P(HistInitContCorr, 5, 0, 64)          /*   continuation correction history                                */ \
+  /* -- aspiration and iterative deepening --                                                                      */ \
+  P(AspAgainMul, 3, 0, 4)                /* depth -= AspAgainMul * (searches again + 1) / 4                  */ \
+  P(RootAvgChi, 3, 1, 8)                 /* root average: weight/32 = clamp(64 n / (2 n + chi * prev), min, max) */ \
+  P(RootAvgMin, 12, 4, 16)                                                                                 \
+  P(RootAvgMax, 24, 17, 32)                                                                                \
+  P(RootMsqMax, 16, 4, 32)               /* cap of the weight of the mean square (aspiration width)          */ \
+  P(TmChangesKeep, 500, 0, 1000)         /* /1000: share of the best-move changes kept at each iteration     */ \
+  /* -- hash table (tt.h reads the copies g_tt_*, synced at setoption like SeePinned) --                           */ \
+  P(TtKeepMargin, 3, 0, 8)               /* the old entry stays when deeper by more than this (0 = always write) */ \
+  P(TtKeepPv, 2, 0, 6)                   /*   plus this on PV entries                                        */ \
+  P(TtAgeWeight, 8, 1, 16)               /* victim value = depth - this * age                                */
 
 // ---------------------------------------------------------------------------
 // TUNING BUILD OF THE TIME MANAGEMENT (20/10/2026): -DTRIUMV_RELEASE -DTRIUMV_TUNE_TIME. Every parameter is a constant
@@ -1175,6 +1312,16 @@
 #define TP_TUNE_TmJumpGuard TP_PROBE
 #define TP_TUNE_TmPrevRed TP_PROBE
 #define TP_TUNE_TmDeepenShare TP_PROBE
+// 21/10/2026: the C2 time levers of agent B for their SPSA (built with -DTRIUMV_C2 as well); TV1 presets ignore them.
+#define TP_TUNE_TmC2Edge TP_PROBE
+#define TP_TUNE_TmC2Exp0 TP_PROBE
+#define TP_TUNE_TmC2Exp1 TP_PROBE
+#define TP_TUNE_TmC2Exp2 TP_PROBE
+#define TP_TUNE_TmC2Exp3 TP_PROBE
+#define TP_TUNE_TmC2Exp4 TP_PROBE
+#define TP_TUNE_TmC2Exp5 TP_PROBE
+#define TP_TUNE_TmC2Exp6 TP_PROBE
+#define TP_TUNE_TmC2Exp7 TP_PROBE
 
 #if defined(TRIUMV_RELEASE) && defined(TRIUMV_TUNE_TIME)
   #define TP_DECL_0(name, def) static constexpr int name = def;
@@ -1187,6 +1334,22 @@
 #endif
 TRIUMV_SEARCH_PARAMS(TP_DECLARE)
 #undef TP_DECLARE
+
+// ---------------------------------------------------------------------------
+// SPSA TV1 OF THE TIME MANAGEMENT (21/10/2026). Vector at iteration 1172 (30 levers, 25+0.25, run
+// 8.1_tempo/20261020_233631_TV1). Self-play of the whole vector against the previous values: 25+0.25 noHT +4.2 +- 5.8
+// over 2,914 games (socket 0 -0.5, socket 1 +8.8); 15+0.15 laptop -0.9 +- 16.4 over 400; 10+0.1 noHT -1.2 +- 9.5 over
+// 1,200; 8+0.08 HT 30+30 -5.4 +- 7.2 over 2,260 (socket 0 -10.4, socket 1 -0.3). The vector moves time to the first
+// moves after the book (+10% over moves 1-10, -7% to -12% over moves 31-50, same shape at 8 s and 25 s): at long time
+// controls the extra depth early pays, at short ones the depth lost in the transition to the endgame costs more.
+// BAKED 21/10 (user): the 24 levers of the iteration verdict (TmFall*, TmRed*, TmSettle*, TmInstab*, TmEffort*,
+// TmJumpGuard, TmPrevRed, TmDeepenShare) at the vector, at every time control (previous values in
+// _backup/Triumviratus_8.0_pre_bake_tv1_2026-10-21). The six budget levers, whose distribution of the time is what
+// changes with the time control, follow the ramp (TmLongFrom, TmLongTo, 14_deepen.inc) from their fitted values to the
+// long values below.
+// ---------------------------------------------------------------------------
+#define TM_LONG_LEVERS(X)                                                                                        \
+  X(TmOwnShare, 673) X(TmMlBase, 1976) X(TmMlPiece, 97) X(TmMlPly, 85) X(TmOwnCeil, 685) X(TmOwnCap, 219)
 
 // ---------------------------------------------------------------------------
 // Opzioni che non sono parametri numerici della ricerca.
@@ -1319,7 +1482,11 @@ int       current_age     = 0;
 bool      g_tt_twolevel   = true;
 #ifndef TRIUMV_RELEASE
 bool      g_ttmove24      = true;
-int       g_tt_keep_margin = 3;   // si sovrascrive se la nuova non e' piu' corta di 4 ply (+2 sui nodi PV)
+// Copies of TtKeepMargin, TtKeepPv, TtAgeWeight for tt.h (CENSUS 21/10/2026): the new entry is written unless the old
+// one is deeper by more than 3 plies (+2 on PV entries); victim = depth - 8 * age.
+int       g_tt_keep_margin = TtKeepMargin;
+int       g_tt_keep_pv     = TtKeepPv;
+int       g_tt_age_weight  = TtAgeWeight;
 bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchia
 // Le copie partono dal default del parametro (06/10/2026: con SeePinned bakata a 1 la copia restava a 0 finche' non
 // arrivava un setoption, e la SEE restava spenta: bench 222624 invece di 507070).
@@ -1329,6 +1496,9 @@ bool      g_see_fix       = true;
 #else
 // Release (06/10/2026): questa copia e' una costante in see.cpp; deve coincidere col default del parametro.
 static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
+// Release: tt.h holds these copies as constants; they must equal the parameters.
+static_assert(TtKeepMargin == g_tt_keep_margin && TtKeepPv == g_tt_keep_pv && TtAgeWeight == g_tt_age_weight,
+              "tt.h freezes the hash-table copies in the release");
 #endif
 bool      g_large_pages   = true;
 bool      g_ep_key_fix    = true;
@@ -1407,7 +1577,13 @@ bool set_search_param(const char* name, int value) {
 #ifndef TRIUMV_RELEASE
   // Le opzioni lette fuori da threads.cpp (tt.h, see.cpp) hanno una copia globale: si riallinea a ogni setoption.
   // 12/10/2026 sera: anche le tabelle costruite dai parametri (reciproci di HistDiv*, potenze del blocco 2).
-  const auto sync = [] { g_see_pinned = SeePinned; param_tables_refresh(); };
+  const auto sync = [] {
+    g_see_pinned = SeePinned;
+    g_tt_keep_margin = TtKeepMargin;
+    g_tt_keep_pv = TtKeepPv;
+    g_tt_age_weight = TtAgeWeight;
+    param_tables_refresh();
+  };
 #define TP_SET(pname, def, lo, hi)                                                                         \
   if (!strcmp(name, #pname)) { pname = value < lo ? lo : (value > hi ? hi : value); sync(); return true; }
   TRIUMV_SEARCH_PARAMS(TP_SET)

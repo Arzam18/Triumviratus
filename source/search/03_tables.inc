@@ -114,18 +114,20 @@ static inline void fill_with(T *first, size_t count, int16_t value) {
   std::fill(p, p + count * (sizeof(T) / sizeof(int16_t)), value);
 }
 
+// Starting values of the tables at a new game: parameters HistInit* since the CENSUS of 21/10/2026 (were -586, -1338,
+// -5, -5, -742, 5).
 static void shared_stats_reset() {
-  fill_with(&g_stats.follow[0][0][0][0], (size_t)2 * 2 * (NO_PC + 1) * 64, -586);
-  fill_with(g_stats.pawn_rows, (size_t)g_stats.pawn_mask + 1, -1338);
-  fill_with(&g_stats.corr[0][0], (size_t)(g_stats.corr_mask + 1) * 2, -5);
+  fill_with(&g_stats.follow[0][0][0][0], (size_t)2 * 2 * (NO_PC + 1) * 64, (int16_t)HistInitFollow);
+  fill_with(g_stats.pawn_rows, (size_t)g_stats.pawn_mask + 1, (int16_t)HistInitPawn);
+  fill_with(&g_stats.corr[0][0], (size_t)(g_stats.corr_mask + 1) * 2, (int16_t)HistInitCorr);
   fill_with(&g_stats.corr_x[0][0], (size_t)(g_stats.corr_mask + 1) * 2, 0);
 }
 
 static void thread_stats_reset(ThreadData &td) {
-  fill_with(&td.quiet_hist[0][0], (size_t)2 * QH_CTX_SIZE, -5);
+  fill_with(&td.quiet_hist[0][0], (size_t)2 * QH_CTX_SIZE, (int16_t)HistInitQuiet);
   fill_with(&td.low_ply_hist[0][0], (size_t)LOW_PLY_SIZE * QH_SIZE, 0);
-  fill_with(&td.capt_hist[0][0][0], (size_t)12 * 64 * 7, -742);
-  fill_with(&td.cont_corr[0][0], (size_t)(NO_PC + 1) * 64, 5);
+  fill_with(&td.capt_hist[0][0][0], (size_t)12 * 64 * 7, (int16_t)HistInitCapt);
+  fill_with(&td.cont_corr[0][0], (size_t)(NO_PC + 1) * 64, (int16_t)HistInitContCorr);
   td.tt_move_hist = 0;
 }
 

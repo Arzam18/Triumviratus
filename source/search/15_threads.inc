@@ -289,6 +289,9 @@ void search_position_mt(int depth) {
     }
     nn_set_phase_map(g_nn_phase_map);
   }
+#ifdef TRIUMV_C2
+  c2_eval_push();   // C2 evaluation terms (agent B, 21/10/2026; 13_search.inc): all 0 = evaluation unchanged
+#endif
   // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale

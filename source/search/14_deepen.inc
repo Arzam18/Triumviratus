@@ -11,9 +11,24 @@
 // our own (behind on the clock, early middlegame, per expert, expected reply, surprise, defence, jump guard) act on
 // top of the two stages.
 // ============================================================================
+
+// Effective values of the six budget levers of TM_LONG_LEVERS (21/10/2026): TL(name) is the parameter blended toward
+// its long-game value by the game time, fixed at the first timed move of each game; between games (and for searches
+// without a clock) the parameter itself. With weight 0 every value equals the int parameter exactly.
+#define TL_DECLARE(name, val) static double TL_##name = name;
+TM_LONG_LEVERS(TL_DECLARE)
+#undef TL_DECLARE
+#define TL(name) TL_##name
+
+static void tm_long_blend(double game_ms) {
+  const double w = std::clamp((game_ms - TmLongFrom) / std::max(1.0, (double)(TmLongTo - TmLongFrom)), 0.0, 1.0);
+#define TL_BLEND(name, val) TL_##name = name + ((val) - name) * w;
+  TM_LONG_LEVERS(TL_BLEND)
+#undef TL_BLEND
+}
+
 struct ClockState {
   int    optimum = 0, maximum = 0;  // target and ceiling of this move, ms
-  double opening_adjust = -1;       // scale of the share, fixed at the first move of a game from the reserve
   double prev_time_red = TmPrevRed / 1000.0;   // stability ramp of the previous move (settle factor)
   bool   have_prev = false;         // is there a previous move in this game?
   int    prev_best = 0, prev_avg = 0;
@@ -60,7 +75,7 @@ static FILE *tmlog_file() {
 #endif
 
 static void clock_memory_reset() {
-  g_clock.opening_adjust = -1;
+  tm_long_blend(0);   // the game time is not known before its first timed move
   g_clock.prev_time_red = TmPrevRed / 1000.0;
   g_clock.have_prev = false;
   g_clock.expect_key = 0;
@@ -71,67 +86,82 @@ static void clock_memory_reset() {
 
 int clock_hard_limit() { return g_clock.maximum; }
 
-// Budget of a move: the horizon in moves, the reserve (ms that can be spent over the horizon), the share of the
-// reserve that is the target, and the multiple of the target that is the ceiling.
+// Budget of a move: the reserve (ms that can be spent over the moves still to play), the share of the reserve that
+// is the target, and the multiple of the target that is the ceiling.
 struct ClockBudget {
-  int    horizon;
   double reserve, share, ceil_mult;
 };
 
-// Reserve: the clock plus the increments still to come over the horizon, less the overhead of each move. With moves
-// to go the horizon is the cycle (at most TmHorizon); without, TmHorizon moves, or a fraction of the clock in
-// seconds when less than TmShortClock ms are left.
-static ClockBudget budget_reserve(double clock, double inc, int overhead) {
-  ClockBudget b;
-  b.horizon = g_limits.movestogo ? std::min(g_limits.movestogo, TmHorizon) : TmHorizon;
-  if (clock < TmShortClock && !g_limits.movestogo)
-    b.horizon = (int)(clock * (TmShortHorizon / 1000.0));
-  b.reserve = std::max(1.0, clock + inc * (b.horizon - 1) - (double)overhead * (TmOverheadMoves + b.horizon));
-  b.share = b.ceil_mult = 0;
-  return b;
-}
-
-// Without moves to go. The share grows with the ply of the game as a power law; its coefficient grows with the log
-// of the seconds on the clock up to TmOptCMax, the share is capped by a fraction of the clock over the reserve and
-// scaled by the opening factor of the game. The ceiling multiple grows with the clock and the ply, up to TmMaxMultCap.
-static void budget_sudden_death(ClockBudget &b, double clock, int game_ply) {
-  if (g_clock.opening_adjust < 0)
-    g_clock.opening_adjust = TmOpenLog / 1e4 * std::log10(b.reserve) - TmOpenBase / 1e4;
-  const double log_sec = std::log10(std::max(1.0, clock) / 1000.0);
-  const double grow = std::min(TmOptC / 1e7 + TmOptCLog / 1e8 * log_sec, TmOptCMax / 1e6);
-  const double ceil_c = std::max(TmMaxCBase / 1e4 + TmMaxCLog / 1e4 * log_sec, TmMaxCMin / 1e4);
-  b.share = std::min(TmOptBase / 1e6 + std::pow(game_ply + TmPlyShift / 1e5, TmOptPow / 1e5) * grow,
-                     TmOptClockCap / 1e5 * clock / b.reserve) *
-            g_clock.opening_adjust;
-  b.ceil_mult = std::min(TmMaxMultCap / 1e3, ceil_c + game_ply / (TmMaxPlyDiv / 1e3));
-}
-
-// With moves to go (the 40/15 of CCRL): a share of the cycle that grows with the ply, capped by a fraction of the
-// clock over the reserve; the ceiling multiple grows with the horizon.
-static void budget_moves_to_go(ClockBudget &b, double clock, int game_ply) {
-  b.share = std::min((TmMtgBase / 1000.0 + game_ply / (TmMtgPly / 10.0)) / b.horizon,
-                     TmMtgClock / 1000.0 * clock / b.reserve);
-  b.ceil_mult = TmMtgMaxBase / 1000.0 + TmMtgMaxHorizon / 1000.0 * b.horizon;
-}
-
-// Budget of our own (TmOwn, 20/10/2026). The moves still to play are estimated from the material and the ply of the
-// game, a straight fit on 67,706 of our games (moves left = 21.1 + 1.09 x pieces - 0.087 x ply, at least TmMlMin);
-// with moves to go the cycle caps the estimate. The reserve is the clock plus the increments of those moves less the
+// Budget of our own (20/10/2026; the only one since 21/10, when the inherited budget was removed). The moves still to
+// play are estimated from the material and the ply of the game, a straight fit on 67,706 of our games (moves left =
+// 21.1 + 1.09 x pieces - 0.087 x ply, at least TmMlMin); with moves to go the cycle caps the estimate. The reserve is the clock plus the increments of those moves less the
 // overhead of each; the target is a share of the reserve divided by the moves left, where the share grows with the
 // log of the reserve in seconds (spending more early at longer time controls), capped by a fraction of the clock.
 // The ceiling is a fixed multiple of the target (the clock cap of clock_plan still applies). Starting values give
 // the same spending profile as the inherited formula from 5 s to 3 minutes (studio_esperti/tm_own_sim.py).
 static void budget_own(ClockBudget &b, double clock, double inc, int overhead, int game_ply) {
-  double ml = TmMlBase / 100.0 + TmMlPiece / 100.0 * count_bits(occupancies[both]) - TmMlPly / 1000.0 * game_ply;
+  double ml = TL(TmMlBase) / 100.0 + TL(TmMlPiece) / 100.0 * count_bits(occupancies[both]) - TL(TmMlPly) / 1000.0 * game_ply;
   ml = std::max(ml, (double)TmMlMin);
   if (g_limits.movestogo)
     ml = std::min(ml, (double)g_limits.movestogo);
-  b.horizon = (int)ml;
   b.reserve = std::max(1.0, clock + inc * (ml - 1) - (double)overhead * (ml + 1));
-  const double share = TmOwnShare / 1000.0 + TmOwnShareLog / 1000.0 * std::log10(std::max(1.0, b.reserve / 1000.0));
-  b.share = std::min(share / ml, TmOwnCap / 1000.0 * clock / b.reserve);
-  b.ceil_mult = TmOwnCeil / 100.0;
+  const double share = TL(TmOwnShare) / 1000.0 + TmOwnShareLog / 1000.0 * std::log10(std::max(1.0, b.reserve / 1000.0));
+  b.share = std::min(share / ml, TL(TmOwnCap) / 1000.0 * clock / b.reserve);
+  b.ceil_mult = TL(TmOwnCeil) / 100.0;
 }
+
+#ifdef TRIUMV_C2
+// --- C2 time signals (agent B, 21/10/2026) ---
+// TmC2Edge: how close the root sits to an edge of the routing table. Each non-pawn piece type that a side has is taken
+// off once (a single capture); the result is the share of those captures after which the expert of either perspective
+// changes. Near an edge the next trade puts the evaluation in another expert's hands, where the search sees a jump.
+static double c2_edge_share(const C2Count &k) {
+  const int e0 = c2_experts(k);
+  int tried = 0, switched = 0;
+  for (int c = 0; c < 2; c++)
+    for (int t = N; t <= Q; t++) {
+      const int have = t == N ? k.n[c] : t == B ? k.b[c] : t == R ? k.r[c] : k.q[c];
+      if (!have)
+        continue;
+      C2Count k2 = k;
+      c2_count_add(k2, t + 6 * c, -1);
+      tried++;
+      switched += c2_experts(k2) != e0;
+    }
+  return tried ? (double)switched / tried : 0.0;
+}
+
+// TmC2Trans: do the first `plies` moves of a line, played from the thread's root board, leave either perspective on
+// another C2 expert? Captures and promotions are followed on a copy of the mailbox (the captured piece is read from
+// it); castling moves its rook, en passant removes a pawn (no effect on the signature, kept for later captures).
+static bool c2_line_switches(const ThreadData &td, const int *line, int plies) {
+  int mb[64];
+  memcpy(mb, td.piece_on, sizeof(mb));
+  C2Count k = c2_count(td.bitboards);
+  const int e0 = c2_experts(k);
+  for (int i = 0; i < plies; i++) {
+    const int m = line[i], from = get_move_source(m), to = get_move_target(m), pc = get_move_piece(m);
+    const int pr = get_move_promoted(m);
+    if (get_move_castling(m)) {
+      int rook_pc, rf, rt;
+      td_castle_rook(to, rook_pc, rf, rt);
+      mb[from] = mb[rf] = -1;
+      mb[to] = pc;
+      mb[rt] = rook_pc;
+      continue;
+    }
+    if (get_move_enpassant(m))
+      mb[pc < 6 ? to + 8 : to - 8] = -1;   // a8 = 0: White captures towards lower squares
+    else if (get_move_capture(m) && mb[to] >= 0)
+      c2_count_add(k, mb[to], -1);
+    if (pr)
+      c2_count_add(k, pr, +1);
+    mb[from] = -1;
+    mb[to] = pr ? pr : pc;
+  }
+  return c2_experts(k) != e0;
+}
+#endif
 
 static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.time[us]) {
@@ -139,18 +169,15 @@ static void clock_plan(int us, int game_ply, int overhead) {
     return;
   }
   const double clock = g_limits.time[us], inc = g_limits.inc[us];
-  if (g_clock.start_clock <= 0)
+  if (g_clock.start_clock <= 0) {
     g_clock.start_clock = clock;   // first move of the game (TmSurpriseClock)
+    tm_long_blend(clock + TmLongIncMoves * inc);
+  }
 #ifdef TRIUMV_TMLOG
   g_tmlog_ply = game_ply;
 #endif
-  ClockBudget b = budget_reserve(clock, inc, overhead);
-  if (TmOwn)
-    budget_own(b, clock, inc, overhead, game_ply);
-  else if (!g_limits.movestogo)
-    budget_sudden_death(b, clock, game_ply);
-  else
-    budget_moves_to_go(b, clock, game_ply);
+  ClockBudget b;
+  budget_own(b, clock, inc, overhead, game_ply);
   double opt_share = b.share;
   // TmBehindMul (07/10/2026, the user's idea): with less clock than the opponent the share shrinks (relative
   // advantage, only when negative). Not with movestogo == 1: at the end of a cycle the opponent's clock may already
@@ -171,6 +198,19 @@ static void clock_plan(int us, int game_ply, int overhead) {
     const int k = e == 0 ? TmExp0 : e == 1 ? TmExp1 : e == 2 ? TmExp2 : TmExp3;
     opt_share *= 1 + k / 1000.0;
   }
+#ifdef TRIUMV_C2
+  // C2 time levers (agent B, 21/10/2026; OFF by default, SPRT pending). TmC2Exp0..7: the share by the Consilium-2
+  // expert of the side to move at the root, the routing region the network itself chose (TmExp0..3 above follow the
+  // piece bands of the old network). TmC2Edge: more time the closer the root is to a routing edge (c2_edge_share).
+  // The global board is the root board here. All 0: identical times.
+  if (TmC2Exp0 | TmC2Exp1 | TmC2Exp2 | TmC2Exp3 | TmC2Exp4 | TmC2Exp5 | TmC2Exp6 | TmC2Exp7 | TmC2Edge) {
+    const C2Count k = c2_count(bitboards);
+    const int per_expert[8] = {TmC2Exp0, TmC2Exp1, TmC2Exp2, TmC2Exp3, TmC2Exp4, TmC2Exp5, TmC2Exp6, TmC2Exp7};
+    opt_share *= 1 + per_expert[c2_expert(k, us)] / 1000.0;
+    if (TmC2Edge)
+      opt_share *= 1 + TmC2Edge / 1000.0 * c2_edge_share(k);
+  }
+#endif
   g_clock.optimum = (int)std::max(1.0, opt_share * b.reserve);
   g_clock.maximum =
       (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, b.ceil_mult * g_clock.optimum));
@@ -435,7 +475,7 @@ static void an_iteration(ThreadData &td, bool plain = false) {   // plain: AnQDe
   }
   if (on && (td.an_bits & AN_NMPV))
     td.lt_nmp_verify_depth = kAnNmpVerify;
-  td.hunt_from = (on && (td.an_bits & AN_HUNT)) ? kAnHuntFrom : 16;
+  td.hunt_from = (on && (td.an_bits & AN_HUNT)) ? kAnHuntFrom : HuntDepth;
   td.crystal_ply = (on && (td.an_bits & AN_CRYSTAL)) ? std::max(2, td.root_depth / 2) : -1;
 }
 
@@ -542,8 +582,8 @@ static void deepen(ThreadData &td) {
     an_iteration(td, quiet_now && (td.an_bits & AN_QDEEP));   // leve Deep* pesate (deep_w) e i componenti accesi
     if (gold && td.root_depth > 1 && td.root[0].score > -infinity)
       gd_iteration(td, gd_facts, td.root[0].score);
-    if (main)
-      g_clock.best_changes /= 2;
+    if (main)   // TmChangesKeep / 1000.0 = 0.5 at the default: the same double as the former halving
+      g_clock.best_changes *= TmChangesKeep / 1000.0;
     for (int i = 0; i < td.root_count; i++) {
       RootLine &rl = td.root[i];
       rl.prev_score = rl.score;
@@ -598,8 +638,9 @@ static void deepen(ThreadData &td) {
 
       int failed_high = 0;
       for (;;) {
-        // AspFhRed plies off for each fail high in a row (was 1).
-        const int depth = std::max(1, td.root_depth - failed_high * AspFhRed - 3 * (again + 1) / 4 -
+        // AspFhRed plies off for each fail high in a row (was 1); AspAgainMul quarters per search repeated at the same
+        // depth (was 3).
+        const int depth = std::max(1, td.root_depth - failed_high * AspFhRed - AspAgainMul * (again + 1) / 4 -
                                       (td.pv_idx >= shown ? ShadowRed : 0));   // ShadowRed: a shorter second line
         td.root_delta = beta - alpha;
         best = td.an_bits ? explore<true>(td, root, alpha, beta, depth, false, true)    // analysis mode
@@ -764,7 +805,21 @@ static void deepen(ThreadData &td) {
         for (int i = 0; i < std::min(top.pv_len, TmTransPlies); i++)
           caps += get_move_capture(top.pv[i]) != 0;
         const int pieces = count_bits(occupancies[both]);
-        total_time *= net_phase(pieces - caps) != net_phase(pieces) ? 1 + TmTransMul / 1000.0 : 1 - TmTransRest / 1000.0;
+        bool trans = net_phase(pieces - caps) != net_phase(pieces);
+#ifdef TRIUMV_C2
+        // TmC2Trans (agent B, 21/10/2026; OFF by default, SPRT pending): with Consilium-2 the experts are not the piece
+        // bands above. 1 = the trigger is a change of the C2 expert of either perspective after the same PV moves
+        // (captures and promotions); 2 = either trigger.
+        if (TmC2Trans) {
+          const bool c2 = c2_line_switches(td, top.pv, std::min(top.pv_len, TmTransPlies));
+          trans = TmC2Trans == 1 ? c2 : (trans || c2);
+#ifdef TRIUMV_TMDEBUG
+          printf("info string tm c2trans d %d band %d c2 %d\n", td.root_depth,
+                 (int)(net_phase(pieces - caps) != net_phase(pieces)), (int)c2);
+#endif
+        }
+#endif
+        total_time *= trans ? 1 + TmTransMul / 1000.0 : 1 - TmTransRest / 1000.0;
       }
       const int elapsed = get_time_ms() - g_limits.start_ms;
 #ifdef TRIUMV_TMDEBUG   // diagnosi della gestione del tempo (08/10/2026): i fattori a ogni iterazione completata

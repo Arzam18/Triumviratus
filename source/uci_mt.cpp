@@ -1165,6 +1165,15 @@ void uci_loop()
         }
         // DIAGNOSTIC: "nnperft N" - perft che valuta con la rete e confronta catena incrementale e refresh completo
         // (search/16_tdperft.inc). Solo build di sviluppo.
+        // DIAGNOSTIC: "nnspeed N <fen file>" - the same tree without the checks, from every FEN of the file: time per
+        // evaluation on work that does not depend on the network (21/10/2026, cost of Consilium-2).
+        else if (strncmp(input, "nnspeed ", 8) == 0)
+        {
+            extern void td_nnspeed_driver(int depth, const char *path);
+            int d = 0;
+            char path[1024] = {0};
+            if (sscanf(input + 8, "%d %1023s", &d, path) == 2) td_nnspeed_driver(d, path);
+        }
         else if (strncmp(input, "nnperft ", 8) == 0)
         {
             extern void td_nnperft_driver(int depth);

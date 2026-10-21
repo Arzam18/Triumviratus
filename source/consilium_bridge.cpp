@@ -92,7 +92,11 @@ class NnBoard {
 
 }  // namespace cnb
 
-#define CN_DEFAULT_NET_FILE "nn-consilium.nnue"
+#ifdef TRIUMV_C2
+    #define CN_DEFAULT_NET_FILE "nn-consilium2.nnue"   // Consilium-2: another format, another default name
+#else
+    #define CN_DEFAULT_NET_FILE "nn-consilium.nnue"
+#endif
 
 // GCC and clang builds from the Makefile (Linux, Android, MinGW): the default network is embedded with incbin when it
 // sits at the build root (the Makefile sets NNUE_EMBEDDING_OFF otherwise). incbin.h is Dale Weiler's public-domain
@@ -100,7 +104,7 @@ class NnBoard {
 #if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF) && !defined(UNIVERSAL_BINARY) && !defined(TRIUMV_EMBED_RESOURCE)
     #define INCBIN_SILENCE_BITCODE_WARNING
     #include "incbin/incbin.h"
-INCBIN(EmbeddedNNUE, "nn-consilium.nnue");
+INCBIN(EmbeddedNNUE, CN_DEFAULT_NET_FILE);
     #define TRIUMV_EMBED_INCBIN
 #endif
 
@@ -455,6 +459,91 @@ int nn_finalize(int unadjusted, int rule50, int bucket) {
     return scale_and_bound(fifty_pull(unadjusted, rule50), g_eval_scale_b[bucket < 0 ? 0 : (bucket > 7 ? 7 : bucket)]);
 }
 
+#ifdef TRIUMV_C2
+// --- C2 signals (agent B) ---
+// Two evaluation terms that only Consilium-2 allows (21/10/2026), both applied to the two network outputs before the
+// evaluation constants (nn_scale), in the incremental and in the from-scratch path alike (nnueverify compares them).
+// The values are the search parameters C2Conv* and C2EvalExp0..7 (search/01_params.inc), set by nn_set_c2_eval at the
+// start of each search. All 0 = nothing is computed and the evaluation is unchanged. OFF by default; SPRT pending.
+//  - C2EvalExp0..7: a scale per expert of the side to move (learned routing). The old per-bucket scales (EvalScaleB)
+//    follow the piece count and had no gradient in the END1 SPSA (01/10/2026); an expert of C2 is a region of the
+//    routing table, and a capture that switches it compares values of two different experts.
+//  - C2Conv*: endgame conversion, the author's idea. When the pawn-king subnetwork's opinion (what it adds to the
+//    positional output, cn::pk_effect) favours one side by more than C2ConvFrom (capped at C2ConvCap), that side gains
+//    C2ConvW/1024 of it in proportion to the non-pawn material already off the
+//    board (62 = all of it on): trading pieces is worth more to the side the pawn structure and kings favour. The net
+//    may know it already; the term is there to be measured.
+namespace {
+int  g_c2_conv[3] = {0, 0, 400};   // C2ConvW (/1024), C2ConvFrom, C2ConvCap (positional units)
+int  g_c2_exp[8]  = {0, 0, 0, 0, 0, 0, 0, 0};
+bool g_c2_exp_on  = false;
+bool g_c2_on      = false;         // any of the terms on
+bool g_c2_want_effect = false;     // nn_want_pk_effect: keep cn::pk_effect per evaluation for the search
+
+// pk_effect = what the pawn-king subnetwork adds to the positional output (cn::pk_effect), read only with C2ConvW on.
+inline void c2_adjust(const NnBoard& board, int pk_effect, int& psqt, int& positional) {
+    if (g_c2_exp_on) {
+        const int k = g_c2_exp[cn::expert_of_board(board.view(), board.mover() == BLACK)];
+        psqt       = int(std::int64_t(psqt) * (1024 + k) / 1024);
+        positional = int(std::int64_t(positional) * (1024 + k) / 1024);
+    }
+    if (g_c2_conv[0]) {
+        // How far the side to move is ahead (> 0) or behind on the pawn-king effect: the rule of the search version
+        // (c2_conv_lean, consilium_bridge.h), with C2ConvFrom as its dead zone and C2ConvCap as its cap.
+        const int lean = c2_conv_lean(pk_effect, g_c2_conv[1], g_c2_conv[2]);
+        if (lean) {
+            const int npm    = 3 * (board.count_type(NN_KNIGHT) + board.count_type(NN_BISHOP))
+                             + 5 * board.count_type(NN_ROOK) + 9 * board.count_type(NN_QUEEN);
+            const int traded = std::max(0, 62 - npm);
+            positional += int(std::int64_t(lean) * g_c2_conv[0] * traded / (1024 * 62));
+        }
+    }
+}
+}  // namespace
+
+#ifdef C2B_STATS
+// Diagnostic only (-DC2B_STATS, one search thread): what the C2 signals look like over the evaluations of a run,
+// printed at exit. |pk direct| against |positional|, the experts of the side to move, the balance of the signature bits
+// and how many distinct 12- and 16-bit signatures occur.
+struct C2Stats {
+    unsigned long long n = 0, absd = 0, absPos = 0, hist[8] = {}, exp[8] = {}, bitOn[32] = {}, d12 = 0, d16 = 0;
+    std::vector<unsigned char> seen12 = std::vector<unsigned char>(1 << 12), seen16 = std::vector<unsigned char>(1 << 16);
+    void add(int d, int pos, int e, std::uint32_t sig) {
+        n++;
+        absd += std::abs(d);
+        absPos += std::abs(pos);
+        const int a = std::abs(d);
+        hist[a < 25 ? 0 : a < 50 ? 1 : a < 100 ? 2 : a < 200 ? 3 : a < 400 ? 4 : a < 800 ? 5 : a < 1600 ? 6 : 7]++;
+        exp[e]++;
+        for (int i = 0; i < 32; i++) bitOn[i] += (sig >> i) & 1;
+        if (!seen12[sig & 0xFFF]) seen12[sig & 0xFFF] = 1, d12++;
+        if (!seen16[sig & 0xFFFF]) seen16[sig & 0xFFFF] = 1, d16++;
+    }
+    ~C2Stats() {
+        if (!n) return;
+        std::fprintf(stderr, "c2stats evals %llu mean|pkeffect| %.1f mean|positional| %.1f\n", n, double(absd) / n,
+                     double(absPos) / n);
+        std::fprintf(stderr, "c2stats |pkeffect| <25 <50 <100 <200 <400 <800 <1600 >=1600:");
+        for (int i = 0; i < 8; i++) std::fprintf(stderr, " %.3f", double(hist[i]) / n);
+        std::fprintf(stderr, "\nc2stats expert of side to move:");
+        for (int i = 0; i < 8; i++) std::fprintf(stderr, " %.3f", double(exp[i]) / n);
+        std::fprintf(stderr, "\nc2stats signature bit on-rate:");
+        for (int i = 0; i < 32; i++) std::fprintf(stderr, " %.2f", double(bitOn[i]) / n);
+        std::fprintf(stderr, "\nc2stats distinct signatures: 12 bits %llu / 4096, 16 bits %llu\n", d12, d16);
+    }
+};
+C2Stats g_c2_stats;
+#endif
+
+void nn_set_c2_eval(const int* conv, const int* exp_scale) {
+    bool any = false;
+    for (int i = 0; i < 3; i++) g_c2_conv[i] = conv[i];
+    for (int e = 0; e < 8; e++) any |= (g_c2_exp[e] = exp_scale[e]) != 0;
+    g_c2_exp_on = any;
+    g_c2_on     = any || g_c2_conv[0] != 0;
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Per-thread handle
 // ---------------------------------------------------------------------------
@@ -465,6 +554,11 @@ struct CnPos {
     cn::Handle* h;
     int         opt[2] = {0, 0};
     NnLast      last;
+#ifdef TRIUMV_C2
+    int         pk_effect = 0;   // C2 signals (agent B): cn::pk_effect of the last evaluation that computed it
+    int         last_pos  = 0;   // conversion push: positional output of the last incremental evaluation (its l1 sums
+                                 // are in Handle::x1), for nn_pk_effect_fresh
+#endif
     CnPos() {
         h = static_cast<cn::Handle*>(large_pages_alloc(sizeof(cn::Handle)));
         std::memset(static_cast<void*>(h), 0, sizeof(cn::Handle));
@@ -489,6 +583,13 @@ inline int eval_full(const NnBoard& board, int rule50, int* raw_out = nullptr, c
     if (raw_out) *raw_out = o.psqt + o.positional;
     if (psqt_out) *psqt_out = o.psqt;
     if (pos_out) *pos_out = o.positional;
+#ifdef TRIUMV_C2
+    if (g_c2_on) {   // C2 evaluation terms (agent B), as in nn_pos_eval
+        int ps = o.psqt, po = o.positional;
+        c2_adjust(board, g_c2_conv[0] ? cn::pk_effect_refresh(NET_REF, board.view(), scratch().acc) : 0, ps, po);
+        return nn_scale(board, ps, po, rule50, nullptr, opt_local);
+    }
+#endif
     return nn_scale(board, o.psqt, o.positional, rule50, nullptr, opt_local);
 }
 
@@ -515,6 +616,78 @@ void nn_set_phase_map(const unsigned char* map) {
 
 NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->stack; }
 
+#ifdef TRIUMV_C2
+const unsigned char* nn_router_table(void) { return cn::g_router; }
+
+// --- C2 signals for the search (agent A) ---
+int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white) {
+    if (!g_cn_view)
+        return 0;
+    const cn::Board b{reinterpret_cast<const std::uint64_t*>(bb), nullptr, nullptr, side_white ? 0 : 1};
+    return cn::pk_skip(NET_REF, *static_cast<CnPos*>(handle)->h, b);
+}
+
+// --- C2 signals (agent B) ---
+long long nn_pk_signature(void* handle, const unsigned long long* bb, int side_white, int bits, int compute) {
+    const cn::Board b{reinterpret_cast<const std::uint64_t*>(bb), nullptr, nullptr, side_white ? 0 : 1};
+    return cn::pk_signature(NET_REF, *static_cast<CnPos*>(handle)->h, b, bits, compute != 0);
+}
+void nn_want_pk_effect(int on) { g_c2_want_effect = on != 0; }
+int  nn_last_pk_effect(void* handle) { return static_cast<CnPos*>(handle)->pk_effect; }
+
+// --- Conversion push, search version with the exact pawn-king effect (C2ConvPkSrc 1; 21/10/2026) ---
+namespace {
+// From scratch: accumulators refreshed, then the two tails (as eval_full).
+inline int pk_effect_scratch(const NnBoard& board) {
+    cn::evaluate_refresh(NET_REF, board.view(), scratch().acc);
+    return cn::pk_effect_refresh(NET_REF, board.view(), scratch().acc);
+}
+// With nnueverify on (nnperft, or a search with the option), the value given to the search must equal the one from
+// scratch for the same board: a value of another position counts as a mismatch, as for the evaluations.
+inline int pk_effect_checked(const NnBoard& board, int eff, const char* path) {
+    if (g_verify) {
+        const int ref = pk_effect_scratch(board);
+        if (ref != eff) {
+            static int reported = 0;
+            g_verify_bad++;
+            if (reported++ < 64)
+                std::printf("info string PK EFFECT MISMATCH %s search=%d scratch=%d\n", path, eff, ref);
+            std::fflush(stdout);
+        }
+        g_verify_count++;   // nnperft's "verified" then counts these checks beside the evaluations
+    }
+    return eff;
+}
+}  // namespace
+
+// Right after nn_pos_eval of this position: Handle::x1 and last_pos are its own, so one tail pass gives the effect;
+// when C2ConvW (or nn_want_pk_effect) is on, that evaluation computed it already.
+int nn_pk_effect_fresh(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                       int side_white) {
+    if (!g_cn_view)
+        return 0;
+    CnPos*        p = static_cast<CnPos*>(handle);
+    const NnBoard board(bb, occ, mailbox, side_white ? WHITE : BLACK);
+    const int     eff = g_c2_conv[0] || g_c2_want_effect ? p->pk_effect
+                                                         : cn::pk_effect(NET_REF, *p->h, board.view(), p->last_pos);
+    return pk_effect_checked(board, eff, "fresh");
+}
+// At any time (static evaluation from the hash, excluded move): the accumulators of the top state brought up to date
+// and the forward pass rerun, so x1 is this position's; without the incremental path, from scratch.
+int nn_pk_effect_now(void* handle, const unsigned long long* bb, const unsigned long long* occ, const int* mailbox,
+                     int side_white) {
+    if (!g_cn_view)
+        return 0;
+    CnPos*        p = static_cast<CnPos*>(handle);
+    const NnBoard board(bb, occ, mailbox, side_white ? WHITE : BLACK);
+    if (!g_incremental)
+        return pk_effect_scratch(board);
+    const cn::Out o = cn::evaluate(NET_REF, *p->h, board.view());
+    p->last_pos     = o.positional;
+    return pk_effect_checked(board, cn::pk_effect(NET_REF, *p->h, board.view(), o.positional), "now");
+}
+#endif
+
 void nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from, int toPc, int to, int capPc,
                       int capSq) {
     if (g_cn_view)
@@ -532,7 +705,24 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
         return eval_full(board, rule50, nullptr, opt);
 
     const cn::Out o   = cn::evaluate(NET_REF, *p->h, board.view());
+#ifdef TRIUMV_C2
+    int ps = o.psqt, po = o.positional;
+    p->last_pos = o.positional;   // conversion push (nn_pk_effect_fresh): one store
+    if (g_c2_on | g_c2_want_effect) {   // C2 evaluation terms (agent B); pk_effect reads the l1 sums evaluate just left
+        const bool need = g_c2_conv[0] || g_c2_want_effect;
+        const int  eff  = need ? cn::pk_effect(NET_REF, *p->h, board.view(), o.positional) : 0;
+        p->pk_effect    = eff;
+        if (g_c2_on) c2_adjust(board, eff, ps, po);
+    }
+#ifdef C2B_STATS
+    g_c2_stats.add(cn::pk_effect(NET_REF, *p->h, board.view(), o.positional), o.positional,
+                   cn::expert_of_board(board.view(), board.mover() == BLACK),
+                   std::uint32_t(cn::pk_signature(NET_REF, *p->h, board.view(), 32, true)));
+#endif
+    const int inc = nn_scale(board, ps, po, rule50, nullptr, opt);
+#else
     const int     inc = nn_scale(board, o.psqt, o.positional, rule50, nullptr, opt);
+#endif
     nn_last_disagree  = std::abs(int(o.psqt) - int(o.positional));
 
     if (g_verify) {

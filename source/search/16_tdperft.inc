@@ -168,17 +168,43 @@ void td_perft_driver(int depth) {
 // mailbox (come tdperft) e, dalla v2, che la pila delle dirty abbia uno stato per ogni mossa fatta dalla radice.
 static U64 nnp_evals = 0;
 static int nnp_moves = 0;  // mosse (non nulle) fatte dalla radice
+static bool nnp_lean = false;  // nnspeed: only the evaluation, no checks
 static inline void nnp_eval(ThreadData &td) {
   td_nn_eval(td);
   nnp_evals++;
+  if (nnp_lean) return;
   tdp_check_keys(td);
   if (td.nnstack->size != 1 + nnp_moves) {
     if (tdp_key_mism < 5) printf("info string NN STACK MISMATCH stati=%d mosse=%d\n", td.nnstack->size, nnp_moves);
     tdp_key_mism++;
   }
+#ifdef TRIUMV_C2
+  // Review 21/10/2026: the C2 experts the search ideas read from the stack (c2_experts_td, c2_expert) must be those of
+  // the board, also after null moves, promotions and en passant.
+  if (c2_experts_td(td) != c2_experts(c2_count(td.bitboards))) {
+    if (tdp_key_mism < 5) printf("info string C2 EXPERT MISMATCH stack=%02x board=%02x\n", c2_experts_td(td),
+                                 c2_experts(c2_count(td.bitboards)));
+    tdp_key_mism++;
+  }
+#endif
 }
 static U64 nnp_rec(ThreadData &td, int depth) {
-  if (depth == 0 || td.hash_key % 3 == 0) nnp_eval(td);
+  const bool evaluated = depth == 0 || td.hash_key % 3 == 0;
+  if (evaluated) {
+    nn_last_disagree = -1;   // set again only by an incremental network evaluation (the fresh case below)
+    nnp_eval(td);
+  }
+#ifdef TRIUMV_C2
+  // Conversion push (C2ConvPkSrc 1, 21/10/2026): the exact pawn-king effect the search would read, right after an
+  // evaluation (fresh) and, at one internal node in seven not evaluated, on demand (now); the bridge compares both with
+  // the value from scratch under nnueverify (a difference counts in "bad"). Only with the option set.
+  if (C2ConvPkSrc && !nnp_lean) {
+    if (evaluated && nn_last_disagree >= 0)
+      c2_pk_effect_fresh(td);
+    else if (!evaluated && td.hash_key % 7 == 0)
+      c2_pk_effect_now(td);
+  }
+#endif
   if (depth == 0) return 1;
   U64 n = 0;
   const int ksq = get_ls1b_index(td.side == white ? td.bitboards[K] : td.bitboards[k]);
@@ -216,6 +242,9 @@ void td_nnperft_driver(int depth) {
   ThreadData &td = thread_data[0];
   copy_board_to_thread(td);
   nn_root_sync(td);
+#ifdef TRIUMV_C2
+  c2_eval_push();   // the C2 evaluation terms as set now (review 21/10/2026), so that the check covers them
+#endif
   nn_set_verify(1);
   const unsigned long long c0 = nn_verify_count(), b0 = nn_verify_bad();
   tdp_key_mism = 0;
@@ -227,6 +256,45 @@ void td_nnperft_driver(int depth) {
   printf("nnperft %d Nodes: %llu evals %llu verified %llu bad %llu keymism %llu\n", depth,
          (unsigned long long)leaves, (unsigned long long)nnp_evals, nn_verify_count() - c0, nn_verify_bad() - b0,
          (unsigned long long)tdp_key_mism);
+  fflush(stdout);
+}
+
+// `nnspeed N <fen file>` (21/10/2026, cost of Consilium-2): nnperft's tree (evaluation at the leaves and at one internal
+// node in three, a null move at one internal node in five) WITHOUT the verification and the key checks, from every
+// position of the file. The tree depends only on the move generator, so two networks do exactly the same work and the
+// time per evaluation compares their inference (incremental updates through make/unmake included, as in a search).
+void td_nnspeed_driver(int depth, const char *path) {
+  extern void parse_fen(const char *fen);
+  FILE *f = fopen(path, "r");
+  if (!f) {
+    printf("info string nnspeed: cannot open %s\n", path);
+    fflush(stdout);
+    return;
+  }
+  char line[512];
+  U64 leaves = 0, evals = 0;
+  int npos = 0;
+  nnp_lean = true;
+  const auto t0 = std::chrono::steady_clock::now();
+  while (fgets(line, sizeof line, f)) {
+    size_t len = strlen(line);
+    while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = 0;
+    if (!len) continue;
+    parse_fen(line);
+    ThreadData &td = thread_data[0];
+    copy_board_to_thread(td);
+    nn_root_sync(td);
+    nnp_evals = 0;
+    nnp_moves = 0;
+    leaves += nnp_rec(td, depth);
+    evals += nnp_evals;
+    npos++;
+  }
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  nnp_lean = false;
+  fclose(f);
+  printf("nnspeed %d positions %d nodes %llu evals %llu time %.0f ms %.2f ns/eval\n", depth, npos,
+         (unsigned long long)leaves, (unsigned long long)evals, ms, evals ? 1e6 * ms / double(evals) : 0.0);
   fflush(stdout);
 }
 #endif  // TRIUMV_FROZEN

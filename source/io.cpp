@@ -312,6 +312,19 @@ void parse_fen(const char* fen)
         return;
     }
 
+    // 21/10/2026: the side NOT to move must not be in check either. Otherwise the side to move can capture the king
+    // (the generator produces the move and the make accepts it), and one ply later the board has a missing king, the
+    // state rejected above: get_ls1b_index(0) = -1 as a king square in the generator and the make, keys and occupancies
+    // out of step, the network reading rows outside its tables. Found with nnperft on 4k3/8/8/3qq3/8/8/8/QQ2K3 b (the
+    // queen on e5 checks e1 with Black to move): accumulator mismatches, then an access violation in consilium/cn.cpp.
+    if (is_square_attacked(get_ls1b_index(bitboards[side == white ? k : K]), side))
+    {
+        printf("info string FEN rifiutata (il lato che non ha il tratto e' sotto scacco): uso la posizione iniziale\n");
+        fflush(stdout);
+        parse_fen(start_position);
+        return;
+    }
+
     // E.p. fantasma: se nessun pedone del lato al tratto puo' realmente catturare
     // sulla casa dichiarata, quella casa cambia la chiave Zobrist senza cambiare
     // la posizione -> la stessa posizione prende due chiavi e la TT non si

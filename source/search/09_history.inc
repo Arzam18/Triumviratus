@@ -114,19 +114,23 @@ static const int unit_value[7] = {208, 781, 825, 1276, 2538, 0, 0};
 // hist_learn, below. The former update (stat_push, in the inherited form) was removed on 17/10/2026: hist_learn with
 // gravity 1024 gives the same integer result.
 
-// (12/10/2026) The three limits are parameters (HistLim*, 01_params.inc); in the release they are constants.
+// (12/10/2026) The limits are parameters (HistLim*, 01_params.inc); in the release they are constants. Pawn, hash-move
+// and correction limits since the CENSUS of 21/10/2026 (were 8192, 8192, 1024).
 #ifdef TRIUMV_RELEASE
 constexpr int LIM_QUIET  = HistLimQuiet;
 constexpr int LIM_CAPT   = HistLimCapt;
 constexpr int LIM_FOLLOW = HistLimFollow;
+constexpr int LIM_PAWN   = HistLimPawn;
+constexpr int LIM_CORR   = HistLimCorr;
+constexpr int LIM_TTMOVE = HistLimTtMove;
 #else
 #define LIM_QUIET  HistLimQuiet
 #define LIM_CAPT   HistLimCapt
 #define LIM_FOLLOW HistLimFollow
+#define LIM_PAWN   HistLimPawn
+#define LIM_CORR   HistLimCorr
+#define LIM_TTMOVE HistLimTtMove
 #endif
-constexpr int LIM_PAWN   = 8192;
-constexpr int LIM_CORR   = 1024;
-constexpr int LIM_TTMOVE = 8192;
 
 static inline bool move_ok(int m) { return m > 0; }
 static inline int  move_from(int m) { return get_move_source(m); }
@@ -148,7 +152,113 @@ static inline int  victim_kind(const ThreadData &td, int m) {
   return kPieceKind[td.piece_on[move_to(m)] & 15];
 }
 
+#ifdef TRIUMV_C2
+// ============================================================================
+// --- C2 signals for the search (agent A) --- (21/10/2026)
+// Consilium-2 picks the expert of each perspective with the routing table of the net over the non-pawn material
+// signatures (cell = sig(own) * 54 + sig(opponent)); the make writes both experts in the state of each move
+// (dp.phase: White in the low nibble, Black in the high one) and which of them changed (dp.phaseChanged). On the net
+// of 21/10 the table follows the opponent's signature in 99.4% of the cells: the side to move's expert tells how much
+// material the opponent has, the opponent's expert how much we have (01_params.inc, block "C2 search ideas").
+// ============================================================================
+static inline int c2_sig_of(const ThreadData &td, int c) {
+  const int off = 6 * c;
+  return cn_sig(count_bits(td.bitboards[N + off]), count_bits(td.bitboards[B + off]), count_bits(td.bitboards[R + off]),
+                count_bits(td.bitboards[Q + off]));
+}
+// Expert of perspective c (white or black) in the current position: from the state of the last move made; the root's
+// state has none (and a null move adds no state), so with one state the board is read.
+static inline int c2_expert(const ThreadData &td, int c) {
+  const NnStack &S = *td.nnstack;
+  if (S.size >= 2)
+    return (S.st[S.size - 1].dp.phase >> (4 * c)) & 15;
+  return nn_router_table()[c2_sig_of(td, c) * 54 + c2_sig_of(td, c ^ 1)];
+}
+// Did the move just made (top state of the stack) change the expert of either perspective?
+static inline bool c2_last_switched(const ThreadData &td) {
+  const NnStack &S = *td.nnstack;
+  return S.size >= 2 && S.st[S.size - 1].dp.phaseChanged != 0;
+}
+// Before a move: the counts of the node and its experts, to tell whether a capture or a promotion switches.
+struct C2Mat {
+  int cnt[2][4];   // N, B, R, Q of White and Black
+  int e[2];        // experts of the two perspectives now
+};
+static inline void c2_mat_init(const ThreadData &td, C2Mat &cm) {
+  for (int c = 0; c < 2; c++)
+    for (int t = 0; t < 4; t++)
+      cm.cnt[c][t] = count_bits(td.bitboards[N + t + 6 * c]);
+  const unsigned char *rt = nn_router_table();
+  const int s0 = cn_sig(cm.cnt[0][0], cm.cnt[0][1], cm.cnt[0][2], cm.cnt[0][3]);
+  const int s1 = cn_sig(cm.cnt[1][0], cm.cnt[1][1], cm.cnt[1][2], cm.cnt[1][3]);
+  cm.e[0] = rt[s0 * 54 + s1];
+  cm.e[1] = rt[s1 * 54 + s0];
+}
+// Would move m change the expert of either perspective? Only a capture of a piece and a promotion change material;
+// pawn captures and en passant never do (CAPT_NONE or a pawn victim).
+static inline bool c2_switches(const ThreadData &td, const C2Mat &cm, int m) {
+  const int vk = victim_kind(td, m), pr = get_move_promoted(m);
+  const bool piece_victim = vk >= N && vk <= Q;
+  if (!piece_victim && !pr)
+    return false;
+  int c[2][4];
+  std::memcpy(c, cm.cnt, sizeof(c));
+  if (piece_victim)
+    c[td.side ^ 1][vk - N]--;
+  if (pr)
+    c[td.side][kPieceKind[pr] - N]++;
+  const unsigned char *rt = nn_router_table();
+  const int s0 = cn_sig(c[0][0], c[0][1], c[0][2], c[0][3]), s1 = cn_sig(c[1][0], c[1][1], c[1][2], c[1][3]);
+  return rt[s0 * 54 + s1] != cm.e[0] || rt[s1 * 54 + s0] != cm.e[1];
+}
+// Same class of piece for the conversion push (C2Conv*): knight and bishop, rook and rook, queen and queen.
+static inline bool c2_even_trade(const ThreadData &td, int m) {
+  if (!get_move_capture(m))
+    return false;
+  const int vk = victim_kind(td, m), mk = kPieceKind[move_piece(m)];
+  if (vk < N || vk > Q || mk < N || mk > Q)
+    return false;
+  return vk == mk || (vk <= B && mk <= B);
+}
+// Pawn-king skip of the current position, side to move's view (consilium_bridge.h nn_pk_skip).
+static inline int c2_pk_skip(const ThreadData &td) { return nn_pk_skip(td.nnpos, td.bitboards, td.side == white); }
+// Conversion push with the exact pawn-king effect (C2ConvPkSrc 1, 21/10/2026): the value of the current position,
+// side to move's view, positional units. _fresh only right after this position was evaluated by the network
+// (node_evaluate, nn_last_disagree >= 0); _now at any time (catches up the dirty stack, as td_nn_eval).
+static inline bool c2_conv_exact() { return (C2ConvOrder | C2ConvRed) && C2ConvPkSrc == 1 && C2ConvEffW; }
+static inline int c2_pk_effect_fresh(const ThreadData &td) {
+  return nn_pk_effect_fresh(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white);
+}
+static inline int c2_pk_effect_now(ThreadData &td) {
+  nn_dirty_catch_up(td);
+  nn_verify_sync(td);
+  return nn_pk_effect_now(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white);
+}
+// The same for the position after the quiet move m of the side to move (a pawn or king move that captures nothing),
+// from the mover's view: the board is copied with the piece moved and the subnetwork is asked for the other side.
+static inline int c2_pk_skip_after(const ThreadData &td, int m) {
+  U64 bb[12];
+  std::memcpy(bb, td.bitboards, sizeof(bb));
+  const int pc = move_piece(m);
+  bb[pc] ^= (1ULL << move_from(m)) | (1ULL << move_to(m));
+  return -nn_pk_skip(td.nnpos, bb, td.side != white);
+}
+// C2PawnHist: constant per expert mixed into the key of the pawn-structure history (1 = expert of the side to move,
+// 2 = pair of experts). One salt per expert, as CorrPhase has one per band for the corrections.
+static inline U64 c2_pawn_salt(const ThreadData &td) {
+  static constexpr U64 salt[8] = {0xA0761D6478BD642FULL, 0xE7037ED1A0B428DBULL, 0x8EBC6AF09C88C6E3ULL,
+                                  0x589965CC75374CC3ULL, 0x1D8E4E27C47D124FULL, 0x72BE5D74F27B896FULL,
+                                  0x31F9C59D0BB8A3D1ULL, 0xD2B74407B1CE6E93ULL};
+  const U64 own = salt[c2_expert(td, td.side)];
+  return C2PawnHist == 1 ? own : own ^ (salt[c2_expert(td, td.side ^ 1)] >> 7 | salt[c2_expert(td, td.side ^ 1)] << 57);
+}
+#endif
+
 static inline PieceToRow &pawn_row(const ThreadData &td) {
+#ifdef TRIUMV_C2
+  if (C2PawnHist)   // C2 idea 4 (21/10/2026, agent A): the pawn history split by expert; OFF by default, SPRT pending
+    return g_stats.pawn_rows[(td.pawn_key ^ c2_pawn_salt(td)) & g_stats.pawn_mask];
+#endif
   return g_stats.pawn_rows[td.pawn_key & g_stats.pawn_mask];
 }
 
@@ -290,7 +400,7 @@ static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus, int ctx,
     hist_learn(td.low_ply_hist[f->ply][key], bonus * LowPlyScale / 1024 * aux / 1024, LIM_QUIET, grav);
   learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024 * aux / 1024, ex);
   hist_learn(pawn_row(td)[move_piece(m)][move_to(m)],
-             bonus * (bonus > -4 ? PawnBonusScale : PawnMalusScale) / 1024 * aux / 1024, LIM_PAWN, grav);
+             bonus * (bonus > PawnHistSplit ? PawnBonusScale : PawnMalusScale) / 1024 * aux / 1024, LIM_PAWN, grav);
 }
 
 static inline void learn_capture(ThreadData &td, int m, int bonus, int ex) {
@@ -319,11 +429,41 @@ static constexpr auto corr_phase_keys_by_count = [] {
     t[c] = keys[c <= 9 ? 0 : c <= 15 ? 1 : c <= 23 ? 2 : 3];   // = net_phase(c)
   return t;
 }();
+#ifdef TRIUMV_C2
+// --- C2 corrections (agent B) ---
+// CorrC2Key (21/10/2026, ours): CorrPhase separates the corrections by the expert of the network, but its bands are
+// the piece counts of Consilium (8.0). Consilium-2 chooses the expert of each perspective from a learned routing table
+// over the non-pawn material, so the band no longer names the expert that made the error. Mode 1 salts the pawn and
+// minor keys with the C2 expert of the side to move (8 regimes), mode 2 with the pair (own, opponent) (64 regimes).
+// Same tables, another key; every caller goes through corr_phase_key. OFF by default; SPRT pending.
+static constexpr auto c2_corr_salts = [] {
+  std::array<U64, 72> t{};   // 0..7: own expert; 8 + 8 x own + opponent: the pair
+  U64 x = 0x243F6A8885A308D3ULL;
+  for (auto &v : t) {   // a fixed sequence of mixed constants (splitmix-style finaliser)
+    x += 0x9E3779B97F4A7C15ULL;
+    U64 z = x;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    v = z ^ (z >> 31);
+  }
+  return t;
+}();
+static inline U64 c2_corr_salt(const ThreadData &td) {
+  const int e = c2_experts_td(td), us = td.side;
+  const int own = (e >> (4 * us)) & 15, opp = (e >> (4 * (us ^ 1))) & 15;
+  return c2_corr_salts[CorrC2Key == 1 ? own : 8 + 8 * own + opp];
+}
+#endif
+
 // CorrPhaseQueen (17/10/2026, off = old tables; report R2 of the 8.1 rewrite): eight regimes instead of four, the piece
 // band times "queens on the board". Inside a band the queens double the evaluation swings, so the systematic error on
 // one structure differs with and without them. Same tables, a different key: with queens the band key is XORed with a
 // fixed salt. Callers (prefetch in the make, corr_signal, corr_learn) all go through here, so they stay consistent.
 static inline U64 corr_phase_key(const ThreadData &td) {
+#ifdef TRIUMV_C2
+  if (CorrC2Key)
+    return c2_corr_salt(td);
+#endif
   if (!CorrPhase)
     return 0;
   const U64 k = corr_phase_keys_by_count[count_bits(td.occupancies[both])];
@@ -384,15 +524,37 @@ static inline U64 corr_expert_key(const ThreadData &td) {
   return td.pawn_key ^ keys[band];
 }
 
+#ifdef TRIUMV_C2
+// CorrPkW (21/10/2026, ours, C2 corrections of agent B): a correction keyed by the pawn structure as the network has
+// learned it. The pawn-king subnetwork of Consilium-2 maps pawns and kings to 32 outputs; the key keeps only the signs
+// of the CorrPkBits most variable outputs against their medians (consilium/cn.cpp, pk_signature), so structures the
+// net reads alike share an entry. The pawn-key tables of 11/10/2026 (CorrKingPawnW, all pawns + king zones) failed
+// with a key too fine; this one is coarse by construction and comes from the network itself. Like CorrExpertW it
+// enters the evaluation only, not n.signal; it shares that table (CorrExpertW stays 0). OFF by default; SPRT pending.
+// Cost: the key reads the thread's pawn-king cache. With CorrPkCompute 0 a board whose entry is not there (the node
+// reads the key before its evaluation, which fills the entry) gets no term and teaches nothing; with 1 the subnetwork
+// runs on such a miss (bench 21/10: one more miss per six nodes, ~-20% speed at 1 against ~-2% at 0, see REPORT_B).
+static inline bool c2_pk_key(const ThreadData &td, U64 &key) {
+  const long long s = nn_pk_signature(td.nnpos, td.bitboards, td.side == white, CorrPkBits, CorrPkCompute);
+  key = ((U64)s * 0x9E3779B97F4A7C15ULL) ^ 0x5851F42D4C957F2DULL;
+  return s >= 0;
+}
+#endif
+
 static inline int corr_signal_extra(const ThreadData &td) {
   int s = 0;
   if (CorrExpertW)
     s += CorrExpertW * g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side];
+#ifdef TRIUMV_C2
+  U64 pk_key;
+  if (CorrPkW && c2_pk_key(td, pk_key))
+    s += CorrPkW * g_stats.corr_x[pk_key & g_stats.corr_mask][td.side];
+#endif
   return s;
 }
 
 static inline int corrected_eval(int v, int signal) {
-  return std::clamp(v + signal / 131072, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
+  return std::clamp(v + signal / CorrEvalDiv, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);   // CorrEvalDiv: was 131072
 }
 
 // Update of the correction tables through hist_learn with the gravity of the node's expert (CorrGrav; 1024 = the old
@@ -419,4 +581,9 @@ static void corr_learn(ThreadData &td, NodeFrame *f, int bonus, int ex) {
   }
   if (CorrExpertW)
     hist_learn(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR, g);
+#ifdef TRIUMV_C2
+  U64 pk_key;   // C2 corrections (agent B)
+  if (CorrPkW && c2_pk_key(td, pk_key))
+    hist_learn(g_stats.corr_x[pk_key & g_stats.corr_mask][us], bonus * CorrPkUpd / 128, LIM_CORR, g);
+#endif
 }

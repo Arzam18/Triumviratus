@@ -304,9 +304,46 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
     dp.add_pc = (std::uint8_t)promoted;
     dp.add_sq = (std::uint8_t)(promoted ? target : NN_SQ_NONE);
   }
+#if defined(TRIUMV_C2) && defined(CN_C2_ONE_EXPERT)
+  dp.phase = 0;  // cost diagnosis only (21/10/2026): one expert, no refresh on material changes
+  dp.phaseChanged = 0;
+#elif defined(TRIUMV_C2)
+  // Consilium-2: the expert of each perspective comes from the network's routing table over the non-pawn material
+  // signatures (consilium/cn.h router_sig). Only a capture or a promotion changes material, so other moves copy the
+  // parent's experts (the root's state has none: computed from the board).
+  if (cap != -1 || promoted || S.size < 3) {
+    const unsigned char *rt = nn_router_table();
+    int n[2], bsh[2], r[2], q[2];
+    for (int c = 0; c < 2; c++) {
+      n[c] = count_bits(td.bitboards[N + 6 * c]);
+      bsh[c] = count_bits(td.bitboards[B + 6 * c]);
+      r[c] = count_bits(td.bitboards[R + 6 * c]);
+      q[c] = count_bits(td.bitboards[Q + 6 * c]);
+    }
+    const int e0w = rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
+    const int e0b = rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+    auto dec = [&](int pc, int d) {
+      const int t = pc % 6, c = pc / 6;
+      if (t == N) n[c] += d;
+      else if (t == B) bsh[c] += d;
+      else if (t == R) r[c] += d;
+      else if (t == Q) q[c] += d;
+    };
+    if (cap != -1) dec(cap, -1);
+    if (promoted) dec(promoted, 1);
+    const int e1w = rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
+    const int e1b = rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+    dp.phase = (std::uint8_t)(e1w | e1b << 4);
+    dp.phaseChanged = (std::uint8_t)((e0w != e1w) | (e0b != e1b) << 1);
+  } else {
+    dp.phase = S.st[S.size - 2].dp.phase;
+    dp.phaseChanged = 0;
+  }
+#else
   const int pieces = count_bits(td.occupancies[both]);
   dp.phase = g_nn_phase_map[pieces - (cap != -1)];
   dp.phaseChanged = g_nn_phase_map[pieces] != dp.phase;
+#endif
   // Minacce e pedoni: nn_dirty_catch_up, solo se si arriva a una valutazione.
   // Prefetch of the network rows this move changes (19/10/2026): the memory latency runs under the hash probe and the
   // rest of the child node instead of at the start of its evaluation. Without a capture the third row repeats the
@@ -421,6 +458,48 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
   }
   S.ready = last;
 }
+
+#ifdef TRIUMV_C2
+// --- C2 signals (agent B) ---
+// Consilium-2 signals for the code outside the main search loop (21/10/2026): time management (14_deepen.inc) and
+// corrections (09_history.inc). The expert of a perspective is the network's routing table over the non-pawn material
+// signatures (own side, opponent), the same lookup as nn_make_dirty above. C2Count holds the non-pawn counts of both
+// colours, so a line of captures and promotions can be followed without a board.
+static const unsigned char *const g_c2_router = nn_router_table();   // address of the network's copy: fixed
+
+struct C2Count {
+  int n[2], b[2], r[2], q[2];
+};
+static inline C2Count c2_count(const U64 *bb) {
+  C2Count k;
+  for (int c = 0; c < 2; c++) {
+    k.n[c] = count_bits(bb[N + 6 * c]);
+    k.b[c] = count_bits(bb[B + 6 * c]);
+    k.r[c] = count_bits(bb[R + 6 * c]);
+    k.q[c] = count_bits(bb[Q + 6 * c]);
+  }
+  return k;
+}
+// Piece pc (engine code 0..11) leaves (d = -1) or arrives (d = +1). Pawns and kings do not enter the signature.
+static inline void c2_count_add(C2Count &k, int pc, int d) {
+  const int t = pc % 6, c = pc >= 6;
+  if (t == N) k.n[c] += d;
+  else if (t == B) k.b[c] += d;
+  else if (t == R) k.r[c] += d;
+  else if (t == Q) k.q[c] += d;
+}
+static inline int c2_sig(const C2Count &k, int c) { return cn_sig(k.n[c], k.b[c], k.r[c], k.q[c]); }
+static inline int c2_expert(const C2Count &k, int c) { return g_c2_router[c2_sig(k, c) * 54 + c2_sig(k, c ^ 1)]; }
+// Both experts in the layout of NnDirtyPiece::phase: White | Black << 4.
+static inline int c2_experts(const C2Count &k) { return c2_expert(k, white) | c2_expert(k, black) << 4; }
+// Experts of the thread's current position. Every state above the root carries them (nn_make_dirty: computed on a
+// capture, a promotion or the first move, copied otherwise; a null move adds no state and changes no material); the
+// root's state has none, so there they come from the board.
+static inline int c2_experts_td(const ThreadData &td) {
+  const NnStack &S = *td.nnstack;
+  return S.size >= 2 ? S.st[S.size - 1].dp.phase : c2_experts(c2_count(td.bitboards));
+}
+#endif
 
 // Controllo di sincronia (-DTRIUMV_VERIFY_NNSYNC, come TRIUMV_VERIFY_SEEQ): la pila della rete deve descrivere la
 // scacchiera del thread. Ogni stato porta la chiave dei pezzi dopo la sua mossa (la scrive la make riuscita; la radice

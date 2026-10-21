@@ -101,6 +101,9 @@ struct MoveQueue {
   // Expert of the node and group thresholds: written by fill_tactics / fill_evasions (ex, good_capt) and fill_quiets
   // (good_quiet), read by queue_next.
   int           ex, good_capt, good_quiet;
+#ifdef TRIUMV_C2
+  int           c2_conv;         // C2 idea 3: the side to move is ahead (+1) or behind (-1), set by move_loop; else 0
+#endif
 };
 
 // ThreatHist: threat context of a quiet move, from the node's maps when they exist, otherwise from its two squares.
@@ -234,6 +237,9 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.rank_ok = false;
   q.last_score = q.quiet_top = 0;
   q.ex = 3, q.good_capt = 1024, q.good_quiet = 0;
+#ifdef TRIUMV_C2
+  q.c2_conv = 0;
+#endif
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -512,6 +518,13 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const unsigned long long lp_den = 1024ULL + (unsigned long long)ply * by_exp4(tb_e, LpDecay0, LpDecay1, LpDecay2, LpDecay3);
 #endif
   const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? lp_recip_tbl[tb_e][ply] : 0;
+#ifdef TRIUMV_C2
+  // C2 idea 5 (21/10/2026, agent A; OFF by default, SPRT pending): a quiet pawn or king move is scored by the change it
+  // makes to the pawn-king skip of Consilium-2 (mover's view, clamped to +-C2PkScale), C2PkOrder at the clamp. One
+  // subnetwork probe per such move (the thread's pawn-king cache; the child's evaluation hits the entry if it is played).
+  const int c2_pk_order = C2PkOrder, c2_pk_scale = C2PkScale;   // read once: the stores into sc[] could alias them
+  const int c2_pk_node = c2_pk_order ? c2_pk_skip(td) : 0;
+#endif
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
@@ -560,6 +573,12 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
       s += PassedPush;
+#ifdef TRIUMV_C2
+    if (c2_pk_order && (pt == P || pt == K) && !get_move_promoted(m)) {
+      const int d = std::clamp(c2_pk_skip_after(td, m) - c2_pk_node, -c2_pk_scale, c2_pk_scale);
+      s += c2_pk_order * d / c2_pk_scale;
+    }
+#endif
     sc[i] = s;
   }
 }
@@ -589,6 +608,25 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   q.good_capt = by_exp4(q.ex, StGood0, StGood1, StGood2, StGood3);
   for (int i = 0; i < n; i++)
     sc[i] = score_tactic(td, ml->moves[i], q.ex);
+#ifdef TRIUMV_C2
+  // C2 ideas 2 and 3 (21/10/2026, agent A; OFF by default, SPRT pending), main search only. C2SwitchOrder: a capture
+  // or promotion that gives another expert to either perspective moves up. C2ConvOrder (conversion push, the author's
+  // idea): a trade of pieces of the same class moves up when the side to move is ahead and down when it is behind
+  // (q.c2_conv, move_loop). The score also sets the exchange threshold of a good capture (queue_next): a bonus lets a
+  // slightly losing exchange count as good, a malus sends an even trade among the losing captures.
+  if (q.kind == QK_MAIN && (C2SwitchOrder || (C2ConvOrder && q.c2_conv))) {
+    C2Mat cm;
+    if (C2SwitchOrder)
+      c2_mat_init(td, cm);
+    for (int i = 0; i < n; i++) {
+      const int m = ml->moves[i];
+      if (C2SwitchOrder && c2_switches(td, cm, m))
+        sc[i] += C2SwitchOrder;
+      if (C2ConvOrder && q.c2_conv && c2_even_trade(td, m))
+        sc[i] += q.c2_conv * C2ConvOrder;
+    }
+  }
+#endif
   q.n_tact = q.n_all = n;
   rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
