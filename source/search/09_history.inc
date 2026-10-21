@@ -225,7 +225,9 @@ static inline int c2_pk_skip(const ThreadData &td) { return nn_pk_skip(td.nnpos,
 // Conversion push with the exact pawn-king effect (C2ConvPkSrc 1, 21/10/2026): the value of the current position,
 // side to move's view, positional units. _fresh only right after this position was evaluated by the network
 // (node_evaluate, nn_last_disagree >= 0); _now at any time (catches up the dirty stack, as td_nn_eval).
-static inline bool c2_conv_exact() { return (C2ConvOrder | C2ConvRed) && C2ConvPkSrc == 1 && C2ConvEffW; }
+static inline bool c2_conv_exact() {   // per-node exact effect; not with C2ConvRoot (decided at the root only)
+  return (C2ConvOrder | C2ConvRed) && C2ConvPkSrc == 1 && C2ConvEffW && !C2ConvRoot;
+}
 static inline int c2_pk_effect_fresh(const ThreadData &td) {
   return nn_pk_effect_fresh(td.nnpos, td.bitboards, td.occupancies, td.piece_on, td.side == white);
 }
@@ -251,6 +253,69 @@ static inline U64 c2_pawn_salt(const ThreadData &td) {
                                   0x31F9C59D0BB8A3D1ULL, 0xD2B74407B1CE6E93ULL};
   const U64 own = salt[c2_expert(td, td.side)];
   return C2PawnHist == 1 ? own : own ^ (salt[c2_expert(td, td.side ^ 1)] >> 7 | salt[c2_expert(td, td.side ^ 1)] << 57);
+}
+
+// ============================================================================
+// --- C2 ordering (agent ORDER) --- (21/10/2026; ideas 5 and 6 of docs/rete/C2_IDEE_FABLE_2026-10-21.md)
+// OFF by default; SPRT/SPSA pending. Parameters: 01_params.inc, block "C2 ordering" after QuietHistDecay.
+//
+// Idea 5, regime-gated chess-knowledge ordering (C2OrdReg). The ordering terms of PR4 (KingShield, AttackOrder*,
+// PassedPush, PromoOrder, Outpost*, BishopPairCapt) were tuned with one value for every material regime. Each matters
+// in a regime that one of the two C2 experts names: e_us (side to move's perspective) reads the opponent's non-pawn
+// material, e_them ours. Our shelter and the opponent's passers' stoppers depend on what the opponent has (e_us);
+// our attacks and our minors' squares on what we have (e_them). A scale per expert (/1024) multiplies each group; at
+// 1024 everywhere the tree is the identical one. The experts are one byte of the make's state (c2_experts_td): the
+// scales are read once per scoring pass, and only with C2OrdReg on.
+// ============================================================================
+struct C2RegScales {
+  int ks;      // C2KsExp[e_us]: KingShield
+  int atk;     // C2AtkExp[e_them]: AttackOrder, AttackOrderQ
+  int pass;    // C2PassExp[e_us]: PassedPush, PromoOrder
+  int minor;   // C2MinorExp[e_them]: OutpostOrder, OutpostOrderB, BishopPairCapt
+};
+// `us` = the side whose terms are scaled: the side to move while ordering; the side that has just moved in the two
+// reduction credits (13_search.inc), which run after the move is made.
+static inline C2RegScales c2_reg_scales(const ThreadData &td, int us) {
+  const int e = c2_experts_td(td);
+  const int eu = (e >> (4 * us)) & 7, et = (e >> (4 * (us ^ 1))) & 7;
+  const int ks[8] = {C2KsExp0, C2KsExp1, C2KsExp2, C2KsExp3, C2KsExp4, C2KsExp5, C2KsExp6, C2KsExp7};
+  const int atk[8] = {C2AtkExp0, C2AtkExp1, C2AtkExp2, C2AtkExp3, C2AtkExp4, C2AtkExp5, C2AtkExp6, C2AtkExp7};
+  const int pass[8] = {C2PassExp0, C2PassExp1, C2PassExp2, C2PassExp3, C2PassExp4, C2PassExp5, C2PassExp6, C2PassExp7};
+  const int minor[8] = {C2MinorExp0, C2MinorExp1, C2MinorExp2, C2MinorExp3,
+                        C2MinorExp4, C2MinorExp5, C2MinorExp6, C2MinorExp7};
+  return {ks[eu], atk[et], pass[eu], minor[et]};
+}
+// One term v of a group with scale s (/1024). The terms stay below 40,000 and the scales below 4,097: no overflow.
+static inline int c2_reg_apply(int v, int s) { return v * s / 1024; }
+
+// Idea 6, structure history keyed by the pawn-king signature (C2StructHistW). The pawn history (pawn_row) is keyed by
+// the exact pawn structure, so nothing passes from one structure to the next. Consilium-2's pawn-king subnetwork
+// groups structures the network reads alike: the signs of its C2StructHistBits most variable outputs against their
+// medians (nn_pk_signature, the key of CorrPkW; ~230 values over the bench at 12 bits). A quiet-move table [piece][to]
+// per signature learns "the plan for this kind of structure" once. It differs from C2PawnHist (the exact key salted by
+// expert: finer, not coarser) and from CorrPkW (a correction, not moves). Ordering only: the reductions and the history
+// pruning keep reading the flat tables (the lesson of ThreatHist). Cache hit only (compute = 0): the subnetwork is
+// never run for this key; on a miss (-1) there is no term and no update. A one-entry memo per thread keeps the key of
+// the last position asked (the update of a node asks it once per quiet move learned).
+struct alignas(64) C2StructMemo {
+  U64 hash;
+  int bits, key;
+};
+static C2StructMemo g_c2_struct_memo[MAX_THREADS];
+static inline int c2_struct_key(const ThreadData &td) {
+  C2StructMemo &mm = g_c2_struct_memo[td.thread_id];
+  const int bits = std::clamp(C2StructHistBits, 1, 12);   // the table has 1 << 12 rows
+  if (mm.hash == td.hash_key && mm.bits == bits)
+    return mm.key;
+  const long long s = nn_pk_signature(td.nnpos, td.bitboards, td.side == white, bits, 0);
+  if (s >= 0)   // misses are not kept: the entry may be in the cache at the next question
+    mm.hash = td.hash_key, mm.bits = bits, mm.key = (int)s;
+  return (int)s;
+}
+// The row of the current position, or null on a cache miss.
+static inline PieceToRow *c2_struct_row(const ThreadData &td) {
+  const int k = c2_struct_key(td);
+  return k >= 0 ? &g_stats.struct_rows[k] : nullptr;
 }
 #endif
 
@@ -401,6 +466,11 @@ static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus, int ctx,
   learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024 * aux / 1024, ex);
   hist_learn(pawn_row(td)[move_piece(m)][move_to(m)],
              bonus * (bonus > PawnHistSplit ? PawnBonusScale : PawnMalusScale) / 1024 * aux / 1024, LIM_PAWN, grav);
+#ifdef TRIUMV_C2
+  if (C2StructHistW)   // --- C2 ordering (agent ORDER) --- idea 6: structure history, learned only while it is read
+    if (PieceToRow *row = c2_struct_row(td))
+      hist_learn((*row)[move_piece(m)][move_to(m)], bonus * C2StructHistUpd / 1024 * aux / 1024, LIM_PAWN, grav);
+#endif
 }
 
 static inline void learn_capture(ThreadData &td, int m, int bonus, int ex) {

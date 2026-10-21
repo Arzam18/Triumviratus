@@ -867,6 +867,28 @@
   P(PvMinDepth, 1, 1, 3)                 /* than PvHashDepth (or holds a decided value)                    */ \
   P(LmrDeepRed1, 5234, 2000, 9000)       /* ricerca ridotta: -1 ply se r > Red1, -1 se r > Red2           */ \
   P(LmrDeepRed2, 5487, 2000, 9000)                                                                         \
+  /* C2 regime selectivity (21/10/2026, ours; docs/rete/C2_IDEE_FABLE_2026-10-21.md ideas 7, 8, 11). Read only by    */ \
+  /*  Consilium-2 builds (13_search.inc, under TRIUMV_C2); other builds have the options and ignore them. OFF by     */ \
+  /*  default (all 0 = identical tree); SPRT pending for each.                                                      */ \
+  /*  C2SameRegImp (bits): comparisons of static evaluations across plies only inside one expert pair. 1 = improving */ \
+  /*   against f[-4] when the pair changed since f[-2] but f[-4] has the pair of the node, else false (8 = else      */ \
+  /*   true, variant 1b); 2 = opp_worse false when the pair changed at the last move; 4 = no PriorRed* depth steps    */ \
+  /*   when the pair changed at the last move.                                                                       */ \
+  P(C2SameRegImp, 0, 0, 15)                                                                                \
+  /*  Imbalance (C2Imb*): d = our material class minus theirs, read from the two experts (each follows the other    */ \
+  /*   side's non-pawn material). Ahead: d >= C2ImbGap and static eval > C2ImbEval; behind: d <= -C2ImbGap and eval */ \
+  /*   < -C2ImbEval. Behind: checks and losing captures reduced less by C2ImbBehind (1/1024 ply), move-count        */ \
+  /*   threshold x (1024 + C2ImbBehindLmp)/1024. Ahead: the exchange test of a capture of the opponent's last piece  */ \
+  /*   of a type relaxed by C2ImbAhead (SEE units), the null-move floor lowered by C2ImbAheadNmp.                    */ \
+  P(C2ImbBehind, 0, -3072, 3072)                                                                           \
+  P(C2ImbBehindLmp, 0, -512, 2048)                                                                         \
+  P(C2ImbAhead, 0, -400, 800)                                                                              \
+  P(C2ImbAheadNmp, 0, -200, 400)                                                                           \
+  P(C2ImbGap, 1, 1, 7)                                                                                     \
+  P(C2ImbEval, 0, -400, 1000)                                                                              \
+  /*  C2SettleHorizon: a capture or promotion that switches an expert of either perspective and would leave its     */ \
+  /*   child to the quiescence search gets one ply instead, once per line; 1 = not in all nodes, 2 = in all nodes.   */ \
+  P(C2SettleHorizon, 0, 0, 2)                                                                              \
   /* BLOCK 2 - late-move reduction of our own (13_search.inc, red_entry_ours / red_final_ours). Rf* = the      */ \
   /* reduction of the search, Re* = the value the pruning rules read. Values of the fit of 18/10/2026 evening on the */ \
   /* engine with block 1 reverted to the tree of 8.0: 26.5 million moves of searches at 1 and 6 million nodes (tools/ */ \
@@ -1001,6 +1023,28 @@
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
   P(QsStandMix, 462, 0, 1024)                                                                              \
+  /* --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending)                            */ \
+  /*  SEE piece values (see.cpp, the units of the search margins): the exchange evaluation reads the copy g_see_val, */ \
+  /*  synced at setoption (constants in the release, static_assert below). Defaults = the old table 208/781/825/  */ \
+  /*  1276/2538, identical tree. unit_value (09_history.inc, futility and ordering margins) keeps its own values.   */ \
+  P(SeeValP, 208, 100, 400) P(SeeValN, 781, 500, 1100) P(SeeValB, 825, 500, 1100)                          \
+  P(SeeValR, 1276, 900, 1800) P(SeeValQ, 2538, 1800, 3400)                                                 \
+  /*  Regime piece values (idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium-2 builds only, elsewhere the */ \
+  /*  options do nothing): a piece is valued by the material class of its OWNER, i.e. by the expert of the other  */ \
+  /*  perspective (the C2 router follows the opponent's material): value = base + C2Val<type><expert>, in SEE      */ \
+  /*  units, pawns and kings without offset. C2SeeReg bits: 1 = SEE (see.cpp), 2 = victim of the quiescence        */ \
+  /*  futility (qs_worth), 4 = victim of the capture futility and of the capture order (capture_gate,             */ \
+  /*  score_tactic). Per-thread table rebuilt when the expert pair changes (see.cpp). 0 = off, identical tree.     */ \
+  /*  Seeds from the network's PSQT rows: tools/c2_psqt_seeds.py (ep27: the rows are flat across experts).        */ \
+  P(C2SeeReg, 0, 0, 7)                                                                                     \
+  P(C2ValN0, 0, -300, 300) P(C2ValN1, 0, -300, 300) P(C2ValN2, 0, -300, 300) P(C2ValN3, 0, -300, 300)      \
+  P(C2ValN4, 0, -300, 300) P(C2ValN5, 0, -300, 300) P(C2ValN6, 0, -300, 300) P(C2ValN7, 0, -300, 300)      \
+  P(C2ValB0, 0, -300, 300) P(C2ValB1, 0, -300, 300) P(C2ValB2, 0, -300, 300) P(C2ValB3, 0, -300, 300)      \
+  P(C2ValB4, 0, -300, 300) P(C2ValB5, 0, -300, 300) P(C2ValB6, 0, -300, 300) P(C2ValB7, 0, -300, 300)      \
+  P(C2ValR0, 0, -400, 400) P(C2ValR1, 0, -400, 400) P(C2ValR2, 0, -400, 400) P(C2ValR3, 0, -400, 400)      \
+  P(C2ValR4, 0, -400, 400) P(C2ValR5, 0, -400, 400) P(C2ValR6, 0, -400, 400) P(C2ValR7, 0, -400, 400)      \
+  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 0, -600, 600)      \
+  P(C2ValQ4, 0, -600, 600) P(C2ValQ5, 0, -600, 600) P(C2ValQ6, 0, -600, 600) P(C2ValQ7, 0, -600, 600)      \
   /* Endgame rule (report R2, 18/10/2026): at the first quiescence ply called by the main search, quiet moves that */ \
   /*  give check with SEE >= 0 are also searched when at most QsChecksPieces pieces are on the board (the quiesce */ \
   /*  QCHK form of analysis mode). 0 = off, identical tree.                                                        */ \
@@ -1056,6 +1100,13 @@
   P(C2ConvPkSrc, 0, 0, 1)                                                                                  \
   P(C2ConvEffW, 1024, 0, 8192)                                                                             \
   P(C2ConvExpMax, 7, 0, 7)                                                                                 \
+  /*     C2ConvRoot (the author's idea, 21/10/2026 evening; OFF, SPRT pending): the judgement above costs ~11% of the */ \
+  /*     cycles per node with the exact effect (xperf, middlegame). Here the network decides only at the root, with   */ \
+  /*     the exact pawn-king effect (x C2ConvEffW, whatever C2ConvPkSrc says), the experts (C2ConvExpMax) and a value: */ \
+  /*     1 = the root's static evaluation, once per search; 2 = the score of the last completed iteration, again at   */ \
+  /*     every iteration (the first one uses the static evaluation). The decision (root side ahead +1 / behind -1)    */ \
+  /*     holds in the whole tree: +d at the root side's nodes, -d at the opponent's, with no network work per node.   */ \
+  P(C2ConvRoot, 0, 0, 2)                                                                                   \
   /*  4. Pawn history per expert: the key of the pawn-structure history gets a constant per expert (1 = the side to */ \
   /*     move's expert, 2 = the pair of experts), as CorrPhase does for the corrections. 0 = one table as before.    */ \
   P(C2PawnHist, 0, 0, 2)                                                                                   \
@@ -1077,6 +1128,40 @@
   /* tra un'iterazione e l'altra (14_deepen.inc) */                                                          \
   P(LowPlyFill, 102, -500, 500)          /* valore iniziale della storia dei primi ply a ogni ricerca       */ \
   P(QuietHistDecay, 729, 0, 1024)        /* /1024: storie delle quiete conservate fra le mosse              */ \
+  /* --- C2 ordering (agent ORDER, 21/10/2026): ideas 5 and 6 of C2_IDEE_FABLE_2026-10-21. OFF by default; SPRT/SPSA */ \
+  /*  pending. Code under TRIUMV_C2 in 09_history.inc and 11_queue.inc; in other builds the options do nothing.       */ \
+  /*  Experts (block "C2 search ideas" above): e_us = expert of the side to move's perspective, which reads the        */ \
+  /*  OPPONENT's non-pawn material (0 = at most a minor ... 7 = 26-31); e_them reads OUR material on the same scale.  */ \
+  /*  5. Regime-gated chess-knowledge ordering. With C2OrdReg 1 each baked ordering term is multiplied by a scale     */ \
+  /*     per expert (/1024; 1024 = the term as it is, so C2OrdReg 1 with every scale at 1024 is the identical tree): */ \
+  /*     C2KsExp[e_us]      KingShield (our shelter matters when the opponent has attacking material);               */ \
+  /*     C2AtkExp[e_them]   AttackOrder, AttackOrderQ (our attacks matter when we have the material);                */ \
+  /*     C2PassExp[e_us]    PassedPush, PromoOrder (a passer runs when the opponent has little to stop it);          */ \
+  /*     C2MinorExp[e_them] OutpostOrder, OutpostOrderB, BishopPairCapt (whether we still have the minors).          */ \
+  /*     The reduction credits (PassedPushRed with PassedPushNpm, RdKingAtt) live in 13_search.inc: not gated here;   */ \
+  /*     c2_reg_scale (09_history.inc) serves them when they are.                                                     */ \
+  P(C2OrdReg, 0, 0, 1)                                                                                     \
+  P(C2KsExp0, 1024, 0, 4096) P(C2KsExp1, 1024, 0, 4096) P(C2KsExp2, 1024, 0, 4096)                        \
+  P(C2KsExp3, 1024, 0, 4096) P(C2KsExp4, 1024, 0, 4096) P(C2KsExp5, 1024, 0, 4096)                        \
+  P(C2KsExp6, 1024, 0, 4096) P(C2KsExp7, 1024, 0, 4096)                                                   \
+  P(C2AtkExp0, 1024, 0, 4096) P(C2AtkExp1, 1024, 0, 4096) P(C2AtkExp2, 1024, 0, 4096)                     \
+  P(C2AtkExp3, 1024, 0, 4096) P(C2AtkExp4, 1024, 0, 4096) P(C2AtkExp5, 1024, 0, 4096)                     \
+  P(C2AtkExp6, 1024, 0, 4096) P(C2AtkExp7, 1024, 0, 4096)                                                 \
+  P(C2PassExp0, 1024, 0, 4096) P(C2PassExp1, 1024, 0, 4096) P(C2PassExp2, 1024, 0, 4096)                  \
+  P(C2PassExp3, 1024, 0, 4096) P(C2PassExp4, 1024, 0, 4096) P(C2PassExp5, 1024, 0, 4096)                  \
+  P(C2PassExp6, 1024, 0, 4096) P(C2PassExp7, 1024, 0, 4096)                                               \
+  P(C2MinorExp0, 1024, 0, 4096) P(C2MinorExp1, 1024, 0, 4096) P(C2MinorExp2, 1024, 0, 4096)               \
+  P(C2MinorExp3, 1024, 0, 4096) P(C2MinorExp4, 1024, 0, 4096) P(C2MinorExp5, 1024, 0, 4096)               \
+  P(C2MinorExp6, 1024, 0, 4096) P(C2MinorExp7, 1024, 0, 4096)                                             \
+  /*  6. Structure history: a quiet-move history [piece][to] keyed by the pawn-king signature of Consilium-2 (the    */ \
+  /*     signs of the C2StructHistBits most variable pawn-king outputs against their medians, side to move's view;   */ \
+  /*     cache hit only, the subnetwork is never run for it: a miss gives no term and no update). Ordering only      */ \
+  /*     (score_quiets: + C2StructHistW/1024 x entry); learned with the other quiet histories (x C2StructHistUpd     */ \
+  /*     /1024, pawn-history limit, gravity of the node) while C2StructHistW is not 0. One table shared by the       */ \
+  /*     threads, 4096 x 12 x 64 int16 = 6 MB on large pages, allocated in C2 builds only.                           */ \
+  P(C2StructHistW, 0, -4096, 4096)                                                                         \
+  P(C2StructHistUpd, 1024, 0, 4096)                                                                        \
+  P(C2StructHistBits, 12, 1, 12)                                                                           \
   P(TmEffortLo, 82932, 40000, 100000)    /* quota dei nodi sulla mossa migliore (x100000): rampa del tempo */ \
   P(TmEffortHi, 101788, 60000, 140000)                                                                     \
   /* gestione del tempo (in millesimi) */                                                                 \
@@ -1493,9 +1578,39 @@ bool      g_tt_move_keep  = true; // senza mossa nuova si conserva quella vecchi
 int       g_see_pinned    = SeePinned;            // copia di SeePinned per see.cpp (vedi td_see_ge)
 bool      g_tt_age_refresh = false;
 bool      g_see_fix       = true;
+// --- C2 piece values (agent SEE) --- (21/10/2026): copies for see.cpp, from the parameter defaults, synced at setoption.
+int       g_see_val[12]   = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000,
+                             SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
+#ifdef TRIUMV_C2
+int       g_c2_see_reg    = C2SeeReg;
+int       g_c2_val_off[4][8] = {
+    {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
+    {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
+    {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
+    {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
+#endif
+static void see_values_sync() {
+  const int v[6] = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
+  for (int i = 0; i < 6; i++)
+    g_see_val[i] = g_see_val[i + 6] = v[i];
+#ifdef TRIUMV_C2
+  g_c2_see_reg = C2SeeReg;
+  const int off[4][8] = {
+      {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
+      {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
+      {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
+      {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
+  std::memcpy(g_c2_val_off, off, sizeof(off));
+#endif
+}
 #else
 // Release (06/10/2026): questa copia e' una costante in see.cpp; deve coincidere col default del parametro.
 static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
+// --- C2 piece values (agent SEE) --- (21/10/2026): see.cpp reads see_piece_values (see.h) and no regime table.
+static_assert(SeeValP == see_piece_values[P] && SeeValN == see_piece_values[N] && SeeValB == see_piece_values[B] &&
+                  SeeValR == see_piece_values[R] && SeeValQ == see_piece_values[Q],
+              "see.cpp freezes the SEE piece values in the release");
+static_assert(C2SeeReg == 0, "see.cpp freezes C2SeeReg = 0 in the release");
 // Release: tt.h holds these copies as constants; they must equal the parameters.
 static_assert(TtKeepMargin == g_tt_keep_margin && TtKeepPv == g_tt_keep_pv && TtAgeWeight == g_tt_age_weight,
               "tt.h freezes the hash-table copies in the release");
@@ -1582,6 +1697,7 @@ bool set_search_param(const char* name, int value) {
     g_tt_keep_margin = TtKeepMargin;
     g_tt_keep_pv = TtKeepPv;
     g_tt_age_weight = TtAgeWeight;
+    see_values_sync();   // C2 piece values (agent SEE): SeeVal*, C2SeeReg, C2Val*
     param_tables_refresh();
   };
 #define TP_SET(pname, def, lo, hi)                                                                         \

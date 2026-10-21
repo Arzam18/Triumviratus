@@ -59,6 +59,12 @@ struct NodeFrame {
     unsigned char negext_path;    // estensioni da riduzione negativa lungo la linea fino a questo nodo
     int  refute;                  // CausalRed: mossa che ha dato il taglio beta in questo nodo (0 = nessuna)
     unsigned char hctx;           // ThreatHist: contesto di minaccia della mossa fatta a questo ply (0 = nessuno)
+#ifdef TRIUMV_C2
+    // C2 regime selectivity (21/10/2026; 13_search.inc), written only when the option that reads them is on.
+    unsigned char c2pair;         // C2SameRegImp: Consilium-2 experts of this node (White | Black << 4)
+    unsigned char settle;         // C2SettleHorizon: the move searched from this frame got the settling ply
+    unsigned char settle_path;    // C2SettleHorizon: settling plies along the line up to this node
+#endif
 };
 
 // Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
@@ -148,6 +154,7 @@ struct ThreadData {
     int  opt[2];                      // optimism di questo thread (lato bianco, nero)
     int  root_side;                   // colore al tratto alla radice (Contempt)
     int  draw_defend;                 // DrawDefend: valore della patta per il colore di radice in questa ricerca
+    int  c2_conv_root;                // C2ConvRoot: conversion decided at the root (+1 / -1 for the root side, 0 = none)
     int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
     // Modalita' analisi (09/10/2026, search/01_params.inc): valori EFFETTIVI per l'iterazione corrente, gia'
     // pesati. In partita valgono quanto i parametri (Deep* a 0 = termini a 0), quindi l'albero non cambia.
@@ -169,6 +176,13 @@ struct ThreadData {
     U64  see_pin_key;                 // posizione per cui valgono i campi sotto
     U64  see_pinned[2];               // pezzi di ciascun colore inchiodati al proprio re
     U64  see_pinners[2];              // pezzi lunghi di ciascun colore che inchiodano un pezzo avversario
+#ifdef TRIUMV_C2
+    // --- C2 piece values (agent SEE) --- (21/10/2026): the per-thread table of the regime piece values (see.cpp),
+    // rebuilt only when the expert pair of the position changes; -1 = to rebuild (set at each search start).
+    mutable int c2_see_pair;          // expert pair (White | Black << 4) the two tables below were built for
+    mutable int c2_see_val[16];       // SEE value per piece code: SeeVal* + offset of the owner's regime
+    mutable int c2_see_off[16];       // the offset alone (margins built on unit_value); codes 12..15 = 0
+#endif
 
     // Risultato, letto dal driver e dal voto fra thread
     int best_move;

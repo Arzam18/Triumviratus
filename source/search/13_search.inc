@@ -50,6 +50,7 @@ struct NodeState {
   int  c2_own;                   // expert of the opponent's perspective: it reads the material of the side to move
   bool c2_asym;                  // the two perspectives use different experts
   int  c2_pk;                    // conversion push (C2ConvPkSrc 1): exact pawn-king effect of this node, INT_MIN = not read
+  int  c2_imb;                   // C2Imb*: +1 ahead, -1 behind by material class and evaluation, 0 otherwise or off
 #endif
 };
 
@@ -226,6 +227,56 @@ static void c2_tables_refresh() {
 }
 #endif
 #undef C2_TAB_LIST
+
+// ---------------------------------------------------------------------------
+// C2 regime selectivity (21/10/2026, ours; docs/rete/C2_IDEE_FABLE_2026-10-21.md ideas 7, 8 and 11). OFF by default;
+// SPRT pending. Parameters in 01_params.inc, block "C2 regime selectivity". Only cheap reads: the expert pair the make
+// already stores in the network's state (c2_experts_td, one load), its switch flag (c2_last_switched) and the queue's
+// own label of losing captures. No network work.
+//
+// Idea 7, same-regime comparisons (C2SameRegImp, bits). improving, opp_worse and the PriorRed* depth steps compare
+// static evaluations of different plies; when a capture or a promotion between the two plies gave another expert to
+// either perspective, the two values come from different learned regimes, and the flag follows the jump between
+// experts rather than the position. Each frame keeps its pair (NodeFrame::c2pair, node_open); the comparison is made
+// only inside one pair: improving looks back to f[-4] when f[-4] shares the pair of the node (else false, or true with
+// bit 8), opp_worse is false after a switch, the PriorRed* steps are skipped after a switch. Closest closed idea:
+// PhaseEdgeImproving (05/10, stopped at -14.1 +- 19.4 over 296 games, not a measurement): its trigger was a crossing of
+// the piece-count bands of Consilium, which also fired on pawn captures (13% of captures). Here the trigger is the
+// exact change of the C2 pair, per perspective, from non-pawn captures and promotions only.
+//
+// Idea 8, imbalance-directed selectivity (C2Imb*). The expert of a perspective follows the OPPONENT's non-pawn
+// material, so the pair gives the material class of both sides: d = class(ours) - class(theirs) = e_them - e_us. With
+// the corrected static evaluation it splits the nodes: ahead (d >= C2ImbGap, eval > C2ImbEval), behind (d <= -C2ImbGap,
+// eval < -C2ImbEval), and the rest (balance, or compensation: material down and evaluation up), left alone. Behind:
+// checks and losing captures (the queue's QS_TACT_LOSE stage) are reduced less, and the move-count threshold scaled
+// (the defender must look wider). Ahead: the exchange test of a capture that takes the opponent's last piece of a type
+// is relaxed (simplification), and the null-move floor is lowered. Depth and pruning only, no value change (unlike the
+// Tal style, -40, which biased the root values toward sacrifices).
+//
+// Idea 11, regime-settled horizon (C2SettleHorizon). A capture or promotion that switches an expert of either
+// perspective and would leave its child to the quiescence search gets one ply of real moves instead, so that one reply
+// tests the new expert's view before the stand-pat closes the line; once per line (NodeFrame::settle_path, like the
+// negext guard), not in all nodes with 1. Closest closed idea: TransitionExt (the capture that leaves only pawns, -18.2
+// +- 16.4 over 402 on UHO, +0.16 +- 4.79 over 2,234 endgames): it extended at any depth, without a guard on the line,
+// on the transition to a pawn ending only. Here the trigger is the C2 switch (0.108 per capture against 0.262 for the
+// old bands), only at the horizon, at most once per line.
+// ---------------------------------------------------------------------------
+#ifdef TRIUMV_RELEASE
+static constexpr bool g_c2_imb = C2ImbBehind || C2ImbBehindLmp || C2ImbAhead || C2ImbAheadNmp;
+#else
+static bool g_c2_imb = false;
+static void c2_sel_refresh() { g_c2_imb = C2ImbBehind || C2ImbBehindLmp || C2ImbAhead || C2ImbAheadNmp; }
+#endif
+// Material direction of the node for the side to move: +1 ahead, -1 behind, 0 otherwise (idea 8).
+static inline int c2_imbalance(const ThreadData &td, int static_eval) {
+  const int e = c2_experts_td(td), us = td.side;
+  const int d = ((e >> (4 * (us ^ 1))) & 15) - ((e >> (4 * us)) & 15);   // e_them (our material) - e_us (theirs)
+  if (d >= C2ImbGap && static_eval > C2ImbEval)
+    return 1;
+  if (d <= -C2ImbGap && static_eval < -C2ImbEval)
+    return -1;
+  return 0;
+}
 #endif
 
 #define HIST_DIV_LIST {HistDiv1, HistDiv2, HistDiv3, HistDiv4, HistDiv5, HistDiv6, HistDiv7, HistDiv8, HistDiv9, \
@@ -243,6 +294,7 @@ static void param_tables_refresh() {
   red_tables_refresh();
 #ifdef TRIUMV_C2
   c2_tables_refresh();
+  c2_sel_refresh();
 #endif
   hist_div = HIST_DIV_LIST;
   all_node_recip = make_all_node_recip(LmrAllDivBase);
@@ -357,8 +409,15 @@ static inline int red_final_v80(const ThreadData &td, const NodeFrame *f, const 
                                          : (int)(mag / (unsigned long long)(256 * n.depth + LmrAllDivBase));
     r += x < 0 ? -share : share;
   }
-  if (passer)
+  if (passer) {
+#ifdef TRIUMV_C2
+    // C2OrdReg (idea 5): the same per-expert scale as the passer ordering terms, C2PassExp[e_us] of the side that has
+    // just moved (td.side ^ 1: the move is already made). C2OrdReg 0, or every scale 1024: the identical reduction.
+    r -= C2OrdReg ? c2_reg_apply(PassedPushRed, c2_reg_scales(td, td.side ^ 1).pass) : PassedPushRed;
+#else
     r -= PassedPushRed;
+#endif
+  }
   // CausalRed: a quiet move that touches none of the squares of a sibling's refutation is reduced more.
   if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
       !(((1ULL << move_from(m)) | (1ULL << move_to(m))) & n.causal))
@@ -667,6 +726,9 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.c2_own = e_them;
     n.c2_asym = e_us != e_them;
   }
+  n.c2_imb = 0;
+  if (C2SameRegImp)   // C2 idea 7 (regime selectivity): the expert pair of this node, for the comparisons of its children
+    f->c2pair = (unsigned char)c2_experts_td(td);
 #endif
 
   hash_read(td, n.h);
@@ -820,11 +882,33 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
   }
   n.improving = f->static_eval > f[-2].static_eval;
   n.opp_worse = f->static_eval > -f[-1].static_eval;
+#ifdef TRIUMV_C2
+  // C2 idea 7 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): the comparisons with earlier plies only
+  // inside one expert pair. Frames before the root carry no pair, hence the ply guards.
+  bool c2_prior_ok = true;
+  if (C2SameRegImp) {
+    const int sr = C2SameRegImp, pair = f->c2pair;
+    if ((sr & 1) && !n.in_check && f->ply >= 2 && f[-2].c2pair != pair)
+      n.improving = (f->ply >= 4 && f[-4].c2pair == pair) ? f->static_eval > f[-4].static_eval : (sr & 8) != 0;
+    const bool switched = f->ply >= 1 && f[-1].c2pair != pair;
+    if ((sr & 2) && switched)
+      n.opp_worse = false;
+    c2_prior_ok = !((sr & 4) && switched);
+  }
+  // C2 idea 8 (regime selectivity): material direction of the node, read by the null move, the pruning of single
+  // moves and the reductions.
+  if (g_c2_imb && !n.in_check && !val_decided(f->static_eval))
+    n.c2_imb = c2_imbalance(td, f->static_eval);
+#else
+  constexpr bool c2_prior_ok = true;
+#endif
   // Hindsight on the parent's reduction (PriorRed*, CENSUS 21/10/2026: were 3, 2, 2).
-  if (n.prior_red >= PriorRedHigh && !n.opp_worse)
-    n.depth++;
-  if (n.prior_red >= PriorRedLow && n.depth >= PriorRedMinDepth && f->static_eval + f[-1].static_eval > PriorRedEvalSum)
-    n.depth--;
+  if (c2_prior_ok) {
+    if (n.prior_red >= PriorRedHigh && !n.opp_worse)
+      n.depth++;
+    if (n.prior_red >= PriorRedLow && n.depth >= PriorRedMinDepth && f->static_eval + f[-1].static_eval > PriorRedEvalSum)
+      n.depth--;
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -926,6 +1010,10 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
     if ((C2NmpMask >> n.c2_own) & 1)
       return NO_VALUE;
   }
+  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): ahead in material class and evaluation,
+  // passing is rarely wrong, so the floor is lower.
+  if (C2ImbAheadNmp && n.c2_imb > 0)
+    floor -= C2ImbAheadNmp;
 #endif
   if (!n.cut || f->static_eval < floor || n.excluded || !pieces || td.ply < td.nmp_min_ply || n.beta < -NmpBetaFloor ||
       (AN && gd_skip_null(td, n)) ||
@@ -1031,14 +1119,25 @@ static bool capture_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQ
   const int ch = td.capt_hist[pc][to][vk];
   if (!gives && red_depth < CaptFutMaxDepth) {
     const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth + unit_value[vk] + CaptFutHist * ch / 1024 +
-                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0);
+                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0)
+#ifdef TRIUMV_C2   // --- C2 piece values (agent SEE) ---: bit 4 of C2SeeReg, the victim in its owner's regime (see.cpp)
+                    + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[to] & 15] : 0)
+#endif
+                    ;
     if (fut <= n.alpha) {
       PL_RULE(11);
       return true;
     }
   }
-  const int margin = CaptSeeDepth * n.depth + ch * CaptSeeHist / 1024 +
-                     (pr_exp ? by_expert(n.expert, CaptSeeExp0, CaptSeeExp1, CaptSeeExp2, CaptSeeExp3) : 0);
+  int margin = CaptSeeDepth * n.depth + ch * CaptSeeHist / 1024 +
+               (pr_exp ? by_expert(n.expert, CaptSeeExp0, CaptSeeExp1, CaptSeeExp2, CaptSeeExp3) : 0);
+#ifdef TRIUMV_C2
+  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): ahead, a capture that takes the
+  // opponent's last piece of a type simplifies toward the won ending; its exchange test is relaxed.
+  if (C2ImbAhead && n.c2_imb > 0 && vk >= N && vk <= Q &&
+      count_bits(td.bitboards[vk + 6 * (td.side ^ 1)]) == 1)
+    margin += C2ImbAhead;
+#endif
   const bool last_piece = count_bits(own_pieces) == 1 && (own_pieces >> move_from(m) & 1);
   if ((n.alpha >= contempt(td) || !last_piece) && !see_holds_q(td, q, m, -margin)) {
     PL_RULE(12);
@@ -1115,6 +1214,11 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
   int lmp_count = (LmpBase + n.depth * n.depth) >> (1 - (int)n.improving);
   if (pr_exp && (LmpExp0 | LmpExp1 | LmpExp2 | LmpExp3))
     lmp_count = lmp_count * (1024 + by_expert(n.expert, LmpExp0, LmpExp1, LmpExp2, LmpExp3)) / 1024;
+#ifdef TRIUMV_C2
+  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind, the defender looks wider.
+  if (C2ImbBehindLmp && n.c2_imb < 0)
+    lmp_count = lmp_count * (1024 + C2ImbBehindLmp) / 1024;
+#endif
   if (f->move_count >= lmp_count && !(AN && (td.an_bits & AN_LMPNEAR) && (n.pv || f->ply <= 2))) {   // AnLmpNear
 #ifdef TRIUMV_PRUNELOG
     q.pl_count_off = true;
@@ -1381,6 +1485,23 @@ static int c2_conv_side(ThreadData &td, const NodeFrame *f, NodeState &n) {
                                 infinity);
   return (lean > 0) - (lean < 0);
 }
+
+// C2ConvRoot (the author's idea, 21/10/2026 evening): the same rule judged once, at the root, from the root side's
+// view, with the exact pawn-king effect of the root and `value` (the static evaluation, or the score of the last
+// completed iteration). deepen() stores the result in td.c2_conv_root; move_loop reads it with the sign of the side
+// to move. A decided value (mate) or check at the root gives no decision.
+static int c2_conv_root_decide(ThreadData &td, int value) {
+  if (val_decided(value))
+    return 0;
+  long long s = 0;
+  if (C2ConvEvalW && (C2ConvExpMax >= 7 || std::max(c2_expert(td, white), c2_expert(td, black)) <= C2ConvExpMax))
+    s += (long long)C2ConvEvalW * value;
+  if (C2ConvEffW)
+    s += (long long)C2ConvEffW * c2_pk_effect_now(td);
+  const int lean = c2_conv_lean((int)std::clamp(s / 1024, -(long long)infinity, (long long)infinity), C2ConvMargin,
+                                infinity);
+  return (lean > 0) - (lean < 0);
+}
 #endif
 
 template <bool AN>
@@ -1398,7 +1519,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   // (what pawns and kings are worth to the network, the part that remains after trades; c2_conv_side above)? Read by
   // the ordering of the captures (fill_tactics) and by the reduction below.
   const int c2_conv = (C2ConvOrder | C2ConvRed) && !n.in_check && !val_decided(f->static_eval)
-                    ? c2_conv_side(td, f, n) : 0;
+                    ? (C2ConvRoot ? (us == td.root_side ? td.c2_conv_root : -td.c2_conv_root) : c2_conv_side(td, f, n))
+                    : 0;
   q.c2_conv = c2_conv;
   const bool c2_conv_red = c2_conv && C2ConvRed, c2_pk_red = (C2PkRed | C2PkVol) != 0;   // once per node
   int c2_pk_here = INT_MIN;   // C2PkRed/C2PkVol: pawn-king skip of the node, read at its first pawn or king move
@@ -1535,6 +1657,20 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (CausalRed)
       f[1].refute = 0;
     new_depth += ext;
+#ifdef TRIUMV_C2
+    // C2 idea 11 (regime-settled horizon, 21/10/2026; OFF by default, SPRT pending): the move just made switched an
+    // expert of either perspective and its child would be a quiescence node: one ply of real moves instead, once per
+    // line, and with C2SettleHorizon 1 not in all nodes. The deep-reduction steps below do not take it back.
+    bool c2_settle = false;
+    if (C2SettleHorizon) {
+      c2_settle = new_depth <= 0 && !f->settle_path && (!n.all || C2SettleHorizon == 2) && c2_last_switched(td);
+      if (c2_settle)
+        new_depth = 1;
+      f->settle = c2_settle;
+    }
+#else
+    constexpr bool c2_settle = false;
+#endif
 
     if (tact) {
       // Pezzo davvero catturato (per l'en passant e' il pedone, non la casa d'arrivo vuota).
@@ -1617,8 +1753,16 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           const int pieces = count_bits(td.occupancies[both]);   // after the capture
           less += RdBoundCapt * (pieces == 9 || pieces == 15 || pieces == 23);
         }
-        if (RdKingAtt)
-          less += RdKingAtt * std::min(king_attack_weight(td, to), 6);
+        if (RdKingAtt) {
+#ifdef TRIUMV_C2
+          // C2OrdReg (idea 5): the attack ordering scale C2AtkExp[e_them] of the mover (td.side ^ 1, move made);
+          // C2OrdReg 0, or every scale 1024: the identical credit.
+          const int katt = C2OrdReg ? c2_reg_apply(RdKingAtt, c2_reg_scales(td, td.side ^ 1).atk) : RdKingAtt;
+#else
+          const int katt = RdKingAtt;
+#endif
+          less += katt * std::min(king_attack_weight(td, to), 6);
+        }
         // Positive: less reduction, down to zero at most. Negative weights (allowed since 19/10 evening) add
         // reduction instead, with no floor needed.
         if (less > 0)
@@ -1651,6 +1795,15 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           r = std::max(r - less, std::min(r, 0));
         else
           r -= less;
+      }
+      // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind in material class and
+      // evaluation, checks and losing captures (the queue's losing stage: sacrifices) are the counterplay the defender
+      // must find, so they are reduced less (positive: down to zero at most; negative: more).
+      if (C2ImbBehind && n.c2_imb < 0 && (gives || (tact && q.step == QS_TACT_LOSE))) {
+        if (C2ImbBehind > 0)
+          r = std::max(r - C2ImbBehind, std::min(r, 0));
+        else
+          r -= C2ImbBehind;
       }
 #endif
       const int neg_cap = f->negext_path < 1 ? NegExtPlies : 0;   // at most one such extension per line
@@ -1714,8 +1867,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       if (!AN && !n.pv && n.moves == 1 && n.depth >= 2 && new_depth >= 3 && redres_pick(td.thread_id))
         redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);
 #endif
-      value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha,
-                       new_depth - (r > LmrDeepRed1) - (r > LmrDeepRed2 && new_depth > LmrDeepRedMin), !n.cut, false);
+      const int deep_red = c2_settle ? 0 : (r > LmrDeepRed1) + (r > LmrDeepRed2 && new_depth > LmrDeepRedMin);
+      value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth - deep_red, !n.cut, false);
     }
     if (n.pv && (n.moves == 1 || value > n.alpha)) {
       // The hash move of a PV node is not left to the quiescence when its entry has some depth (a decided value from
@@ -1880,6 +2033,12 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   // Stesso conteggio per le estensioni da riduzione negativa (move_loop; BAKE NEGEXTMAX 11/10/2026).
   f->negext = 0;
   f->negext_path = f[-1].negext_path + f[-1].negext;
+#ifdef TRIUMV_C2
+  if (C2SettleHorizon) {   // C2 idea 11: the settling plies along the line, the same count
+    f->settle = 0;
+    f->settle_path = f[-1].settle_path + f[-1].settle;
+  }
+#endif
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;

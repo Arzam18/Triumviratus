@@ -110,6 +110,8 @@ static inline int cn_sig(int n, int b, int r, int q) {
 // nn_pos_eval; only pawns and kings are read. Uses the handle's pawn-king cache (computes and stores on a miss), so it
 // is cheap for a position the thread evaluates anyway. 0 when no network is loaded.
 int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white);
+// Empties the handle's pawn-king cache (search_clear, every new game); a null handle is ignored.
+void nn_pk_cache_clear(void* handle);
 
 // --- C2 signals (agent B) ---
 // What only Consilium-2 has, for the code outside the main search loop (21/10/2026). bb[12] as in nn_pos_eval.

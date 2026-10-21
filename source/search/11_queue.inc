@@ -251,15 +251,21 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
 // /1024; the defaults 1024 and 7168 give the old sum history + 7 x value). The score also sets the exchange threshold
 // of a good capture in queue_next (-score x StGood / 19456).
 // PromoOrder and BishopPairCapt (08/10/2026, off = tree unchanged): queen promotions and captures of a bishop of the
-// enemy pair move up in the order.
-static inline int score_tactic(const ThreadData &td, int m, int ex) {
+// enemy pair move up in the order. promo and bpair are PromoOrder and BishopPairCapt as the node uses them (scaled per
+// C2 expert with C2OrdReg, fill_tactics).
+static inline int score_tactic(const ThreadData &td, int m, int ex, int promo, int bpair) {
   const int vk = victim_kind(td, m);
+#ifdef TRIUMV_C2   // --- C2 piece values (agent SEE) ---: bit 4 of C2SeeReg, the victim in its owner's regime (see.cpp)
+  const int vval = unit_value[vk] + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
+#else
+  const int vval = unit_value[vk];
+#endif
   int s = (by_exp4(ex, HtCapt0, HtCapt1, HtCapt2, HtCapt3) * td.capt_hist[move_piece(m)][move_to(m)][vk] +
-           by_exp4(ex, HtVict0, HtVict1, HtVict2, HtVict3) * unit_value[vk]) / 1024;
-  if (PromoOrder && promo_kind(m) == Q)
-    s += PromoOrder;
-  if (BishopPairCapt && vk == B && count_bits(td.bitboards[td.side == white ? b : B]) >= 2)
-    s += BishopPairCapt;
+           by_exp4(ex, HtVict0, HtVict1, HtVict2, HtVict3) * vval) / 1024;
+  if (promo && promo_kind(m) == Q)
+    s += promo;
+  if (bpair && vk == B && count_bits(td.bitboards[td.side == white ? b : B]) >= 2)
+    s += bpair;
   return s;
 }
 
@@ -338,6 +344,21 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   LmpChkCtx &checks = q.checks ? *q.checks : local_checks;
   if (!checks.ready)
     td_lmp_chk_init(td, checks);
+
+  // The chess-knowledge terms of this node (below). C2OrdReg (C2 idea 5, agent ORDER, 21/10/2026; OFF by default,
+  // SPSA pending) scales each group by the C2 expert that names its regime (09_history.inc, c2_reg_scales). The tests
+  // that decide whether a map is built stay on the parameters themselves, so a scale of 0 only removes the term.
+  int ks_v = KingShield, op_v = OutpostOrder, opb_v = OutpostOrderB, pass_v = PassedPush;
+  int atk_v = AttackOrder, atkq_v = AttackOrderQ;
+#ifdef TRIUMV_C2
+  if (C2OrdReg) {   // --- C2 ordering (agent ORDER) ---
+    const C2RegScales rs = c2_reg_scales(td, td.side);
+    ks_v = c2_reg_apply(ks_v, rs.ks);
+    atk_v = c2_reg_apply(atk_v, rs.atk), atkq_v = c2_reg_apply(atkq_v, rs.atk);
+    pass_v = c2_reg_apply(pass_v, rs.pass);
+    op_v = c2_reg_apply(op_v, rs.minor), opb_v = c2_reg_apply(opb_v, rs.minor);
+  }
+#endif
 
   // King shield: with the king on its home rank, our pawns next to the king move last. Only while the opponent has
   // attacking material (KingShieldNpm, non-pawn pieces).
@@ -457,7 +478,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     // (lesser[]), and the exchange on the square is checked move by move with the SEE (below).
     for (int k = P; k <= Q; k++) attack_to[k] &= AttackSafeSee ? ~lesser[k] : safe;
   }
-  const int attack_bonus[6] = {AttackOrder, AttackOrder, AttackOrder, AttackOrder, AttackOrderQ, 0};
+  const int attack_bonus[6] = {atk_v, atk_v, atk_v, atk_v, atkq_v, 0};
 
   // ---- Per-expert weights of the quiet-move score (block 1; docs/development/8.1/SEARCH_1_ORDERING.md) ----
   // tb_e = expert of the node (net_phase), shared by every weight below.
@@ -524,6 +545,10 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   // subnetwork probe per such move (the thread's pawn-king cache; the child's evaluation hits the entry if it is played).
   const int c2_pk_order = C2PkOrder, c2_pk_scale = C2PkScale;   // read once: the stores into sc[] could alias them
   const int c2_pk_node = c2_pk_order ? c2_pk_skip(td) : 0;
+  // C2 idea 6 (21/10/2026, agent ORDER; OFF by default, SPRT pending): the structure history of the node's pawn-king
+  // signature (09_history.inc), null at 0 or on a pawn-king cache miss.
+  const int c2_sw = C2StructHistW;
+  const PieceToRow *srow = c2_sw ? c2_struct_row(td) : nullptr;
 #endif
 
   for (int i = 0; i < n; i++) {
@@ -537,6 +562,10 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
                    (long long)hm.near_ * (v1 + v2) + (long long)hm.far_ * (c3[pc][to] + c4[pc][to] + c6[pc][to]);
     if ((v1 ^ v2) >= 0)   // same sign (zero included): the agreement is the smaller one in absolute value
       hs += (long long)hm.agree * (v1 >= 0 ? std::min(v1, v2) : std::max(v1, v2));
+#ifdef TRIUMV_C2
+    if (srow)   // --- C2 ordering (agent ORDER) ---
+      hs += (long long)c2_sw * (*srow)[pc][to];
+#endif
     int s = (int)(hs / 1024);
     if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, chk_see))
       s += chk_bonus;
@@ -564,15 +593,15 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += (x < 0 ? -lq : lq) * hm.low / 1024;
     }
     if (shield >> from & 1)
-      s -= KingShield;
+      s -= ks_v;
     if (pt == N && (outpost >> to & 1))
-      s += OutpostOrder;
+      s += op_v;
     if (pt == B && (outpost >> to & 1))
-      s += OutpostOrderB;
+      s += opb_v;
     if (!ThreatBal && (attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
-      s += PassedPush;
+      s += pass_v;
 #ifdef TRIUMV_C2
     if (c2_pk_order && (pt == P || pt == K) && !get_move_promoted(m)) {
       const int d = std::clamp(c2_pk_skip_after(td, m) - c2_pk_node, -c2_pk_scale, c2_pk_scale);
@@ -606,8 +635,16 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   }
   q.ex = net_phase(count_bits(td.occupancies[both]));   // expert of the node: capture weights and group thresholds
   q.good_capt = by_exp4(q.ex, StGood0, StGood1, StGood2, StGood3);
+  int promo = PromoOrder, bpair = BishopPairCapt;
+#ifdef TRIUMV_C2
+  if (C2OrdReg) {   // --- C2 ordering (agent ORDER) --- idea 5: the two chess-knowledge terms of the captures by regime
+    const C2RegScales rs = c2_reg_scales(td, td.side);
+    promo = c2_reg_apply(promo, rs.pass);
+    bpair = c2_reg_apply(bpair, rs.minor);
+  }
+#endif
   for (int i = 0; i < n; i++)
-    sc[i] = score_tactic(td, ml->moves[i], q.ex);
+    sc[i] = score_tactic(td, ml->moves[i], q.ex, promo, bpair);
 #ifdef TRIUMV_C2
   // C2 ideas 2 and 3 (21/10/2026, agent A; OFF by default, SPRT pending), main search only. C2SwitchOrder: a capture
   // or promotion that gives another expert to either perspective moves up. C2ConvOrder (conversion push, the author's

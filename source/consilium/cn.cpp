@@ -55,11 +55,12 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // Consilium-2 (21/10/2026): the HalfKA rows are int8 as well, so almost every row of a move is widened, and the
 // balance measured on Consilium may not hold. AVX-512 uses blocks of 64 bytes (byte 2j = element j, byte 2j + 1 =
 // element 32 + j): one 64-byte load, two registers of 32 values. xperf on the Xeon (Skylake-SP, PGO, ep25, 4 rounds):
-// -1.91% cycles per node in the middlegame (IPC 1.51 -> 1.58), -1.98% in endgames, so on by default in the AVX-512
-// builds of Consilium-2 (not measured with Consilium's int16 HalfKA rows). -DCN_FORCE_W1 turns it on in any AVX2 or
-// AVX-512 build, to be measured per processor.
+// -1.91% cycles per node in the middlegame (IPC 1.51 -> 1.58), -1.98% in endgames. On Zen 4 (Ryzen 7 8845HS, vnni512,
+// PGO, same day) it costs instead: +2.28% in the middlegame, +11.7% in endgames. So on by default only in the AVX-512
+// build without VNNI of Consilium-2 (Skylake-SP/X); off in vnni512 and avx512icl (Zen 4/5, Ice Lake and later; not
+// measured on Intel with VNNI). -DCN_FORCE_W1 turns it on in any AVX2 or AVX-512 build, to be measured per processor.
 #if !defined(CN_NO_W1) && ((defined(CN_FORCE_W1) && (defined(USE_AVX2) || defined(USE_AVX512))) \
-                           || (defined(USE_AVX512) && defined(TRIUMV_C2)) \
+                           || (defined(USE_AVX512) && !defined(USE_VNNI) && defined(TRIUMV_C2)) \
                            || (defined(USE_AVX2) && !defined(USE_AVX512) && (!defined(USE_PEXT) || defined(USE_AVXVNNI))))
     #define CN_W1 1
     #if defined(USE_AVX512)

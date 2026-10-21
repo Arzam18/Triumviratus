@@ -626,6 +626,12 @@ int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white) {
     const cn::Board b{reinterpret_cast<const std::uint64_t*>(bb), nullptr, nullptr, side_white ? 0 : 1};
     return cn::pk_skip(NET_REF, *static_cast<CnPos*>(handle)->h, b);
 }
+// pkNet = 0: the next probe finds a cache built for another network and clears it (cn::pk_outputs), the same path as
+// a network change, so no second clearing code is needed.
+void nn_pk_cache_clear(void* handle) {
+    if (handle && static_cast<CnPos*>(handle)->h)
+        static_cast<CnPos*>(handle)->h->pkNet = 0;
+}
 
 // --- C2 signals (agent B) ---
 long long nn_pk_signature(void* handle, const unsigned long long* bb, int side_white, int bits, int compute) {

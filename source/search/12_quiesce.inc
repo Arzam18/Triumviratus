@@ -459,7 +459,15 @@ static inline bool qs_worth(ThreadData &td, const QsWalk &w, int m, bool gives, 
   if (plain) {
     if (seen > QsGate)
       return false;
+#ifdef TRIUMV_C2
+    // --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending): with bit 2 of C2SeeReg
+    // the victim is worth its value in the regime of its owner's material (see.cpp; e.p. reads code 15, offset 0).
+    const int victim = unit_value[victim_kind(td, m)] +
+                       ((C2SeeReg & 2) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
+    const int fut = w.fut_base + victim * QsVictimW / 1024;
+#else
     const int fut = w.fut_base + unit_value[victim_kind(td, m)] * QsVictimW / 1024;
+#endif
 #ifdef TRIUMV_C2
     // C2 idea 2 (21/10/2026, agent A; OFF by default, SPRT pending): a capture that gives another expert to either
     // perspective is judged by another learned regime after the move, so the stand plus the victim is a weaker bound:

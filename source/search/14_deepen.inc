@@ -496,6 +496,13 @@ static void deepen(ThreadData &td) {
     td.draw_defend = (int)((long long)DrawDefend *
                            std::min<long long>(1024, (long long)(-g_clock.prev_best - DrawDefendFrom) * 1024 / DrawDefendSpan) /
                            1024);
+  // C2ConvRoot (the author's idea, 21/10/2026 evening): the conversion push decided once here, from the root's static
+  // evaluation and exact pawn-king effect (mode 2 decides again at every iteration, below).
+  td.c2_conv_root = 0;
+#ifdef TRIUMV_C2
+  if (C2ConvRoot && (C2ConvOrder | C2ConvRed) && !root->in_check)
+    td.c2_conv_root = c2_conv_root_decide(td, static_evaluate(td));
+#endif
   td.deep_w = 0;
   td.lt_lmr_log_mul = -1;   // forza la costruzione della tabella del thread alla prima iterazione (root_depth e' 0)
   lt_update(td);
@@ -563,6 +570,13 @@ static void deepen(ThreadData &td) {
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
+#ifdef TRIUMV_C2
+    // C2ConvRoot 2: the decision follows the score of the last completed iteration (the search's judgement of the
+    // root, instead of its static evaluation).
+    if (C2ConvRoot == 2 && (C2ConvOrder | C2ConvRed) && !root->in_check && td.root_depth > 1 &&
+        td.root[0].score > -infinity)
+      td.c2_conv_root = c2_conv_root_decide(td, td.root[0].score);
+#endif
     if (direct_swapped) {   // AnDirect: la ricerca riparte dall'ordine vero delle linee
       std::swap(td.root[0], td.root[1]);
       direct_swapped = false;
