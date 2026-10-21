@@ -21,8 +21,8 @@ repository **[Triumviratus-Networks](https://github.com/Tors3/Triumviratus-Netwo
 
 ## Earlier networks, in brief
 
-The full record of each one — data, recipe, epoch-by-epoch measurements — is in
-[`archive/NETWORKS_4.2-7.0.md`](NETWORKS_4.2-7.0.md).
+The full record of each one — data, recipe, epoch-by-epoch measurements — is in the
+[Triumviratus-Networks](https://github.com/Tors3/Triumviratus-Networks) repository, one recipe folder per network.
 
 | Network | Release | Architecture | How it was made | Result |
 |---|---|---|---|---|

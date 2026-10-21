@@ -182,7 +182,7 @@ on the assumption that the first layer can combine it with the other inputs. On 
 difference between Consilium's static evaluation and the engine's deep search, on 3,888 positions, found that the
 network still undervalues some passed pawns in endgames: those outside the enemy king's square and connected ones.
 Two blocks were written for this and grafted on the finished Consilium with the rest of the network frozen
-([`docs/moe_experimental_grafts.md`](../networks/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md)
+([`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md)
 §37–38):
 
 - **`PassedRel`** adds, for each passed pawn, a second row with three relations: outside the enemy king's square,
@@ -553,7 +553,7 @@ knowledge.
 | GoldDigger on our search (`AnGold`) | Done elsewhere first (ShashChess) | +11 on IQ4 over the release tree, nothing over the Pos Solver tree | option, off |
 | No pruning along the previous principal line near the root (`AnCrystal`) | Done elsewhere first (Crystal) | within the noise | option, off |
 | King in danger and coming repetitions (`AnKingDanger`, `AnCycle`) | Done elsewhere first (Crystal) | IQ4 +1 / −7, Arasan −4 / +2 | options, off |
-| No move-count pruning near the root, captures without reduction, a cautious null move near the solution (`AnLmpNear`, `AnCaptLmr`, `AnNmpZug`) | Done elsewhere first (Crystal) | within ±3, or a loss on one collection | options, off; the null-move guard is in FUTURE_DIRECTIONS for a game test |
+| No move-count pruning near the root, captures without reduction, a cautious null move near the solution (`AnLmpNear`, `AnCaptLmr`, `AnNmpZug`) | Done elsewhere first (Crystal) | within ±3, or a loss on one collection | options, off; the null-move guard waits for a game test |
 | Our other attempts: the two runners-up at the root without reduction (`AnRootAlt`), no depth cut after a new best move near the root (`AnKeepDepth`), cheaper two-line searches (`ShadowFrom`, `ShadowRed`, `ShadowMargin`), three or four lines | New or revisited, not adopted | the cheaper forms gain up to 4 on IQ4 at low budgets and lose 5 to 7 on Arasan at higher ones; the others lose or are within the noise | closed |
 
 A diagnosis of the positions still unsolved (`tools/diag_fail.py`: a search of 64M nodes, the solution forced, and
