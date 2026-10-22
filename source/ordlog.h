@@ -39,7 +39,7 @@ struct OrdNodeRec {
   uint16_t flags;                // 1 pv, 2 cut, 4 all, 8 improving, 16 tt_pv, 32 in check, 64 hash move, 128 tactical
                                  // hash, 256 opp_worse, 512 hash move is the real cutter, 1024 failed low
   int32_t beta, eval_beta, static_beta;   // eval and static eval relative to beta
-  int16_t c2ex;                  // Consilium-2 experts (white | black << 4), -1 without TRIUMV_C2
+  int16_t c2ex;                  // Consilium Plebis experts (white | black << 4), -1 without TRIUMV_C2
   int8_t cut_step;               // queue step of the real cutter (QueueStep), -1 hash move, -3 failed low
   int8_t last_kind, last_victim; // opponent's last move: piece kind (P..K, -1 none/null), victim kind (-1 none)
   int8_t hanging_n, hanging_max; // our pieces en prise (attacked by a lower piece, or attacked and undefended), max kind
@@ -64,7 +64,7 @@ struct OrdMoveRec {
   int8_t recapture, hits_last, escapes_last, same_piece;   // relations to the last two moves
   int8_t passed, rank_to, advance;   // pawn passed after the move; relative rank of the target; rank gain
   int8_t killer, counter;        // the move cut at this ply before / cut after this opponent move before
-  int8_t c2_switch;              // the capture changes a Consilium-2 expert (-1 without TRIUMV_C2)
+  int8_t c2_switch;              // the capture changes a Consilium Plebis expert (-1 without TRIUMV_C2)
   int8_t fate, red;              // what the real search did: 0 never handed out (after the cutoff, or move-count
                                  // pruning), 1 skipped by a pruning rule, 2 searched reduced, 3 searched without
                                  // reduction; red = plies of reduction of its first search (negative = extension)

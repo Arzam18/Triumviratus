@@ -61,7 +61,7 @@ struct NodeFrame {
     unsigned char hctx;           // ThreatHist: threat context of the move made at this ply (0 = none)
 #ifdef TRIUMV_C2
     // C2 regime selectivity (21/10/2026; 13_search.inc), written only when the option that reads them is on.
-    unsigned char c2pair;         // C2SameRegImp: Consilium-2 experts of this node (White | Black << 4)
+    unsigned char c2pair;         // C2SameRegImp: Consilium Plebis experts of this node (White | Black << 4)
     unsigned char settle;         // C2SettleHorizon: the move searched from this frame got the settling ply
     unsigned char settle_path;    // C2SettleHorizon: settling plies along the line up to this node
 #endif

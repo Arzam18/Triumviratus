@@ -541,7 +541,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? lp_recip_tbl[tb_e][ply] : 0;
 #ifdef TRIUMV_C2
   // C2 idea 5 (21/10/2026, agent A; OFF by default, SPRT pending): a quiet pawn or king move is scored by the change it
-  // makes to the pawn-king skip of Consilium-2 (mover's view, clamped to +-C2PkScale), C2PkOrder at the clamp. One
+  // makes to the pawn-king skip of Consilium Plebis (mover's view, clamped to +-C2PkScale), C2PkOrder at the clamp. One
   // subnetwork probe per such move (the thread's pawn-king cache; the child's evaluation hits the entry if it is played).
   const int c2_pk_order = C2PkOrder, c2_pk_scale = C2PkScale;   // read once: the stores into sc[] could alias them
   const int c2_pk_node = c2_pk_order ? c2_pk_skip(td) : 0;

@@ -27,7 +27,7 @@ namespace cn {
 
 // ---------------------------------------------------------------- network shape (specification, sec. 1-2)
 constexpr int L1 = 1024, L1H = L1 / 2, L2 = 32, L3 = 32, NPSQT = 8, NBUCKETS = 8;
-// -DTRIUMV_C2 (Consilium-2, 21/10/2026; docs/rete/ARCHITETTURA_CONSILIUM2_2026-10-21.md): 8 experts chosen per
+// -DTRIUMV_C2 (Consilium Plebis, 21/10/2026; docs/rete/ARCHITETTURA_CONSILIUM2_2026-10-21.md): 8 experts chosen per
 // perspective by the routing table of the network (non-pawn material signature), HalfKA rows in int8, and the
 // pawn-king subnetwork added to the l1 outputs. Without it: Consilium (8.0), 4 experts by piece count, int16 HalfKA.
 #ifdef TRIUMV_C2

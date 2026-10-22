@@ -252,7 +252,7 @@
   P(SmpAspCycle, 8, 1, 16)                                                                                \
   P(SmpAspStep, 1, 0, 8)                                                                                  \
   P(SmpSkew, 0, 0, 3)                                                                                     \
-  /* SmpRouteShift (21/10/2026, ours; idea 9 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium-2 builds only; OFF, */ \
+  /* SmpRouteShift (21/10/2026, ours; idea 9 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium Plebis builds only; OFF, */ \
   /*  SPRT pending): the odd helper threads evaluate with the routing table shifted by this many material classes   */ \
   /*  (negative = toward less material, "one trade ahead"; experts clamped to 0..7), so the threads search with a   */ \
   /*  slightly different network and the shared table receives a small ensemble, at no cost per node. Thread 0     */ \
@@ -879,7 +879,7 @@
   P(LmrDeepRed1, 5234, 2000, 9000)       /* reduced search: -1 ply if r > Red1, -1 if r > Red2            */ \
   P(LmrDeepRed2, 5487, 2000, 9000)                                                                         \
   /* C2 regime selectivity (21/10/2026, ours; docs/rete/C2_IDEE_FABLE_2026-10-21.md ideas 7, 8, 11). Read only by    */ \
-  /*  Consilium-2 builds (13_search.inc, under TRIUMV_C2); other builds have the options and ignore them. OFF by     */ \
+  /*  Consilium Plebis builds (13_search.inc, under TRIUMV_C2); other builds have the options and ignore them. OFF by     */ \
   /*  default (all 0 = identical tree); SPRT pending for each.                                                      */ \
   /*  C2SameRegImp (bits): comparisons of static evaluations across plies only inside one expert pair. 1 = improving */ \
   /*   against f[-4] when the pair changed since f[-2] but f[-4] has the pair of the node, else false (8 = else      */ \
@@ -972,7 +972,7 @@
   /*  1276/2538, identical tree. unit_value (09_history.inc, futility and ordering margins) keeps its own values.   */ \
   P(SeeValP, 208, 100, 400) P(SeeValN, 781, 500, 1100) P(SeeValB, 825, 500, 1100)                          \
   P(SeeValR, 1276, 900, 1800) P(SeeValQ, 2538, 1800, 3400)                                                 \
-  /*  Regime piece values (idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium-2 builds only, elsewhere the */ \
+  /*  Regime piece values (idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium Plebis builds only, elsewhere the */ \
   /*  options do nothing): a piece is valued by the material class of its OWNER, i.e. by the expert of the other  */ \
   /*  perspective (the C2 router follows the opponent's material): value = base + C2Val<type><expert>, in SEE      */ \
   /*  units, pawns and kings without offset. C2SeeReg bits: 1 = SEE (see.cpp), 2 = victim of the quiescence        */ \
@@ -992,7 +992,7 @@
   /*  give check with SEE >= 0 are also searched when at most QsChecksPieces pieces are on the board (the quiesce */ \
   /*  QCHK form of analysis mode). 0 = off, identical tree.                                                        */ \
   P(QsChecksPieces, 0, 0, 32)                                                                              \
-  /* C2 search ideas (21/10/2026, agent A): search levers that read what only Consilium-2 gives (the expert of each */ \
+  /* C2 search ideas (21/10/2026, agent A): search levers that read what only Consilium Plebis gives (the expert of each */ \
   /*  perspective from the routing table of the net, the per-move expert change written by the make, the pawn-king   */ \
   /*  subnetwork). Code under TRIUMV_C2 in 09_history, 11_queue, 12_quiesce, 13_search: in other builds the options */ \
   /*  exist and do nothing. ALL OFF BY DEFAULT (identical tree; C2 bench 329525 ep19, 336968 ep22); SPRT pending. REPORT_A.md. */ \
@@ -1099,7 +1099,7 @@
   P(C2MinorExp0, 1024, 0, 4096) P(C2MinorExp1, 1024, 0, 4096) P(C2MinorExp2, 1024, 0, 4096)               \
   P(C2MinorExp3, 1024, 0, 4096) P(C2MinorExp4, 1024, 0, 4096) P(C2MinorExp5, 1024, 0, 4096)               \
   P(C2MinorExp6, 1024, 0, 4096) P(C2MinorExp7, 1024, 0, 4096)                                             \
-  /*  6. Structure history: a quiet-move history [piece][to] keyed by the pawn-king signature of Consilium-2 (the    */ \
+  /*  6. Structure history: a quiet-move history [piece][to] keyed by the pawn-king signature of Consilium Plebis (the    */ \
   /*     signs of the C2StructHistBits most variable pawn-king outputs against their medians, side to move's view;   */ \
   /*     cache hit only, the subnetwork is never run for it: a miss gives no term and no update). Ordering only      */ \
   /*     (score_quiets: + C2StructHistW/1024 x entry); learned with the other quiet histories (x C2StructHistUpd     */ \
@@ -1183,7 +1183,7 @@
                                          /* BAKED 20/10 at 500 (user): +2.35 +- 4.21 over 5,758 (10+0.1 noHT), ~1% of moves */ \
   P(TmTransPlies, 4, 1, 12)              /* PV moves whose captures are counted */ \
   P(TmTransRest, 0, 0, 500)              /* /1000: time given back by the other moves (keeps self-play level) */ \
-  /* C2 ideas outside the search loop (21/10/2026, agent B). Read only by Consilium-2 builds (-DTRIUMV_C2): without   */ \
+  /* C2 ideas outside the search loop (21/10/2026, agent B). Read only by Consilium Plebis builds (-DTRIUMV_C2): without   */ \
   /*  it the options exist and do nothing. Every lever at default = identical behaviour (C2 bench 329525 ep19, 336968 ep22). */ \
   /*  OFF by default; SPRT pending for each. Code: 06_nndirty.inc (C2 signals), 09_history.inc (corrections),        */ \
   /*  14_deepen.inc (time), consilium_bridge.cpp (evaluation terms, pushed there by start of search, 15_threads.inc). */ \
@@ -1248,8 +1248,8 @@
   P(TmLongIncMoves, 40, 0, 200)          /* moves of increment counted in the game time                    */ \
   /* ------------------------------------------------------------------------------------------------------------ */ \
   /* CENSUS 21/10/2026 (CENSUS.md in the work folder of the census): the numbers still written in the search, each  */ \
-  /* the value of Stockfish 19 in the same role, made parameters at their old values for the SPSA on Consilium-2.   */ \
-  /* No formula changed: bench 209655 (Consilium) and 336968 (Consilium-2) as before. Integer parameters replace   */ \
+  /* the value of Stockfish 19 in the same role, made parameters at their old values for the SPSA on Consilium Plebis.   */ \
+  /* No formula changed: bench 209655 (Consilium) and 336968 (Consilium Plebis) as before. Integer parameters replace   */ \
   /* integer literals one for one (same operations, same truncation); TmChangesKeep / 1000.0 = 0.5 is exact. The    */ \
   /* ranges keep the sign and every order the code needs (RootAvgMin < RootAvgMax for the clamp, AlphaRed at most  */ \
   /* the smallest AlphaRedLo so that the depth stays >= 1). Never measured by us: probable flat levers are marked.  */ \
@@ -1283,7 +1283,7 @@
   /* over 3,066). Mix 256 at 5+0.05: socket 0 +1.58 +- 5.52 (4,190), socket 1 -3.37 +- 5.77 (3,810), Zen 4 laptop     */ \
   /* +4.16 +- 8.40 (1,920); all +0.37 +- 3.56 over 10,220, without socket 1 +2.39 +- 4.62 (laptop as referee). Mix    */ \
   /* and temperature go to the history SPSA after the network (O1). HistGradMix=0 = the inherited update exactly.    */ \
-  /* New canary (MinGW dev build, Consilium-2 ep27 net): bench 420601 (150757 with HistGradMix=0).                 */ \
+  /* New canary (MinGW dev build, Consilium Plebis ep27 net): bench 420601 (150757 with HistGradMix=0).                 */ \
   P(HistGradMix, 256, 0, 1024)                                                                             \
   P(HistGradT, 3000, 200, 40000)                                                                           \
   P(PawnHistSplit, -4, -64, 0)           /* pawn history: PawnBonusScale above this amount, PawnMalusScale at or below */ \

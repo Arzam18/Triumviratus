@@ -52,12 +52,12 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // even bytes, vpsraw by 8 the odd ones, both on ports 0/1, instead of two vpmovsxbw on port 5 (the bottleneck of the
 // threat rows). Same values, same result. His measurements, identical nodes: Zen+ (avx2-nopext) +4.49%, Raptor Lake
 // (avxvnni) +1.09%, Zen 3 (avx2) -2.15%: so only in the AVX2 builds without PEXT or with AVX-VNNI. -DCN_NO_W1: off.
-// Consilium-2 (21/10/2026): the HalfKA rows are int8 as well, so almost every row of a move is widened, and the
+// Consilium Plebis (21/10/2026): the HalfKA rows are int8 as well, so almost every row of a move is widened, and the
 // balance measured on Consilium may not hold. AVX-512 uses blocks of 64 bytes (byte 2j = element j, byte 2j + 1 =
 // element 32 + j): one 64-byte load, two registers of 32 values. xperf on the Xeon (Skylake-SP, PGO, ep25, 4 rounds):
 // -1.91% cycles per node in the middlegame (IPC 1.51 -> 1.58), -1.98% in endgames. On Zen 4 (Ryzen 7 8845HS, vnni512,
 // PGO, same day) it costs instead: +2.28% in the middlegame, +11.7% in endgames. So on by default only in the AVX-512
-// build without VNNI of Consilium-2 (Skylake-SP/X); off in vnni512 and avx512icl (Zen 4/5, Ice Lake and later; not
+// build without VNNI of Consilium Plebis (Skylake-SP/X); off in vnni512 and avx512icl (Zen 4/5, Ice Lake and later; not
 // measured on Intel with VNNI). -DCN_FORCE_W1 turns it on in any AVX2 or AVX-512 build, to be measured per processor.
 //
 // CN_W2 (21/10/2026, consumer processors; -DCN_W2, default below): the W1 layout with the low byte of every int16 word
@@ -70,7 +70,7 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // operations on every processor; the correction costs four operations per pair and tile (break-even at four rows).
 // Instruction tables (uops.info): Zen 4 vpmovsxbw zmm 1/cycle on FP1/2 only, vpsraw zmm 1/cycle, vpaddw zmm 2/cycle;
 // Intel P cores (AVX2) vpmovsxbw ymm 1/cycle on port 5 only, vpsraw/vpaddw on p01/p015. Implies the W1 interleave.
-// On by default, with CN_SQ_MADD below, in the AVX-512 build without VNNI of Consilium-2 (21/10/2026, xperf on the Xeon,
+// On by default, with CN_SQ_MADD below, in the AVX-512 build without VNNI of Consilium Plebis (21/10/2026, xperf on the Xeon,
 // Skylake-SP, deterministic PGO, against W1: W2 -0.72% cycles per node in the middlegame and -0.29% in endgames,
 // W2 + CN_SQ_MADD -1.06% and -0.66%, a null build of the same source +0.15% and +0.47%). The other builds wait for Zen 4
 // and Intel Core Ultra. -DCN_NO_W2 and -DCN_NO_SQ_MADD turn them off (with -DCN_NO_W1 as well for vpmovsxbw).
@@ -514,7 +514,7 @@ struct RowList {
 };
 
 #ifdef TRIUMV_C2
-// Consilium-2: the expert of perspective p, from the routing table over the non-pawn material signature of the side
+// Consilium Plebis: the expert of perspective p, from the routing table over the non-pawn material signature of the side
 // and of its opponent (the trainer's router::cell). Pawns never enter the key.
 inline int side_sig(const Board& b, int c) {
     return router_sig(CN_POPCNT(b.bb[KNIGHT + 6 * c]), CN_POPCNT(b.bb[BISHOP + 6 * c]), CN_POPCNT(b.bb[ROOK + 6 * c]),
@@ -985,7 +985,7 @@ Out forward_tail(const Stack& st, const std::int32_t* x1, const Acc& us, const A
     return r;
 }
 
-// Consilium-2: the forward also takes the 32 outputs of the pawn-king subnetwork (units of the l1 sums), added to the
+// Consilium Plebis: the forward also takes the 32 outputs of the pawn-king subnetwork (units of the l1 sums), added to the
 // l1 sums before the activations and the skip.
 #ifdef TRIUMV_C2
 // x1out (C2 signals of agent B, 21/10/2026): when given, the l1 sums are left there (the evaluation keeps them in the
@@ -1391,7 +1391,7 @@ inline int bucket_of(const Board& b) {
 }
 
 #ifdef TRIUMV_C2
-// ================================================================ pawn-king subnetwork (Consilium-2)
+// ================================================================ pawn-king subnetwork (Consilium Plebis)
 //
 // Inputs from the side to move's view, squares as the trainer numbers them (a1 = 0) and flipped vertically when Black
 // moves: engine square e (a8 = 0) -> e ^ 56 for White, e for Black. 0-63 own pawns, 64-127 enemy pawns, 128-191 own
@@ -1708,7 +1708,7 @@ bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::str
     };
     auto same = [](int row) { return row; };
 #ifdef TRIUMV_C2
-    using HkaFile = std::int8_t;   // Consilium-2: HalfKA exported in int8 (raw), like the threat rows
+    using HkaFile = std::int8_t;   // Consilium Plebis: HalfKA exported in int8 (raw), like the threat rows
 #else
     using HkaFile = std::int16_t;
 #endif
@@ -1857,7 +1857,7 @@ namespace {
 
 // Does move i force a refresh of perspective p? A king move of p (new bucket, maybe new mirror) or a phase change.
 #ifdef TRIUMV_C2
-// Consilium-2: the expert changes per perspective (phaseChanged bit p, written by the make).
+// Consilium Plebis: the expert changes per perspective (phaseChanged bit p, written by the make).
 inline bool barrier(const NnDirtyPiece& dp, int p) { return dp.pc == KING + 6 * p || ((dp.phaseChanged >> p) & 1); }
 #else
 inline bool barrier(const NnDirtyPiece& dp, int p) { return dp.pc == KING + 6 * p || dp.phaseChanged; }
@@ -1886,7 +1886,7 @@ inline void refresh_tile(const RowList& LH, const RowList& LO, Acc& entry, Acc& 
         if (WithPsqt) ps = _mm256_sub_epi32(ps, psqt_of(LH.s16[i], 2 * L1));
     }
 #ifdef TRIUMV_C2
-    // Consilium-2: the HalfKA rows are int8 (in the 8-bit lists of LH).
+    // Consilium Plebis: the HalfKA rows are int8 (in the 8-bit lists of LH).
     rows8_512<R, WithPsqt>(LH, r, ps, t);
 #endif
     for (int k = 0; k < R; k++) _mm512_storeu_si512(entry.v + t + k * W, r[k]);

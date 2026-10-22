@@ -50,7 +50,7 @@ struct NodeState {
   int  expert;                   // network expert for the node's material (net_phase), for the *Exp* margins
   int  disagree;                 // |psqt - positional| of the network on this node, -1 when the eval came from the hash
 #ifdef TRIUMV_C2
-  // C2 search ideas (agent A): the Consilium-2 experts of the node, read only when an idea needs them (g_c2_node).
+  // C2 search ideas (agent A): the Consilium Plebis experts of the node, read only when an idea needs them (g_c2_node).
   int  c2e;                      // expert indexing the C2 margin tables (C2ExpSide: ours or the opponent's perspective)
   int  c2_own;                   // expert of the opponent's perspective: it reads the material of the side to move
   bool c2_asym;                  // the two perspectives use different experts
@@ -858,7 +858,7 @@ static int eval_gates(ThreadData &td, NodeFrame *f, NodeState &n) {
   mult -= RfpNoTTHit * !f->tt_hit;
   mult += by_expert(n.expert, RfpExp0, RfpExp1, RfpExp2, RfpExp3);
 #ifdef TRIUMV_C2
-  if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the multiplier per Consilium-2 expert. OFF by default; SPRT pending
+  if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the multiplier per Consilium Plebis expert. OFF by default; SPRT pending
     mult += c2_tab[C2T_RFP][n.c2e];
 #endif
   const int lean = RfpImproving * n.improving + RfpOppWorse * n.opp_worse;   // the node's trend, per 1024 of mult
@@ -896,7 +896,7 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   int floor = n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase +
               by_expert(n.expert, NmpExp0, NmpExp1, NmpExp2, NmpExp3);
 #ifdef TRIUMV_C2
-  // C2 ideas 1 and 6 (21/10/2026, agent A; OFF by default, SPRT pending): the floor per Consilium-2 expert, and no
+  // C2 ideas 1 and 6 (21/10/2026, agent A; OFF by default, SPRT pending): the floor per Consilium Plebis expert, and no
   // null move in the experts of C2NmpMask, read on the opponent's perspective, whose expert follows the material of the
   // side that would pass: zugzwang lives where that side has little left.
   if (g_c2_node) {
@@ -1065,7 +1065,7 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
             QuietFutBase + (AN ? td.dz_fut : deep_term(td, DeepFut)) +
             by_expert(n.expert, FutExp0, FutExp1, FutExp2, FutExp3);
 #ifdef TRIUMV_C2
-  if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the margin per Consilium-2 expert. OFF by default; SPRT pending
+  if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the margin per Consilium Plebis expert. OFF by default; SPRT pending
     fut += c2_tab[C2T_FUT][n.c2e];
 #endif
   if (!n.in_check && red_depth < QuietFutMaxDepth && fut <= n.alpha) {
@@ -1716,7 +1716,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     }
     int r = red_entry_v80(td, f, n, red_move_no, red_window_term, gd_style);
 #ifdef TRIUMV_C2
-    if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): reduction per Consilium-2 expert (entry: the pruning reads it too)
+    if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): reduction per Consilium Plebis expert (entry: the pruning reads it too)
       r += c2_tab[C2T_LMR][n.c2e];
 #endif
 #ifdef TRIUMV_REDLOG

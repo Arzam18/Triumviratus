@@ -155,7 +155,7 @@ static inline int  victim_kind(const ThreadData &td, int m) {
 #ifdef TRIUMV_C2
 // ============================================================================
 // --- C2 signals for the search (agent A) --- (21/10/2026)
-// Consilium-2 picks the expert of each perspective with the routing table of the net over the non-pawn material
+// Consilium Plebis picks the expert of each perspective with the routing table of the net over the non-pawn material
 // signatures (cell = sig(own) * 54 + sig(opponent)); the make writes both experts in the state of each move
 // (dp.phase: White in the low nibble, Black in the high one) and which of them changed (dp.phaseChanged). On the net
 // of 21/10 the table follows the opponent's signature in 99.4% of the cells: the side to move's expert tells how much
@@ -289,7 +289,7 @@ static inline C2RegScales c2_reg_scales(const ThreadData &td, int us) {
 static inline int c2_reg_apply(int v, int s) { return v * s / 1024; }
 
 // Idea 6, structure history keyed by the pawn-king signature (C2StructHistW). The pawn history (pawn_row) is keyed by
-// the exact pawn structure, so nothing passes from one structure to the next. Consilium-2's pawn-king subnetwork
+// the exact pawn structure, so nothing passes from one structure to the next. Consilium Plebis's pawn-king subnetwork
 // groups structures the network reads alike: the signs of its C2StructHistBits most variable outputs against their
 // medians (nn_pk_signature, the key of CorrPkW; ~230 values over the bench at 12 bits). A quiet-move table [piece][to]
 // per signature learns "the plan for this kind of structure" once. It differs from C2PawnHist (the exact key salted by
@@ -502,7 +502,7 @@ static constexpr auto corr_phase_keys_by_count = [] {
 #ifdef TRIUMV_C2
 // --- C2 corrections (agent B) ---
 // CorrC2Key (21/10/2026, ours): CorrPhase separates the corrections by the expert of the network, but its bands are
-// the piece counts of Consilium (8.0). Consilium-2 chooses the expert of each perspective from a learned routing table
+// the piece counts of Consilium (8.0). Consilium Plebis chooses the expert of each perspective from a learned routing table
 // over the non-pawn material, so the band no longer names the expert that made the error. Mode 1 salts the pawn and
 // minor keys with the C2 expert of the side to move (8 regimes), mode 2 with the pair (own, opponent) (64 regimes).
 // Same tables, another key; every caller goes through corr_phase_key. OFF by default; SPRT pending.
@@ -596,7 +596,7 @@ static inline U64 corr_expert_key(const ThreadData &td) {
 
 #ifdef TRIUMV_C2
 // CorrPkW (21/10/2026, ours, C2 corrections of agent B): a correction keyed by the pawn structure as the network has
-// learned it. The pawn-king subnetwork of Consilium-2 maps pawns and kings to 32 outputs; the key keeps only the signs
+// learned it. The pawn-king subnetwork of Consilium Plebis maps pawns and kings to 32 outputs; the key keeps only the signs
 // of the CorrPkBits most variable outputs against their medians (consilium/cn.cpp, pk_signature), so structures the
 // net reads alike share an entry. The pawn-key tables of 11/10/2026 (CorrKingPawnW, all pawns + king zones) failed
 // with a key too fine; this one is coarse by construction and comes from the network itself. Like CorrExpertW it

@@ -199,7 +199,7 @@ static void clock_plan(int us, int game_ply, int overhead) {
     opt_share *= 1 + k / 1000.0;
   }
 #ifdef TRIUMV_C2
-  // C2 time levers (agent B, 21/10/2026; OFF by default, SPRT pending). TmC2Exp0..7: the share by the Consilium-2
+  // C2 time levers (agent B, 21/10/2026; OFF by default, SPRT pending). TmC2Exp0..7: the share by the Consilium Plebis
   // expert of the side to move at the root, the routing region the network itself chose (TmExp0..3 above follow the
   // piece bands of the old network). TmC2Edge: more time the closer the root is to a routing edge (c2_edge_share).
   // The global board is the root board here. All 0: identical times.
@@ -826,7 +826,7 @@ static void deepen(ThreadData &td) {
         const int pieces = count_bits(occupancies[both]);
         bool trans = net_phase(pieces - caps) != net_phase(pieces);
 #ifdef TRIUMV_C2
-        // TmC2Trans (agent B, 21/10/2026; OFF by default, SPRT pending): with Consilium-2 the experts are not the piece
+        // TmC2Trans (agent B, 21/10/2026; OFF by default, SPRT pending): with Consilium Plebis the experts are not the piece
         // bands above. 1 = the trigger is a change of the C2 expert of either perspective after the same PV moves
         // (captures and promotions); 2 = either trigger.
         if (TmC2Trans) {

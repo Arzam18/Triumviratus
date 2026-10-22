@@ -17,7 +17,7 @@ static constexpr int see_piece_values[12] = {
 // --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending)
 // SEE piece values as parameters (SeeValP..SeeValQ, search/01_params.inc): the development builds read the copy
 // g_see_val, synced at setoption like g_see_pinned; the release reads the constant table above (identical values,
-// static_assert in 01_params.inc). Regime piece values (C2SeeReg, C2Val*, Consilium-2 builds only): see see.cpp.
+// static_assert in 01_params.inc). Regime piece values (C2SeeReg, C2Val*, Consilium Plebis builds only): see see.cpp.
 #ifndef TRIUMV_RELEASE
 extern int g_see_val[12];          // SeeValP..SeeValQ for both colours, kings 20000
 #endif

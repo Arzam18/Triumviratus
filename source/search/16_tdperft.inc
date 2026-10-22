@@ -259,7 +259,7 @@ void td_nnperft_driver(int depth) {
   fflush(stdout);
 }
 
-// `nnspeed N <fen file>` (21/10/2026, cost of Consilium-2): nnperft's tree (evaluation at the leaves and at one internal
+// `nnspeed N <fen file>` (21/10/2026, cost of Consilium Plebis): nnperft's tree (evaluation at the leaves and at one internal
 // node in three, a null move at one internal node in five) WITHOUT the verification and the key checks, from every
 // position of the file. The tree depends only on the move generator, so two networks do exactly the same work and the
 // time per evaluation compares their inference (incremental updates through make/unmake included, as in a search).

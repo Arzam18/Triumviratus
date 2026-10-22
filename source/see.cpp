@@ -89,7 +89,7 @@ extern int  g_see_pinned;      // SeePinned (copy of the search parameter, 01_pa
 
 // --- C2 piece values (agent SEE) ---
 // REGIME PIECE VALUES (21/10/2026, idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; OFF by default; SPRT/SPSA pending).
-// Consilium-2 routes each perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone
+// Consilium Plebis routes each perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone
 // rook, e2 two minors or rook + minor, e3 a lone queen, e4 10-13, e5 14-18, e6 19-25, e7 26-31 points). The expert of
 // the Black perspective therefore reads White's material, and the reverse. With C2SeeReg on, a piece is valued by the
 // regime of its OWNER's material: White's pieces take the offsets of the Black perspective's expert, Black's pieces

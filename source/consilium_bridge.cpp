@@ -93,7 +93,7 @@ class NnBoard {
 }  // namespace cnb
 
 #ifdef TRIUMV_C2
-    #define CN_DEFAULT_NET_FILE "nn-consilium2.nnue"   // Consilium-2: another format, another default name
+    #define CN_DEFAULT_NET_FILE "nn-consilium2.nnue"   // Consilium Plebis: another format, another default name
 #else
     #define CN_DEFAULT_NET_FILE "nn-consilium.nnue"
 #endif
@@ -461,7 +461,7 @@ int nn_finalize(int unadjusted, int rule50, int bucket) {
 
 #ifdef TRIUMV_C2
 // --- C2 signals (agent B) ---
-// Two evaluation terms that only Consilium-2 allows (21/10/2026), both applied to the two network outputs before the
+// Two evaluation terms that only Consilium Plebis allows (21/10/2026), both applied to the two network outputs before the
 // evaluation constants (nn_scale), in the incremental and in the from-scratch path alike (nnueverify compares them).
 // The values are the search parameters C2Conv* and C2EvalExp0..7 (search/01_params.inc), set by nn_set_c2_eval at the
 // start of each search. All 0 = nothing is computed and the evaluation is unchanged. OFF by default; SPRT pending.

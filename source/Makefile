@@ -46,7 +46,7 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # sorgenti-only per le VM). NB: il nome deve restare allineato a CN_DEFAULT_NET_FILE.
 # 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
-# Consilium-2 by default (22/10/2026, author: from here on every test runs on the engine adapted to the new network).
+# Consilium Plebis by default (22/10/2026, author: from here on every test runs on the engine adapted to the new network).
 # C2=1 defines TRIUMV_C2 (8 experts per perspective, int8 HalfKA, pawn-king subnetwork) and names the default network
 # nn-consilium2.nnue, as CN_DEFAULT_NET_FILE does; `make C2=0` builds the Consilium (8.0) engine with nn-consilium.nnue.
 C2 ?= 1

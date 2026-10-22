@@ -308,7 +308,7 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
   dp.phase = 0;  // cost diagnosis only (21/10/2026): one expert, no refresh on material changes
   dp.phaseChanged = 0;
 #elif defined(TRIUMV_C2)
-  // Consilium-2: the expert of each perspective comes from the network's routing table over the non-pawn material
+  // Consilium Plebis: the expert of each perspective comes from the network's routing table over the non-pawn material
   // signatures (consilium/cn.h router_sig). Only a capture or a promotion changes material, so other moves copy the
   // parent's experts (the root's state has none: computed from the board).
   if (cap != -1 || promoted || S.size < 3) {
@@ -461,7 +461,7 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
 
 #ifdef TRIUMV_C2
 // --- C2 signals (agent B) ---
-// Consilium-2 signals for the code outside the main search loop (21/10/2026): time management (14_deepen.inc) and
+// Consilium Plebis signals for the code outside the main search loop (21/10/2026): time management (14_deepen.inc) and
 // corrections (09_history.inc). The expert of a perspective is the network's routing table over the non-pawn material
 // signatures (own side, opponent), the same lookup as nn_make_dirty above. C2Count holds the non-pawn counts of both
 // colours, so a line of captures and promotions can be followed without a board.

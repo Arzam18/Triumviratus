@@ -1166,7 +1166,7 @@ void uci_loop()
         // DIAGNOSTIC: "nnperft N" - perft that evaluates with the network and compares the incremental chain with a full
         // refresh (search/16_tdperft.inc). Development builds only.
         // DIAGNOSTIC: "nnspeed N <fen file>" - the same tree without the checks, from every FEN of the file: time per
-        // evaluation on work that does not depend on the network (21/10/2026, cost of Consilium-2).
+        // evaluation on work that does not depend on the network (21/10/2026, cost of Consilium Plebis).
         else if (strncmp(input, "nnspeed ", 8) == 0)
         {
             extern void td_nnspeed_driver(int depth, const char *path);

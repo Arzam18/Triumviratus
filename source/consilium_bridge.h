@@ -97,7 +97,7 @@ void  nn_set_phase_map(const unsigned char* map);
 NnStack* nn_pos_stack(void* handle);
 
 #ifdef TRIUMV_C2
-// Consilium-2: the routing table of the loaded network (2,916 cells -> expert 0..7), for the make. The cell of a
+// Consilium Plebis: the routing table of the loaded network (2,916 cells -> expert 0..7), for the make. The cell of a
 // perspective is cn_sig(own side) * 54 + cn_sig(opponent); the signature counts N, B, R (capped at 2) and Q (at 1).
 const unsigned char* nn_router_table(void);
 // SmpRouteShift (21/10/2026): build the shifted copy (main thread, before the helpers start), and choose it (alt 1) or
@@ -118,7 +118,7 @@ int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white);
 void nn_pk_cache_clear(void* handle);
 
 // --- C2 signals (agent B) ---
-// What only Consilium-2 has, for the code outside the main search loop (21/10/2026). bb[12] as in nn_pos_eval.
+// What only Consilium Plebis has, for the code outside the main search loop (21/10/2026). bb[12] as in nn_pos_eval.
 // nn_pk_signature: the pawn-king subnetwork of the board (from the thread's cache, computed and stored on a miss),
 // reduced to the signs of the `bits` most variable of its 32 outputs against their medians (bit i = output of rank i
 // above its median; ranks and medians measured at load): a coarse key of the pawn structure as the network reads it
