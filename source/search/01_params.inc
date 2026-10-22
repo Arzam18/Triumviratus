@@ -1016,10 +1016,10 @@
   /*     either perspective): ordering bonus in the main search, less reduction (1/1024 ply, positive = less, stops  */ \
   /*     at zero), and a wider futility margin for such captures in the quiescence (evaluation units).               */ \
   P(C2SwitchOrder, 0, -8192, 8192)                                                                         \
-  /*     BAKE C2SwitchRed 0 -> 1024 (22/10/2026, author, SPRT still running): q48 on the ep107 export, 5+0.05,    */ \
-  /*     both sockets, +3.53 +- 3.43 over 10,438 (s0 +4.7, s1 +2.3; zero just excluded, LLR [0,3] +1.39). One ply  */ \
-  /*     less reduction for a capture that changes an expert. Bench with ep107: 255382 (187691 with it at 0).       */ \
-  P(C2SwitchRed, 1024, -3072, 3072)                                                                        \
+  /*     C2SwitchRed CLOSED NEUTRAL (22/10/2026, author): 1024 on the ep107 export, 5+0.05, both sockets, rose to  */ \
+  /*     +3.53 +- 3.43 over 10,438 and fell to +0.81 +- 2.77 over 16,232 (s0 +2.0, s1 -0.4); baked for an hour and  */ \
+  /*     taken out again. The network does not need the switching captures searched deeper. Stays 0.             */ \
+  P(C2SwitchRed, 0, -3072, 3072)                                                                           \
   P(C2SwitchQs, 0, -400, 800)                                                                              \
   /*  3. Conversion push (the author's idea): when the side to move is ahead by more than C2ConvMargin on the blend   */ \
   /*     (C2ConvEvalW * static evaluation + C2ConvPkW * pawn-king skip) / 1024, a trade of pieces of the same class   */ \
