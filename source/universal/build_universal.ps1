@@ -1,5 +1,5 @@
 # =====================================================================================================================
-#  build_universal.ps1 -- binario universale di Triumviratus 8.0 con PGO, da questa cartella del sorgente.
+#  build_universal.ps1 -- binario universale di Triumviratus 8.1 con PGO, da questa cartella del sorgente.
 #
 #  Sette varianti ISA, ognuna nel suo namespace Triumv_v<n>: di default un'unita' di compilazione per ogni .cpp del
 #  motore (involucri con vns.h, ThinLTO; -Unity = una sola unita' per variante, variant.cpp), ingresso con cpuid (entry.cpp),
@@ -17,7 +17,7 @@
 #    .\build_universal.ps1 -NoPgo                  # senza PGO (prova veloce)
 #    .\build_universal.ps1 -ExtraFlags "/clang:-mbranches-within-32B-boundaries"
 #    .\build_universal.ps1 -Unity                  # una sola unita' per variante (piu' lenta di ~1%, vedi -Unity sotto)
-#  Risultato: <Out>\Triumviratus_8.0_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt (bench di ogni variante).
+#  Risultato: <Out>\Triumviratus_8.1_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt (bench di ogni variante).
 # =====================================================================================================================
 param(
     [string]$Day = (Get-Date -Format yyyyMMdd),
@@ -44,15 +44,15 @@ param(
     [string]$PgoNet = "",
     [int]$PgoNetShare = 100,
     # Una sola variante (10/10/2026, misure xperf dei blocchi da innesto): -Only 3 = solo avx512, PGO con le sue
-    # istruzioni, collegata con standalone.cpp (niente ingresso cpuid). Esce <Out>\Triumviratus_8.0_<Day>_v<n>.exe.
+    # istruzioni, collegata con standalone.cpp (niente ingresso cpuid). Esce <Out>\Triumviratus_8.1_<Day>_v<n>.exe.
     # Solo a file separati (default). Per misurare, non per distribuire.
     [int]$Only = 0,
     [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
-    # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.0", -DTRIUMV_OFFICIAL) e file
-    # Triumviratus_8.0_windows_universal.exe. Senza -Official resta la pre-release datata.
+    # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.1", -DTRIUMV_OFFICIAL) e file
+    # Triumviratus_8.1_windows_universal.exe. Senza -Official resta la pre-release datata.
     [switch]$Official,
     # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
-    # dell'11/10), id name "Triumviratus - 8.0 Pos Solver", file Triumviratus_8.0_PosSolver_windows_universal.exe. Il bench e'
+    # dell'11/10), id name "Triumviratus - 8.1 Pos Solver", file Triumviratus_8.1_PosSolver_windows_universal.exe. Il bench e'
     # quello della modalita' analisi: va passato con -ExpectedBench.
     [switch]$PosSolver
 )

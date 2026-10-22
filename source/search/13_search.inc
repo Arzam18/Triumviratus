@@ -19,6 +19,9 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
 #else
 #define PL_RULE(x) ((void)0)
 #endif
+#ifdef TRIUMV_ORDLOG
+#include "ordlog.h"     // move-ordering data: where the refuting moves are in the queue order (oracle)
+#endif
 
 constexpr int TRACKED = 32;   // tried moves remembered for the maluses
 
@@ -38,6 +41,8 @@ struct NodeState {
   int  prior_red;
   HashView h;
   int  quiets[TRACKED], n_quiets;
+  int  quiet_score[TRACKED];      // HistGrad: ordering score of each quiet move tried (INT_MIN: not from a sorted stage)
+  int  best_score;                // HistGrad: ordering score of the best move (INT_MIN: none)
   unsigned char quiet_ctx[TRACKED];   // ThreatHist: threat context of each quiet move tried
   int  best_ctx;                  // ThreatHist: context of the best move (0 if tactical)
   int  tacts[TRACKED], n_tacts;
@@ -289,9 +294,7 @@ static constexpr auto hist_recip = make_hist_recip(hist_div);
 static std::array<int, 16> hist_div;
 static std::array<unsigned long long, max_ply + 8> all_node_recip;
 static std::array<unsigned long long, 16> hist_recip;
-static void red_tables_refresh();   // block 2, below
 static void param_tables_refresh() {
-  red_tables_refresh();
 #ifdef TRIUMV_C2
   c2_tables_refresh();
   c2_sel_refresh();
@@ -426,140 +429,6 @@ static inline int red_final_v80(const ThreadData &td, const NodeFrame *f, const 
 }
 
 // ---------------------------------------------------------------------------
-// Block 2 of 8.1: late-move reduction of our own (RedForm = 1; 0 keeps the previous formula). Units of 1/1024 ply.
-//
-//   base   a power law of the depth d and the move number m with an amplitude per expert of the network:
-//          A[e] * max(d + d0, 0.5)^alpha * max(m + m0, 0.5)^beta, two tables built from the parameters.
-//   inner  base * (4096 + trust) / 4096 + facts + moves / 16
-//          trust: how far the node can be believed (hash on the principal variation and its value and depth, cut
-//          node, hash capture, no hash move, improving, the opponent worsening, size of the correction) scales the
-//          base; the same features also add a fixed amount (facts); the move terms add the quality of the move
-//          (statistic score, check, capture, children cutoffs, quiet gap between alpha and the evaluation, passed
-//          push, causal term, move number, window, depth).
-//   final  in all nodes the whole value grows by RfAllScale / sqrt(d), a share that fades with depth.
-// The pruning rules read a lighter value (red_entry_ours): its own power law scaled by improving, plus the hash on
-// the principal variation, the move number, the window and a constant.
-// Every value came from a least-squares fit on 20.7 million moves of our own searches (tools/redfit_engine.py,
-// 18/10/2026): 92% of the reduced moves are searched at the same depth as with the previous formula, all of them
-// within one ply; the pruning value gives the same depth on 88%. Refit on 18/10 on the engine with block 1 reverted
-// (26.5 million moves). The window enters as window * 1024 / root_delta (red_window_ours in move_loop).
-// Baked on 18/10 and taken back out on 19/10 (user): 8.1 searched 0.35 ply less deep than 8.0 at the same time and
-// lost; block 2 returns to the tree of 8.0 and each change is measured again on its own, in order.
-// ---------------------------------------------------------------------------
-static int rf_dp[256], rf_mp[256], re_dp[256], re_mp[256];   // 1024 * max(x + x0, 0.5)^exponent
-static int rf_isqrt[256];                                     // 1024 / sqrt(d)
-static int rl_log2[256];                                      // 1024 * log2(max(i, 1)), for RfLearn
-
-// RfLearn (19/10/2026, ours, off): the reduction learned from the outcome of the searches. A data build probed, for
-// reduced moves that failed low, the same move at full depth; a move is hidden when the probe goes above alpha (1.7% of
-// them). A logistic fit on 2.5 million probed moves (tools/redout_fit.py --target hidden) gives the log-odds that a
-// move is hidden from features the search already has. The reduction moves by RfLearn/1024 ply per unit of log-odds
-// away from the centre RfLearnC/1024: less where hidden moves are likely, more where they almost never are; at most
-// two plies, and less reduction stops at zero. A first fit labelled a move good when its final value went above alpha:
-// most of those fail high already at the reduced depth and are searched again anyway, so that model spent nodes on
-// them (-9.7 +- 10.4 over 1,152 games) and is replaced.
-// Weights in 1/1024 of a log-odds unit, in the order of the features of learned_logit.
-static constexpr int RL_W[29] = {
-  248,    // hash entry on the principal variation (tt_pv)
-  -675,   // tt_pv and PV node
-  266,    // tt_pv and hash value above alpha
-  -17,    // tt_pv and hash depth at least the depth
-  -1052,  // expected cut node
-  -256,   // cut node without hash move
-  -1167,  // all node
-  -608,   // hash move is a capture
-  -123,   // no hash move
-  368,    // improving
-  172,    // opponent worsening
-  3,      // correction size per 2^20
-  340,    // the move gives check
-  -440,   // capture
-  0,      // the move is the hash move
-  132,    // more than one cutoff in the children
-  11,     // more than two
-  -392,   // alpha minus evaluation per 64 (quiet moves)
-  167,    // passed-pawn push
-  -58,    // causal reduction applies
-  712,    // statistic score per 16384
-  -623,   // log2 of the move number
-  -1083,  // depth per 16
-  620,    // expert 0 (<= 9 pieces)
-  212,    // expert 1
-  41,     // expert 2
-  -165,   // |hash value - static evaluation| per 256, up to 2048
-  286,    // the reduction per 1024
-  -2894,  // constant
-};
-static inline int learned_logit(const NodeFrame *f, const NodeState &n, int m, int move_no, bool tact, bool gives,
-                                bool passer, bool causal_hit, int r) {
-  const int tp = f->tt_pv, above = n.h.value > n.alpha, deep = n.h.depth >= n.depth, nohash = !n.h.move;
-  const int cuts = f[1].cutoff_cnt;
-  const int gap = (tact || val_decided(n.alpha)) ? 0 : std::clamp(n.alpha - n.eval, -64, 96);
-  const int hg = (val_known(n.h.value) && !val_decided(n.h.value)) ? std::min(std::abs(n.h.value - f->static_eval), 2048)
-                                                                    : 0;
-  long long z = RL_W[0] * tp + RL_W[1] * (tp & n.pv) + RL_W[2] * (tp & above) + RL_W[3] * (tp & deep) +
-                RL_W[4] * n.cut + RL_W[5] * (n.cut & nohash) + RL_W[6] * n.all + RL_W[7] * n.tact_hash +
-                RL_W[8] * nohash + RL_W[9] * n.improving + RL_W[10] * n.opp_worse + RL_W[12] * gives +
-                RL_W[13] * tact + RL_W[14] * (m == n.h.move) + RL_W[15] * (cuts > 1) + RL_W[16] * (cuts > 2) +
-                RL_W[18] * passer + RL_W[19] * causal_hit + RL_W[28] +
-                (n.expert == 0 ? RL_W[23] : n.expert == 1 ? RL_W[24] : n.expert == 2 ? RL_W[25] : 0);
-  z += (long long)RL_W[11] * (std::abs((long long)n.signal) >> 20);
-  z += RL_W[17] * gap / 64 + (long long)RL_W[20] * f->stat_score / 16384;
-  z += (long long)RL_W[21] * rl_log2[std::min(move_no, 255)] / 1024 + RL_W[22] * n.depth / 16;
-  z += RL_W[26] * hg / 256 + (long long)RL_W[27] * r / 1024;
-  return int(z);
-}
-static void red_tables_refresh() {
-  const auto fill = [](int *t, int x0_tenths, int exp_thousandths) {
-    for (int i = 0; i < 256; i++)
-      t[i] = int(std::lround(1024.0 * std::pow(std::max(i + x0_tenths / 10.0, 0.5), exp_thousandths / 1000.0)));
-  };
-  fill(rf_dp, RfD0, RfAlpha);
-  fill(rf_mp, RfM0, RfBeta);
-  fill(re_dp, ReD0, ReAlpha);
-  fill(re_mp, ReM0, ReBeta);
-  for (int i = 0; i < 256; i++)
-    rf_isqrt[i] = int(std::lround(1024.0 / std::sqrt(double(std::max(i, 1)))));
-  for (int i = 0; i < 256; i++)
-    rl_log2[i] = int(std::lround(1024.0 * std::log2(double(std::max(i, 1)))));
-}
-static const bool red_tables_ready = (red_tables_refresh(), true);
-
-static inline int red_entry_ours(const NodeFrame *f, const NodeState &n, int move_no, int window_term) {
-  const int d = std::min(n.depth, 255), m = std::min(move_no, 255);
-  const int base = ((by_expert(n.expert, ReA0, ReA1, ReA2, ReA3) * re_dp[d]) >> 10) * re_mp[m] >> 10;
-  return base * (1024 + ReImproving * n.improving) / 1024 + ReConst + ReMoveNo * m + ReWindow * window_term / 16 +
-         ReTtPv * f->tt_pv;
-}
-
-static inline int red_final_ours(const NodeFrame *f, const NodeState &n, int move_no, bool tact, bool gives,
-                                 bool passer, bool causal_hit, int window_term) {
-  const int d = std::min(n.depth, 255), m = std::min(move_no, 255);
-  const int base = ((by_expert(n.expert, RfA0, RfA1, RfA2, RfA3) * rf_dp[d]) >> 10) * rf_mp[m] >> 10;
-  const int tp = f->tt_pv, above = n.h.value > n.alpha, deep = n.h.depth >= n.depth, nohash = !n.h.move;
-  const int cut = n.cut, corr = std::abs(n.signal) >> 16;   // correction size, up to about 1000
-#define RF_NODE(W) (W##TtPv * tp + W##TtPvPv * (tp & n.pv) + W##TtPvAbove * (tp & above) + W##TtPvDeep * (tp & deep) + \
-                    W##TtPvDeepCut * (tp & deep & cut) + W##Cut * cut + W##CutNoHash * (cut & nohash) +              \
-                    W##HashCapt * n.tact_hash + W##NoHash * nohash + W##Improving * n.improving +                    \
-                    W##OppWorse * n.opp_worse)
-  // Trust per 4096 of the base, the correction size per 256 in trust and per 16 in facts: finer steps than whole
-  // units, since a rounded weight on a feature that reaches ~1000 shifted the deep nodes by a tenth of a ply.
-  const int trust = RF_NODE(RfTrust) + RfTrustCorr * corr / 256, facts = RF_NODE(RfAdd) + RfAddCorr * corr / 16;
-#undef RF_NODE
-  const int cuts = f[1].cutoff_cnt;
-  const int gap = (tact || val_decided(n.alpha)) ? 0 : std::clamp(n.alpha - n.eval, -64, 96);
-  const int moves = RfStat * (f->stat_score >> 6) + RfCheck * gives + RfCapture * tact + RfCutoffs * (cuts > 1) +
-                    RfCutoffsMany * (cuts > 2) + RfGap * gap + RfPasser * passer + RfCausal * causal_hit +
-                    RfMoveNo * m + RfWindow * window_term + RfConst + RfAllCutoffs * (n.all && cuts > 1) + RfDepth * d;
-  // RfVolatile (ours, off): a node whose hash value is far from its corrected static evaluation is in motion, so its late
-  // moves are reduced by a weight per 16 units of that distance (at most 64 steps).
-  const int volatile_steps = (RfVolatile && val_known(n.h.value) && !val_decided(n.h.value))
-                                 ? std::min(std::abs(n.h.value - f->static_eval) >> 4, 64) : 0;
-  const int inner = base * (4096 + trust) / 4096 + facts + moves / 16 + RfVolatile * volatile_steps;
-  return n.all ? inner * (1024 + ((RfAllScale * rf_isqrt[d]) >> 10)) / 1024 : inner;
-}
-
-// ---------------------------------------------------------------------------
 // Our ideas of 04/10/2026 (docs/audit_8.0/M_STUDIO_IDEE_RICERCA.md). All off by default: with the parameters
 // at 0 the terms are 0 and in the release (constant parameters) the compiler removes them.
 // ---------------------------------------------------------------------------
@@ -661,11 +530,36 @@ static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int cb = by_expert(n.expert, HlCBonus0, HlCBonus1, HlCBonus2, HlCBonus3);
   const int cm = by_expert(n.expert, HlCMalus0, HlCMalus1, HlCMalus2, HlCMalus3);
   if (!is_tactical(bm)) {
-    learn_quiet(td, f, bm, bonus * qb / 1024, n.best_ctx, n.expert);
+    // HistGrad (22/10/2026, ours, off): the update of a listwise ranker. The ordering scores of the best move and of
+    // the quiet moves tried give a softmax p over them (temperature HistGradT, in score units); the gradient of the
+    // log-loss of "the best move is the right one" is 1 - p for the best move and -p_i for each other move. A best move
+    // the ordering already expected (p near 1) learns little, a surprising one a lot; a tried move the ordering rated
+    // low and that failed is barely punished, one rated high is punished in full. HistGradMix blends this with the fixed
+    // amounts (0 = off, 1024 = full); the factors average 1 over a uniform p, so the size of the update is kept.
+    int fb = 1024, fq[TRACKED];
+    for (int i = 0; i < n.n_quiets; i++)
+      fq[i] = 1024;
+    if (HistGradMix && n.best_score != INT_MIN) {
+      const float t = 1.0f / std::max(HistGradT, 1);
+      int mx = n.best_score, k = 1;
+      for (int i = 0; i < n.n_quiets; i++)
+        if (n.quiet_score[i] != INT_MIN)
+          mx = std::max(mx, n.quiet_score[i]), k++;
+      float e[TRACKED], z = std::exp((n.best_score - mx) * t);
+      const float eb = z;
+      for (int i = 0; i < n.n_quiets; i++)
+        z += (e[i] = n.quiet_score[i] != INT_MIN ? std::exp((n.quiet_score[i] - mx) * t) : 0.0f);
+      const float pb = eb / z;
+      fb = std::clamp(1024 + int(HistGradMix * (2.0f * (1.0f - pb) - 1.0f)), 0, 3072);
+      for (int i = 0; i < n.n_quiets; i++)
+        if (n.quiet_score[i] != INT_MIN)
+          fq[i] = std::clamp(1024 + int(HistGradMix * (k * e[i] / z - 1.0f)), 0, 3072);
+    }
+    learn_quiet(td, f, bm, bonus * qb / 1024 * fb / 1024, n.best_ctx, n.expert);
     int m = malus * qm / 1024;
     for (int i = 0; i < n.n_quiets; i++) {
       m = m * qd / 1024;
-      learn_quiet(td, f, n.quiets[i], -m, n.quiet_ctx[i], n.expert);
+      learn_quiet(td, f, n.quiets[i], -m * fq[i] / 1024, n.quiet_ctx[i], n.expert);
     }
   } else
     learn_capture(td, bm, bonus * cb / 1024, n.expert);
@@ -1328,6 +1222,233 @@ static int prunelog_node(ThreadData &td, NodeFrame *f, NodeState &n) {
 }
 #endif
 
+#ifdef TRIUMV_ORDLOG
+// Move-ordering data (ordlog.h): attacks of a piece kind of `side` from sq.
+static inline U64 ol_piece_att(int pt, int side, int sq, U64 occ) {
+  switch (pt) {
+  case P: return pawn_attacks[side][sq];
+  case N: return knight_attacks[sq];
+  case B: return get_bishop_attacks(sq, occ);
+  case R: return get_rook_attacks(sq, occ);
+  case Q: return get_queen_attacks(sq, occ);
+  default: return king_attacks[sq];
+  }
+}
+// Kind (P..K) of the cheapest piece of `by` attacking sq with occupancy occ (pieces in `gone` left out), -1 if none.
+static inline int ol_min_attacker(const ThreadData &td, int sq, int by, U64 occ, U64 gone = 0) {
+  const U64 a = attackers_with(td, sq, by, occ) & occ & ~gone;
+  if (!a)
+    return -1;
+  const int off = by == white ? 0 : 6;
+  for (int k = P; k <= K; k++)
+    if (a & td.bitboards[k + off])
+      return k;
+  return -1;
+}
+static inline int ol_rel_rank(int side, int sq) { return side == white ? 8 - sq / 8 : sq / 8 + 1; }
+static inline int ol_clip(int v, int lim) { return std::clamp(v, -lim, lim); }
+static thread_local uint32_t ol_node_seq = 0;
+
+// The oracle of a node that failed high: the queue order replayed, then every legal move searched with a null window
+// at beta and depth - 1 without reductions; one node record and one record per legal move (ordlog.h).
+template <bool AN>
+static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0, int cut_move, int cut_step,
+                          const int *fmv, const signed char *ffate, const signed char *fred, int fn) {
+  if (!td_lists_legal())   // Chess960: the legal generator is not used
+    return;
+  const int us = td.side, them = us ^ 1, us_off = us == white ? 0 : 6, eoff = 6 - us_off;
+  const U64 occ = td.occupancies[both];
+  // 1. The queue order of the node, replayed from its hash move (same statistics as the real search had at its end).
+  static thread_local int omv[256], ostep[256], osc[256];
+  int no = 0;
+  {
+    MoveQueue q;
+    queue_start(q, td, f, n.h.move, depth0, n.in_check ? QK_EVADE : QK_MAIN);
+    int m;
+    while (no < 256 && (m = queue_next(q)) != 0) {
+      omv[no] = m;
+      ostep[no] = m == q.hash_move ? -1 : q.step;
+      osc[no] = 0;
+      no++;
+    }
+    for (int i = 0; i < no; i++)
+      if (ostep[i] != -1)
+        for (int j = 0; j < q.n_all; j++)
+          if (q.list[j].move == omv[i]) { osc[i] = q.list[j].score; break; }
+  }
+  int legal[256];
+  const int nl = legalgen::generate_legal_tv<legalgen::ALL>(td, legal);
+  if (nl <= 1)
+    return;
+
+  // 2. Node record.
+  OrdNodeRec nr{};
+  nr.node_id = ++ol_node_seq;
+  nr.depth = (int16_t)depth0;
+  nr.ply = (int16_t)f->ply;
+  nr.expert = (int16_t)n.expert;
+  nr.pieces = (int16_t)count_bits(occ);
+  nr.n_legal = (int16_t)nl;
+  nr.cut_index = (int16_t)(cut_move ? n.moves : 0);   // 0: the node failed low (no cutoff in the real search)
+  nr.cut_step = (int8_t)cut_step;
+  for (int j = 0; j < no; j++)
+    if (omv[j] == cut_move) { nr.cut_order = (int16_t)(j + 1); break; }
+  nr.flags = (uint16_t)(n.pv | (n.cut << 1) | (n.all << 2) | (n.improving << 3) | (f->tt_pv << 4) |
+                        (n.in_check << 5) | ((n.h.move != 0) << 6) | (n.tact_hash << 7) | (n.opp_worse << 8) |
+                        ((cut_move && cut_move == n.h.move) << 9) | ((cut_move == 0) << 10));
+  nr.beta = n.beta;
+  nr.eval_beta = ol_clip(n.eval - n.beta, 32000);
+  nr.static_beta = ol_clip(f->static_eval - n.beta, 32000);
+#ifdef TRIUMV_C2
+  nr.c2ex = (int16_t)c2_experts_td(td);
+  C2Mat cm;
+  c2_mat_init(td, cm);
+#else
+  nr.c2ex = -1;
+#endif
+  const int lm = f[-1].move, pm = f[-2].move;
+  const int lmto = lm > 0 ? move_to(lm) : -1;
+  const int lmpc = lmto >= 0 ? td.piece_on[lmto] : -1;
+  nr.last_kind = (int8_t)(lmpc >= 0 && lmpc < 12 ? kPieceKind[lmpc] : -1);
+  nr.last_victim = (int8_t)(lm > 0 && f[-1].captured >= 0 && f[-1].captured < 12 ? kPieceKind[f[-1].captured] : -1);
+  int hang_n = 0, hang_max = -1;
+  for (U64 t = td.occupancies[us] & ~td.bitboards[K + us_off]; t; pop_lsb_bb(t)) {
+    const int sq = get_ls1b_index(t), k = kPieceKind[td.piece_on[sq]];
+    const int a = ol_min_attacker(td, sq, them, occ);
+    if (a >= 0 && (unit_value[a] < unit_value[k] || !(attackers_with(td, sq, us, occ) & occ & ~(1ULL << sq))))
+      hang_n++, hang_max = std::max(hang_max, k);
+  }
+  nr.hanging_n = (int8_t)hang_n;
+  nr.hanging_max = (int8_t)hang_max;
+
+  // 3. Features of every legal move, then its oracle search.
+  static thread_local OrdMoveRec recs[256];
+  MoveSafety s;
+  s.ready = false;
+  const int eksq = get_ls1b_index(td.bitboards[K + eoff]);
+  const NodeFrame save = *f;
+  const U64 n_start = td.nodes;
+  bool stopped = false;
+  ol_in_probe++;
+  for (int i = 0; i < nl; i++) {
+    const int m = legal[i];
+    OrdMoveRec &r = recs[i];
+    r = OrdMoveRec{};
+    r.node_id = nr.node_id;
+    r.move = m;
+    r.step = -2;
+    for (int j = 0; j < no; j++)
+      if (omv[j] == m) { r.order = (int16_t)(j + 1); r.step = (int8_t)ostep[j]; r.score = osc[j]; break; }
+    const int pc = move_piece(m), from = move_from(m), to = move_to(m), pt = kPieceKind[pc];
+    const int prom = get_move_promoted(m) ? promo_kind(m) : -1, apt = prom >= 0 ? prom : pt;
+    const bool ep = get_move_enpassant(m) != 0, cap = get_move_capture(m) != 0;
+    const int vk = ep ? P : cap ? victim_kind(td, m) : -1;
+    r.pt = (int8_t)pt;
+    r.victim = (int8_t)vk;
+    r.promo = (int8_t)prom;
+    r.castle = get_move_castling(m) != 0;
+    r.ep = ep;
+    const bool gives = checks_before(td, s, m);
+    r.gives = gives;
+    r.see0 = see_holds(td, m, 0);
+    r.see_win = see_holds(td, m, 1);
+    const U64 fromb = 1ULL << from, tob = 1ULL << to;
+    const int fa = ol_min_attacker(td, from, them, occ);
+    r.from_att = fa >= 0;
+    r.from_lesser = fa >= 0 && unit_value[fa] < unit_value[pt];
+    r.from_hang = fa >= 0 && pt != K &&
+                  (unit_value[fa] < unit_value[pt] || !(attackers_with(td, from, us, occ) & occ & ~fromb));
+    U64 occ2 = (occ ^ fromb) | tob, gone = cap ? tob : 0;
+    if (ep) {
+      const int cs = us == white ? to + 8 : to - 8;
+      occ2 ^= 1ULL << cs;
+      gone = 1ULL << cs;
+    }
+    const int ta = ol_min_attacker(td, to, them, occ2, gone);
+    r.to_att_min = (int8_t)(ta + 1);
+    r.to_def = (attackers_with(td, to, us, occ2) & occ2 & ~fromb & ~tob) != 0;
+    const U64 att = ol_piece_att(apt, us, to, occ2);
+    const U64 enemy = td.occupancies[them] & ~gone & ~td.bitboards[K + eoff];
+    int nt = 0, mx = -1, ng = 0;
+    for (U64 t = att & enemy; t; pop_lsb_bb(t)) {
+      const int sq = get_ls1b_index(t), k = kPieceKind[td.piece_on[sq]];
+      nt++;
+      mx = std::max(mx, k);
+      const bool undef = !(attackers_with(td, sq, them, occ2) & occ2 & ~gone);
+      ng += unit_value[k] > unit_value[apt] || undef;
+    }
+    r.n_targets = (int8_t)nt;
+    r.max_target = (int8_t)mx;
+    r.n_good_targets = (int8_t)ng;
+    r.fork = ng >= 2 || (gives && ng >= 1);
+    r.kdist = (int8_t)std::max(std::abs(to / 8 - eksq / 8), std::abs(to % 8 - eksq % 8));
+    r.katt = (int8_t)count_bits(att & king_attacks[eksq]);
+    if (lmto >= 0) {
+      r.recapture = to == lmto;
+      r.hits_last = to != lmto && ((att >> lmto) & 1);
+      r.escapes_last = lmpc >= 0 && lmpc < 12 && ((ol_piece_att(kPieceKind[lmpc], them, lmto, occ) >> from) & 1);
+    }
+    r.same_piece = pm > 0 && move_to(pm) == from;
+    if (pt == P && prom < 0) {
+      const int file = to % 8, row = to / 8;
+      U64 ahead = 0;
+      for (int fl = std::max(0, file - 1); fl <= std::min(7, file + 1); fl++)
+        for (int rw = us == white ? 0 : row + 1; rw < (us == white ? row : 8); rw++)
+          ahead |= 1ULL << (rw * 8 + fl);
+      r.passed = !(ahead & td.bitboards[P + eoff]);
+    }
+    r.rank_to = (int8_t)ol_rel_rank(us, to);
+    r.advance = (int8_t)(ol_rel_rank(us, to) - ol_rel_rank(us, from));
+    r.killer = f->ply < 256 && ol_killer[f->ply] == m;
+    r.counter = lmpc >= 0 && lmpc < 12 && ol_counter[lmpc][lmto] == m;
+#ifdef TRIUMV_C2
+    r.c2_switch = cap ? (int8_t)c2_switches(td, cm, m) : 0;
+#else
+    r.c2_switch = -1;
+#endif
+    for (int j = 0; j < fn; j++)
+      if (fmv[j] == m) { r.fate = ffate[j]; r.red = fred[j]; break; }
+    if (cap || ep) {
+      r.h_capt = td.capt_hist[pc][to][vk];
+    } else {
+      const int key = quiet_key(m), ctx = ThreatHist && prom < 0 ? quiet_ctx_slow(td, m) : 0;
+      r.h_main = qh_order(td, us, key, ctx);
+      r.h_pawn = pawn_row(td)[pc][to];
+      r.h_c1 = (*f[-1].cont_hist)[pc][to];
+      r.h_c2 = (*f[-2].cont_hist)[pc][to];
+      r.h_far = (*f[-3].cont_hist)[pc][to] + (*f[-4].cont_hist)[pc][to] + (*f[-6].cont_hist)[pc][to];
+      r.h_low = f->ply < LOW_PLY_SIZE ? td.low_ply_hist[f->ply][key] : 0;
+    }
+    // the oracle: null window at beta, depth - 1, no reduction
+    UndoInfo u;
+    if (!step_in(td, f, m, u, true)) {
+      r.refutes = -1;
+      continue;
+    }
+    f[1].in_check = gives;
+    if (CausalRed)
+      f[1].refute = 0;
+    const U64 n0 = td.nodes;
+    const int v = -explore<AN>(td, f + 1, -n.beta, -n.beta + 1, depth0 - 1, false, false);
+    step_out(td, m, u);
+    if (stop_threads.load(std::memory_order_relaxed)) {
+      stopped = true;
+      break;
+    }
+    r.refutes = v >= n.beta;
+    r.margin = (int16_t)ol_clip(v - n.beta, 3000);
+    r.nodes = (uint32_t)std::min<U64>(td.nodes - n0, 0xffffffffu);
+  }
+  ol_in_probe--;
+  *f = save;
+  if (stopped)
+    return;
+  nr.probe_nodes = (uint32_t)std::min<U64>(td.nodes - n_start, 0xffffffffu);
+  ordlog_write(td.thread_id, "ordnode", 0, &nr, 1);
+  ordlog_write(td.thread_id, "ordmove", 1, recs, (size_t)nl);
+}
+#endif
+
 // Push of a passed pawn to the 6th or 7th rank in an endgame (ours). The network sees passed pawns with its
 // PassedPawns block; the search would treat them as any quiet move and could reduce them by several plies.
 static bool passed_push(const ThreadData &td, int m) {
@@ -1539,6 +1660,13 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   // Idea 2: fixed reduction term for the node (0 if off).
   const int node_red = AN ? td.dz_lmr : deep_term(td, DeepLmr);
   const int gd_style = AN ? td.gd_style : 0;   // AnGold: style of the root (0 in games)
+#ifdef TRIUMV_ORDLOG
+  const int ol_depth0 = n.depth;   // the node's depth before AlphaRed (the oracle searches at depth - 1)
+  bool ol_cut = false;             // the loop ended with a cutoff
+  int ol_mv[256], ol_n = 0;        // the fate of every move handed out (OrdMoveRec::fate, red)
+  signed char ol_fate[256], ol_red[256];
+  int ol_fate_cur = 3, ol_red_cur = 0;
+#endif
 
   while ((m = queue_next(q)) != 0) {
     const bool gen_legal = queue_move_legal(q, m);
@@ -1571,7 +1699,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (n.beta - n.alpha != red_window) {
       red_window = n.beta - n.alpha;
       red_window_term = red_window * LmrDeltaMul / td.root_delta;
-      red_window_ours = red_window * 1024 / td.root_delta;
     }
     // LmrRank (block 2 of 8.1, 16/10/2026, ours; docs/development/8.1/SEARCH_2_REDUCTIONS.md in the repo): for a
     // quiet move of the ordered list, the base reduction does not read only its order number. The "effective" number
@@ -1587,13 +1714,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       const int mix = by_expert(n.expert, LmrRankMix0, LmrRankMix1, LmrRankMix2, LmrRankMix3);
       red_move_no = std::clamp((n.moves * (1024 - mix) + eff * mix) / 1024, 1, 255);
     }
-    int r;
-    if (RedForm) {   // block 2: our reduction, the value the pruning rules read
-      r = red_entry_ours(f, n, red_move_no, red_window_ours);
-      if (gd_style)
-        r = gd_style == 1 ? r * 97 / 100 : gd_style == 2 ? r * 103 / 100 : r;
-    } else
-      r = red_entry_v80(td, f, n, red_move_no, red_window_term, gd_style);
+    int r = red_entry_v80(td, f, n, red_move_no, red_window_term, gd_style);
 #ifdef TRIUMV_C2
     if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): reduction per Consilium-2 expert (entry: the pruning reads it too)
       r += c2_tab[C2T_LMR][n.c2e];
@@ -1608,6 +1729,10 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 #ifdef TRIUMV_PRUNELOG
       if (!AN && prunelog_move_pick(td.thread_id, pl_rule))
         prunelog_move<AN>(td, f, n, m, tact, gives, r, gen_legal);
+#endif
+#ifdef TRIUMV_ORDLOG
+      if (ol_n < 256)
+        ol_mv[ol_n] = m, ol_fate[ol_n] = 1, ol_red[ol_n] = 0, ol_n++;
 #endif
       continue;
     }
@@ -1680,15 +1805,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     else
       f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
                        StatCont2W * (*f[-2].cont_hist)[pc][to]) / 1024;
-    if (RedForm) {   // block 2: our reduction for the search of this move
-      const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
-      r = red_final_ours(f, n, red_move_no, tact, gives, passer, causal_hit, red_window_ours) + node_red;
-#ifdef TRIUMV_C2
-      if (g_c2_node)   // C2 idea 1: this formula does not start from the entry value, so the term is added again
-        r += c2_tab[C2T_LMR][n.c2e];
-#endif
-    } else
-      r = red_final_v80(td, f, n, m, r, tact, gives, passer, node_red);
+    r = red_final_v80(td, f, n, m, r, tact, gives, passer, node_red);
     // AnGold, tweaks of the reductions far from the root (units 1/1024 ply): in attack captures and checks
     // -60, in defence the quiet moves -40, in manoeuvring the quiet moves without check +80 from depth 9.
     if (gd_style && n.depth > 5 && f->ply > 1) {
@@ -1713,20 +1830,15 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         ((!n.h.move) << 13) | (1 << 14) | (n.opp_worse << 15);
     const int redlog_gap = val_decided(n.alpha) ? 0 : n.alpha - n.eval, redlog_r = r, redlog_cuts = f[1].cutoff_cnt;
     const int redlog_alpha = n.alpha;
+    // version 3 fields: the own score of the removed own ordering form is always 0 (kept for the file format).
+    const bool redlog_own_ok = false;
+    const int redlog_own = 0, redlog_raw_moves = n.moves;
 #endif
     if (n.depth >= LmrMinDepth && n.moves > 1) {
       // NegExtMax (08/10/2026): with a negative reduction the move is searched up to 2 plies DEEPER, and along a line
       // these extensions add up like those of Ldse before its guard (LdseMax). Same remedy: a cap on the
       // number of extensions from negative reduction on the line (NodeFrame::negext_path).
       // BAKE NEGEXTMAX (11/10/2026, see 01_params.inc): fixed cap of one extension per line, option retired.
-      if (RfLearn) {   // ours, off: the reduction learned from search outcomes (see learned_logit)
-        const bool causal_hit = CausalRed && n.causal && !(((1ULL << move_from(m)) | (1ULL << to)) & n.causal);
-        const int z = learned_logit(f, n, m, red_move_no, tact, gives, passer, causal_hit, r);
-        // Less reduction stops at zero: a negative reduction would become an extension of up to two plies, and the
-        // first version, without this floor, widened the tree by a quarter at RfLearn 768.
-        const int corr = std::clamp(int((long long)RfLearn * (z - RfLearnC) / 1024), -2048, 2048);
-        r = corr > 0 ? std::max(r - corr, std::min(r, 0)) : r - corr;
-      }
       // Reduction levers of our own (19/10/2026, all off): signals the formula does not read. Each one only lowers the
       // reduction, and the sum stops at zero (a negative reduction would become an extension).
       //  RdDisagree   the two parts of the network disagree on this node (|psqt - positional|): the evaluation is
@@ -1816,6 +1928,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       const int d = std::max(1, std::min(new_depth - r / 1024, new_depth + neg_cap)) + n.pv;
       f->negext = d - n.pv > new_depth;
       f->reduction = new_depth - d;
+#ifdef TRIUMV_ORDLOG
+      ol_red_cur = new_depth - d, ol_fate_cur = new_depth > d ? 2 : 3;
+#endif
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, d, true, false);
       f->reduction = 0;
       f->negext = 0;
@@ -1857,7 +1972,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         }
         redlog_write(td.thread_id, n.depth, n.moves, red_move_no, n.expert, f->stat_score, redlog_gap, redlog_cuts,
                      redlog_entry, redlog_r, n.signal, red_window_term, f->ply, redlog_flags, outcome, d, full,
-                     std::clamp(n.h.value - f->static_eval, -32000, 32000), val_known(n.h.value));
+                     std::clamp(n.h.value - f->static_eval, -32000, 32000), val_known(n.h.value), redlog_own,
+                     redlog_raw_moves, redlog_own_ok);
       }
 #endif
     } else if (!n.pv || n.moves > 1) {
@@ -1868,6 +1984,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);
 #endif
       const int deep_red = c2_settle ? 0 : (r > LmrDeepRed1) + (r > LmrDeepRed2 && new_depth > LmrDeepRedMin);
+#ifdef TRIUMV_ORDLOG
+      ol_red_cur = deep_red, ol_fate_cur = deep_red > 0 ? 2 : 3;
+#endif
       value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth - deep_red, !n.cut, false);
     }
     if (n.pv && (n.moves == 1 || value > n.alpha)) {
@@ -1878,6 +1997,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       value = -explore<AN>(td, f + 1, -n.beta, -n.alpha, new_depth, false, true);
     }
     step_out(td, m, u);
+#ifdef TRIUMV_ORDLOG
+    if (ol_n < 256)
+      ol_mv[ol_n] = m, ol_fate[ol_n] = (signed char)ol_fate_cur, ol_red[ol_n] = (signed char)ol_red_cur, ol_n++;
+    ol_fate_cur = 3, ol_red_cur = 0;
+#endif
 
     if (stop_threads.load(std::memory_order_relaxed))
       return 0;
@@ -1893,12 +2017,39 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       if (value + nudge > n.alpha) {
         n.best_move = m;
         n.best_ctx = ctx;
+        n.best_score = (!tact && q.rank_ok) ? q.last_score : INT_MIN;
         if (n.pv)
           pv_extend(td, m);
         if (value >= n.beta) {
           f->cutoff_cnt += (ext < CutoffExtCap) || n.pv;
           if (CausalRed)
             f->refute = m;   // for the parent: the move that refutes its own
+#ifdef TRIUMV_ORDLOG
+          if (!AN && !ol_in_probe) {   // ordlog.h: light cutoff record, oracle, then the killer/counter memories
+            const int cstep = m == n.h.move ? -1 : q.step;
+            if (ordlog_cut_pick(td.thread_id)) {
+              OrdCutRec cr{};
+              cr.depth = (int16_t)ol_depth0;
+              cr.ply = (int16_t)f->ply;
+              cr.expert = (int16_t)n.expert;
+              cr.cut_index = (int16_t)n.moves;
+              cr.step = (int8_t)cstep;
+              cr.flags = (int8_t)(n.pv | (n.cut << 1) | (n.in_check << 2) | (tact << 3) | ((m == n.h.move) << 4));
+              ordlog_write(td.thread_id, "ordcut", 2, &cr, 1);
+            }
+            if (!n.root && !n.excluded && ol_depth0 >= ORDLOG_MIN_DEPTH && ol_depth0 <= ORDLOG_MAX_DEPTH &&
+                !val_decided(n.beta) && ordlog_pick(td.thread_id))
+              ordlog_oracle<AN>(td, f, n, ol_depth0, m, cstep, ol_mv, ol_fate, ol_red, ol_n);
+            if (f->ply < 256)
+              ol_killer[f->ply] = m;
+            if (f[-1].move > 0) {
+              const int lt = move_to(f[-1].move), lp = td.piece_on[lt];
+              if (lp >= 0 && lp < 12)
+                ol_counter[lp][lt] = m;
+            }
+          }
+          ol_cut = true;
+#endif
           break;
         }
         if (n.depth > AlphaRedLo && n.depth < AlphaRedHi && !val_decided(value) &&
@@ -1911,10 +2062,18 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       if (tact) n.tacts[n.n_tacts++] = m;
       else {
         n.quiet_ctx[n.n_quiets] = (unsigned char)ctx;
+        n.quiet_score[n.n_quiets] = q.rank_ok ? q.last_score : INT_MIN;
         n.quiets[n.n_quiets++] = m;
       }
     }
   }
+#ifdef TRIUMV_ORDLOG
+  // ordlog.h: a node that failed low, with at least one move searched. If the oracle finds a refuting move here, the
+  // real search missed it (pruned, reduced, or searched too late).
+  if (!AN && !ol_cut && !ol_in_probe && n.moves > 0 && !n.root && !n.excluded && ol_depth0 >= ORDLOG_MIN_DEPTH &&
+      ol_depth0 <= ORDLOG_MAX_DEPTH && !val_decided(n.beta) && n.best < n.beta && ordlog_low_pick(td.thread_id))
+    ordlog_oracle<AN>(td, f, n, ol_depth0, 0, -3, ol_mv, ol_fate, ol_red, ol_n);
+#endif
   return NO_VALUE;
 }
 
@@ -2025,6 +2184,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   n.moves = 0;
   n.cap_value = infinity;
   n.n_quiets = n.n_tacts = 0;
+  n.best_score = INT_MIN;
   n.causal = 0;
   // LdseMax: Ldse extensions on the line up to here. f->ldse goes back to 0 until move_loop extends a move, so
   // the children of the null move and of probcut do not inherit one.

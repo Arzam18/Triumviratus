@@ -1,6 +1,6 @@
 // redlog.h -- data collection for block 2 of 8.1 (only with -DTRIUMV_REDLOG; never in a release).
 // Every REDLOG_EVERY-th reduced move writes one record: the features of the node and the move, the reduction the
-// current formula gives it and the outcome of its searches. Files: redlog2_<thread>.bin in the working directory.
+// current formula gives it and the outcome of its searches. Files: redlog3_<thread>.bin in the working directory.
 #pragma once
 #include <cstdint>
 #include <cstdio>
@@ -25,6 +25,11 @@ struct RedlogRec {   // version 2 (18/10/2026): outcome of the searches appended
   int8_t d_red, d_full;
   int16_t hash_gap;    // hash value - static eval (0 when unknown)
   uint8_t hash_known;
+  // version 3 (22/10/2026): the own score of a sorted quiet move of the own ordering form (removed the same day, now
+  // always 0 and not valid; kept for the file format) and the raw move number.
+  int32_t own_score;
+  int16_t raw_moves;
+  uint8_t own_ok;
 };
 #pragma pack(pop)
 
@@ -38,21 +43,23 @@ static inline bool redlog_probe(int tid) {
 
 static inline void redlog_write(int tid, int depth, int moves, int move_no, int expert, int stat_score, int gap,
                                 int cutoff_cnt, int r_entry, int r_final, int signal, int window_term, int ply,
-                                int flags, int outcome, int d_red, int d_full, int hash_gap, bool hash_known) {
+                                int flags, int outcome, int d_red, int d_full, int hash_gap, bool hash_known,
+                                int own_score, int raw_moves, bool own_ok) {
   static FILE *files[1024];
   if (tid < 0 || tid >= 1024)
     return;
   FILE *&fp = files[tid];
   if (!fp) {
     char name[64];
-    std::snprintf(name, sizeof name, "redlog2_%d.bin", tid);
+    std::snprintf(name, sizeof name, "redlog3_%d.bin", tid);
     fp = std::fopen(name, "ab");
     if (!fp)
       return;
   }
   RedlogRec r{(int16_t)depth, (int16_t)moves, (int16_t)move_no, (int16_t)expert, stat_score, (int16_t)gap,
               (int16_t)cutoff_cnt, r_entry, r_final, signal, (int16_t)window_term, (int16_t)ply, (uint16_t)flags,
-              (uint8_t)outcome, (int8_t)d_red, (int8_t)d_full, (int16_t)hash_gap, (uint8_t)hash_known};
+              (uint8_t)outcome, (int8_t)d_red, (int8_t)d_full, (int16_t)hash_gap, (uint8_t)hash_known,
+              own_score, (int16_t)raw_moves, (uint8_t)own_ok};
   std::fwrite(&r, sizeof r, 1, fp);
 }
 

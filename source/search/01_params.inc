@@ -900,66 +900,11 @@
   /*  C2SettleHorizon: a capture or promotion that switches an expert of either perspective and would leave its     */ \
   /*   child to the quiescence search gets one ply instead, once per line; 1 = not in all nodes, 2 = in all nodes.   */ \
   P(C2SettleHorizon, 0, 0, 2)                                                                              \
-  /* BLOCK 2 - late-move reduction of our own (13_search.inc, red_entry_ours / red_final_ours). Rf* = the      */ \
-  /* reduction of the search, Re* = the value the pruning rules read. Values of the fit of 18/10/2026 evening on the */ \
-  /* engine with block 1 reverted to the tree of 8.0: 26.5 million moves of searches at 1 and 6 million nodes (tools/ */ \
-  /* redfit_engine.py), 93.5% at the same depth as the old formula, none off by more than one ply, no bias by depth. */ \
-  /* Alpha/Beta /1000, D0/M0 /10; trust weights /4096 of the base, the correction size /256 in trust and /16 in facts; */ \
-  /* move weights /16; window * 1024 / root_delta. RfVolatile (ours) is set apart, see its BAKE note.          */ \
-  P(RedForm, 0, 0, 1)                                                                                      \
-  P(RfA0, 1157, 385, 3571)                                                                                 \
-  P(RfA1, 1186, 395, 3658)                                                                                 \
-  P(RfA2, 1165, 388, 3595)                                                                                 \
-  P(RfA3, 1187, 395, 3661)                                                                                 \
-  P(RfAlpha, 300, 50, 900)                                                                                 \
-  P(RfBeta, 400, 50, 900)                                                                                  \
-  P(RfD0, 0, -5, 80)                                                                                       \
-  P(RfM0, -5, -5, 40)                                                                                      \
-  P(RfAllScale, 189, 0, 767)                                                                               \
-  P(RfTrustTtPv, 132, -596, 596)                                                                           \
-  P(RfTrustTtPvPv, 17, -251, 251)                                                                          \
-  P(RfTrustTtPvAbove, -17, -251, 251)                                                                      \
-  P(RfTrustTtPvDeep, 173, -719, 719)                                                                       \
-  P(RfTrustTtPvDeepCut, -276, -1028, 1028)                                                                 \
-  P(RfTrustCut, 255, -965, 965)                                                                            \
-  P(RfTrustCutNoHash, -126, -578, 578)                                                                     \
-  P(RfTrustHashCapt, 58, -374, 374)                                                                        \
-  P(RfTrustNoHash, 191, -773, 773)                                                                         \
-  P(RfTrustImproving, -620, -2060, 2060)                                                                   \
-  P(RfTrustOppWorse, 39, -317, 317)                                                                        \
-  P(RfTrustCorr, 31, -293, 293)                                                                            \
-  P(RfAddTtPv, -2232, -6896, 6896)                                                                         \
-  P(RfAddTtPvPv, -996, -3188, 3188)                                                                        \
-  P(RfAddTtPvAbove, -888, -2864, 2864)                                                                     \
-  P(RfAddTtPvDeep, -1140, -3620, 3620)                                                                     \
-  P(RfAddTtPvDeepCut, -405, -1415, 1415)                                                                   \
-  P(RfAddCut, 3651, -11153, 11153)                                                                         \
-  P(RfAddCutNoHash, 1038, -3314, 3314)                                                                     \
-  P(RfAddHashCapt, 1044, -3332, 3332)                                                                      \
-  P(RfAddNoHash, -196, -788, 788)                                                                          \
-  P(RfAddImproving, -68, -404, 404)                                                                        \
-  P(RfAddOppWorse, -41, -323, 323)                                                                         \
-  P(RfAddCorr, -44, -332, 332)                                                                             \
-  P(RfStat, -98, -494, 494)                                                                                \
-  P(RfCheck, -2318, -7154, 7154)                                                                           \
-  P(RfCapture, -2444, -7532, 7532)                                                                         \
-  P(RfCutoffs, 3947, -12041, 12041)                                                                        \
-  P(RfCutoffsMany, 17801, -53603, 53603)                                                                   \
-  P(RfGap, 48, -344, 344)                                                                                  \
-  P(RfPasser, -19231, -57893, 57893)                                                                       \
-  P(RfCausal, 6328, -19184, 19184)                                                                         \
-  P(RfMoveNo, -2532, -7796, 7796)                                                                          \
-  P(RfWindow, -8, -300, 300)                                                                               \
-  P(RfConst, 18228, -54884, 54884)                                                                         \
-  P(RfAllCutoffs, 20426, -61478, 61478)                                                                    \
-  P(RfDepth, -743, -2429, 2429)                                                                            \
-  P(RfVolatile, 0, -200, 200)            /* ours, OFF (19/10, user): never confirmed, back in the queue */  \
-  /* RfLearn (19/10/2026, ours, off): reduction learned from search outcomes, 1/1024 ply per unit of log-odds of a */ \
-  /* good move away from RfLearnC/1024 (the median log-odds of the reduced moves, -3.63); 13_search.inc. Works   */ \
-  /* with both reduction formulas. First test value 256: about +0.65 ply for the 10% least promising moves and  */ \
-  /* -0.55 ply for the 10% most promising.                                                                       */ \
-  P(RfLearn, 0, 0, 2048)                                                                                  \
-  P(RfLearnC, -4723, -8192, 2048)                                                                         \
+  /* REMOVED 22/10/2026 (user): block 2 of our own - RedForm (Rf and Re levers, fitted power-law reduction), RfVolatile,*/ \
+  /* RfLearn/RfLearnC/RfLearnOwn (reduction learned from outcomes). Never above parity: RedForm alone -1.8 +- 7.6,   */ \
+  /* 12 s -3.05 +- 4.74, with the own ordering and RfLearnOwn -27.8 +- 14.7 over 602 (q37). The reduction stays the  */ \
+  /* inherited formula; own terms enter it one at a time (OrdRedK, removed with the own ordering form). Code in       */ \
+  /* _backup/Triumviratus_8.1_pre_rimozione_lmr_nostro_2026-10-22; tools redfit_engine.py and redout_fit.py keep the fits. */ \
   /* Reduction levers of our own (19/10/2026, all off; 13_search.inc before neg_cap). Each lowers the reduction,   */ \
   /* the sum stops at zero. Units 1/1024 ply: RdDisagree per 1024 of |psqt - positional| (up to 8), RdBoundCapt   */ \
   /* once for a capture into another expert, RdKingAtt per unit of king_attack_weight (up to 6), RdKingDanger per */ \
@@ -975,19 +920,6 @@
                                             /* +0.61 +- 4.80 pooled with 7+0.07 (5,142); 3072 8moves -3.65.    */ \
                                             /* Breaks occur in 6% of game positions, 30% of games; played      */ \
                                             /* breaks almost unchanged (597 vs 569): the search finds them.    */ \
-  P(ReA0, 1009, 336, 3127)                                                                                 \
-  P(ReA1, 1057, 352, 3271)                                                                                 \
-  P(ReA2, 1040, 346, 3220)                                                                                 \
-  P(ReA3, 1064, 354, 3292)                                                                                 \
-  P(ReAlpha, 300, 50, 900)                                                                                 \
-  P(ReBeta, 400, 50, 900)                                                                                  \
-  P(ReD0, 40, -5, 80)                                                                                      \
-  P(ReM0, -5, -5, 40)                                                                                      \
-  P(ReImproving, -162, -686, 686)                                                                          \
-  P(ReConst, -382, -1646, 1646)                                                                            \
-  P(ReMoveNo, -78, -334, 334)                                                                              \
-  P(ReWindow, -9, -60, 30)                                                                                 \
-  P(ReTtPv, 933, -2999, 2999)                                                                              \
   /* end of the node (13_search.inc, node_close) */                                                           \
   P(TtMoveHistGood, 918, 0, 3000)        /* tt_move_hist: + if the best is the hash move, - otherwise     */ \
   P(TtMoveHistBad, 747, 0, 3000)                                                                           \
@@ -1340,6 +1272,17 @@
   P(CorrSingMax, 256, 64, 600)           /* clamp of the correction reward after a multi-cut (limit / 4)     */ \
   /* -- histories and ordering --                                                                                  */ \
   P(BonusTriedDiv, 256, 64, 1024)        /* non-PV: bonus grows by bonus * moves tried / this                */ \
+  /* HistGrad (22/10/2026, ours): quiet history updates scaled by the gradient of a listwise ranker over the        */ \
+  /* ordering scores of the best move and of the quiet moves tried (13_search.inc, reward_best). HistGradT is the    */ \
+  /* temperature in score units: the own form is a log-odds x 1000 (about 1000), the inherited score is in history   */ \
+  /* units (several thousand).                                                                                  */ \
+  /* BAKE HISTGRAD (22/10/2026, user): HistGradMix 0 -> 256 on the inherited ordering. Mix 512 lost (-4.0 +- 6.3     */ \
+  /* over 3,066). Mix 256 at 5+0.05: socket 0 +1.58 +- 5.52 (4,190), socket 1 -3.37 +- 5.77 (3,810), Zen 4 laptop     */ \
+  /* +4.16 +- 8.40 (1,920); all +0.37 +- 3.56 over 10,220, without socket 1 +2.39 +- 4.62 (laptop as referee). Mix    */ \
+  /* and temperature go to the history SPSA after the network (O1). HistGradMix=0 = the inherited update exactly.    */ \
+  /* New canary (MinGW dev build, Consilium-2 ep27 net): bench 420601 (150757 with HistGradMix=0).                 */ \
+  P(HistGradMix, 256, 0, 1024)                                                                             \
+  P(HistGradT, 3000, 200, 40000)                                                                           \
   P(PawnHistSplit, -4, -64, 0)           /* pawn history: PawnBonusScale above this amount, PawnMalusScale at or below */ \
   P(HistLimPawn, 8192, 2048, 16384)      /* limit of the pawn history (LIM_PAWN)                             */ \
   P(HistLimTtMove, 8192, 2048, 16384)    /* limit of the hash-move history (LIM_TTMOVE)                      */ \
@@ -1362,6 +1305,14 @@
   P(TtKeepMargin, 3, 0, 8)               /* the old entry stays when deeper by more than this (0 = always write) */ \
   P(TtKeepPv, 2, 0, 6)                   /*   plus this on PV entries                                        */ \
   P(TtAgeWeight, 8, 1, 16)               /* victim value = depth - this * age                                */
+
+// OWN ORDERING FORM (OrdOwn, OrdMapNo/OrdMapMask, OrdOwnTact, OrdRedK, OqGood/OtGood and the Oq/Ot/Oe weights):
+// REMOVED 22/10/2026 (user). Fitted on a move-ordering oracle of 597k nodes it ordered better than the inherited
+// scores (refuting quiet move first 68.8% against 66.1%) and still lost in games: with the full move-number map
+// -11.8 +- 9.2 over 1,596 (q35 + q38), with the map in the log table only -12.8 +- 10.6 over 1,140, with an own-score
+// term in the reduction -18.3 +- 13.9. 86% of the cutoffs fall on the first move, so the ordering gain was about 1%
+// of the tree, less than the cost and the loss of balance with the inherited reductions and pruning. Code in
+// _backup/Triumviratus_8.1_pre_rimozione_ordown_2026-10-22 (search/, threads.h, redlog.h, tools/ordlog_*.py).
 
 // ---------------------------------------------------------------------------
 // TUNING BUILD OF THE TIME MANAGEMENT (20/10/2026): -DTRIUMV_RELEASE -DTRIUMV_TUNE_TIME. Every parameter is a constant

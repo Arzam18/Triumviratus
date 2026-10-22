@@ -107,7 +107,7 @@ static int best_variant() {
 int main() {
   const int best = best_variant();
   if (!best) {
-    printf("Triumviratus 8.0 needs a CPU with SSE4.1 and POPCNT.\n");
+    printf("Triumviratus 8.1 needs a CPU with SSE4.1 and POPCNT.\n");
     return 1;
   }
   int v = best;

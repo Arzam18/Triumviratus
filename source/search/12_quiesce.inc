@@ -31,24 +31,21 @@ static inline bool bound_covers(int bound, bool lower) {
   return bound == BOUND_EXACT || bound == (lower ? BOUND_LOW : BOUND_UP);
 }
 
+// Decided values (mates, tablebase wins) are stored as distances from this node, not from the root.
 static inline int to_hash_value(int v, int ply) {
-  if (!val_known(v)) return v;
-  return val_won(v) ? v + ply : val_lost(v) ? v - ply : v;
+  return val_known(v) && val_decided(v) ? v + (v > 0 ? ply : -ply) : v;
 }
 
+// Reading back turns the distance into one from the root again. A win that needs more plies than the fifty-move counter
+// leaves (a mate measured to mate_value, a tablebase win to TB_WIN_TOP) is only "won somewhere": it comes back as the
+// lowest decided value of that side. Rewritten 22/10/2026 in this symmetric form; identical results on all 1.09 billion
+// combinations of value, ply and counter (scratch harness hashval_check.cpp).
 static inline int from_hash_value(int v, int ply, int fifty) {
   if (!val_known(v)) return VAL_NONE;
-  if (val_won(v)) {
-    if (v >= MATE_FLOOR && mate_value - v > 100 - fifty) return TB_WIN_FLOOR - 1;
-    if (TB_WIN_TOP - v > 100 - fifty) return TB_WIN_FLOOR - 1;
-    return v - ply;
-  }
-  if (val_lost(v)) {
-    if (v <= -MATE_FLOOR && mate_value + v > 100 - fifty) return -TB_WIN_FLOOR + 1;
-    if (TB_WIN_TOP + v > 100 - fifty) return -TB_WIN_FLOOR + 1;
-    return v + ply;
-  }
-  return v;
+  if (!val_decided(v)) return v;
+  const int side = v > 0 ? 1 : -1, a = v * side;
+  const int need = a >= MATE_FLOOR ? mate_value - a : TB_WIN_TOP - a;
+  return need > 100 - fifty ? side * (TB_WIN_FLOOR - 1) : v - side * ply;
 }
 
 // Reading and writing go through tt_key (03_tables.inc): the board key plus, when on, the band of the fifty-move
