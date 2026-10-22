@@ -46,7 +46,17 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # sorgenti-only per le VM). NB: il nome deve restare allineato a CN_DEFAULT_NET_FILE.
 # 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
-NET_NAME ?= nn-consilium.nnue
+# Consilium-2 by default (22/10/2026, author: from here on every test runs on the engine adapted to the new network).
+# C2=1 defines TRIUMV_C2 (8 experts per perspective, int8 HalfKA, pawn-king subnetwork) and names the default network
+# nn-consilium2.nnue, as CN_DEFAULT_NET_FILE does; `make C2=0` builds the Consilium (8.0) engine with nn-consilium.nnue.
+C2 ?= 1
+ifeq ($(C2),1)
+  NET_NAME ?= nn-consilium2.nnue
+  C2_DEF := -DTRIUMV_C2
+else
+  NET_NAME ?= nn-consilium.nnue
+  C2_DEF :=
+endif
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
   $(info [i] $(NET_NAME) trovata: rete EMBEDDATA nel binario)
@@ -54,7 +64,7 @@ else
   EMBED_DEF := -DNNUE_EMBEDDING_OFF
   $(info [i] nessuna $(NET_NAME) alla build-root: embedding OFF, serve il file accanto al binario)
 endif
-DEFS := -DNDEBUG $(EMBED_DEF) -DTRIUMV5_THREATS_INCR -DUSE_PEXT -DUSE_POPCNT \
+DEFS := -DNDEBUG $(EMBED_DEF) $(C2_DEF) -DTRIUMV5_THREATS_INCR -DUSE_PEXT -DUSE_POPCNT \
         -DUSE_SSE -DUSE_SSE2 -DUSE_SSSE3 -DUSE_SSE41 -DUSE_AVX2
 
 ARCH := -mavx2 -mbmi2 -mfma -mpopcnt -msse4.1 -mssse3 -msse2
@@ -194,7 +204,7 @@ ifneq (,$(filter android android-dotprod,$(MAKECMDGOALS)))
   TC   := $(NDK)/toolchains/llvm/prebuilt/$(HOST_TAG)/bin
   CXX  := $(TC)/clang++
   CC   := $(TC)/clang
-  DEFS := -DNDEBUG $(EMBED_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8
+  DEFS := -DNDEBUG $(EMBED_DEF) $(C2_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8
   ARCH := --target=aarch64-linux-android24
   # bionic: pthread dentro libc (niente -lpthread); 16KB page-size per Android 15+.
   LIBS := -lm -static-libstdc++ -Wl,-z,max-page-size=16384
@@ -213,12 +223,12 @@ ifneq (,$(filter sse41,$(MAKECMDGOALS)))
 endif
 
 # ---- macOS (15/10/2026, issue #4) ------------------------------------------
-#   make macos-arm CXX=clang++ NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
+#   make macos-arm CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
 #                                                           gli stessi percorsi della build android-dotprod
-#   make macos-x86 CXX=clang++ NET_NAME=nn-consilium.nnue   Mac Intel con AVX2 (Haswell, 2013, e successivi)
+#   make macos-x86 CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Mac Intel con AVX2 (Haswell, 2013, e successivi)
 # Compilati e verificati col bench dal workflow .github/workflows/macos.yml (macchine macOS di GitHub).
 ifneq (,$(filter macos-arm,$(MAKECMDGOALS)))
-  DEFS := -DNDEBUG $(EMBED_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8 -DUSE_NEON_DOTPROD
+  DEFS := -DNDEBUG $(EMBED_DEF) $(C2_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8 -DUSE_NEON_DOTPROD
   ARCH := -mcpu=apple-m1
   EXE  := triumviratus_macos_arm
 endif
