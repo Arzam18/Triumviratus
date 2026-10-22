@@ -419,7 +419,10 @@
   /* NmpNpmFloor (22/10/2026, was C2NmpMask, which read the same material through the network's routing table): no   */ \
   /*  null move when the side to move has at most this much non-pawn material (N = B = 3, R = 5, Q = 9). 3 = a minor */ \
   /*  piece or less, 5 = also a lone rook; zugzwang is common there. 0 = off (only pawns: always skipped).           */ \
-  P(NmpNpmFloor, 0, 0, 9)                                                                                 \
+  /*  BAKE 0 -> 3 (22/10/2026, author): q54 (as C2NmpMask 1, same rule and bench) on the ep107 export, endgame_12_18 */ \
+  /*  without draw adjudication, 8+0.08: +1.32 +- 2.29 over 6,844 (s0 +1.0, s1 +1.6; LLR [-3,1] +1.30, accepted by */ \
+  /*  the author before the close). Bench with ep107: 188906 (187691 with it at 0). Confirmation on 8moves pending. */ \
+  P(NmpNpmFloor, 3, 0, 9)                                                                                 \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
