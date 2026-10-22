@@ -51,7 +51,7 @@ margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0
 
 ## Summary
 
-Of 58 entries, **14 are new**, **28 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 60 entries, **15 are new**, **29 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
@@ -71,6 +71,8 @@ experts of the network. The analysis build has its own section ([§10](#10-analy
 | Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral**; SPSA CORR1p2 kept it on (about 4,550); on the release-candidate build at 8+0.08 (14 October, two runs with the same tree, before and after the prefetch below): **+0.5 ± 3.0 over 14,426 games, neutral** | off |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
 | Slider attacks by obstruction difference on the four lines of a square in one AVX-512 register, with the lane-wise leading-zero count (`vplzcntq`) | New in its form | 8.1 dev | **−0.98%** cycles per node in the middlegame, **−1.20%** in endgames, whole engine (xperf, PGO, Xeon) | adopted, default of the AVX-512 builds |
+| History update as a listwise ranker (`HistGrad`): the reward of the best quiet move and the penalties of the quiet moves tried before it are scaled by the gradient of a softmax over their ordering scores, so a best move the ordering expected learns little, a surprising one a lot, and a tried move the ordering rated low is barely punished | New | 8.1 dev | **+0.90 ± 3.41** (5+0.05, both sockets and a Zen 4 laptop, 11,166); without socket 1 +3.1 ± 4.2; the stronger blend (512) −4.0 ± 6.3 (3,066) | adopted at 256 (22 October 2026); blend and temperature to the history tuning |
+| Discovered check in move ordering (`ChkDisc`): a quiet move whose piece stands between one of our sliders and the enemy king and lands off that line gets a bonus, on top of the bonus for direct checks | Revisited (Coda scores discovered attacks on any enemy piece) | 8.1 dev | +0.8 ± 3.7 over 9,178 (8+0.08 and 5+0.05 summed, both sockets; test paused, to be continued); first test −0.2 ± 5.3 (4,174) | being tested (off by default) |
 | Pawn break in a closed structure (three or more blocked pawns) reduced less (`RdPawnBreak`) | New | 8.1 dev | 2048: +0.19 ± 5.74 (8+0.08, 3,724), +0.6 ± 4.8 pooled with 7+0.07 (5,142); 3072 −3.7 ± 9.2 | closed, neutral |
 | Hyperbola quintessence for AVX2 in our form (`pair_hqs`: the two diagonals in a vector register, the rook in general registers) | Revisited | 8.1 dev | −0.23% / −0.05% cycles per node | adopted, default of the AVX2 builds |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
