@@ -208,7 +208,7 @@ static constexpr bool c2_tab_any(const int (&t)[4][8]) {
 }
 #ifdef TRIUMV_RELEASE
 static constexpr int c2_tab[4][8] = C2_TAB_LIST;
-static constexpr bool g_c2_node = c2_tab_any(c2_tab) || C2NmpMask || C2AsymRfp || C2AsymLmr;
+static constexpr bool g_c2_node = c2_tab_any(c2_tab) || C2AsymRfp || C2AsymLmr;
 static constexpr bool g_c2_red = C2SwitchRed || C2ConvRed || C2PkRed || C2PkVol || C2AsymLmr;
 #endif
 // The C2 evaluation terms (C2Conv*, C2EvalExp0..7) live in the bridge (consilium_bridge.cpp). Review 21/10/2026: they
@@ -226,7 +226,7 @@ static bool g_c2_node = false, g_c2_red = false;
 static void c2_tables_refresh() {
   const int t[4][8] = C2_TAB_LIST;
   std::memcpy(c2_tab, t, sizeof(c2_tab));
-  g_c2_node = c2_tab_any(c2_tab) || C2NmpMask || C2AsymRfp || C2AsymLmr;
+  g_c2_node = c2_tab_any(c2_tab) || C2AsymRfp || C2AsymLmr;
   g_c2_red = C2SwitchRed || C2ConvRed || C2PkRed || C2PkVol || C2AsymLmr;
   c2_eval_push();
 }
@@ -896,14 +896,9 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   int floor = n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase +
               by_expert(n.expert, NmpExp0, NmpExp1, NmpExp2, NmpExp3);
 #ifdef TRIUMV_C2
-  // C2 ideas 1 and 6 (21/10/2026, agent A; OFF by default, SPRT pending): the floor per Consilium Plebis expert, and no
-  // null move in the experts of C2NmpMask, read on the opponent's perspective, whose expert follows the material of the
-  // side that would pass: zugzwang lives where that side has little left.
-  if (g_c2_node) {
+  // C2 idea 1 (21/10/2026, agent A; OFF by default, SPRT pending): the floor per Consilium Plebis expert.
+  if (g_c2_node)
     floor += c2_tab[C2T_NMP][n.c2e];
-    if ((C2NmpMask >> n.c2_own) & 1)
-      return NO_VALUE;
-  }
   // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): ahead in material class and evaluation,
   // passing is rarely wrong, so the floor is lower.
   if (C2ImbAheadNmp && n.c2_imb > 0)
@@ -914,6 +909,15 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
       (AN && (td.an_bits & AN_NMPZUG) && td.root_depth >= 11 && td.side != td.root_side && few_moves(td)) ||
       (NmpFewMoves && count_bits(td.occupancies[both]) <= NmpFewPieces && few_moves(td, NmpFewMoves)))
     return NO_VALUE;
+  // NmpNpmFloor (22/10/2026, was C2NmpMask): little non-pawn material left for the side that would pass, where
+  // zugzwang is common. Counted on the board, so it does not depend on the network.
+  if (NmpNpmFloor) {
+    const int o = 6 * us;
+    const int npm = 3 * count_bits(td.bitboards[N + o] | td.bitboards[B + o]) + 5 * count_bits(td.bitboards[R + o]) +
+                    9 * count_bits(td.bitboards[Q + o]);
+    if (npm <= NmpNpmFloor)
+      return NO_VALUE;
+  }
   const int r = NmpRedBase + n.depth / NmpDepthDiv + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
                 (((AN ? td.dz_nmp : deep_term(td, DeepNmp)) + (int)((td.hash_key >> 20) & 1023)) >> 10);
   NullUndo nu;

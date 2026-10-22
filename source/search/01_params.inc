@@ -416,6 +416,10 @@
   /*  and at most NmpFewPieces pieces are on the board (zugzwang is likely there). 0 = off, identical tree.        */ \
   P(NmpFewMoves, 0, 0, 10)                                                                                \
   P(NmpFewPieces, 15, 2, 32)                                                                              \
+  /* NmpNpmFloor (22/10/2026, was C2NmpMask, which read the same material through the network's routing table): no   */ \
+  /*  null move when the side to move has at most this much non-pawn material (N = B = 3, R = 5, Q = 9). 3 = a minor */ \
+  /*  piece or less, 5 = also a lone rook; zugzwang is common there. 0 = off (only pawns: always skipped).           */ \
+  P(NmpNpmFloor, 0, 0, 9)                                                                                 \
   P(ProbCutMargin, 209, 80, 500)                                                                          \
   P(ProbCutImproving, 64, 0, 200)                                                                         \
   P(ProbCutTTMargin, 415, 150, 900)                                                                       \
@@ -1064,9 +1068,7 @@
   P(C2PkVol, 0, -3072, 3072)                                                                               \
   P(C2PkOrder, 0, -16384, 16384)                                                                           \
   P(C2PkScale, 32, 4, 1024)                                                                                \
-  /*  6. Null move per expert: no null move when bit e of C2NmpMask is set, e = the opponent's expert, which reads  */ \
-  /*     the material of the side that would pass (1 = at most a minor, 3 = also a lone rook).                       */ \
-  P(C2NmpMask, 0, 0, 255)                                                                                  \
+  /*  6. (C2NmpMask, no null move per expert, became NmpNpmFloor on 22/10/2026: it only read material.)             */ \
   /*  7. Asymmetric experts: the two perspectives use different experts (the routing table separates the material */ \
   /*     of the two sides): RFP margin plus C2AsymRfp (evaluation units), reduction minus C2AsymLmr (1/1024 ply).     */ \
   P(C2AsymRfp, 0, -400, 400)                                                                               \
