@@ -76,7 +76,7 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-8.0 has entered CCRL 40/15 with its first games; the Blitz list will follow.
+**Triumviratus 8.0 has the highest single-CPU rating on CCRL 40/15: 3640 ± 40 after its first 106 games** (Stockfish 19, 1 CPU: 3630). The Blitz list will follow.
 
 **CCRL Blitz** (2 min + 1 s), list of 2026-10-17
 
