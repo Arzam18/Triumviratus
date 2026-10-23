@@ -248,14 +248,18 @@ results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 > contained code from Stockfish (GPLv3); the whole project is distributed under GPLv3, and the files with derived code
 > carry a note of their origin.
 >
-> **What is the project's own.** The networks: Consilium, a mixture of four experts chosen by material (architecture
-> TRANN3), trained by the project from random initialisation, with no Stockfish network as seed or teacher
-> ([`NETWORKS.md`](docs/networks/NETWORKS.md)), and its inference code, written from a specification. The search code
-> of 8.1. The `PassedPawns` input block, an original feature. The rules added to the time manager (the surprise rule,
-> less time when behind on the clock, the defence rules). Per-expert search margins, the causal reduction and the other
-> techniques listed as new in [`NOVELTIES.md`](docs/project/NOVELTIES.md). The link between search and network, the
-> transposition table and the move queue. The measurement method: every search change by SPRT, every speed change by
-> hardware counters at an identical search tree, with the numbers published.
+> **What is the project's own:**
+> - **the networks**: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the
+>   project from random initialisation, with no Stockfish network as seed or teacher
+>   ([`NETWORKS.md`](docs/networks/NETWORKS.md)), and the inference code that runs them, written from a specification;
+> - **the `PassedPawns` input block**, an original feature;
+> - **the search code of 8.1**, including the code that passes each move to the network (incremental updates of the
+>   accumulators and their caches), the transposition table and the move picker;
+> - **the rules added to time management**: the surprise rule, less time when behind on the clock, the defence rules;
+> - **per-expert search margins, the causal reduction** and the other techniques listed as new in
+>   [`NOVELTIES.md`](docs/project/NOVELTIES.md);
+> - **the measurement method**: every search change by SPRT, every speed change by hardware counters at an identical
+>   search tree, with the numbers published.
 >
 > **Where the rest comes from.** The board, the attack tables and the basic infrastructure descend from **BBC**;
 > Syzygy probing is **Fathom** and the legal move generator comes from **Zoomies** and **Surge** (MIT). Up to 8.0 the
