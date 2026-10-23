@@ -96,7 +96,9 @@ void launch_search(int depth) {
     if (syzygy_probe_root(tb_move, tb_score)) {
       new_search();
       std::lock_guard<std::mutex> lock(output_mutex);
-      printf("info depth 1 score cp %d tbhits 1 pv ", tb_score);
+      char sc[32];   // the internal tablebase value through print_score (it was printed raw: cp 29872)
+      print_score(sc, sizeof sc, tb_score);
+      printf("info depth 1 score %s tbhits 1 pv ", sc);
       print_move(tb_move);
       printf("\nbestmove ");
       print_move(tb_move);

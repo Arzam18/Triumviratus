@@ -263,11 +263,18 @@ static void wdl_from_cp(int cp, int &w, int &d, int &l) {
   d = std::max(0, 1000 - w - l);
 }
 
+// Tablebase wins (23/10/2026, display only): they were printed through units_to_cp like an evaluation, which gave
+// about +-94.55 (and a value that moved with EvalScale). Now the usual convention: cp 20000 minus the distance in plies
+// from the root, so a GUI shows +-199.xx; mates stay "mate N".
 static void print_score(char *out, size_t sz, int v) {
   if (v >= MATE_FLOOR)
     snprintf(out, sz, "mate %d", (mate_value - v + 1) / 2);
   else if (v <= -MATE_FLOOR)
     snprintf(out, sz, "mate %d", -(mate_value + v) / 2);
+  else if (v >= TB_WIN_FLOOR)
+    snprintf(out, sz, "cp %d", 20000 - (TB_WIN_TOP - v));
+  else if (v <= -TB_WIN_FLOOR)
+    snprintf(out, sz, "cp %d", -20000 + (TB_WIN_TOP + v));
   else
     snprintf(out, sz, "cp %d", units_to_cp(v));
 }
@@ -299,8 +306,8 @@ static void report_lines(ThreadData &td, int depth) {
       printf(" upperbound");
     if (g_show_wdl) {
       int w, dd, l;
-      if (v >= MATE_FLOOR) { w = 1000; dd = l = 0; }
-      else if (v <= -MATE_FLOOR) { l = 1000; w = dd = 0; }
+      if (v >= TB_WIN_FLOOR) { w = 1000; dd = l = 0; }        // mates and tablebase wins
+      else if (v <= -TB_WIN_FLOOR) { l = 1000; w = dd = 0; }
       else wdl_from_cp(units_to_cp(v), w, dd, l);
       printf(" wdl %d %d %d", w, dd, l);
     }
