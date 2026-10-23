@@ -15,10 +15,11 @@
 struct NnStack;   // stack of the network's dirty entries (nn_dirty.h)
 
 // ============================================================================
-// Triumviratus search, rewritten on 04/10/2026 on the logic of the Stockfish 19 search (GPLv3).
-// Structures, names and code are ours; the rules and the numbers follow SF19 (see
-// docs/audit_8.0/L_RISCRITTURA_RICERCA.md). The previous search is in
-// _backup/Triumviratus_8.0_pre_riscrittura_ricerca_2026-10-04.
+// Triumviratus search (8.1). Its algorithmic base is the Stockfish 19 search (GPLv3), on which the 8.0 search
+// was rewritten on 04/10/2026. In 8.1 the code is the engine's own: every block has been rewritten in its own
+// form, with our structures and names, and no Stockfish source remains. Some numeric constants still have the
+// values of Stockfish 19 (marked in search/01_params.inc); they will be retuned by SPSA after the training of
+// the next network.
 // ============================================================================
 
 #define MAX_THREADS 512
