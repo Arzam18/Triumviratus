@@ -1,6 +1,10 @@
 // Triumviratus, a UCI chess engine.
 // Copyright (C) 2026 Francesco Torsello
 // SPDX-License-Identifier: GPL-3.0-or-later (see COPYING)
+// Additional term under section 7(b) of the GPLv3: anyone who copies, modifies or redistributes this file, in whole
+// or in part, must preserve this notice and the attribution "Consilium inference: Francesco Torsello, Triumviratus
+// (https://github.com/Tors3/Triumviratus)", in the file and in the credits (Appropriate Legal Notices) of any program
+// that contains it.
 
 #pragma once
 #ifndef CONSILIUM_BRIDGE_H

@@ -246,7 +246,9 @@ results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 
 > **GPLv3**, see [`COPYING`](COPYING). The engine descends from BBC by Maksim Korzh (GPLv3), and up to 8.0 it also
 > contained code from Stockfish (GPLv3); the whole project is distributed under GPLv3, and the files with derived code
-> carry a note of their origin.
+> carry a note of their origin. The files of the Consilium inference (`source/consilium/`, `source/consilium_bridge.*`)
+> add a term allowed by section 7(b) of the GPLv3: whoever copies or adapts them must keep the attribution to
+> Triumviratus in the files and in the credits of the program that contains them.
 >
 > **What is the project's own:**
 > - **the networks**: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the
