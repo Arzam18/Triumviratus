@@ -1,4 +1,4 @@
-# Check on every pull request to dev2 or main: build the engine (Linux, clang, no PGO) and compare its bench with the
+# Check on every pull request to dev or main: build the engine (Linux, clang, no PGO) and compare its bench with the
 # "Bench: <nodes>" line of the last commit message. Same flags as the release (-ffp-contract=off), so the bench
 # matches the Windows and Linux release builds.
 name: Pull request bench
@@ -6,7 +6,7 @@ name: Pull request bench
 on:
   workflow_dispatch:
   pull_request:
-    branches: [dev2, main]
+    branches: [dev, main]
 
 jobs:
   bench:

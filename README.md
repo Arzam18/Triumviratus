@@ -224,7 +224,7 @@ The open-source computer-chess community is what makes a project like this possi
 
 ## Contributing
 
-`main` holds the development of 8.1, merged from the working branch [`dev2`](https://github.com/Tors3/Triumviratus/tree/dev2);
+`main` holds the development of 8.1, merged from the working branch [`dev`](https://github.com/Tors3/Triumviratus/tree/dev);
 released versions are on the [Releases](https://github.com/Tors3/Triumviratus/releases) page. How to send code or test
 results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 

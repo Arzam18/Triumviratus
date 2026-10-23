@@ -1,12 +1,12 @@
 # Contributing to Triumviratus
 
-Two branches: **`main`** holds the development of 8.1, merged from **`dev2`**, the working branch. Released versions
+Two branches: **`main`** holds the development of 8.1, merged from **`dev`**, the working branch. Released versions
 are on the [Releases](https://github.com/Tors3/Triumviratus/releases) page (8.0: tag `v8.0`). Pull requests go to
-`dev2`; every pull request is reviewed and merged by hand.
+`dev`; every pull request is reviewed and merged by hand.
 
 ## Code contributions
 
-1. Fork the repository and branch from `dev2`. Changes that keep the search identical can go together in one pull
+1. Fork the repository and branch from `dev`. Changes that keep the search identical can go together in one pull
    request, listed in its description; each change to the search goes in its own pull request.
 2. Build and run the bench (`source/Makefile`, then `bench` in the engine). Put the result in the last commit
    message as `Bench: <nodes>`. The check on the pull request builds the engine and compares the two numbers.
