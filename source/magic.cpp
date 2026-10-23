@@ -1,8 +1,11 @@
+// Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
+// released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
+// and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #include "defs.h"
 #include "attacks.h"
 #include "magic.h"
 #if defined(USE_PEXT)
-#include <immintrin.h>   // _pext_u64 (BMI2): sliding-attack index senza moltiplicazione (come SF bmi2)
+#include <immintrin.h>   // _pext_u64 (BMI2): sliding-attack index without a multiplication
 #endif
 
 // find appropriate magic number
@@ -98,49 +101,53 @@ void init_sliders_attacks(int bishop)
     }
 }
 
-#if defined(USE_AVX2) && !defined(TRIUMV_NO_DUALHQ)
-// P4 (08/10/2026, velocita', stessi attacchi): la ricerca calcola gli attacchi dei pezzi lunghi con la hyperbola
-// quintessence vettoriale della rete (DualMagic, nnue/attacks.h: alfiere e torre insieme, maschere di 64 byte per casa
-// e una tabella da 2 KB per le traverse) invece che con le tabelle PEXT (2,25 MB, una lettura a caso per attacco). Il
-// calcolo usa solo la geometria dei bit, quindi vale con la nostra numerazione (a8 = 0) come per la rete. xperf 12
-// giri, PGO: cicli -0,77% mediogioco, -1,61% finali (istruzioni +0,8%, IPC 1,35 -> 1,38). -DTRIUMV_VERIFY_DUALHQ
-// confronta ogni attacco con le tabelle PEXT (abort al primo disaccordo); -DTRIUMV_NO_DUALHQ torna alle tabelle.
-// windows.h (via defs.h) definisce le macro min/max: con clang-cl rompono std::min in nnue/bitboard.h.
-#pragma push_macro("min")
-#pragma push_macro("max")
-#undef min
-#undef max
-#include "nnue/attacks.h"
-#pragma pop_macro("max")
-#pragma pop_macro("min")
+// The old macro names (DualMagic, 08/10/2026) still select the same branches.
+#if defined(TRIUMV_NO_DUALHQ) && !defined(TRIUMV_NO_SLIDERS)
+    #define TRIUMV_NO_SLIDERS
+#endif
+#if defined(TRIUMV_VERIFY_DUALHQ) && !defined(TRIUMV_VERIFY_SLIDERS)
+    #define TRIUMV_VERIFY_SLIDERS
+#endif
+#if defined(USE_AVX2) && !defined(TRIUMV_NO_SLIDERS)
+// Sliding attacks from the bit geometry (sliders.h, block 7 of 8.1, 18/10/2026), bishop and rook in one computation:
+// four lines in one register with vplzcntq on AVX-512, hyperbola quintessence plus a 512-byte rank table on AVX2,
+// instead of the PEXT tables (2.25 MB, one random read per attack). -DTRIUMV_VERIFY_SLIDERS compares every attack
+// with the tables (abort at the first difference); -DTRIUMV_NO_SLIDERS goes back to the tables.
+#include "sliders.h"
 #include <cstdio>
 #include <cstdlib>
 static U64 pext_bishop_attacks(int square, U64 occupancy);
 static U64 pext_rook_attacks(int square, U64 occupancy);
-static inline std::pair<U64, U64> hq_both(int square, U64 occupancy) {
-    const auto [b, r] = Triumviratus::Attacks::dual_magic(Triumviratus::Square(square)).both_attacks_bb(occupancy);
-#ifdef TRIUMV_VERIFY_DUALHQ
-    if (b != pext_bishop_attacks(square, occupancy) || r != pext_rook_attacks(square, occupancy)) {
-        printf("info string DUALHQ SBAGLIATO: casa %d occ %llx\n", square, (unsigned long long)occupancy);
+static inline SliderPair slider_pair(int square, U64 occupancy) {
+// AVX-512: obstruction difference (-0.98% / -1.20% cycles per node, middlegame / endgame, against the previous
+// attacks); AVX2: diagonals in a vector register, rook from general registers (hqs, -0.23% middlegame).
+// -DSLIDERS_FORCE_HQ: the three-lane hyperbola quintessence everywhere (measured +0.16 to +0.35% on AVX2).
+#if defined(SLIDERS_HAVE_OD)
+    const SliderPair p = sliders::pair_od(square, occupancy);
+#elif defined(SLIDERS_FORCE_HQ)
+    const SliderPair p = sliders::pair_hq(square, occupancy);
+#else
+    const SliderPair p = sliders::pair_hqs(square, occupancy);
+#endif
+#ifdef TRIUMV_VERIFY_SLIDERS
+    if (pair_bishop(p) != pext_bishop_attacks(square, occupancy) || pair_rook(p) != pext_rook_attacks(square, occupancy)) {
+        printf("info string SLIDERS WRONG: square %d occ %llx\n", square, (unsigned long long)occupancy);
         fflush(stdout);
         abort();
     }
 #endif
-    return {b, r};
+    return p;
 }
-U64 get_bishop_attacks(int square, U64 occupancy) { return hq_both(square, occupancy).first; }
-U64 get_rook_attacks(int square, U64 occupancy) { return hq_both(square, occupancy).second; }
+U64 get_bishop_attacks(int square, U64 occupancy) { return pair_bishop(slider_pair(square, occupancy)); }
+U64 get_rook_attacks(int square, U64 occupancy) { return pair_rook(slider_pair(square, occupancy)); }
 U64 get_queen_attacks(int square, U64 occupancy) {
-    const auto [b, r] = hq_both(square, occupancy);
-    return b | r;
+    const SliderPair p = slider_pair(square, occupancy);
+    return pair_bishop(p) | pair_rook(p);
 }
-// AA1 (10/10/2026): la coppia alfiere/torre di un solo calcolo, nel registro xmm (magic.h).
-SliderPair get_slider_pair(int square, U64 occupancy) {
-    const auto [b, r] = hq_both(square, occupancy);
-    return _mm_set_epi64x((long long)r, (long long)b);
-}
+// AA1 (10/10/2026): the bishop/rook pair of one computation, in an xmm register (magic.h).
+SliderPair get_slider_pair(int square, U64 occupancy) { return slider_pair(square, occupancy); }
 #define TRIUMV_AA1_PAIR_DONE
-// Le funzioni a tabelle restano, con un altro nome, per la verifica.
+// The table-based functions remain, under another name, for verification.
 #define get_bishop_attacks pext_bishop_attacks
 #define get_rook_attacks pext_rook_attacks
 #define get_queen_attacks pext_queen_attacks
@@ -199,7 +206,7 @@ U64 get_queen_attacks(int square, U64 occupancy)
 }
 
 #ifndef TRIUMV_AA1_PAIR_DONE
-// AA1 senza DualMagic (build senza AVX2 o -DTRIUMV_NO_DUALHQ): le due tabelle, come prima.
+// AA1 without DualMagic (builds without AVX2 or -DTRIUMV_NO_DUALHQ): the two tables, as before.
 SliderPair get_slider_pair(int square, U64 occupancy)
 {
     const U64 b = get_bishop_attacks(square, occupancy), r = get_rook_attacks(square, occupancy);

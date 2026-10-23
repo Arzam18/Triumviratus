@@ -1,3 +1,6 @@
+// Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
+// released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
+// and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #include "defs.h"
 #include "magic.h"
 #include <cstdlib>

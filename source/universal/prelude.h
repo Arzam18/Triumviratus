@@ -1,6 +1,6 @@
-// Binario universale (08/10/2026): tutte le intestazioni di sistema che il motore usa, incluse PRIMA del namespace
-// della variante. Dentro il namespace le stesse #include non fanno nulla (guardie), cosi' le dichiarazioni della
-// libreria standard e di Windows restano globali e solo il codice del motore finisce in Triumv_<variante>.
+// Universal binary (08/10/2026): all the system headers the engine uses, included BEFORE the namespace
+// of the variant. Inside the namespace the same #includes do nothing (guards), so the declarations of the
+// standard library and of Windows stay global and only the engine code ends up in Triumv_<variant>.
 #pragma once
 #ifndef NOMINMAX
 #define NOMINMAX

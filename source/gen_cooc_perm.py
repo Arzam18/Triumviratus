@@ -39,7 +39,9 @@ ap.add_argument("--cooc", required=True, help="coppie in spazio PERMUTATO (*.coo
 # raggruppare piu' largo da' al clustering piu' liberta'. Se 16 batte 4, la pagina
 # non era l'unita' giusta.
 ap.add_argument("--rows-per-page", type=int, default=4)
-ap.add_argument("--cooc-n", type=int, default=4096, help="PROF_COOC_N della build che ha prodotto il dump")
+# 17/10/2026 (review by Bastiii): default aligned with PROF_COOC_N = 8192 in profile.h (it was 4096, so rows
+# 4096..8191 of a current dump were dropped unless --cooc-n was given).
+ap.add_argument("--cooc-n", type=int, default=8192, help="PROF_COOC_N della build che ha prodotto il dump")
 ap.add_argument("--out", default=r"C:\Users\franc\source\repos\Triumviratus_3.0\Triumviratus_7\nnue\nnue\features\feat_perm.cpp")
 args = ap.parse_args()
 ROWS_PER_PAGE = args.rows_per_page

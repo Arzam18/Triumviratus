@@ -1,3 +1,6 @@
+// Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
+// released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
+// and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #include "defs.h"
 #include "attacks.h"
 #include "perft.h"
@@ -5,7 +8,7 @@
 #include "search.h"
 #include "tt.h"
 #include "magic.h"
-#include "evaluation.h"
+#include "sliders.h"
 
 char ascii_pieces[13] = "PNBRQKpnbrqk";
 
@@ -43,7 +46,7 @@ char mapPieceToPromotion(int piece) {
 }
 
 int quit = 0;
-int movestogo = 0;   // FIX F-003: 0 = "non ricevuto dalla GUI" (vedi reset_time_control)
+int movestogo = 0;   // FIX F-003: 0 = "not received from the GUI" (see reset_time_control)
 int movetime = -1;
 int time_uci = -1;
 int inc = 0;
@@ -58,13 +61,13 @@ int side;
 int enpassant = no_sq;
 int castle;
 U64 hash_key;
-U64 repetition_table[2048];   // vedi defs.h (fix OOB 2026-06-12)
+U64 repetition_table[2048];   // see defs.h (OOB fix 2026-06-12)
 int repetition_index;
 int ply;
 int fifty;
 
-// 16 righe, non 12: le righe 12..15 restano a zero e servono a td_keys_update (search/07_makemove.inc) per leggere
-// "la chiave del pezzo catturato" anche quando non c'e' nessuna cattura (indice 15), senza un salto.
+// 16 rows, not 12: rows 12..15 stay at zero and serve td_keys_update (search/07_makemove.inc) to read
+// "the key of the captured piece" even when there is no capture (index 15), without a branch.
 U64 piece_keys[16][64];
 U64 enpassant_keys[64];
 U64 castle_keys[16];
@@ -167,10 +170,9 @@ int pv_table[max_ply][max_ply];
 int follow_pv, score_pv;
 
 
-int nnue_pieces[12] = { 6, 5, 4, 3, 2, 1, 12, 11, 10, 9, 8, 7 };
-
 void init_bitboards()
 {
+    sliders::init();   // sliding attacks from the bit geometry (sliders.h)
     init_leapers_attacks();
     init_sliders_attacks(bishop);
     init_sliders_attacks(rook);

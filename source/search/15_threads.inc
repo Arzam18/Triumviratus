@@ -1,13 +1,13 @@
-// search/15_threads.inc -- Avvio e arresto della ricerca, mosse di radice, scelta del thread, bestmove.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/15_threads.inc -- Starting and stopping the search, root moves, choice of the thread, bestmove.
+// Part of threads.cpp: NOT a translation unit of its own.
 
 #include <condition_variable>
 #include <functional>
 
-// Thread persistenti (12/10/2026). Prima ogni "go" creava un thread per la ricerca principale e uno per ogni helper,
-// e alla fine li univa: 1-2 ms a mossa con 4-8 thread (misura costi_infrastruttura.py, SF19 tiene i thread vivi).
-// Ora ogni thread nasce una volta e aspetta il lavoro su una condition variable. Gli oggetti non vengono mai
-// distrutti (il thread e' staccato): all'uscita del processo il sistema chiude i thread fermi in attesa.
+// Persistent threads (12/10/2026). Before, every "go" created a thread for the main search and one per helper and
+// joined them at the end: 1-2 ms per move with 4-8 threads (costi_infrastruttura.py). Now each thread is created once
+// and waits for work on a condition variable. The objects are never destroyed (the thread is detached): at process exit
+// the system closes the waiting threads.
 struct SearchWorker {
   std::mutex m;
   std::condition_variable cv;
@@ -48,10 +48,10 @@ struct SearchWorker {
 static SearchWorker *g_master_worker = nullptr;
 static std::vector<SearchWorker *> g_helper_workers;   // helper i = g_helper_workers[i - 1]
 
-// Attesa di stop o ponderhit (12/10/2026): prima un ciclo di sleep da 1 ms, che su Windows dura fino a 15,6 ms (grana
-// del timer), quindi la bestmove dopo un ponderhit poteva partire con ~15 ms di ritardo. Ora una condition variable,
-// svegliata da stop_search_threads e ponder_hit. Chi cambia i flag prende il mutex prima di notificare: cosi' chi
-// aspetta o non ha ancora controllato il predicato o sta gia' dormendo, e la sveglia non si perde.
+// Waiting for stop or ponderhit (12/10/2026): before, a loop of 1 ms sleeps, which on Windows last up to 15.6 ms (the
+// timer granularity), so the bestmove after a ponderhit could leave ~15 ms late. Now a condition variable, woken by
+// stop_search_threads and ponder_hit. Whoever changes the flags takes the mutex before notifying, so the waiter has
+// either not yet checked the predicate or is already asleep, and the wake-up is never lost.
 static std::mutex g_release_m;
 static std::condition_variable g_release_cv;
 static void notify_release() {
@@ -77,26 +77,28 @@ void wait_for_threads() {
     g_helper_workers[i - 1]->wait();
 }
 
-std::thread search_master;   // non piu' usato (thread persistenti, sopra); resta per threads.h
+std::thread search_master;   // no longer used (persistent threads, above); kept for threads.h
 
 void wait_for_search_done() {
   if (g_master_worker)
     g_master_worker->wait();
 }
 
-// La ricerca gira su un thread a parte, cosi' il ciclo UCI resta libero per stop, ponderhit e isready.
+// The search runs on a thread of its own, so the UCI loop stays free for stop, ponderhit and isready.
 void launch_search(int depth) {
   stop_search_threads();
   wait_for_search_done();
   g_limits.depth = depth;
 
-  // Posizione di radice coperta dalle tablebase (DTZ): si gioca subito la mossa perfetta.
+  // Root position covered by the tablebases (DTZ): the perfect move is played at once.
   if (!g_limits.infinite && !g_limits.ponder) {
     int tb_move = 0, tb_score = 0;
     if (syzygy_probe_root(tb_move, tb_score)) {
       new_search();
       std::lock_guard<std::mutex> lock(output_mutex);
-      printf("info depth 1 score cp %d tbhits 1 pv ", tb_score);
+      char sc[32];   // the internal tablebase value through print_score (it was printed raw: cp 29872)
+      print_score(sc, sizeof sc, tb_score);
+      printf("info depth 1 score %s tbhits 1 pv ", sc);
       print_move(tb_move);
       printf("\nbestmove ");
       print_move(tb_move);
@@ -115,7 +117,7 @@ void launch_search(int depth) {
   g_master_worker->run([depth] { search_position_mt(depth); });
 }
 
-// L'avversario ha giocato la mossa prevista: la ricerca diventa normale. Se il tempo era gia' finito, si muove.
+// The opponent played the expected move: the search becomes a normal one. If the time is already over, it moves.
 void ponder_hit() {
   if (!g_pondering.load(std::memory_order_acquire))
     return;
@@ -125,7 +127,7 @@ void ponder_hit() {
   notify_release();
 }
 
-// Mosse legali della radice (ristrette a "go searchmoves" se presenti).
+// Legal moves of the root (restricted to "go searchmoves" when given).
 static int collect_root_moves(ThreadData &td, int out[256]) {
   moves ml[1];
   td_generate_moves(td, ml, false);
@@ -171,38 +173,59 @@ static void thread_main(int id) {
   deepen(thread_data[id]);
 }
 
-// Voto fra i thread: ogni thread vota la propria mossa con un peso che cresce col suo score; un risultato deciso
-// e completo (matto o tablebase) prevale.
+// Choice of the thread that gives the bestmove (block 5 of 8.1). Each thread gives its own move a share:
+//   (score - lowest score among the threads + SmpVoteBase) x SmpVoteScore / 1024 + SmpVoteDepth x completed depth.
+// The support of a move is the sum of the shares of the threads that chose it, computed once per move. A decided and
+// complete result (mate or tablebase score, without a bound) wins; equal support goes to the longer line.
+// Origin: a weighted vote among threads is a common lazy-SMP idea. Ours: the additive depth term and the parameters.
+// Defaults (14, 1024, 0) give the old choice. Code map: docs/conceptual_maps/BLOCK_5_CODE_MAP.md.
 static ThreadData *pick_thread() {
   ThreadData *best = &thread_data[0];
   if (num_threads == 1)
     return best;
+  const int nt = (int)thread_data.size();
+  // SmpRouteShift with SmpRouteVote 0: the odd helpers searched with shifted experts; they neither vote nor can be
+  // chosen (always true without TRIUMV_C2 or with the shift off, so the choice is the one of before).
+#ifdef TRIUMV_C2
+  auto voter = [](int i) { return !(SmpRouteShift && !SmpRouteVote && (i & 1)); };
+#else
+  auto voter = [](int) { return true; };
+#endif
   int floor_score = infinity;
-  for (auto &t : thread_data)
-    floor_score = std::min(floor_score, t.root[0].score);
-  auto votes = [&](int move) {
-    long long v = 0;
-    for (auto &t : thread_data)
-      if (t.root[0].pv[0] == move)
-        v += t.root[0].score - floor_score + 14;
-    return v;
-  };
-  for (auto &t : thread_data) {
-    const RootLine &b = best->root[0], &c = t.root[0];
+  for (int i = 0; i < nt; i++)
+    if (voter(i))
+      floor_score = std::min(floor_score, thread_data[i].root[0].score);
+  std::vector<long long> share(nt), support(nt, 0);
+  for (int i = 0; i < nt; i++) {
+    const ThreadData &t = thread_data[i];
+    share[i] = voter(i) ? (long long)(t.root[0].score - floor_score + SmpVoteBase) * SmpVoteScore / 1024 +
+                              (long long)SmpVoteDepth * t.completed_depth
+                        : 0;
+  }
+  for (int i = 0; i < nt; i++)
+    for (int j = 0; j < nt; j++)
+      if (thread_data[j].root[0].pv[0] == thread_data[i].root[0].pv[0])
+        support[i] += share[j];
+  int bi = 0;
+  for (int i = 0; i < nt; i++) {
+    if (!voter(i))
+      continue;
+    const RootLine &b = thread_data[bi].root[0], &c = thread_data[i].root[0];
     const bool b_dec = b.score != -infinity && val_decided(b.score) && !b.lower && !b.upper;
     const bool c_dec = c.score != -infinity && val_decided(c.score) && !c.lower && !c.upper;
     if (b_dec) {
       if (c_dec && std::abs(c.score) > std::abs(b.score))
-        best = &t;
-    } else if (c_dec || (!val_lost(c.score) && (votes(c.pv[0]) > votes(b.pv[0]) ||
-                                                (votes(c.pv[0]) == votes(b.pv[0]) && c.pv_len > b.pv_len))))
-      best = &t;
+        bi = i;
+    } else if (c_dec || (!val_lost(c.score) && (support[i] > support[bi] ||
+                                                (support[i] == support[bi] && c.pv_len > b.pv_len))))
+      bi = i;
   }
+  best = &thread_data[bi];
   return best;
 }
 
-// Risposta prevista (TmExpect*, 05/10/2026): chiave della posizione dopo la nostra mossa e la risposta della linea
-// principale, sulla scacchiera del thread 0 (alla radice a ricerca finita). 0 se una delle due non e' legale.
+// Expected reply (TmExpect*, 05/10/2026): key of the position after our move and the reply of the main line, on
+// thread 0's board (at the root, after the search). 0 if either move is not legal.
 static U64 expected_key(ThreadData &td, int first, int reply) {
   UndoInfo u, u2;
   U64 key = 0;
@@ -226,7 +249,7 @@ static U64 expected_key(ThreadData &td, int first, int reply) {
   return key;
 }
 
-// Senza seconda mossa nella linea, la risposta prevista si cerca nella hash.
+// Without a second move in the line, the expected reply is looked up in the hash.
 static int reply_from_hash(ThreadData &td, int first) {
   UndoInfo u;
   int reply = 0;
@@ -263,14 +286,35 @@ void search_position_mt(int depth) {
 
   int list[256];
   copy_board_to_thread(thread_data[0]);
-  // Risposta prevista (TmExpect*): siamo nella posizione attesa alla fine della ricerca precedente?
+  // ExpertFix (20/10/2026, ours, 0 = off): the network keeps the expert of the root while the piece count stays within
+  // ExpertFix pieces of the root's band; beyond, the expert of the count as usual (32 = the root's expert everywhere).
+  // Fewer expert changes inside the tree (each costs a refresh-like update) and fewer HalfKA rows in use, so they stay
+  // in cache; the price is the neighbouring expert's view after captures that cross a band (Z1: same mean, 20-40 cp
+  // of noise one band away). xperf with 32: -4.9% cycles per node in the middlegame, -2.8% in endgames.
+  {
+    const int root_ph = nn_phase_of_count[count_bits(occupancies[both])];
+    int lo = 32, hi = 0;   // piece counts of the root's band
+    for (int c = 0; c <= 32; c++)
+      if (nn_phase_of_count[c] == root_ph) lo = std::min(lo, c), hi = std::max(hi, c);
+    for (int c = 0; c <= 32; c++) {
+      const int dist = c < lo ? lo - c : c > hi ? c - hi : 0;
+      g_nn_phase_map[c] = ExpertFix && dist <= ExpertFix ? (unsigned char)root_ph : nn_phase_of_count[c];
+    }
+    nn_set_phase_map(g_nn_phase_map);
+  }
+#ifdef TRIUMV_C2
+  c2_eval_push();   // C2 evaluation terms (agent B, 21/10/2026; 13_search.inc): all 0 = evaluation unchanged
+  if (SmpRouteShift)   // SmpRouteShift: the shifted routing table, before the helpers start (deepen chooses it)
+    nn_router_alt_build(SmpRouteShift);
+#endif
+  // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale
   const int n = collect_root_moves(thread_data[0], list);
   {
     extern int g_move_overhead_ms;
-    // TmFenPly (05/10/2026, audit del nucleo): ply di partita come SF, numero di mossa della FEN + mosse giocate.
-    // A 0 solo le mosse giocate dopo la posizione data, come prima: da un libro .epd la partita "partiva" da ply 0.
+    // TmFenPly (05/10/2026): game ply = move number of the FEN + moves played. At 0 only the moves played after the
+    // given position count: from an .epd book the game "started" at ply 0.
     clock_plan(side, repetition_index + (TmFenPly ? g_fen_ply : 0), g_move_overhead_ms);
   }
 
@@ -303,7 +347,7 @@ void search_position_mt(int depth) {
     g_helper_workers[i - 1]->run([i] { thread_main(i); });
   deepen(thread_data[0]);
 
-  // "go infinite" e ponder: la bestmove aspetta stop o ponderhit.
+  // "go infinite" and ponder: the bestmove waits for stop or ponderhit.
   wait_release();
   g_pondering.store(false, std::memory_order_relaxed);
   stop_threads.store(true, std::memory_order_relaxed);
@@ -322,8 +366,8 @@ void search_position_mt(int depth) {
   if (!reply)
     reply = reply_from_hash(*bt, best_move);
 
-  // Risposta prevista (TmExpect*): serve una linea di almeno tre mosse (nostra, risposta, nostra successiva). Si
-  // calcola solo con l'opzione accesa, cosi' a opzione spenta nulla cambia.
+  // Expected reply (TmExpect*): it needs a line of at least three moves (ours, the reply, our next). Computed only with
+  // the option on, so nothing changes with it off.
   g_clock.expect_key = 0;
   if ((TmExpectScale < 1000 || TmSurpriseScale > 1000) && line.pv_len >= 3) {
     g_clock.expect_key = expected_key(thread_data[0], best_move, line.pv[1]);

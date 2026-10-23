@@ -46,12 +46,12 @@ Each entry is in one of three categories:
   the source is named. The category describes public priority, not where our idea came from.
 
 Measurements are Elo differences from SPRT or fixed-games runs on the project's test machine, with the 95% error
-margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md),
+margin and the number of games; the full context of each is in [`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md),
 [`NETWORKS.md`](../networks/NETWORKS.md) and the [`archive`](../development/archive) of earlier versions.
 
 ## Summary
 
-Of 54 entries, **11 are new**, **27 are known ideas revisited in a different form**, and **16 were done elsewhere
+Of 60 entries, **15 are new**, **29 are known ideas revisited in a different form**, and **16 were done elsewhere
 first**. Three of the new ones are adopted and measured as gains, and together they form the core of 8.0: a network
 divided by game phase, an input block that the king-relative block cannot express, and corrections that follow the
 experts of the network. The analysis build has its own section ([§10](#10-analysis-build-position-solver)), outside these counts.
@@ -70,6 +70,11 @@ experts of the network. The analysis build has its own section ([§10](#10-analy
 | Blending two experts at a boundary (`EvalExpertBlend*`) | New | 8.0 dev | +5.27 ± 7.86 at fixed nodes (1,978); −24.23 ± 11.12 at 8+0.08 (1,034), +15 to 18% cycles; depth ≥ 3 variant −3.06 ± 9.59 (1,248) | removed |
 | Correction from the opponent's two last moves (`CorrContOppW`) | New | 8.0 | −4.8 ± 8.7 (1,806); real signal, correlation +0.24; on the build without the I/O defect +2.4 ± 4.7 at 8+0.08 (5,460), −8.0 ± 7.7 at 5+0.05; all runs at 8 s or more pooled (8+0.08, 10+0.1 without hyperthreading, 12+0.12): **+0.6 ± 3.0 (about 13,300), neutral**; SPSA CORR1p2 kept it on (about 4,550); on the release-candidate build at 8+0.08 (14 October, two runs with the same tree, before and after the prefetch below): **+0.5 ± 3.0 over 14,426 games, neutral** | off |
 | `Mobility` input block | New as an idea | 8.0 dev | cost only: −16.2% NPS | archived, never trained |
+| Slider attacks by obstruction difference on the four lines of a square in one AVX-512 register, with the lane-wise leading-zero count (`vplzcntq`) | New in its form | 8.1 dev | **−0.98%** cycles per node in the middlegame, **−1.20%** in endgames, whole engine (xperf, PGO, Xeon) | adopted, default of the AVX-512 builds |
+| History update as a listwise ranker (`HistGrad`): the reward of the best quiet move and the penalties of the quiet moves tried before it are scaled by the gradient of a softmax over their ordering scores, so a best move the ordering expected learns little, a surprising one a lot, and a tried move the ordering rated low is barely punished | New | 8.1 dev | **+0.90 ± 3.41** (5+0.05, both sockets and a Zen 4 laptop, 11,166); without socket 1 +3.1 ± 4.2; the stronger blend (512) −4.0 ± 6.3 (3,066) | adopted at 256 (22 October 2026); blend and temperature to the history tuning |
+| Discovered check in move ordering (`ChkDisc`): a quiet move whose piece stands between one of our sliders and the enemy king and lands off that line gets a bonus, on top of the bonus for direct checks | Revisited (Coda scores discovered attacks on any enemy piece) | 8.1 dev | +0.8 ± 3.7 over 9,178 (8+0.08 and 5+0.05 summed, both sockets; test paused, to be continued); first test −0.2 ± 5.3 (4,174) | being tested (off by default) |
+| Pawn break in a closed structure (three or more blocked pawns) reduced less (`RdPawnBreak`) | New | 8.1 dev | 2048: +0.19 ± 5.74 (8+0.08, 3,724), +0.6 ± 4.8 pooled with 7+0.07 (5,142); 3072 −3.7 ± 9.2 | closed, neutral |
+| Hyperbola quintessence for AVX2 in our form (`pair_hqs`: the two diagonals in a vector register, the rook in general registers) | Revisited | 8.1 dev | −0.23% / −0.05% cycles per node | adopted, default of the AVX2 builds |
 | Surprise rule (`TmSurpriseScale`) | Revisited | 8.0 | **+6.23 ± 6.75** at 40+0.4 (2,174); neutral at 16+0.16 | adopted |
 | Guard on the low-depth hash-move extension (`LdseMax`) | Revisited | 8.0 | **+6.25 ± 7.89** (15+0.15, 2,112) | adopted; inactive while LDSE is off |
 | Cap of one extension from a negative reduction per line (`NegExtMax`) | Revisited | 8.0 | **+3.88 ± 3.26** (12+0.12, 11,384) | adopted |
@@ -179,7 +184,7 @@ on the assumption that the first layer can combine it with the other inputs. On 
 difference between Consilium's static evaluation and the engine's deep search, on 3,888 positions, found that the
 network still undervalues some passed pawns in endgames: those outside the enemy king's square and connected ones.
 Two blocks were written for this and grafted on the finished Consilium with the rest of the network frozen
-([`docs/moe_experimental_grafts.md`](../networks/moe_experimental_grafts.md), [`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md)
+([`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md)
 §37–38):
 
 - **`PassedRel`** adds, for each passed pawn, a second row with three relations: outside the enemy king's square,
@@ -253,7 +258,7 @@ is being tested again in that direction, against less reduction (`LmrScaleExp1=-
 
 Written on 8 October 2026, off by default, then tuned in an SPSA of 46 search parameters at 20+0.2. At hand-set
 values no term moves the result, because an ordering bonus acts together with the histories and the thresholds that
-separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
+separate good quiet moves from bad ones ([`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §34). The SPSA vector, with all
 these terms on, was checked against the defaults (+3.4 ± 3.9 over about 8,100 games) and baked on 9–10 October
 (§38); the terms are now active in games.
 
@@ -339,6 +344,22 @@ divided by phase.
   mobility buckets, 2,048 inputs). Only its cost was measured, with random weights: −16.2% NPS, because mobility
   changes with every move. Archived on 29 September 2026 without training. No network of the nine engines has
   mobility inputs. **New as an idea**, with no measurement of strength.
+- **Pawn break in a closed structure reduced less (`RdPawnBreak`), 8.1 development, the author's idea.** In a closed
+  position the plan of both sides turns around the one or two pawn pushes that can open the structure, and a reduced
+  search tends to miss them because the gain comes several moves later. The structure counts as closed when at least
+  three pawns face an opposing pawn on the square directly in front of them (same file, blocked). In such a position a
+  quiet pawn push that lands on a square attacking an enemy pawn, that is a move offering a pawn exchange that opens a
+  file or a diagonal, has its late-move reduction lowered by `RdPawnBreak` (in 1/1024 of a ply), never below zero; the
+  lever is signed, so a negative value tests the opposite direction. The nine engines read do not condition any
+  reduction on the pawn structure. The closest examples are a move-ordering bonus in Reckless for a pawn push to an
+  advanced square attacked by an enemy pawn, which applies in every structure and only to ordering, and the general
+  advice to exempt pawn moves from late-move reductions (chessprogramming.org). First measurements: 2048 at 7+0.07
+  without hyperthreading (UHO book) +1.3 ± 9.0 (1,418 games); 3072 on the 8-move book −3.7 ± 9.2, with the search
+  clearly deeper, a value judged too strong; 2048 at 8+0.08 with hyperthreading (UHO) **+0.19 ± 5.74** (3,724). The
+  two runs at 2048 pooled: +0.6 ± 4.8 over 5,142 games. In the games of the test, 6% of the positions and 30% of the
+  games have a closed structure with a break available, but the breaks actually played hardly change (597 with the
+  lever, 569 without, in about 10,700 moves each): the search already finds them, so the lever adds no information.
+  **New**, neutral, off.
 
 ## 7. Known ideas revisited in a different form
 
@@ -461,10 +482,22 @@ code and measured one by one.
 
 What is ours in this area is listed in [section 7](#7-known-ideas-revisited-in-a-different-form): the refresh cache of
 the pawn blocks, the universal build from one unit per source file, the move-ordering rank by popcount, and the
-analysis mode compiled as a second copy. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
+analysis mode compiled as a second copy.
+
+**8.1: the slider attacks of our own.** In 8.1 the vectorised slider attacks of Stockfish origin were replaced by code
+of our own.
+The AVX-512 kernel is new in its form. The obstruction difference itself is published (chessprogramming wiki): on one
+line, the attacked squares come from the occupied squares above the slider and the highest occupied square below it.
+That needs the highest set bit of a word, which vector instructions could not give before AVX-512 CD added a lane-wise
+leading-zero count. Our kernel puts the four lines of a square (two diagonals, file, rank) in the four 64-bit lanes of
+one register and computes them together, with no table and no byte reversal; we have not found this combination
+described elsewhere. On AVX2 the kernel is our variant of the hyperbola quintessence. Block 6 rewrote the network
+inference from a specification of our own, at identical evaluations (with block 7, 5.5% fewer cycles per node on
+AVX-512 and 2% on AVX2): that is engineering on a known
+technique, not a new idea, and it is not counted above. Some further patches (the compaction of the threat features, the passed-pawn fill, the prefetch of the threat rows of the network) have not yet been checked line
 by line against every engine and are listed among the [open checks](#11-open-checks). The measurement method, with
 the engine pinned to one processor and only the search threads counted, is described in
-[`DEVELOPMENT_8.0.md`](../development/DEVELOPMENT_8.0.md) §36.
+[`DEVELOPMENT_8.0.md`](../development/archive/DEVELOPMENT_8.0.md) §36.
 
 ## 9. Done elsewhere first
 
@@ -508,7 +541,7 @@ Techniques of [Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumv
 build for hard positions (October 2026). They act only in analysis, so they are kept apart from the game entries and
 from the counts of the summary. The measure here is the number of positions solved, on IQ4 (183 positions) and on the
 Arasan 2026 collection (200), at fixed nodes with one thread; details in
-[`DEVELOPMENT_8.0.md` §49](../development/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
+[`DEVELOPMENT_8.0.md` §49](../development/archive/DEVELOPMENT_8.0.md). The same three categories apply. A search of the forums and of the
 source of Crystal and ShashChess found no option like the first and the third entry; as above, this is to our
 knowledge.
 
@@ -522,7 +555,7 @@ knowledge.
 | GoldDigger on our search (`AnGold`) | Done elsewhere first (ShashChess) | +11 on IQ4 over the release tree, nothing over the Pos Solver tree | option, off |
 | No pruning along the previous principal line near the root (`AnCrystal`) | Done elsewhere first (Crystal) | within the noise | option, off |
 | King in danger and coming repetitions (`AnKingDanger`, `AnCycle`) | Done elsewhere first (Crystal) | IQ4 +1 / −7, Arasan −4 / +2 | options, off |
-| No move-count pruning near the root, captures without reduction, a cautious null move near the solution (`AnLmpNear`, `AnCaptLmr`, `AnNmpZug`) | Done elsewhere first (Crystal) | within ±3, or a loss on one collection | options, off; the null-move guard is in FUTURE_DIRECTIONS for a game test |
+| No move-count pruning near the root, captures without reduction, a cautious null move near the solution (`AnLmpNear`, `AnCaptLmr`, `AnNmpZug`) | Done elsewhere first (Crystal) | within ±3, or a loss on one collection | options, off; the null-move guard waits for a game test |
 | Our other attempts: the two runners-up at the root without reduction (`AnRootAlt`), no depth cut after a new best move near the root (`AnKeepDepth`), cheaper two-line searches (`ShadowFrom`, `ShadowRed`, `ShadowMargin`), three or four lines | New or revisited, not adopted | the cheaper forms gain up to 4 on IQ4 at low budgets and lose 5 to 7 on Arasan at higher ones; the others lose or are within the noise | closed |
 
 A diagnosis of the positions still unsolved (`tools/diag_fail.py`: a search of 64M nodes, the solution forced, and

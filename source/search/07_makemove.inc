@@ -1,8 +1,8 @@
-// search/07_makemove.inc -- Attacchi, make_move e unmake_move per thread.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'. Va inclusa solo da threads.cpp, nell'ordine
-// fissato li' (divisione del 27/09/2026, codice generato identico: vedi l'intestazione di threads.cpp).
+// search/07_makemove.inc -- Per-thread attacks, make_move and unmake_move.
+// Part of threads.cpp: it is NOT a translation unit of its own. It must be included only by threads.cpp, in the order
+// fixed there (split of 27/09/2026, identical generated code: see the header of threads.cpp).
 
-// Chiavi aggiuntive delle correzioni (09_history.inc): servono al prefetch in td_make_move.
+// Additional keys of the corrections (09_history.inc): they serve the prefetch in td_make_move.
 static inline U64 corr_phase_key(const ThreadData &td);
 static inline U64 corr_fifty_key(const ThreadData &td);
 static inline U64 corr_expert_key(const ThreadData &td);
@@ -24,7 +24,7 @@ static inline int td_is_square_attacked(ThreadData &td, int square,
       return 1;
     if (king_attacks[square] & td.bitboards[K])
       return 1;
-    // AA1 (10/10/2026): alfiere e torre da un solo calcolo (magic.h).
+    // AA1 (10/10/2026): bishop and rook from a single computation (magic.h).
     const SliderPair sp = get_slider_pair(square, td.occupancies[both]);
     if (pair_bishop(sp) & (td.bitboards[B] | td.bitboards[Q]))
       return 1;
@@ -46,56 +46,56 @@ static inline int td_is_square_attacked(ThreadData &td, int square,
   return 0;
 }
 
-// Case strettamente tra due quadrati allineati (0 per cavallo/non-allineati). Riempita da init_cuckoo
-// (10_order.inc); usata qui (scacchi di scoperta), dalle evasioni (08_movegen.inc), dalla legalita' e
-// dall'upcoming-repetition.
+// Squares strictly between two aligned squares (0 for knight/non-aligned). Filled by init_cycle_tables
+// (10_order.inc); used here (discovered checks), by the evasions (08_movegen.inc), by the legality test and
+// by the upcoming-repetition test.
 static U64 between_tbl[64][64];
-// Attacchi di torre e alfiere a scacchiera VUOTA (06/10/2026, velocita', albero identico): servono a trovare i cecchini
-// allineati con un re (td_lmp_chk_init, safety_init, see_pins_update: ~3,3 letture per nodo). Prima passavano da
-// get_rook_attacks(sq, 0) / get_bishop_attacks(sq, 0), cioe' dalla voce 0 della riga della casa nelle tabelle PEXT:
-// righe da 32 KB (torre) e 4 KB (alfiere): le 64 voci "vuote" di ciascun pezzo cadono nello STESSO insieme della L1
-// (bit 6-11 dell'indirizzo uguali, 8 vie), insieme alle voci 0-7 di ogni riga. Qui stanno in 1 KB contiguo. Stessi valori.
-// Riempite da init_cuckoo (10_order.inc) insieme a between_tbl.
+// Rook and bishop attacks on an EMPTY board (06/10/2026, speed, identical tree): they serve to find the snipers
+// aligned with a king (td_lmp_chk_init, safety_init, see_pins_update: ~3.3 reads per node). Before, they went through
+// get_rook_attacks(sq, 0) / get_bishop_attacks(sq, 0), i.e. entry 0 of the square's row in the PEXT tables:
+// rows of 32 KB (rook) and 4 KB (bishop): the 64 "empty" entries of each piece fall in the SAME L1 set
+// (address bits 6-11 equal, 8 ways), together with entries 0-7 of every row. Here they sit in 1 contiguous KB. Same values.
+// Filled by init_cycle_tables (10_order.inc) together with between_tbl.
 alignas(64) static U64 empty_rook_att[64];
 alignas(64) static U64 empty_bishop_att[64];
 
 // ---------------------------------------------------------------------------
-// LMPCheckGuard: "questa quiet da' scacco?" calcolato PRIMA della make.
-// Il gives_check del motore (:4631+) vive DOPO la make; la LMP pota prima,
-// quindi serve il test SF-style con le check-squares: le case da cui un pezzo
-// di tipo T attaccherebbe il re nemico, calcolate UNA VOLTA per nodo
-// (pigramente, solo se la LMP scatta davvero) e poi O(1) per mossa.
+// LMPCheckGuard: "does this quiet move give check?" computed BEFORE the make.
+// The engine's gives_check (:4631+) lives AFTER the make; the LMP prunes before,
+// so the SF-style test with the check squares is needed: the squares from which a piece
+// of type T would attack the enemy king, computed ONCE per node
+// (lazily, only if the LMP really fires) and then O(1) per move.
 struct LmpChkCtx {
   bool ready = false;
   U64 chk[6] = {0, 0, 0,
-                0, 0, 0}; // indicizzato per tipo: P,N,B,R,Q,K (K inutilizzato)
-  U64 disc = 0;           // nostri pezzi che, muovendosi, scoprono uno scacco
+                0, 0, 0}; // indexed by type: P,N,B,R,Q,K (K unused)
+  U64 disc = 0;           // our pieces that, by moving, uncover a check
 };
 
 static inline void td_lmp_chk_init(ThreadData &td, LmpChkCtx &c) {
   const int us = td.side;
-  const int off = (us == white) ? 0 : 6;  // offset nostro nei bitboards
-  const int eoff = (us == white) ? 6 : 0; // offset nemico
+  const int off = (us == white) ? 0 : 6;  // our offset in the bitboards
+  const int eoff = (us == white) ? 6 : 0; // enemy offset
   const int eksq = get_ls1b_index(td.bitboards[K + eoff]);
   const U64 occ = td.occupancies[both];
 
   c.chk[N] = knight_attacks[eksq];
-  const SliderPair sp = get_slider_pair(eksq, occ);   // AA1 (10/10/2026): un calcolo per i due
+  const SliderPair sp = get_slider_pair(eksq, occ);   // AA1 (10/10/2026): one computation for both
   c.chk[B] = pair_bishop(sp);
   c.chk[R] = pair_rook(sp);
   c.chk[Q] = c.chk[B] | c.chk[R];
   c.chk[P] =
-      pawn_attacks[us ^ 1][eksq]; // da dove un NOSTRO pedone attacca quel re
+      pawn_attacks[us ^ 1][eksq]; // where OUR pawn attacks that king from
   c.chk[K] = 0;
 
-  // Scacchi di scoperta: un nostro pezzo e' l'unico schermo fra un nostro
-  // slider e il re nemico. Il re nemico NON e' sotto scacco (e' il nostro
-  // tratto), quindi qualunque nostro R/Q (risp. B/Q) che compare togliendo lo
-  // schermo e' per forza dietro di esso.
-  // 04/10/2026 sera — dai CECCHINI, non dai candidati: si parte dai nostri pezzi lunghi allineati col re nemico
-  // (attacchi su scacchiera vuota) e si guarda che cosa c'e' in mezzo: un solo pezzo, nostro, e' lo schermo. Stesso
-  // insieme di prima (il re nemico non e' sotto scacco, quindi ogni cecchino ha almeno un pezzo davanti), ma una
-  // lettura della tabella "in mezzo" per cecchino invece di una lettura PEXT per ogni nostro pezzo visto dal re.
+  // Discovered checks: one of our pieces is the only screen between one of our
+  // sliders and the enemy king. The enemy king is NOT in check (it is our
+  // move), so any R/Q (resp. B/Q) of ours that appears when removing the
+  // screen is necessarily behind it.
+  // Evening of 04/10/2026 - from the SNIPERS, not from the candidates: start from our sliders aligned with the enemy king
+  // (attacks on an empty board) and look at what lies in between: a single piece, ours, is the screen. Same
+  // set as before (the enemy king is not in check, so every sniper has at least one piece in front), but one
+  // read of the "in between" table per sniper instead of one PEXT read for every piece of ours seen from the king.
   const U64 ours = td.occupancies[us];
   const U64 orq = td.bitboards[R + off] | td.bitboards[Q + off];
   const U64 obq = td.bitboards[B + off] | td.bitboards[Q + off];
@@ -111,24 +111,24 @@ static inline void td_lmp_chk_init(ThreadData &td, LmpChkCtx &c) {
   c.ready = true;
 }
 
-// ponytail: sovrastima di proposito. Un pezzo "disc" che si muove RESTANDO
-// sulla linea del re non scopre nulla, ma qui conta comunque come scacco (manca
-// una tabella aligned()) — e lo stesso per l'arrocco, dove la torre puo' dare
-// scacco dalla casa d'arrivo. Sovrastimare = potare MENO = direzione sicura per
-// un guard. Se il patch rende, si affina.
+// ponytail: overestimates on purpose. A "disc" piece that moves STAYING
+// on the king's line uncovers nothing, but here it counts as a check anyway (an
+// aligned() table is missing) - and the same for castling, where the rook can give
+// check from its arrival square. Overestimating = pruning LESS = safe direction for
+// a guard. If the patch pays off, it gets refined.
 static inline bool td_lmp_gives_check(ThreadData &td, int move, LmpChkCtx &c) {
   PROF_GUARD(prof_gc);
   if (!c.ready)
     td_lmp_chk_init(td, c);
   const int tgt = get_move_target(move);
-  const int pt = get_move_piece(move) % 6; // P..K indipendente dal colore
+  const int pt = get_move_piece(move) % 6; // P..K independent of colour
   return (c.chk[pt] & (1ULL << tgt)) ||
          (c.disc & (1ULL << get_move_source(move)));
 }
 
-// Casa di partenza/arrivo della TORRE nell'arrocco, dedotte dalla casa d'arrivo del re. Unica fonte per
-// tutti i siti (occupazioni, chiavi, mailbox, make, rollback, unmake, NNUE). La partenza viene da
-// castle_rook_sq (chess960.h): h1/a1/h8/a8 negli scacchi normali, la casa letta dalla FEN nel 960.
+// Start/arrival square of the ROOK in castling, derived from the king's arrival square. Single source for
+// all the sites (occupancies, keys, mailbox, make, rollback, unmake, NNUE). The start comes from
+// castle_rook_sq (chess960.h): h1/a1/h8/a8 in normal chess, the square read from the FEN in 960.
 static inline void td_castle_rook(int target, int &rook_pc, int &rf, int &rt) {
   const int idx = castle_index(target);
   rook_pc = idx < 2 ? R : r;
@@ -140,18 +140,18 @@ static inline void td_castle_rook(int target, int &rook_pc, int &rf, int &rt) {
 // instead of OR-recomputing all 12 bitboards (+2.89% NPS, node-identical). XOR
 // is self-inverse, so calling it again with the same move reverses it (used on
 // make-forward, illegal rollback, and unmake). 'us' must be the MOVING side at
-// the call site. AA3 (10/10/2026): rollback e unmake rimettono le occupazioni (e le chiavi di td_keys_update) dalla
-// copia in UndoInfo; qui resta solo la make.
+// the call site. AA3 (10/10/2026): rollback and unmake restore the occupancies (and the keys of td_keys_update) from the
+// copy in UndoInfo; only the make stays here.
 // captured_piece == -1 means no capture. For castling the rook squares derive
 // from the king target. Produces occupancies identical to the full recompute.
 static inline void td_occ_update(ThreadData &td, int us, int source, int target,
                                  int captured_square, int captured_piece,
                                  int castling) {
-  // XOR fra le due case (non OR): uguale per ogni mossa normale (source != target), e nel Chess960 il re che
-  // arrocca senza muoversi (source == target) non cambia nulla, invece di svuotare la propria casa. Con le
-  // quattro case di re e torre in XOR anche le sovrapposizioni del 960 (re dove partiva la torre) tornano giuste.
+  // XOR between the two squares (not OR): the same for every normal move (source != target), and in Chess960 the king that
+  // castles without moving (source == target) changes nothing, instead of emptying its own square. With the
+  // four squares of king and rook in XOR the 960 overlaps too (king where the rook started) come out right.
   td.occupancies[us] ^= (1ULL << source) ^ (1ULL << target);
-  // capture (== target, or e.p. square). AA3 (10/10/2026): senza salto, maschera nulla senza vittima.
+  // capture (== target, or e.p. square). AA3 (10/10/2026): branchless, null mask without a victim.
   td.occupancies[us ^ 1] ^= captured_piece != -1 ? 1ULL << (captured_square & 63) : 0;
   if (castling) {
     int rook_pc, rf, rt;
@@ -162,11 +162,11 @@ static inline void td_occ_update(ThreadData &td, int us, int source, int target,
 }
 
 #ifdef TRIUMV_MAILBOX_VERIFY
-// Verifica esaustiva mailbox<->bitboard, per la validazione. Il perft del motore usa
-// make_move GLOBALE e non passa mai di qui, quindi senza questo controllo non ci
-// sarebbe modo di provare che i rami arrocco/e.p./promozione siano coperti: un
-// disallineamento non da' crash ne' firma diversa, solo un ordinamento che sbaglia.
-//   build:  -DTRIUMV_MAILBOX_VERIFY   poi   echo bench | motore
+// Exhaustive mailbox<->bitboard check, for validation. The engine's perft uses
+// the GLOBAL make_move and never comes through here, so without this check there would
+// be no way to prove that the castling/e.p./promotion branches are covered: a
+// misalignment gives no crash and no different signature, only an ordering that is wrong.
+//   build:  -DTRIUMV_MAILBOX_VERIFY   then   echo bench | engine
 static inline void td_mailbox_verify(ThreadData &td, const char *where) {
   for (int sq = 0; sq < 64; sq++) {
     int expect = -1;
@@ -185,18 +185,18 @@ static inline void td_mailbox_verify(ThreadData &td, const char *where) {
   #define MB_VERIFY(td, where) ((void) 0)
 #endif
 
-// MAILBOX — le due meta' NON sono self-inverse come td_occ_update (che e' uno XOR):
-// qui si scrivono valori, quindi servono andata e ritorno distinti. Vanno chiamate
-// negli STESSI TRE SITI di td_occ_update, o la mailbox si disallinea dai bitboard
-// e l'ordinamento sbaglia in silenzio (nessun crash, nessuna firma diversa).
+// MAILBOX - the two halves are NOT self-inverse like td_occ_update (which is an XOR):
+// here values are written, so distinct forward and backward passes are needed. They must be called
+// at the SAME THREE SITES as td_occ_update, or the mailbox gets out of step with the bitboards
+// and the ordering goes wrong silently (no crash, no different signature).
 static inline void td_mailbox_apply(ThreadData &td, int piece, int source, int target,
                                     int promoted, int captured_piece,
                                     int captured_square, int castling) {
-  // La vittima PRIMA del pezzo che arriva: nell'e.p. `captured_square` != target,
-  // in una cattura normale coincidono e deve vincere il pezzo che arriva.
+  // The victim BEFORE the arriving piece: in e.p. `captured_square` != target,
+  // in a normal capture they coincide and the arriving piece must win.
   if (castling) {
-    // Prima le due partenze, poi i due arrivi: nel Chess960 il re puo' arrivare dove partiva la torre (o
-    // non muoversi), e scrivere "re arrivato" prima di "torre partita" cancellerebbe il re.
+    // First the two starts, then the two arrivals: in Chess960 the king can arrive where the rook started (or
+    // not move), and writing "king arrived" before "rook left" would erase the king.
     int rook_pc, rf, rt;
     td_castle_rook(target, rook_pc, rf, rt);
     td.piece_on[source] = -1;
@@ -205,8 +205,8 @@ static inline void td_mailbox_apply(ThreadData &td, int piece, int source, int t
     td.piece_on[rt] = rook_pc;
     return;
   }
-  // AA3 (10/10/2026): senza salto sulla cattura; senza vittima la prima scrittura cade sulla casa di partenza. L'indice
-  // si sceglie con una maschera: con `?:` clang mette un salto per non leggere captured_square.
+  // AA3 (10/10/2026): branchless on the capture; without a victim the first write falls on the start square. The index
+  // is chosen with a mask: with `?:` clang emits a branch so as not to read captured_square.
   td.piece_on[source ^ ((source ^ captured_square) & -int(captured_piece != -1))] = -1;
   td.piece_on[source] = -1;
   td.piece_on[target] = promoted ? promoted : piece;
@@ -215,9 +215,9 @@ static inline void td_mailbox_apply(ThreadData &td, int piece, int source, int t
 static inline void td_mailbox_revert(ThreadData &td, int piece, int source, int target,
                                      int promoted, int captured_piece,
                                      int captured_square, int castling) {
-  (void) promoted;  // in uscita il pezzo torna quello di partenza, promosso o no
+  (void) promoted;  // on the way back the piece returns to the starting one, promoted or not
   if (castling) {
-    // Speculare a td_mailbox_apply: prima si svuotano i due arrivi, poi si rimettono re e torre.
+    // Mirror of td_mailbox_apply: first the two arrivals are emptied, then king and rook are put back.
     int rook_pc, rf, rt;
     td_castle_rook(target, rook_pc, rf, rt);
     td.piece_on[target] = -1;
@@ -226,9 +226,9 @@ static inline void td_mailbox_revert(ThreadData &td, int piece, int source, int 
     td.piece_on[rf] = rook_pc;
     return;
   }
-  // Ordine speculare: si svuota target e POI si rimette la vittima, cosi' quando
-  // captured_square == target (cattura normale) la vittima riprende il suo posto.
-  // AA3 (10/10/2026): senza salto sulla cattura. Senza vittima la terza scrittura rimette -1 su target.
+  // Mirrored order: target is emptied and THEN the victim is put back, so that when
+  // captured_square == target (normal capture) the victim takes its place again.
+  // AA3 (10/10/2026): branchless on the capture. Without a victim the third write puts -1 back on target.
   td.piece_on[target] = -1;
   td.piece_on[source] = piece;
   td.piece_on[target ^ ((target ^ captured_square) & -int(captured_piece != -1))] = captured_piece;
@@ -238,20 +238,20 @@ static inline void td_mailbox_revert(ThreadData &td, int piece, int source, int 
 // MAKE MOVE (returns 1 if legal)
 // ============================================================================
 
-// Chiavi parziali della posizione (XOR self-inverse: la stessa chiamata nei 3 siti di td_occ_update — make-forward,
-// rollback della mossa illegale, unmake):
-//   pawn_key   (P2.1)          solo pedoni: via da source, su target solo se NON promuove; pedone catturato via da
-//                              captured_square (anche e.p.). Letta da pawn_row e dalla correzione pedoni.
-//   np_key[c]  (CorrNonPawn)   non-pedoni per colore, re compreso: il mover non-pedone, il pezzo PROMOSSO che appare
-//                              su target, il non-pedone catturato (chiave del colore catturato), la torre dell'arrocco.
-//   mm_key[0/1] (NPS 25/09)    minori (N/B) e maggiori (R/Q), stessi eventi. Prima td_corr_index_minor/major
-//                              riscandivano 8 bitboard fino a quattro volte per nodo (~370 cicli/nodo il 25/09).
-// 04/10/2026 sera — UNA funzione SENZA SALTI al posto delle tre (td_pawn_key_update, td_np_key_update,
-// td_mm_key_update), che tra loro facevano una decina di salti sul tipo di pezzo, mal predetti (xperf: ~0,75 per
-// nodo). Le sei chiavi sono un array contiguo (threads.h: pawn, minori, maggiori, np bianco, np nero, pozzo) e due
-// tabelle dicono, per codice pezzo, in quali due chiavi finisce il suo XOR; cio' che non va in nessuna chiave finisce
-// nel pozzo. L'indice 15 e' "nessun pezzo" (captured_piece = -1): piece_keys ha 16 righe, le ultime quattro a zero.
-// Stessi valori di prima per costruzione => nodi identici. Resta un solo salto, quello dell'arrocco (raro).
+// Partial keys of the position (XOR self-inverse: the same call at the 3 sites of td_occ_update - make-forward,
+// rollback of the illegal move, unmake):
+//   pawn_key   (P2.1)          pawns only: off source, on target only if it does NOT promote; captured pawn off
+//                              captured_square (e.p. too). Read by pawn_row and by the pawn correction.
+//   np_key[c]  (CorrNonPawn)   non-pawns per colour, king included: the non-pawn mover, the PROMOTED piece appearing
+//                              on target, the captured non-pawn (key of the captured colour), the castling rook.
+//   mm_key[0/1] (NPS 25/09)    minors (N/B) and majors (R/Q), same events. Before, td_corr_index_minor/major
+//                              rescanned 8 bitboards up to four times per node (~370 cycles/node on 25/09).
+// Evening of 04/10/2026 - ONE BRANCHLESS function instead of the three (td_pawn_key_update, td_np_key_update,
+// td_mm_key_update), which between them made about ten branches on the piece type, mispredicted (xperf: ~0.75 per
+// node). The six keys are a contiguous array (threads.h: pawn, minors, majors, white np, black np, sink) and two
+// tables say, per piece code, into which two keys its XOR goes; what goes into no key ends up
+// in the sink. Index 15 is "no piece" (captured_piece = -1): piece_keys has 16 rows, the last four at zero.
+// Same values as before by construction => identical nodes. Only one branch remains, the castling one (rare).
 enum { KEY_PAWN = 0, KEY_MINOR = 1, KEY_MAJOR = 2, KEY_NP_W = 3, KEY_NP_B = 4, KEY_SINK = 5 };
 static_assert(offsetof(ThreadData, mm_key) == offsetof(ThreadData, pawn_key) + 8 * KEY_MINOR &&
               offsetof(ThreadData, np_key) == offsetof(ThreadData, pawn_key) + 8 * KEY_NP_W &&
@@ -267,15 +267,15 @@ static constexpr unsigned char kKeyB[16] = {KEY_SINK, KEY_NP_W, KEY_NP_W, KEY_NP
 static inline void td_keys_update(ThreadData &td, int piece, int source, int target, int promoted,
                                   int captured_piece, int captured_square, int castling) {
   U64 *const keys = &td.pawn_key;
-  // Il mover: via da source, su target (per il pedone che promuove il target lo prende il pezzo promosso).
+  // The mover: off source, on target (for the promoting pawn the target is taken by the promoted piece).
   const U64 kd = piece_keys[piece][source] ^ (piece_keys[piece][target] & (0 - (U64)(promoted == 0)));
   keys[kKeyA[piece]] ^= kd;
   keys[kKeyB[piece]] ^= kd;
-  // Il pezzo promosso appare su target (promoted = 0 -> chiave azzerata, finisce in pawn/pozzo come zero).
+  // The promoted piece appears on target (promoted = 0 -> key zeroed, it ends up in pawn/sink as zero).
   const U64 kp = piece_keys[promoted][target] & (0 - (U64)(promoted != 0));
   keys[kKeyA[promoted]] ^= kp;
   keys[kKeyB[promoted]] ^= kp;
-  // Il catturato: -1 diventa 15 (riga a zero, chiavi nel pozzo).
+  // The captured piece: -1 becomes 15 (zero row, keys in the sink).
   const int ci = captured_piece & 15;
   const U64 kc = piece_keys[ci][captured_square & 63];
   keys[kKeyA[ci]] ^= kc;
@@ -289,14 +289,14 @@ static inline void td_keys_update(ThreadData &td, int piece, int source, int tar
   }
 }
 
-// Chiave STIMATA del figlio (SF key_after): pezzo da/a, vittima dalla mailbox (ancora pre-mossa), lato, e.p.
-// azzerato. Ignora arrocco, promozione, nuova casa e.p. e diritti d'arrocco: in quei casi (rari) la stima sbaglia e
-// la make rifa' i prefetch con la chiave vera. Senza salti: una casa vuota ha -1 nella mailbox, cioe' la riga 15 di
-// piece_keys, che e' a zero.
-// ⛔ 04/10/2026 notte — PROVATO E TOLTO: emettere questi prefetch gia' in move_loop e quiesce, appena la mossa esce
-// dalla coda (prima di scacco, potatura e singolare), per dare piu' anticipo alla probe del figlio. xperf 6 giri, nodi
-// identici: cicli +0,03%, istruzioni +0,70%. La probe non aspettava piu' di quanto la make gia' copra; i prefetch
-// delle mosse poi potate erano solo istruzioni in piu'.
+// ESTIMATED key of the child (SF key_after): piece from/to, victim from the mailbox (still pre-move), side, e.p.
+// cleared. It ignores castling, promotion, new e.p. square and castling rights: in those (rare) cases the estimate is wrong and
+// the make redoes the prefetches with the true key. Branchless: an empty square has -1 in the mailbox, i.e. row 15 of
+// piece_keys, which is zero.
+// ⛔ Night of 04/10/2026 - TRIED AND REMOVED: issuing these prefetches already in move_loop and quiesce, as soon as the move
+// leaves the queue (before check, pruning and singular), to give the child's probe more lead time. xperf 6 rounds,
+// identical nodes: cycles +0.03%, instructions +0.70%. The probe did not wait longer than the make already covers; the prefetches
+// of the moves later pruned were only extra instructions.
 static inline U64 td_child_key_guess(const ThreadData &td, int move) {
   const int source = get_move_source(move), target = get_move_target(move), piece = get_move_piece(move);
   U64 key = td.hash_key ^ piece_keys[piece][source] ^ piece_keys[piece][target] ^ side_key;
@@ -305,22 +305,18 @@ static inline U64 td_child_key_guess(const ThreadData &td, int move) {
     key ^= enpassant_keys[td.enpassant];
   return key;
 }
-// Le due linee che il figlio legge per prime: il bucket hash e la cache delle valutazioni (1 MB per thread).
-// 05/10/2026: il profilo attribuiva l'1,8% dei cicli alla riga della eval cache; PROVATO a toglierla: xperf 6 giri a
-// macchina quieta, 55,8 M nodi identici, cicli +0,89%, istruzioni +0,28%. Il prefetch serve: quei campioni erano la
-// traduzione dell'indirizzo del bucket hash (riga sopra) attribuita all'istruzione dopo. Resta.
-static inline void td_prefetch_child(const ThreadData &td, U64 key) {
+// The line the child reads first: the hash bucket (the evaluation cache is gone, E1 in threads.h).
+static inline void td_prefetch_child(const ThreadData &, U64 key) {
   TT_PREFETCH(&hash_table[tt_base_index(key)]);
-  TT_PREFETCH(&td.eval_cache[key & ThreadData::EVAL_CACHE_MASK]);
 }
 
-// known_legal: la ricerca ha gia' deciso la legalita' (legal_before a re non sotto scacco, vedi step_in) e il test
-// "il nostro re e' attaccato?" qui sotto sarebbe un doppione. Perft, radice e validazioni lo lasciano a false.
+// known_legal: the search has already decided legality (legal_before with the king not in check, see step_in) and the test
+// "is our king attacked?" below would be a duplicate. Perft, root and validations leave it false.
 static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool known_legal = false) {
   PROF_GUARD(prof_make);
   undo.old_castle = td.castle;
   undo.old_enpassant = td.enpassant;
-  // AA3 (10/10/2026): chiavi, 50 mosse, ply dalla nulla e occupazioni di prima, per la unmake (vedi UndoInfo).
+  // AA3 (10/10/2026): keys, fifty-move counter, plies from the null move and occupancies before the move, for the unmake (see UndoInfo).
   std::memcpy(undo.keys, &td.hash_key, sizeof(undo.keys));
   std::memcpy(undo.occ, td.occupancies, sizeof(undo.occ));
 
@@ -333,22 +329,22 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   int enpass = get_move_enpassant(move);
   int castling = get_move_castling(move);
 
-  // NPS 25/09/2026 — PREFETCH ANTICIPATO (SF key_after), vedi td_child_key_guess. Il profilo del 25/09 dava ~6% del
-  // tempo al carico dell'entry TT nel probe del figlio: il prefetch partiva in fondo alla make e aveva poco anticipo.
-  // Nodi identici: i prefetch non cambiano nulla di funzionale.
+  // NPS 25/09/2026 - EARLY PREFETCH (SF key_after), see td_child_key_guess. The profile of 25/09 gave ~6% of the
+  // time to the load of the TT entry in the child's probe: the prefetch started at the end of the make and had little lead time.
+  // Identical nodes: the prefetches change nothing functional.
   const U64 pf_key = td_child_key_guess(td, move);
   td_prefetch_child(td, pf_key);
 
-  // Pezzo catturato e sua casa, dalla scacchiera ancora intatta (07/10/2026: calcolati qui in cima, prima di ogni
-  // modifica, perche' servono anche alle dirty della rete qui sotto; stessi valori di prima).
-  // AA3 (10/10/2026, velocita', stessi valori): scelte di valore invece di salti. La cattura e' un dato della mossa
-  // (24-28% delle make nei contatori, bench 15-16 su fens30/eg30), e il salto su di lei qui, piu' sotto e nella unmake
-  // era mal predetto: un predittore a 2 bit per sito sbaglia ~0,23-0,28 volte per nodo in ognuno dei due siti.
+  // Captured piece and its square, from the still intact board (07/10/2026: computed here at the top, before any
+  // change, because the network's dirty entries below need them too; same values as before).
+  // AA3 (10/10/2026, speed, same values): value selects instead of branches. The capture is a property of the move
+  // (24-28% of the makes in the counters, bench 15-16 on fens30/eg30), and the branch on it here, further down and in the unmake
+  // was mispredicted: a 2-bit predictor per site gets it wrong ~0.23-0.28 times per node at each of the two sites.
   {
     const int start = (td.side == white) ? p : P;
     const int end = (td.side == white) ? k : K;
-    // Il test di range replica esattamente il ciclo sostituito, che cercava solo fra i pezzi AVVERSARI e lasciava
-    // -1 se non trovava nulla.
+    // The range test replicates exactly the replaced loop, which searched only among the ENEMY pieces and left
+    // -1 if it found nothing.
     const int mb_pc = td.piece_on[target];
     const int cp_normal = (mb_pc >= start && mb_pc <= end) ? mb_pc : -1;
     const int csq = enpass ? ((td.side == white) ? target + 8 : target - 8) : target;
@@ -357,8 +353,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
     undo.captured_piece = capture ? cp : -1;
   }
 
-  // Le dirty della rete per questa mossa, sulla scacchiera PRIMA della mossa (06_nndirty.inc): un nuovo stato sulla
-  // pila dell'handle. Se la mossa risulta illegale, lo stato si toglie qui sotto insieme al resto.
+  // The network's dirty entries for this move, on the board BEFORE the move (06_nndirty.inc): a new state on the
+  // handle's stack. If the move turns out illegal, the state is removed below together with the rest.
   {
     int rook_pc = -1, rf = 0, rt = 0;
     if (castling)
@@ -371,9 +367,9 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   td.hash_key ^= piece_keys[piece][source];
   td.hash_key ^= piece_keys[piece][target];
 
-  // AA3: 50 mosse e vittima senza salti. Senza vittima la maschera e' nulla (bitboard 0 invariata) e la riga 15 di
-  // piece_keys e' a zero (vedi td_keys_update).
-  // Con || e ?: clang emette tre salti (cattura, pedone bianco, pedone nero): qui and di bit, nessun salto.
+  // AA3: fifty-move counter and victim branchless. Without a victim the mask is null (bitboard 0 unchanged) and row 15 of
+  // piece_keys is zero (see td_keys_update).
+  // With || and ?: clang emits three branches (capture, white pawn, black pawn): here bitwise and, no branch.
   const int fifty_runs = int(piece != P) & int(piece != p) & int(capture == 0);
   td.fifty = (td.fifty + 1) & -fifty_runs;
   {
@@ -396,11 +392,11 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
   if (double_push) {
     int ep_sq = (td.side == white) ? target + 8 : target - 8;
-    // F-017 EPKeyFix (default ON): ep nel board/key SOLO se un pedone nemico
-    // puo' catturarlo (pseudo-legale, come SF). Niente "phantom ep" -> le
-    // trasposizioni a2a3+a3a4 vs a2a4 hanno la stessa chiave = piu' TT-hit.
-    // Nessun effetto sul movegen: senza capturer la casella ep era comunque
-    // inusabile.
+    // F-017 EPKeyFix (default ON): ep in the board/key ONLY if an enemy pawn
+    // can capture it (pseudo-legal, as SF). No "phantom ep" -> the
+    // transpositions a2a3+a3a4 vs a2a4 have the same key = more TT hits.
+    // No effect on the movegen: without a capturer the ep square was unusable
+    // anyway.
     if ((pawn_attacks[td.side][ep_sq] &
                           td.bitboards[(td.side == white) ? p : P])) {
       td.enpassant = ep_sq;
@@ -409,7 +405,7 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
   }
 
   if (castling) {
-    // Re e torre in bitboard diverse: anche con le sovrapposizioni del 960 pop/set non interferiscono.
+    // King and rook in different bitboards: even with the 960 overlaps pop/set do not interfere.
     int rook_pc, rf, rt;
     td_castle_rook(target, rook_pc, rf, rt);
     pop_bit(td.bitboards[rook_pc], rf);
@@ -458,50 +454,48 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
     td.castle = undo.old_castle;
     td.enpassant = undo.old_enpassant;
-    // AA3: chiavi, 50 mosse e occupazioni dalla copia (plies_from_null non era ancora cambiato).
+    // AA3: keys, fifty-move counter and occupancies from the copy (plies_from_null had not changed yet).
     std::memcpy(&td.hash_key, undo.keys, sizeof(undo.keys));
     std::memcpy(td.occupancies, undo.occ, sizeof(undo.occ));
     td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,
-                      undo.captured_square, castling);  // sito 2/3: mossa illegale
+                      undo.captured_square, castling);  // site 2/3: illegal move
     MB_VERIFY(td, "rollback-illegale");
-    nn_unmake_dirty(td);  // lo stato della rete scritto in cima non serve piu'
+    nn_unmake_dirty(td);  // the network state written at the top is no longer needed
 
     return 0;
   }
 
-  // Prefetch delle correzioni che il figlio legge per prime: struttura pedonale e pezzi minori (chiavi gia'
-  // aggiornate qui sopra). td.side e' gia' quello del figlio. Dal 04/10/2026 le tabelle sono condivise fra i
-  // thread e grandi (1 MB per thread), non piu' 64 KB in L2: il prefetch qui ha di nuovo dei miss da nascondere.
-  // 06/10/2026 (rapporto docs/audit_8.0/N_CORREZIONI.md): le righe si anticipano con le STESSE chiavi che legge
-  // corr_signal, sale di fase (CorrPhase) e di fascia delle 50 mosse (CorrFiftyStep) compresi. Prima si usavano le
-  // chiavi senza sale: a opzioni spente identico, ad opzioni accese due prefetch a vuoto e nessuna riga anticipata,
-  // cioe' CorrPhase e CorrFifty pagavano velocita' negli SPRT. A opzioni spente i sali valgono 0: codice equivalente.
+  // Prefetch of the corrections the child reads first: pawn structure and minor pieces (keys already
+  // updated above). td.side is already the child's. Since 04/10/2026 the tables are shared between the
+  // threads and big (1 MB per thread), no longer 64 KB in L2: the prefetch here has misses to hide again.
+  // 06/10/2026 (report docs/audit_8.0/N_CORREZIONI.md): the rows are fetched ahead with the SAME keys that
+  // corr_signal reads, phase salt (CorrPhase) and fifty-move band salt (CorrFiftyStep) included. Before, the keys
+  // without salt were used: identical with the options off, with the options on two wasted prefetches and no row fetched ahead,
+  // i.e. CorrPhase and CorrFifty paid speed in the SPRTs. With the options off the salts are 0: equivalent code.
   const U64 pf_phk = corr_phase_key(td), pf_fk = corr_fifty_key(td);
   TT_PREFETCH(&g_stats.corr[(td.pawn_key ^ pf_phk ^ pf_fk) & g_stats.corr_mask][td.side]);
   TT_PREFETCH(&g_stats.corr[(td.mm_key[0] ^ pf_phk) & g_stats.corr_mask][td.side]);
-  // 04/10/2026 sera: anche i due slot dei non-pedoni, che corr_signal legge subito dopo (tabella da 1,3 MB per
-  // thread: fuori da L2, ogni slot non anticipato e' un'attesa di L3 nel figlio).
+  // Evening of 04/10/2026: also the two non-pawn slots, which corr_signal reads right after (1.3 MB table per
+  // thread: outside L2, every slot not fetched ahead is an L3 wait in the child).
   TT_PREFETCH(&g_stats.corr[(td.np_key[white] ^ pf_fk) & g_stats.corr_mask][td.side]);
   TT_PREFETCH(&g_stats.corr[(td.np_key[black] ^ pf_fk) & g_stats.corr_mask][td.side]);
   if (CorrExpertW)
     TT_PREFETCH(&g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side]);
 
-  // La chiave della hash puo' portare la fascia delle 50 mosse (tt_key, HashFiftyStep): se differisce dalla stima si
-  // richiama la riga giusta. A opzione spenta tt_key e' td.hash_key e il test e' quello di prima.
+  // The hash key can carry the fifty-move band (tt_key, HashFiftyStep): if it differs from the estimate the
+  // right row is fetched. With the option off tt_key is td.hash_key and the test is the old one.
   const U64 tk = tt_key(td);
-  if (tk != pf_key) { // stima sbagliata (arrocco, promozione, e.p., fascia delle 50 mosse)
+  if (tk != pf_key)   // wrong estimate (castling, promotion, e.p., fifty-move band)
     TT_PREFETCH(&hash_table[tt_base_index(tk)]);
-    TT_PREFETCH(&td.eval_cache[td.hash_key & ThreadData::EVAL_CACHE_MASK]);
-  }
 
-  // ⛔ 04/10/2026 — PROVATO E TOLTO: prefetch qui, alla mossa, delle righe HalfKA che l'aggiornamento del figlio
-  // usera' (pezzo che parte/arriva/catturato, due prospettive, fascia del figlio). xperf 6 giri, nodi identici:
-  // cicli +0,58%, miss di L3 per nodo invariati (19,9 contro 19,8). Non anticipa nulla di utile.
+  // ⛔ 04/10/2026 - TRIED AND REMOVED: prefetch here, at the move, of the HalfKA rows the child's update
+  // will use (piece leaving/arriving/captured, two perspectives, band of the child). xperf 6 rounds, identical nodes:
+  // cycles +0.58%, L3 misses per node unchanged (19.9 against 19.8). It fetches nothing useful ahead.
 #ifdef TRIUMV_VERIFY_NNSYNC
-  td.nnstack->st[td.nnstack->size - 1].key = nn_piece_key(td);  // controllo di sincronia (06_nndirty.inc)
+  td.nnstack->st[td.nnstack->size - 1].key = nn_piece_key(td);  // synchronisation check (06_nndirty.inc)
 #endif
 
-  td.plies_from_null++; // P2.2: una mossa reale in piu' dall'ultima null
+  td.plies_from_null++; // P2.2: one more real move since the last null move
 
   return 1;
 }
@@ -512,8 +506,8 @@ static inline int td_make_move(ThreadData &td, int move, UndoInfo &undo, bool kn
 
 static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
   PROF_GUARD(prof_make);
-  nn_unmake_dirty(td);   // lo stato della rete di questa mossa esce dalla pila
-  // P2.2 (plies_from_null, speculare al ++ del make riuscito): torna con la copia di AA3 qui sotto.
+  nn_unmake_dirty(td);   // the network state of this move leaves the stack
+  // P2.2 (plies_from_null, mirror of the ++ of the successful make): restored with the AA3 copy below.
   td.side ^= 1;
 
   int source = get_move_source(move);
@@ -530,7 +524,7 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
     set_bit(td.bitboards[piece], source);
   }
 
-  // AA3 (10/10/2026): la vittima torna senza salto (senza vittima maschera nulla sulla bitboard 0).
+  // AA3 (10/10/2026): the victim comes back branchless (without a victim a null mask on bitboard 0).
   {
     const int cp = undo.captured_piece;
     const U64 cbit = cp != -1 ? 1ULL << (undo.captured_square & 63) : 0;
@@ -546,8 +540,8 @@ static inline void td_unmake_move(ThreadData &td, int move, UndoInfo &undo) {
 
   td.castle = undo.old_castle;
   td.enpassant = undo.old_enpassant;
-  // AA3: chiave, chiavi parziali, 50 mosse, plies_from_null e occupazioni dalla copia della make, al posto di
-  // td_occ_update e td_keys_update (stessi valori: sono quelli di prima della mossa).
+  // AA3: key, partial keys, fifty-move counter, plies_from_null and occupancies from the make's copy, instead of
+  // td_occ_update and td_keys_update (same values: they are those before the move).
   std::memcpy(&td.hash_key, undo.keys, sizeof(undo.keys));
   std::memcpy(td.occupancies, undo.occ, sizeof(undo.occ));
   td_mailbox_revert(td, piece, source, target, promoted, undo.captured_piece,

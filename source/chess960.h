@@ -1,41 +1,41 @@
 #pragma once
-// Chess960 (Fischer Random). Vedi docs/audit_8.0/I_CHESS960.md.
+// Chess960 (Fischer Random). See docs/audit_8.0/I_CHESS960.md.
 //
-// Fase 1 (27/09/2026): modello dati letto da parse_fen (X-FEN e Shredder-FEN).
-// Fase 2 (27/09/2026): collegato al motore. Il motore codifica l'arrocco come prima (re verso g1/c1/g8/c8 col
-// flag di arrocco; in 960 il re puo' anche non muoversi, sorgente == destinazione) e prende la casa della torre
-// da castle_rook_sq[], che negli scacchi normali vale sempre h1/a1/h8/a8. Con g_chess960 spento (default, e
-// unico stato raggiungibile in release) la generazione usa il codice di sempre e l'albero e' identico.
+// Stage 1 (27/09/2026): data model read by parse_fen (X-FEN and Shredder-FEN).
+// Stage 2 (27/09/2026): connected to the engine. The engine encodes castling as before (king towards g1/c1/g8/c8 with the
+// castling flag; in 960 the king may also not move, source == destination) and takes the rook's square
+// from castle_rook_sq[], which in normal chess is always h1/a1/h8/a8. With g_chess960 off (default, and
+// the only state reachable in release) the generation uses the usual code and the tree is identical.
 #include "defs.h"
 
 extern bool g_chess960;              // UCI_Chess960
 
 struct Castling960 {
-    int rights;                      // bit wk/wq/bk/bq letti dalla FEN
-    int king_from[2];                // casa del re [white, black]
-    int rook_from[4];                // casa della torre per wk, wq, bk, bq (no_sq se il diritto manca)
-    int rights_mask[64];             // castle &= rights_mask[sq] per origine e destinazione della mossa
+    int rights;                      // bits wk/wq/bk/bq read from the FEN
+    int king_from[2];                // king square [white, black]
+    int rook_from[4];                // rook square for wk, wq, bk, bq (no_sq if the right is missing)
+    int rights_mask[64];             // castle &= rights_mask[sq] for origin and destination of the move
 };
 extern Castling960 g_c960;
 
-// Case d'arrocco usate dal motore (make/unmake, generazione, stampa delle mosse). Scacchi normali: h1 a1 h8 a8
-// ed e1 e8. Riscritte da parse_fen: da g_c960 col 960 acceso, ai valori normali altrimenti.
+// Castling squares used by the engine (make/unmake, generation, move printing). Normal chess: h1 a1 h8 a8
+// and e1 e8. Rewritten by parse_fen: from g_c960 with 960 on, to the normal values otherwise.
 extern int castle_rook_sq[4];
 extern int castle_king_sq[2];
 
-// Legge il campo arrocco di una FEN (X-FEN: K/Q/k/q = torre piu' esterna su quel lato; Shredder-FEN:
-// A-H/a-h = colonna della torre) sulla scacchiera GIA' caricata. Diritti incoerenti (niente re sulla
-// traversa, niente torre sulla colonna) vengono scartati. Ritorna il numero di diritti scartati.
+// Reads the castling field of a FEN (X-FEN: K/Q/k/q = outermost rook on that side; Shredder-FEN:
+// A-H/a-h = rook's file) on the board ALREADY loaded. Inconsistent rights (no king on the
+// rank, no rook on the file) are discarded. Returns the number of rights discarded.
 int c960_parse_castling(const char* field_begin, const char* field_end);
 
-// Porta nel motore le case e la maschera dei diritti: da g_c960 (960) o i valori normali (standard).
+// Carries the squares and the rights mask into the engine: from g_c960 (960) or the normal values (standard).
 void c960_apply_to_engine();
 void c960_reset_standard();
 
-// Indice 0..3 del diritto (wk, wq, bk, bq) -> bit.
+// Index 0..3 of the right (wk, wq, bk, bq) -> bit.
 static inline int c960_bit(int idx) { return 1 << idx; }
 
-// Indice del diritto dalla casa d'arrivo del RE (g1, c1, g8, c8), la codifica interna dell'arrocco.
+// Index of the right from the KING's arrival square (g1, c1, g8, c8), the internal encoding of castling.
 static inline int castle_index(int king_to) {
     return king_to == g1 ? 0 : king_to == c1 ? 1 : king_to == g8 ? 2 : 3;
 }
@@ -46,16 +46,16 @@ static inline int castle_king_to(int idx) {
     return idx == 0 ? g1 : idx == 1 ? c1 : idx == 2 ? g8 : c8;
 }
 
-// Case fra a e b comprese, sulla stessa traversa (indici contigui: a8 = 0 ... h1 = 63).
+// Squares between a and b inclusive, on the same rank (contiguous indices: a8 = 0 ... h1 = 63).
 static inline U64 c960_span(int a, int b) {
     const int lo = a < b ? a : b, hi = a < b ? b : a;
     return ((hi == 63 ? 0ULL : (1ULL << (hi + 1))) - (1ULL << lo));
 }
 
-// Regola dell'arrocco 960 (come SF). Diritto idx presente; libere le case fra re e sua destinazione e fra
-// torre e sua destinazione, esclusi re e torre stessi; nessuna casa del percorso del re attaccata, casa di
-// partenza compresa (non si arrocca sotto scacco). La casa d'arrivo la verifica la legalita' dopo make, con
-// la torre gia' spostata: copre anche il caso della torre che schermava un attacco sulla traversa.
+// 960 castling rule (as SF). Right idx present; free the squares between the king and its destination and between
+// the rook and its destination, king and rook themselves excluded; no square of the king's path attacked, starting
+// square included (no castling out of check). The arrival square is checked by the legality test after make, with
+// the rook already moved: it also covers the case of the rook that screened an attack along the rank.
 template <typename Attacked>
 static inline bool c960_can_castle(int castle, int idx, U64 occ, Attacked attacked) {
     if (!(castle & c960_bit(idx))) return false;

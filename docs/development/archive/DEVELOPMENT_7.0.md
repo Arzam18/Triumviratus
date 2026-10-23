@@ -18,7 +18,7 @@
 
 [The network](#1-the-network) · [Measured Elo](#2-measured-elo-incremental) ·
 [Speed work](#3-speed-work-nps) · [Limits and robustness](#4-limits-and-robustness) ·
-[6.0 log](DEVELOPMENT_6.0.md) · [8.0 log](../DEVELOPMENT_8.0.md) · [Networks](../../networks/NETWORKS.md)
+[6.0 log](DEVELOPMENT_6.0.md) · [8.0 log](DEVELOPMENT_8.0.md) · [Networks](../../networks/NETWORKS.md)
 
 </div>
 

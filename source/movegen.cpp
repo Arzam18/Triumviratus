@@ -1,11 +1,14 @@
+// Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
+// released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
+// and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #include "defs.h"
 #include "attacks.h"
 #include "movegen.h"
 #include "magic.h"
 #include "chess960.h"
 
-// castling rights update constants. Non piu' const dal 27/09/2026: col Chess960 la maschera dipende dalle case
-// di partenza di re e torri (chess960.cpp la riscrive a ogni parse_fen; negli scacchi normali resta questa).
+// castling rights update constants. No longer const since 27/09/2026: with Chess960 the mask depends on the starting
+// squares of king and rooks (chess960.cpp rewrites it at every parse_fen; in normal chess it stays this one).
 int castling_rights[64] = {
      7, 15, 15, 15,  3, 15, 15, 11,
     15, 15, 15, 15, 15, 15, 15, 15,
@@ -62,7 +65,7 @@ void print_move(int move)
             square_to_coordinates[get_move_target(move)],
             mapPieceToPromotion(get_move_promoted(move)));
     else if (g_chess960 && get_move_castling(move))
-        // UCI_Chess960: l'arrocco si scrive "re cattura la propria torre" (e1h1, b1a1, ...).
+        // UCI_Chess960: castling is written as "king captures its own rook" (e1h1, b1a1, ...).
         printf("%s%s", square_to_coordinates[get_move_source(move)],
             square_to_coordinates[castle_rook_sq[castle_index(get_move_target(move))]]);
     else
@@ -179,9 +182,9 @@ int make_move(int move, int move_flag)
 
         if (double_push)
         {
-            // F-017 EPKeyFix (default ON, toggle in threads.cpp): ep nel board/key SOLO se
-            // un pedone nemico puo' catturarlo — DEVE restare identico al make del thread
-            // (threads.cpp td_make_move) o le chiavi root-history/search divergono.
+            // F-017 EPKeyFix (default ON, toggle in threads.cpp): ep in the board/key ONLY if
+            // an enemy pawn can capture it - it MUST stay identical to the thread's make
+            // (threads.cpp td_make_move) or the root-history/search keys diverge.
             extern bool g_ep_key_fix;
             int ep_sq = (side == white) ? target_square + 8 : target_square - 8;
             if (!g_ep_key_fix ||
@@ -194,9 +197,9 @@ int make_move(int move, int move_flag)
 
         if (castling)
         {
-            // Casa della torre da castle_rook_sq (chess960.h): negli scacchi normali h1/a1/h8/a8 come prima.
-            // Re e torre stanno in bitboard diverse, quindi anche nel 960 (re che arriva dove partiva la
-            // torre, re che non si muove) l'ordine pop/set non li fa interferire.
+            // Rook square from castle_rook_sq (chess960.h): in normal chess h1/a1/h8/a8 as before.
+            // King and rook are in different bitboards, so also in 960 (king arriving where the
+            // rook started, king not moving) the pop/set order keeps them from interfering.
             const int idx = castle_index(target_square);
             const int rook = idx < 2 ? R : r;
             const int rf = castle_rook_sq[idx], rt = castle_rook_to(idx);

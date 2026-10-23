@@ -6,112 +6,112 @@
 // (eval / movegen / make / tt / score). Default builds (no define) compile every
 // PROF_GUARD to a no-op => zero overhead, byte-identical to the release engine.
 #ifdef TRIUMV_PROFILE
-  // __rdtsc: <intrin.h> e' MSVC; su GCC/clang vive in <x86intrin.h>. Senza questo
-  // ramo `make profile` non compilava su Linux e la scomposizione per fase non era
-  // mai stata misurata sul rig.
+  // __rdtsc: <intrin.h> is MSVC; on GCC/clang it lives in <x86intrin.h>. Without this
+  // branch `make profile` did not compile on Linux and the per-stage breakdown had
+  // never been measured on the rig.
   #ifdef _MSC_VER
     #include <intrin.h>
   #else
     #include <x86intrin.h>
   #endif
   extern unsigned long long prof_eval, prof_mg, prof_make, prof_tt, prof_score;
-  // Scomposizione del forward NNUE (prof_eval). Serve a rispondere a UNA domanda che
-  // blocca il lavoro sulla sparsita' di L1: quanto pesa davvero fc_0? L'audit archivio'
-  // `ft_optimize` con la condizione esplicita "se fc_0 e' sotto il 5% del tempo, chiuso",
-  // e quella misura non e' mai stata fatta.
-  //   prof_ft     = feature transformer (accumulatore + transform)
-  //   prof_fc0    = il solo AffineTransformSparseInput 1024->16
-  //   prof_layers = tutto il resto (attivazioni + fc_1 + fc_2)
+  // Breakdown of the NNUE forward (prof_eval). It serves to answer ONE question that
+  // blocks the work on the sparsity of L1: how much does fc_0 really weigh? The audit archived
+  // `ft_optimize` with the explicit condition "if fc_0 is below 5% of the time, closed",
+  // and that measurement was never made.
+  //   prof_ft     = feature transformer (accumulator + transform)
+  //   prof_fc0    = the AffineTransformSparseInput 1024->16 alone
+  //   prof_layers = all the rest (activations + fc_1 + fc_2)
   extern unsigned long long prof_ft, prof_fc0, prof_layers;
-  // prof_catchup = `nn_dirty_catch_up` (07/10/2026, scacchiera unica v2): minacce e pedoni calcolati in ritardo, prima
-  // della valutazione, disfacendo e rifacendo le mosse in sospeso su copie locali. E' dentro prof_eval ma FUORI da prof_ft/fc0/layers. Fino al
-  // 06/10/2026 misurava il replay delle mosse sulla scacchiera specchio della rete.
+  // prof_catchup = `nn_dirty_catch_up` (07/10/2026, single board v2): threats and pawns computed late, before
+  // the evaluation, undoing and redoing the pending moves on local copies. It is inside prof_eval but OUTSIDE prof_ft/fc0/layers. Until
+  // 06/10/2026 it measured the replay of the moves on the network's mirror board.
   extern unsigned long long prof_catchup;
-  // Istogramma degli accessi alle righe di `threatWeights` (threat + PawnPair +
-  // PassedPawns folded: 59808 + 4560 + 96 = 64464 righe). Serve a rispondere alla
-  // domanda che decide se la PERMUTAZIONE PER LOCALITA' ha senso: gli accessi sono
-  // concentrati su poche feature o distribuiti su tutte?
-  //   - concentrati => impacchettare le calde in una regione contigua riduce pagine
-  //     toccate e pressione sul TLB (110 MB di pesi = 27.000 pagine da 4 KB, e le
-  //     large pages non sono disponibili: nessun tester le abilita)
-  //   - piatti      => non c'e' niente da impacchettare, idea morta
+  // Histogram of the accesses to the rows of `threatWeights` (threat + PawnPair +
+  // PassedPawns folded: 59808 + 4560 + 96 = 64464 rows). It serves to answer the
+  // question that decides whether the LOCALITY PERMUTATION makes sense: are the accesses
+  // concentrated on few features or spread over all of them?
+  //   - concentrated => packing the hot ones into a contiguous region reduces the pages
+  //     touched and the TLB pressure (110 MB of weights = 27,000 pages of 4 KB, and
+  //     large pages are not available: no tester enables them)
+  //   - flat         => there is nothing to pack, dead idea
   static constexpr int PROF_FEAT_N = 64464;
   extern unsigned long long prof_feat_hist[PROF_FEAT_N];
-  // Stesso istogramma per le righe HalfKA (`weights`): 22.528 righe da 2048 byte = 46 MB,
-  // le PIU' GROSSE del transformer e quelle su cui il prefetch ha reso di piu' (+1,3%).
-  // La loro distribuzione di accesso non e' mai stata guardata.
+  // Same histogram for the HalfKA rows (`weights`): 22,528 rows of 2048 bytes = 46 MB,
+  // the BIGGEST of the transformer and those on which the prefetch paid off most (+1.3%).
+  // Their access distribution has never been looked at.
   static constexpr int PROF_PSQ_N = 22528;
   extern unsigned long long prof_psq_hist[PROF_PSQ_N];
-  // Matrice di CO-OCCORRENZA fra le righe calde: quante volte due righe compaiono
-  // nello STESSO update. E' l'obiettivo che l'ordinamento per frequenza non vede:
-  // la frequenza mette davanti le righe piu' usate, ma cio' che conta e' quante
-  // PAGINE tocca un singolo update. Due feature che compaiono sempre insieme
-  // dovrebbero stare nella stessa pagina da 4 KB (= 4 righe da 1024 byte) anche se
-  // nessuna delle due e' fra le piu' calde in assoluto.
-  // 🔑 Con la permutazione per frequenza gia' attiva, le righe calde SONO le prime:
-  // basta raccogliere le coppie fra gli indici < PROF_COOC_N.
-  // 8192 righe calde coprono ~95% degli accessi (4096 ne coprivano ~87%).
-  // Conteggi a 16 bit CON SATURAZIONE: al clustering serve l'ordine relativo dei
-  // vicini, non il valore esatto, e a 32 bit la matrice sarebbe 268 MB invece di 134.
+  // CO-OCCURRENCE matrix between the hot rows: how many times two rows appear
+  // in the SAME update. It is the target the frequency ordering does not see:
+  // frequency puts the most used rows first, but what matters is how many
+  // PAGES a single update touches. Two features that always appear together
+  // should sit in the same 4 KB page (= 4 rows of 1024 bytes) even if
+  // neither of the two is among the hottest in absolute terms.
+  // 🔑 With the frequency permutation already active, the hot rows ARE the first ones:
+  // collecting the pairs among the indices < PROF_COOC_N is enough.
+  // 8192 hot rows cover ~95% of the accesses (4096 covered ~87%).
+  // 16-bit counts WITH SATURATION: clustering needs the relative order of the
+  // neighbours, not the exact value, and at 32 bits the matrix would be 268 MB instead of 134.
   static constexpr int PROF_COOC_N = 8192;
-  extern unsigned short* prof_cooc;  // PROF_COOC_N^2, allocata al primo uso
-  // Scomposizione del feature transformer (prof_ft), che il primo giro di misure ha
-  // rivelato essere il 39,3% del wall e il 91,2% del forward: il collo di bottiglia
-  // numero uno del motore. Qui si separa DOVE va quel tempo.
-  //   prof_acc_inc     = update incrementale dell'accumulatore (add/sub di colonne)
-  //   prof_acc_refresh = refresh completo dalla cache (quando l'incrementale non basta)
-  //   prof_ft_out      = clipped ReLU + moltiplicazione pairwise che produce l'input di fc_0
-  // Contatori di EVENTI, non di cicli: quante volte si prende ciascuna via.
+  extern unsigned short* prof_cooc;  // PROF_COOC_N^2, allocated at first use
+  // Breakdown of the feature transformer (prof_ft), which the first round of measurements
+  // revealed to be 39.3% of the wall time and 91.2% of the forward: the number one
+  // bottleneck of the engine. Here we separate WHERE that time goes.
+  //   prof_acc_inc     = incremental update of the accumulator (add/sub of columns)
+  //   prof_acc_refresh = full refresh from the cache (when the incremental one is not enough)
+  //   prof_ft_out      = clipped ReLU + pairwise multiplication producing the input of fc_0
+  // EVENT counters, not cycle counters: how many times each path is taken.
   extern unsigned long long prof_acc_inc, prof_acc_refresh, prof_ft_out;
   extern unsigned long long prof_n_inc, prof_n_refresh, prof_n_eval;
-  // prof_n_cols / prof_n_upd = colonne di peso sommate o sottratte per aggiornamento.
+  // prof_n_cols / prof_n_upd = weight columns added or subtracted per update.
   extern unsigned long long prof_n_cols, prof_n_upd;
-  // Tuple threat generate vs BUTTATE dal filtro (map<0 => pedone->pedone, escluse dal set).
+  // Threat tuples generated vs DISCARDED by the filter (map<0 => pawn->pawn, excluded from the set).
   extern unsigned long long prof_n_thr_seen, prof_n_thr_dead;
-  // Massimo riempimento delle IndexList, contro MaxActiveDimensions = 288.
+  // Maximum filling of the IndexLists, against MaxActiveDimensions = 288.
   extern unsigned long long prof_max_active, prof_max_inc;
-  // Al REFRESH: colonne attive per blocco. I due blocchi pedoni dipendono solo dalla
-  // struttura di pedoni => sono gli unici cachabili fra refresh consecutivi (che sono
-  // scatenati da mosse di RE). Il rapporto pawn/(pawn+threat) e' il tetto del guadagno.
+  // At REFRESH: active columns per block. The two pawn blocks depend only on the
+  // pawn structure => they are the only cacheable ones between consecutive refreshes (which are
+  // triggered by KING moves). The ratio pawn/(pawn+threat) is the ceiling of the gain.
   extern unsigned long long prof_cols_thr, prof_cols_pawn, prof_n_refresh_calls;
-  // Colonne per update INCREMENTALE, per blocco: e' il conto che distingue "liste piu'
-  // lunghe" da "colonne piu' care" nel confronto con Stockfish (09/09/2026).
+  // Columns per INCREMENTAL update, per block: it is the count that tells "longer
+  // lists" from "more expensive columns" in the comparison with Stockfish (09/09/2026).
   extern unsigned long long prof_cols_psq_inc, prof_cols_thr_inc, prof_cols_pawn_inc;
-  // --- SOTTO-BUCKET DELLA RICERCA (09/09/2026) -------------------------------
-  // Il bucket "altro" valeva 1.297 cicli/nodo su kiwipete, il secondo del motore dopo
-  // l'accumulatore, ed era completamente cieco: eval/movegen/make/tt/score erano gli
-  // unici guard. Stockfish sullo stesso nodo spende 929 cicli in TUTTO cio' che non e'
-  // eval, do_move e movegen. Senza questi contatori non si sa cosa attaccare.
-  //   prof_mp      = MovePicker (mp_init + mp_next: stadi, generazione pigra, selezione)
-  //   prof_hist    = OGNI scrittura in una history (td_update_history, entrambi gli
-  //                  overload): main, capture, continuation, pawn, lowply. Le tabelle
-  //                  sono enormi e sparse (continuation_history da sola e' 590 KB), e
-  //                  fino al 09/09 non erano coperte da nessun guard.
-  //   prof_corr    = correction history: indici, letture, aggiornamenti
-  //   prof_gc      = gives-check / legalita' calcolate FUORI da make (LMP guard, SEE)
+  // --- SEARCH SUB-BUCKETS (09/09/2026) -----------------------------------------
+  // The "other" bucket was worth 1,297 cycles/node on kiwipete, the second of the engine after
+  // the accumulator, and it was completely blind: eval/movegen/make/tt/score were the
+  // only guards. Stockfish on the same node spends 929 cycles in EVERYTHING that is not
+  // eval, do_move and movegen. Without these counters one does not know what to attack.
+  //   prof_mp      = MovePicker (mp_init + mp_next: stages, lazy generation, selection)
+  //   prof_hist    = EVERY write into a history (td_update_history, both
+  //                  overloads): main, capture, continuation, pawn, lowply. The tables
+  //                  are huge and sparse (continuation_history alone is 590 KB), and
+  //                  until 09/09 they were covered by no guard.
+  //   prof_corr    = correction history: indices, reads, updates
+  //   prof_gc      = gives-check / legality computed OUTSIDE make (LMP guard, SEE)
   extern unsigned long long prof_mp, prof_hist, prof_corr, prof_gc;
-  //   prof_thr     = td_compute_threats: le maschere di minaccia per l'ordinamento,
-  //                  ricalcolate ~1,5 volte per nodo scorrendo tutti i pezzi nemici
-  //   prof_see     = SEE (td_see_ge / td_see_at_least), chiamata per mossa nel pruning
-  //   prof_isatk   = td_is_square_attacked (legalita', scacchi, evasioni)
-  //   prof_rep     = rilevamento ripetizioni + cuckoo
+  //   prof_thr     = td_compute_threats: the threat masks for the ordering,
+  //                  recomputed ~1.5 times per node going over all the enemy pieces
+  //   prof_see     = SEE (td_see_ge / td_see_at_least), called per move in the pruning
+  //   prof_isatk   = td_is_square_attacked (legality, checks, evasions)
+  //   prof_rep     = repetition detection + cuckoo
   extern unsigned long long prof_thr, prof_see, prof_isatk, prof_rep;
-  //   prof_idx_thr / prof_idx_pawn = generazione degli INDICI nell'update incrementale,
-  //   separata per blocco. Serve a rispondere a una domanda che il confronto con
-  //   Stockfish apre: loro hanno TRE blocchi (Threats, HalfKA, PP_3Wide), noi QUATTRO
-  //   (+ PassedPawns), e `passers()` ricostruisce l'insieme dei passati PRIMA e DOPO a
-  //   ogni evento-pedone. Se e' caro, e' costo che loro non pagano affatto.
+  //   prof_idx_thr / prof_idx_pawn = generation of the INDICES in the incremental update,
+  //   separated per block. It serves to answer a question the comparison with
+  //   Stockfish opens: they have THREE blocks (Threats, HalfKA, PP_3Wide), we have FOUR
+  //   (+ PassedPawns), and `passers()` rebuilds the set of passers BEFORE and AFTER at
+  //   every pawn event. If it is expensive, it is a cost they do not pay at all.
   extern unsigned long long prof_idx_thr, prof_idx_pawn;
   extern unsigned long long prof_n_thr_calls, prof_n_see, prof_n_isatk;
-  extern unsigned long long prof_n_mg;   // chiamate a generazione mosse (SF: 0,52/nodo)
-  // Cache del refresh dei blocchi pedoni: quante volte la chiave e' gia' in cache.
-  // Un tasso basso dice che conviene ingrandirla, uno alto che il tetto e' raggiunto.
+  extern unsigned long long prof_n_mg;   // calls to move generation (SF: 0.52/node)
+  // Refresh cache of the pawn blocks: how many times the key is already in the cache.
+  // A low rate says it pays to enlarge it, a high one that the ceiling has been reached.
   extern unsigned long long prof_pawn_hit, prof_pawn_miss;
-  // Tetto di `update_accumulator_hybrid` (SF db98633b). HalfKAv2_hm::requires_refresh
-  // e' vero per OGNI mossa del proprio re, ma gli indici di threat/PawnPair/PassedPawns
-  // dipendono da OrientTBL[ksq], che ha due soli valori e cambia SOLO se il re
-  // attraversa la colonna d/e. Ogni refresh in cui l'orientamento NON cambia sta
-  // ricostruendo da zero feature che sarebbero rimaste valide.
+  // Ceiling of `update_accumulator_hybrid` (SF db98633b). HalfKAv2_hm::requires_refresh
+  // is true for EVERY move of one's own king, but the indices of threat/PawnPair/PassedPawns
+  // depend on OrientTBL[ksq], which has only two values and changes ONLY if the king
+  // crosses the d/e file. Every refresh in which the orientation does NOT change is
+  // rebuilding from scratch features that would have stayed valid.
   extern unsigned long long prof_refresh_same_orient, prof_refresh_cross_orient;
   extern unsigned long long prof_dead_pair[8][8];
   inline unsigned long long prof_now() { return __rdtsc(); }

@@ -26,7 +26,7 @@
 // 30000, mates live in (30000, 31000]) and far ABOVE any normal eval, so a TB
 // result dominates eval but never masquerades as / collides with a mate.
 //   TB win at ply p  =  TB_VALUE_WIN - p   in [29745, 29872] for p in [0,127]
-// (la banda scala da sola con max_ply: vedi search.h, 07/09/2026)
+// (the band scales by itself with max_ply: see search.h, 07/09/2026)
 static const int TB_VALUE_WIN = mate_score - max_ply;   // 30000 - 128 = 29872
 
 // Have we ever loaded tables? Used so syzygy_free() is harmless when unused and

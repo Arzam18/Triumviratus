@@ -1,3 +1,6 @@
+// Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
+// released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
+// and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
 #pragma once
 #ifndef DEFS_H
 #define DEFS_H
@@ -7,41 +10,41 @@
 #include <string.h>
 #ifdef _WIN32
 #include <windows.h>
-#include <intrin.h>   // __popcnt64 / _BitScanForward64 per gli helper inline qui sotto
+#include <intrin.h>   // __popcnt64 / _BitScanForward64 for the inline helpers below
 #endif
 #include <unordered_map>
 #include <vector>
 
 // Define version information
 #ifdef TRIUMV_POS_SOLVER
-#define VERSION " - 8.0 Pos Solver"   // build per l'analisi (search/01_params.inc, PSV)
+#define VERSION " - 8.1 Pos Solver"   // analysis build (search/01_params.inc, PSV)
 #else
-#define VERSION " - 8.0"
+#define VERSION " - 8.1"
 #endif
 #define AUTHOR "Francesco Torsello"
 #define NAME "Triumviratus"
 
-// Data di BUILD, presa dal compilatore: cambia da sola a ogni ricompilazione, cosi'
-// due build dello stesso giorno-diverso si distinguono nella GUI senza toccare il
-// sorgente. `__DATE__` e' "Jul 31 2026" (giorno con lo SPAZIO davanti sotto il 10):
-// build_date() lo riscrive in "2026-08-06", che si ordina.
+// BUILD date, taken from the compiler: it changes by itself at every recompilation, so
+// two builds of different days can be told apart in the GUI without touching the
+// source. `__DATE__` is "Jul 31 2026" (day with a SPACE in front below 10):
+// build_date() rewrites it as "2026-08-06", which sorts.
 inline const char* build_date() {
   static char iso[11];
 #ifdef TRIUMV_RELEASE_DAY
-  // Data di rilascio fissata in build (es. -DTRIUMV_RELEASE_DAY=20261009) al posto della data di compilazione.
+  // Release date fixed at build time (e.g. -DTRIUMV_RELEASE_DAY=20261009) instead of the compilation date.
   if (!iso[0])
     snprintf(iso, sizeof iso, "%04d-%02d-%02d", TRIUMV_RELEASE_DAY / 10000, TRIUMV_RELEASE_DAY / 100 % 100,
              TRIUMV_RELEASE_DAY % 100);
   return iso;
 #endif
   if (!iso[0]) {
-    const char* d    = __DATE__;   // via un puntatore: `__DATE__ + 7` su un literal
+    const char* d    = __DATE__;   // through a pointer: `__DATE__ + 7` on a literal
     const char* mons = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    const char  mon3[4] = { d[0], d[1], d[2], '\0' };  // SOLO le 3 lettere: cercare
-    const char* hit  = strstr(mons, mon3);             // "Jul 31 2026" intero non c'e'
+    const char  mon3[4] = { d[0], d[1], d[2], '\0' };  // ONLY the 3 letters: the whole
+    const char* hit  = strstr(mons, mon3);             // "Jul 31 2026" is not there to search for
     const int   mon  = hit ? int(hit - mons) / 3 + 1 : 0;
     snprintf(iso, sizeof iso, "%.4s-%02d-%02d", d + 7, mon,
-             atoi(d + 4));          // atoi mangia lo spazio dei giorni < 10
+             atoi(d + 4));          // atoi eats the space of days < 10
   }
   return iso;
 }
@@ -103,13 +106,13 @@ extern int side;
 extern int enpassant;
 extern int castle;
 extern U64 hash_key;
-// 2048 (2026-06-12, era 1000): partita lunga (440+ mosse = 880 plies di storia)
-// + cammino di search fino a max_ply=128 superava 1000 = scrittura OOB silenziosa.
+// 2048 (2026-06-12, was 1000): long game (440+ moves = 880 plies of history)
+// + search path up to max_ply=128 exceeded 1000 = silent OOB write.
 extern U64 repetition_table[2048];
 extern int repetition_index;
 extern int ply;
 extern int fifty;
-extern int g_fen_ply;   // ply di partita della FEN data: 2*(fullmove-1) + nero al tratto (TmFenPly, 05/10/2026)
+extern int g_fen_ply;   // game ply of the given FEN: 2*(fullmove-1) + black to move (TmFenPly, 05/10/2026)
 
 // Time control variables
 extern int quit;
@@ -121,28 +124,28 @@ extern int starttime;
 extern int stoptime;
 extern int timeset;
 extern int stopped;
-extern int g_searchmoves[256];   // "go searchmoves ...": root move whitelist (analisi).
-extern int g_searchmoves_count;  // 0 = off (cerca tutte le mosse di root).
-// Gli altri limiti di "go" (nodi, matto, infinite, ponder) sono in SearchLimits (threads.h).
+extern int g_searchmoves[256];   // "go searchmoves ...": root move whitelist (analysis).
+extern int g_searchmoves_count;  // 0 = off (search all root moves).
+// The other limits of "go" (nodes, mate, infinite, ponder) are in SearchLimits (threads.h).
 
 // Bit manipulations macros
 #define set_bit(bitboard, square) ((bitboard) |= (1ULL << (square)))
 #define get_bit(bitboard, square) ((bitboard) & (1ULL << (square)))
 #define pop_bit(bitboard, square) ((bitboard) &= ~(1ULL << (square)))
-// 2D: cancella il bit MENO SIGNIFICATIVO. Una sola istruzione (BLSR con -mbmi2, altrimenti
-// due) invece di shift+not+and, e soprattutto NON dipende dal risultato di get_ls1b_index:
-// la catena `sq = ls1b(bb); ... ; pop_bit(bb, sq)` costringe la cancellazione ad aspettare il
-// tzcnt, questa no.
-// 🔴 Vale SOLO dove il bit da togliere e' davvero l'LSB (tipicamente subito dopo un
-// get_ls1b_index sulla STESSA variabile). Dove si cancella una casa specifica — come in
-// see.cpp, che toglie `from`/`captured_sq`/`to` — serve pop_bit e questa macro sarebbe
-// SILENZIOSAMENTE SBAGLIATA.
+// 2D: clears the LEAST SIGNIFICANT bit. A single instruction (BLSR with -mbmi2, otherwise
+// two) instead of shift+not+and, and above all it does NOT depend on the result of get_ls1b_index:
+// the chain `sq = ls1b(bb); ... ; pop_bit(bb, sq)` forces the clearing to wait for the
+// tzcnt, this one does not.
+// 🔴 It holds ONLY where the bit to remove really is the LSB (typically right after a
+// get_ls1b_index on the SAME variable). Where a specific square is cleared - as in
+// see.cpp, which removes `from`/`captured_sq`/`to` - pop_bit is needed and this macro would be
+// SILENTLY WRONG.
 #define pop_lsb_bb(bitboard) ((bitboard) &= (bitboard) - 1)
-// 🔴 INLINE, non extern (09/09/2026). Erano funzioni fuori linea in misc.cpp: nel binario
-// PGO+ThinLTO restavano 31 `call get_ls1b_index` e 4 `call count_bits`, e il profilo -pg
-// contava ~120 bit-scan per nodo. Un tzcnt costa 1 ciclo, una chiamata ~10 e spezza le
-// catene di dipendenza nei loop `while (bb)`. Stockfish le ha inline da sempre.
-// Semantica IDENTICA (ls1b di 0 = -1): node-identical per costruzione.
+// 🔴 INLINE, not extern (09/09/2026). They were out-of-line functions in misc.cpp: in the
+// PGO+ThinLTO binary 31 `call get_ls1b_index` and 4 `call count_bits` remained, and the -pg profile
+// counted ~120 bit scans per node. A tzcnt costs 1 cycle, a call ~10, and it breaks the
+// dependency chains in the `while (bb)` loops. Stockfish has always had them inline.
+// IDENTICAL semantics (ls1b of 0 = -1): node-identical by construction.
 static inline int count_bits(U64 bitboard) {
 #ifdef _WIN32
     return (int)__popcnt64(bitboard);
@@ -162,7 +165,7 @@ static inline int get_ls1b_index(U64 bitboard) {
 }
 
 // Variables for Zobrist hashing
-extern U64 piece_keys[16][64];   // righe 12..15 a zero (vedi init.cpp)
+extern U64 piece_keys[16][64];   // rows 12..15 at zero (see init.cpp)
 extern U64 enpassant_keys[64];
 extern U64 castle_keys[16];
 extern U64 side_key;
@@ -180,6 +183,6 @@ typedef struct {
 extern void init_bitboards();
 
 
-#include "frozen.h"   // decide TRIUMV_FROZEN (vedi la nota li' dentro)
+#include "frozen.h"   // decides TRIUMV_FROZEN (see the note in there)
 
 #endif
