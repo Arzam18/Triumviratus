@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="Triumviratus" width="200">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/logo_mark_dark.svg"><img src="docs/images/logo_mark.svg" alt="Triumviratus" width="150"></picture>
 
 # Triumviratus
 
@@ -159,6 +159,8 @@ led the author to the surprise rule of 8.0's time management. Many thanks to him
 
 **Andres (EveAnn)** ran a 1,500-game gauntlet of the 11 October 8.0 pre-release against fifteen engines, Stockfish 19
 included.
+
+**Prometheus96** generated the logo, which was then reworked and converted to SVG.
 
 <details>
 <summary><b>Code from other projects</b></summary>
