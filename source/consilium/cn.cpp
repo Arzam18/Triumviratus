@@ -167,6 +167,7 @@ unsigned char g_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
 std::uint8_t g_router[ROUTER_CELLS];
 std::uint8_t g_router_alt[ROUTER_CELLS];
 thread_local const std::uint8_t* t_router = nullptr;
+std::atomic<bool>                g_router_alt_used{false};
 void router_alt_build(int shift) {
     for (int i = 0; i < ROUTER_CELLS; i++) {
         const int e = g_router[i] + shift;
@@ -525,11 +526,21 @@ inline int side_sig(const Board& b, int c) {
 inline int expert_of(const Board&, int) { return 0; }
 #else
 inline int expert_of(const Board& b, int p) {
-    const std::uint8_t* rt = t_router ? t_router : g_router;   // SmpRouteShift: the thread's table (cn.h)
+    const std::uint8_t* rt = thread_router();   // SmpRouteShift: the thread's table (cn.h)
     return rt[side_sig(b, p) * ROUTER_SIG + side_sig(b, p ^ 1)];
 }
 #endif
 #endif
+
+// The expert (phase) of perspective p on board b, from the board itself.
+inline int phase_of_board(const Board& b, int p) {
+#ifdef TRIUMV_C2
+    return expert_of(b, p);
+#else
+    (void)p;
+    return g_phase_map[CN_POPCNT(b.occ[2])];
+#endif
+}
 
 // Context of one perspective: everything an index needs besides the piece and square.
 struct Persp {
@@ -537,13 +548,11 @@ struct Persp {
     int                 hbase;   // phase * rows of a phase + king bucket * 704
     const std::int16_t (*hk)[64];
     const std::int8_t  (*pd)[64];
-    Persp(int p_, const Board& b) : p(p_) {
+    Persp(int p_, const Board& b) : Persp(p_, b, phase_of_board(b, p_)) {}
+    // With the expert already known (C2 speed, 23/10/2026: the make's byte of the stack state, see state_phase).
+    Persp(int p_, const Board& b, int ph) : p(p_) {
         ksq   = CN_LSB(b.bb[KING + 6 * p]);
-#ifdef TRIUMV_C2
-        phase = expert_of(b, p);
-#else
-        phase = g_phase_map[CN_POPCNT(b.occ[2])];
-#endif
+        phase = ph;
         mh    = mirror_hka(ksq);
         mo    = mirror_oth(ksq);
         oo    = orient(p, mo);
@@ -554,6 +563,21 @@ struct Persp {
     int hka(int pc, int s) const { return hbase + hk[pc][s]; }
     int pid(int c, int s) const { return pd[c][s]; }
 };
+
+// The expert of perspective p at stack state i, whose board is b. Consilium Plebis (C2 speed, 23/10/2026): above the
+// root the make has already written both experts in the state (NnDirtyPiece::phase, White | Black << 4; computed on a
+// capture, a promotion or the first move from the root, copied otherwise; nnperft checks it against the board), so the
+// evaluation reads one byte instead of eight popcounts, four signature terms and the thread's routing pointer per
+// perspective. The root's state has none: there the board. The evaluation from scratch (evaluate_refresh, the reference
+// of nnueverify) still reads the board. -DCN_NO_STACK_EXPERT: the board everywhere, as before.
+inline int state_phase(const NnStack& S, int i, const Board& b, int p) {
+#if defined(TRIUMV_C2) && !defined(CN_NO_STACK_EXPERT)
+    return i > 0 ? (S.st[i].dp.phase >> (4 * p)) & 15 : expert_of(b, p);
+#else
+    (void)S, (void)i;
+    return phase_of_board(b, p);
+#endif
+}
 
 void apply_psqt(const RowList& L, const std::int32_t* src, std::int32_t* dst) {
 #if defined(USE_AVX2) || defined(USE_AVX512)
@@ -1427,8 +1451,47 @@ void pawn_king_compute(const Net& net, const Board& b, std::int32_t* out) {
         const __m512i x1 = _mm512_min_epi16(_mm512_max_epi16(h[2 * k + 1], zero), top);
         _mm512_store_si512(a + 64 * k, _mm512_permutexvar_epi64(order, _mm512_packus_epi16(x0, x1)));
     }
-    // Four independent chains per half: one chain of 64 dependent products waited on the latency of each one.
     const std::int32_t* in = reinterpret_cast<const std::int32_t*>(a);
+#ifndef CN_PK_DENSE
+    // Sparse output layer (C2 speed, 23/10/2026): the hidden layer is almost all zeros after the clamp (ep194, 30 game
+    // positions x 1M nodes: 249.6 of 256 units and 58.1 of 64 groups of 4 per miss), so only the nonzero 4-byte groups
+    // are multiplied, found and compacted in registers as in l0_side. A zero group adds nothing, and the int32 sums do
+    // not depend on the order: the outputs are the same integers. dot4 is vpdpbusd with VNNI (vnni512), maddubs + madd
+    // otherwise, as in the forward. -DCN_PK_DENSE: every group, as before.
+    alignas(64) std::int32_t nz[PK_H / 4 + 16];
+    int                      n = 0;
+    for (int k = 0; k < PK_H / 64; k++) {
+        const __m512i   v = _mm512_load_si512(a + 64 * k);
+        const __mmask16 m = _mm512_test_epi32_mask(v, v);
+        _mm512_storeu_si512(nz + n, _mm512_maskz_compress_epi32(
+                                        m, _mm512_add_epi32(_mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+                                                                              14, 15),
+                                                            _mm512_set1_epi32(16 * k))));
+        n += CN_POPCNT(unsigned(m));
+    }
+    __m512i s0 = _mm512_load_si512(net.pkB2), s1 = _mm512_load_si512(net.pkB2 + 16);
+    __m512i t0 = _mm512_setzero_si512(), t1 = t0;
+    int     i = 0;
+    for (; i + 1 < n; i += 2) {   // two chains
+        const int      g0 = nz[i], g1 = nz[i + 1];
+        const __m512i  x0 = _mm512_set1_epi32(in[g0]), x1 = _mm512_set1_epi32(in[g1]);
+        const __m512i* w0 = reinterpret_cast<const __m512i*>(net.pkW2g[g0]);
+        const __m512i* w1 = reinterpret_cast<const __m512i*>(net.pkW2g[g1]);
+        s0 = dot4(s0, x0, _mm512_load_si512(w0));
+        s1 = dot4(s1, x0, _mm512_load_si512(w0 + 1));
+        t0 = dot4(t0, x1, _mm512_load_si512(w1));
+        t1 = dot4(t1, x1, _mm512_load_si512(w1 + 1));
+    }
+    if (i < n) {
+        const __m512i  x = _mm512_set1_epi32(in[nz[i]]);
+        const __m512i* w = reinterpret_cast<const __m512i*>(net.pkW2g[nz[i]]);
+        s0 = dot4(s0, x, _mm512_load_si512(w));
+        s1 = dot4(s1, x, _mm512_load_si512(w + 1));
+    }
+    _mm512_storeu_si512(out, _mm512_add_epi32(s0, t0));
+    _mm512_storeu_si512(out + 16, _mm512_add_epi32(s1, t1));
+#else
+    // Four independent chains per half: one chain of 64 dependent products waited on the latency of each one.
     __m512i c0[4], c1[4];
     for (int c = 0; c < 4; c++) c0[c] = c1[c] = _mm512_setzero_si512();
     for (int g = 0; g < PK_H / 4; g += 4)
@@ -1444,6 +1507,7 @@ void pawn_king_compute(const Net& net, const Board& b, std::int32_t* out) {
                                         _mm512_add_epi32(_mm512_add_epi32(c1[0], c1[1]), _mm512_add_epi32(c1[2], c1[3])));
     _mm512_storeu_si512(out, o0);
     _mm512_storeu_si512(out + 16, o1);
+#endif
 #elif defined(USE_AVX2) && !defined(CN_PK_SCALAR)
     constexpr int R = PK_H / 16;
     __m256i       h[R];
@@ -1465,8 +1529,44 @@ void pawn_king_compute(const Net& net, const Board& b, std::int32_t* out) {
         _mm256_store_si256(reinterpret_cast<__m256i*>(a + 32 * k),
                            _mm256_permute4x64_epi64(_mm256_packus_epi16(x0, x1), 0xD8));
     }
-    // Two chains per quarter (8 accumulators), as on AVX-512.
     const std::int32_t* in = reinterpret_cast<const std::int32_t*>(a);
+#ifndef CN_PK_DENSE
+    // Sparse output layer (C2 speed, 23/10/2026), as on AVX-512: only the nonzero 4-byte groups of the hidden layer,
+    // compacted with the table of l0_side. Same integers. dot8 is vpdpbusd with AVX-VNNI (avxvnni).
+    alignas(32) std::int32_t nz[PK_H / 4 + 8];
+    int                      n = 0;
+    for (int k = 0; k < PK_H / 32; k++) {
+        const __m256i  v = _mm256_load_si256(reinterpret_cast<const __m256i*>(a + 32 * k));
+        const unsigned m =
+          unsigned(_mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(v, _mm256_setzero_si256())))) ^ 0xFFu;
+        const __m256i pos = _mm256_cvtepu8_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(g_nzIdx[m])));
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(nz + n), _mm256_add_epi32(pos, _mm256_set1_epi32(8 * k)));
+        n += CN_POPCNT(m);
+    }
+    __m256i o0[4], o1[4];
+    for (int k = 0; k < 4; k++) {
+        o0[k] = _mm256_load_si256(reinterpret_cast<const __m256i*>(net.pkB2 + 8 * k));
+        o1[k] = _mm256_setzero_si256();
+    }
+    int i = 0;
+    for (; i + 1 < n; i += 2) {   // two chains
+        const __m256i  x0 = _mm256_set1_epi32(in[nz[i]]), x1 = _mm256_set1_epi32(in[nz[i + 1]]);
+        const __m256i* w0 = reinterpret_cast<const __m256i*>(net.pkW2g[nz[i]]);
+        const __m256i* w1 = reinterpret_cast<const __m256i*>(net.pkW2g[nz[i + 1]]);
+        for (int k = 0; k < 4; k++) {
+            o0[k] = dot8(o0[k], x0, _mm256_load_si256(w0 + k));
+            o1[k] = dot8(o1[k], x1, _mm256_load_si256(w1 + k));
+        }
+    }
+    if (i < n) {
+        const __m256i  x = _mm256_set1_epi32(in[nz[i]]);
+        const __m256i* w = reinterpret_cast<const __m256i*>(net.pkW2g[nz[i]]);
+        for (int k = 0; k < 4; k++) o0[k] = dot8(o0[k], x, _mm256_load_si256(w + k));
+    }
+    for (int k = 0; k < 4; k++)
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(out + 8 * k), _mm256_add_epi32(o0[k], o1[k]));
+#else
+    // Two chains per quarter (8 accumulators), as on AVX-512.
     __m256i o[2][4];
     for (int k = 0; k < 4; k++) o[0][k] = o[1][k] = _mm256_setzero_si256();
     for (int g = 0; g < PK_H / 4; g += 2)
@@ -1479,6 +1579,7 @@ void pawn_king_compute(const Net& net, const Board& b, std::int32_t* out) {
         _mm256_storeu_si256(reinterpret_cast<__m256i*>(out + 8 * k),
                             _mm256_add_epi32(_mm256_load_si256(reinterpret_cast<const __m256i*>(net.pkB2 + 8 * k)),
                                              _mm256_add_epi32(o[0][k], o[1][k])));
+#endif
 #else
     alignas(64) std::int16_t h[PK_H];
     std::memcpy(h, net.pkB1, sizeof(h));
@@ -2105,7 +2206,7 @@ Out evaluate(const Net& net, Handle& h, const Board& b) {
 
     if (!refresh[0] && !refresh[1] && from[0] == top - 1 && from[1] == top - 1) {
         // The common case: one move from the parent, both perspectives; each threat tuple decoded once.
-        const Persp    P0(0, b), P1(1, b);
+        const Persp    P0(0, b, state_phase(S, top, b, 0)), P1(1, b, state_phase(S, top, b, 1));
         RowList*       L0    = new (&lists[0]) RowList(&net);
         RowList*       L1    = new (&lists[1]) RowList(&net);
         const Persp*   PP[2] = {&P0, &P1};
@@ -2122,7 +2223,7 @@ Out evaluate(const Net& net, Handle& h, const Board& b) {
     } else {
         for (int p = 0; p < 2; p++) {
             if (S.st[top].computed[p] & 1) continue;
-            const Persp P(p, b);
+            const Persp P(p, b, state_phase(S, top, b, p));
             const NnDirtyPiece& dpt = S.st[top].dp;
 #ifndef CN_NO_KINGSTEP
             if (refresh[p] && from[p] == top && top > 0 && (S.st[top - 1].computed[p] & 1)
@@ -2138,7 +2239,7 @@ Out evaluate(const Net& net, Handle& h, const Board& b) {
                 occp[1] = bbp[6] | bbp[7] | bbp[8] | bbp[9] | bbp[10] | bbp[11];
                 occp[2] = occp[0] | occp[1];
                 const Board  bpar{bbp, occp, b.mb, b.stm ^ 1};
-                const Persp  Ppar(p, bpar);
+                const Persp  Ppar(p, bpar, state_phase(S, top - 1, bpar, p));
                 RowList*     LP   = new (&lists[0]) RowList(&net);
                 RowList*     LN   = new (&lists[1]) RowList(&net);
                 RowList*     LO   = new (&lists[2]) RowList(&net);

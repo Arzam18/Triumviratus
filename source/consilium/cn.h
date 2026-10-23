@@ -17,6 +17,7 @@
 #ifndef CN_H_INCLUDED
 #define CN_H_INCLUDED
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -166,6 +167,19 @@ extern std::uint8_t g_router[ROUTER_CELLS];
 // itself; thread 0 always reads g_router.
 extern std::uint8_t g_router_alt[ROUTER_CELLS];
 extern thread_local const std::uint8_t* t_router;
+// C2 speed (23/10/2026): set once some thread has chosen the shifted table (nn_thread_router(1)), never cleared.
+// Until then every thread reads g_router and t_router is not read at all: with MinGW a thread_local is a call to the
+// TLS emulation (~2.4% of the engine on 25/09/2026), and the make and Persp asked for it at every capture and
+// evaluation. -DCN_NO_ROUTER_GUARD: t_router read every time, as before.
+// A thread's t_router is non-null only after that same thread raised the flag, so a relaxed read is enough.
+extern std::atomic<bool> g_router_alt_used;
+inline const std::uint8_t* thread_router() {
+#ifndef CN_NO_ROUTER_GUARD
+    return g_router_alt_used.load(std::memory_order_relaxed) && t_router ? t_router : g_router;
+#else
+    return t_router ? t_router : g_router;
+#endif
+}
 void router_alt_build(int shift);
 inline int router_sig(int n, int b, int r, int q) {
     return (n < 2 ? n : 2) * 18 + (b < 2 ? b : 2) * 6 + (r < 2 ? r : 2) * 2 + (q < 1 ? q : 1);

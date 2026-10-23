@@ -618,9 +618,14 @@ NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->st
 
 #ifdef TRIUMV_C2
 // The routing table of the calling thread (SmpRouteShift: the shifted copy on the odd helpers, else the network's).
-const unsigned char* nn_router_table(void) { return cn::t_router ? cn::t_router : cn::g_router; }
+const unsigned char* nn_router_table(void) { return cn::thread_router(); }
 void nn_router_alt_build(int shift) { cn::router_alt_build(shift); }
-void nn_thread_router(int alt) { cn::t_router = alt ? cn::g_router_alt : nullptr; }
+// C2 speed (23/10/2026): the guard flag is raised before the thread's pointer, so a thread that reads the flag set
+// reads its own pointer (written by itself); with the flag down, t_router is null on every thread anyway.
+void nn_thread_router(int alt) {
+    if (alt) cn::g_router_alt_used.store(true, std::memory_order_relaxed);
+    cn::t_router = alt ? cn::g_router_alt : nullptr;
+}
 
 // --- C2 signals for the search (agent A) ---
 int nn_pk_skip(void* handle, const unsigned long long* bb, int side_white) {

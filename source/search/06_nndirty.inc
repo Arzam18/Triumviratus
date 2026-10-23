@@ -311,7 +311,14 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
   // Consilium Plebis: the expert of each perspective comes from the network's routing table over the non-pawn material
   // signatures (consilium/cn.h router_sig). Only a capture or a promotion changes material, so other moves copy the
   // parent's experts (the root's state has none: computed from the board).
-  if (cap != -1 || promoted || S.size < 3) {
+#ifndef CN_NO_MAKE_EXPERT_COPY
+  // C2 speed (23/10/2026): a pawn taken without a promotion leaves both non-pawn signatures as they were, so the
+  // experts are the parent's (no popcounts, no table); above the first move the parent's experts are its state's byte.
+  const bool c2_same = S.size >= 3 && !promoted && (cap == -1 || cap % 6 == P);
+#else
+  const bool c2_same = false;
+#endif
+  if (!c2_same && (cap != -1 || promoted || S.size < 3)) {
     const unsigned char *rt = nn_router_table();
     int n[2], bsh[2], r[2], q[2];
     for (int c = 0; c < 2; c++) {
@@ -320,8 +327,14 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
       r[c] = count_bits(td.bitboards[R + 6 * c]);
       q[c] = count_bits(td.bitboards[Q + 6 * c]);
     }
+#ifndef CN_NO_MAKE_EXPERT_COPY
+    const int ph0 = S.size >= 3 ? S.st[S.size - 2].dp.phase : -1;
+    const int e0w = ph0 >= 0 ? (ph0 & 15) : rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
+    const int e0b = ph0 >= 0 ? (ph0 >> 4) : rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+#else
     const int e0w = rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
     const int e0b = rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+#endif
     auto dec = [&](int pc, int d) {
       const int t = pc % 6, c = pc / 6;
       if (t == N) n[c] += d;
