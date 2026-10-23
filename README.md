@@ -76,27 +76,31 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-8.0 has not been listed yet.
+8.0 has entered CCRL 40/15 with its first games; the Blitz list will follow.
 
-**CCRL Blitz** (2 min + 1 s)
+**CCRL Blitz** (2 min + 1 s), list of 2026-10-17
 
-| version | rating | rank | list |
-|---|---:|---:|---|
-| **Triumviratus 7.0** (1 CPU) | **3757** ± 19 | **8** | 2026-09-26 |
-| Triumviratus 6.0 (1 CPU) | 3749 ± 13 | 12–14 | 2026-08-16 |
-| Triumviratus 4.2 (1 CPU) | 3670 ± 13 | 51–52 | 2026-08-08 |
+| version | rating | rank | games |
+|---|---:|---:|---:|
+| **Triumviratus 7.0** (8 CPU) | **3780** ± 20 | **2** | 1,106 |
+| Triumviratus 7.0 (1 CPU) | 3756 ± 12 | | 2,015 |
+| Triumviratus 6.0 (1 CPU) | 3744 ± 12 | | 2,056 |
+| Triumviratus 4.2 (1 CPU) | 3667 ± 13 | | 1,518 |
 
-**CCRL 40/15** (40 moves in 15 minutes, with increment)
+**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-23
 
-| version | rating | rank | list |
-|---|---:|---:|---|
-| **Triumviratus 6.0** (4 CPU) | **3632** ± 17 | **13–14** | 2026-09-23 |
-| Triumviratus 5.1 (1 CPU) | 3605 | | 2026-07-23 |
-| Triumviratus 5.0 (4 CPU) | 3603 | | 2026-07-16 |
-| Triumviratus 5.0 (1 CPU) | 3570 | | 2026-07-16 |
+| version | rating | rank | games |
+|---|---:|---:|---:|
+| **Triumviratus 8.0** (1 CPU) | **3640** ± 40 | | 106 |
+| Triumviratus 6.0 (4 CPU) | 3633 ± 16 | 13–15 | 718 |
+| Triumviratus 7.0 (4 CPU) | 3633 ± 55 | | 55 |
+| Triumviratus 7.0 (1 CPU) | 3608 ± 13 | | 1,122 |
+| Triumviratus 6.0 (1 CPU) | 3607 ± 13 | | 1,018 |
+| Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
+| Triumviratus 5.0 (1 CPU) | 3573 ± 16 | | 717 |
 
-<sub>Ranks are tie bands shared by the engines inside the interval. The two lists are not comparable with each
-other.</sub>
+<sub>The rank is the one in the main table of each list, which shows the best version of every engine; ranks are tie
+bands shared by the engines inside the interval. The two lists are not comparable with each other.</sub>
 
 <details>
 <summary><b>Our matches and test suites for the 8.0 release</b></summary>
