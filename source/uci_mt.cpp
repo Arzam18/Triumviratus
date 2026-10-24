@@ -309,6 +309,11 @@ void uci_loop()
     // all-zero and Late Move Reductions are effectively disabled.
     init_threads(1);
 
+    // Start position on launch (24/10/2026, GitHub issue #7): a "go" (or "d", "eval") sent before any "position"
+    // searched an empty board without kings and crashed. Now the engine starts as if it had received
+    // "position startpos".
+    parse_fen(start_position);
+
     // Buffered I/O (12/10/2026). Before, unbuffered: every printf of an "info" line (one per move of the pv)
     // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4; SF19 1.2).
     // Output stays prompt: fflush after every info, currmove and bestmove line, and the loop below does fflush
