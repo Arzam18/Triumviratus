@@ -15,7 +15,7 @@
 
 <sub>in collaboration with Maurizio Platino</sub>
 
-**Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026) · `main`: development of 8.1
+**Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026), **number 1 on CCRL Blitz** · `main`: development of 8.1
 
 **Triumviratus is becoming a community project.** Join the [Discord server](https://discord.gg/Z5zeMSrQn) to follow the
 development, share ideas and contribute. Everyone is welcome, as long as discussions stay open and respectful.
@@ -79,16 +79,17 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-**Triumviratus 8.0 has the highest single-CPU rating on CCRL 40/15: 3640 ± 40 after its first 106 games** (Stockfish 19, 1 CPU: 3630). The Blitz list will follow.
+**Triumviratus 8.0 is number 1 on the CCRL Blitz list of 24 October 2026: 3847 ± 17 on a single CPU, ahead of every engine, the 8-CPU builds included** (Stockfish 19, 8 CPU: 3803). On CCRL 40/15 it has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19, 1 CPU: 3630).
 
-**CCRL Blitz** (2 min + 1 s), list of 2026-10-17
+**CCRL Blitz** (2 min + 1 s), list of 2026-10-24
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| **Triumviratus 7.0** (8 CPU) | **3780** ± 20 | **2** | 1,106 |
-| Triumviratus 7.0 (1 CPU) | 3756 ± 12 | | 2,015 |
-| Triumviratus 6.0 (1 CPU) | 3744 ± 12 | | 2,056 |
-| Triumviratus 4.2 (1 CPU) | 3667 ± 13 | | 1,518 |
+| **Triumviratus 8.0** (1 CPU) | **3847** ± 17 | **1** | 960 |
+| Triumviratus 7.0 (8 CPU) | 3780 ± 20 | | 1,106 |
+| Triumviratus 7.0 (1 CPU) | 3755 ± 12 | | 2,015 |
+| Triumviratus 6.0 (1 CPU) | 3743 ± 12 | | 2,056 |
+| Triumviratus 4.2 (1 CPU) | 3666 ± 13 | | 1,518 |
 
 **CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-23
 
