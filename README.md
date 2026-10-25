@@ -82,6 +82,9 @@ weights, rather than only in the small layers after it.
 
 **Triumviratus 8.0 is number 1 on the CCRL Blitz list of 24 October 2026: 3847 ± 17 on a single CPU, ahead of every engine, the 8-CPU builds included** (Stockfish 19, 8 CPU: 3803). On CCRL 40/15 it has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19, 1 CPU: 3630).
 
+**Note (25 October 2026): the CCRL Blitz test of Triumviratus 8.0 is being redone.** By mistake its games were played
+from openings that were too unbalanced, so the 8.0 rating below is provisional and will be replaced by the new games.
+
 **CCRL Blitz** (2 min + 1 s), list of 2026-10-24
 
 | version | rating | rank | games |
