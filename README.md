@@ -17,8 +17,9 @@
 
 **Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026), **number 1 on CCRL Blitz** · `main`: development of 8.1
 
-**Triumviratus is becoming a community project.** Join the [Discord server](https://discord.gg/Z5zeMSrQn) to follow the
-development, share ideas and contribute. Everyone is welcome, as long as discussions stay open and respectful.
+**Triumviratus is becoming a community project.** The project has a Discord server where the development is followed,
+ideas are shared and contributions are discussed: to join, just contact me ([@Tors3](https://github.com/Tors3) on
+GitHub). Everyone is welcome, as long as discussions stay open and respectful.
 
 </div>
 
