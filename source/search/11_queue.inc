@@ -1,9 +1,9 @@
-// search/11_queue.inc -- Ordinamento delle mosse.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/11_queue.inc -- Move ordering.
+// Part of threads.cpp: NOT a translation unit of its own.
 
-// SeePinned (05/10/2026, audit del nucleo): inchiodati e inchiodatori dei due colori, una volta per posizione, per la
-// SEE (see.cpp). Per ogni re: i pezzi lunghi avversari sulle sue linee a scacchiera vuota sono i cecchini; un
-// cecchino con un solo pezzo in mezzo, e quel pezzo nostro, lo inchioda. SF fa lo stesso conto in ogni posizione.
+// SeePinned (05/10/2026): pinned pieces and pinners of both colours, once per position, for the SEE (see.cpp). For each
+// king, the enemy sliders on its lines on an empty board are the snipers; a sniper with exactly one piece in between,
+// and that piece ours, pins it.
 static void see_pins_update(ThreadData &td) {
   for (int c = white; c <= black; c++) {
     const int off = c == white ? 0 : 6, eoff = 6 - off;
@@ -27,9 +27,10 @@ static void see_pins_update(ThreadData &td) {
   td.see_pin_key = td.hash_key;
 }
 
-// SEE con la convenzione della ricerca: promozioni, arrocco ed en passant valgono 0.
+// SEE with the convention of the search: castling and en passant count 0. Promotions go to the SEE, which adds the
+// promotion gain (17/10/2026, review by Bastiii; before, they counted 0 too).
 static inline bool see_holds(ThreadData &td, int m, int threshold) {
-  if (get_move_promoted(m) || get_move_castling(m) || get_move_enpassant(m))
+  if (get_move_castling(m) || get_move_enpassant(m))
     return 0 >= threshold;
   PROF_GUARD(prof_see);
   if (SeePinned && td.see_pin_key != td.hash_key)
@@ -38,10 +39,14 @@ static inline bool see_holds(ThreadData &td, int m, int threshold) {
 }
 
 // ============================================================================
-// Una coda per nodo. Le mosse escono a gruppi: la mossa hash, le tattiche che reggono lo scambio, le quiete con
-// buone statistiche, le tattiche perdenti, le quiete rimaste. Sotto scacco si ordinano tutte le evasioni insieme;
-// in quiescenza e per i tagli (probcut) si vedono solo le tattiche.
-// Le mosse sono pseudo-legali: la legalita' la decide td_make_move.
+// THE MOVE QUEUE (block 1 of 8.1, sub-block D)
+// One queue per node hands out the moves in groups: hash move, captures that hold the exchange, quiet moves with good
+// statistics, losing captures, the remaining quiet moves. In check all evasions are sorted together; in quiescence
+// and ProbCut only captures are seen. Moves are pseudo-legal: td_make_move decides legality.
+// Origin: staged move generation is a known idea, common to almost every engine, with the usual order of the groups.
+// Ours: the three thresholds between the groups are per expert (StGood, StQuiet,
+// StSort), chosen once per node when the queue fills (q.ex, q.good_capt, q.good_quiet). Defaults give the old
+// constants, identical tree. Code map: docs/conceptual_maps/BLOCK_1_CODE_MAP.md.
 // ============================================================================
 enum QueueKind { QK_MAIN, QK_EVADE, QK_QUIESCE, QK_CUTS };
 
@@ -66,37 +71,64 @@ struct MoveQueue {
   int           step;
   int           hash_move;
   int           depth;
-  int           cut_threshold;   // QK_CUTS: soglia di SEE
-  bool          quiets_off;      // potatura per numero di mosse: niente piu' quiete
-  LmpChkCtx    *checks;          // case di scacco del nodo, condivise con la legalita' (null = calcolate qui)
-  int           n_tact, n_all;   // tattiche in [0, n_tact), quiete in [n_tact, n_all)
+  int           cut_threshold;   // QK_CUTS: SEE threshold
+  bool          quiets_off;      // move-count pruning: no more quiet moves
+#ifdef TRIUMV_PRUNELOG
+  bool          pl_count_off;    // data build: move-count pruning applied move by move in skip_move (prunelog.h)
+#endif
+  LmpChkCtx    *checks;          // check squares of the node, shared with legality (null = computed here)
+  int           n_tact, n_all;   // tactical moves in [0, n_tact), quiet moves in [n_tact, n_all)
   int           cur;
   int           n_lose, cur_lose;
   ScoredMove    list[256];
   unsigned char losers[256];
-  // Attacchi dell'avversario nella posizione del nodo, calcolati da score_quiets (06/10/2026, SEE delle quiete):
-  // opp_att = tutte le case che attacca, opp_slider = quelle viste dai suoi pezzi lunghi. Valide se opp_ready.
+  // The opponent's attacks in the node's position, computed by score_quiets (06/10/2026, SEE of quiet moves):
+  // opp_att = every square it attacks, opp_slider = those seen by its sliders. Valid when opp_ready.
   bool          opp_ready;
   U64           opp_att, opp_slider;
-  // V2 (08/10/2026): confine fra quiete buone e cattive gia' noto dopo l'ordinamento (quiet_split >= 0), oppure -1
-  // (si scorre la lista confrontando ogni punteggio, come prima).
+  // ThreatHist: threatened squares per type of our piece (09_history.inc), written by score_quiets from the same maps
+  // as the ordering; valid when menace_ready.
+  bool          menace_ready;
+  U64           menace[6];
+  // (08/10/2026) Boundary between good and bad quiet moves, known after sorting (quiet_split >= 0), or -1 (the list
+  // is walked comparing each score).
   int           quiet_split;
+  LegalNode     lgen;            // legal generator: pins, checks and masks of the node, shared by the stages
+  // LmrRank (block 2 of 8.1, 16/10/2026): rank_ok = the last move handed out is a quiet move of the sorted list, with
+  // ordering score last_score; quiet_top = the highest score among the node's quiet moves (fill_quiets).
+  bool          rank_ok;
+  int           last_score, quiet_top;
+  // Expert of the node and group thresholds: written by fill_tactics / fill_evasions (ex, good_capt) and fill_quiets
+  // (good_quiet), read by queue_next.
+  int           ex, good_capt, good_quiet;
+#ifdef TRIUMV_C2
+  int           c2_conv;         // C2 idea 3: the side to move is ahead (+1) or behind (-1), set by move_loop; else 0
+#endif
 };
 
-// SEE di una mossa quieta decisa senza scambio (06/10/2026, velocita', albero identico). Per una quieta semplice
-// (casa d'arrivo vuota, niente promozione, arrocco, en passant) td_see_ge esce con "soglia > 0 -> no" o, per
-// soglia <= 0, con "si'" appena l'avversario non ha attaccanti sulla casa d'arrivo. Gli attaccanti li conta con
-// l'occupazione SENZA la casa di partenza: togliere quella casa apre linee solo ai pezzi lunghi che gia' la vedono.
-// Quindi, se la casa d'arrivo non e' attaccata dall'avversario e nessun suo pezzo lungo vede la casa di partenza,
-// il risultato e' gia' noto: 0 >= soglia. La mappa la prepara score_quiets per le quiete della coda; la mossa hash
-// (che esce prima della mappa) e le parate dallo scacco passano dalla SEE di sempre.
-// Contatori (bench 14 su fens30): ~0,57 SEE di quiete per nodo.
+// ThreatHist: threat context of a quiet move, from the node's maps when they exist, otherwise from its two squares.
+static inline int quiet_ctx(const MoveQueue &q, int m) {
+  if (!ThreatHist || get_move_promoted(m))
+    return 0;
+  if (q.menace_ready) {
+    const U64 mm = q.menace[kPieceKind[move_piece(m)]];
+    return (int)((mm >> move_from(m)) & 1) | (int)((mm >> move_to(m)) & 1) << 1;
+  }
+  return quiet_ctx_slow(*q.td, m);
+}
+
+// SEE of a quiet move decided without an exchange (06/10/2026, speed, identical tree). For a plain quiet move (empty
+// target, no promotion, castling or en passant) td_see_ge answers "no" for a threshold > 0 and, for a threshold <= 0,
+// "yes" as soon as the opponent has no attacker on the target. It counts the attackers with the occupancy WITHOUT the
+// origin square: removing that square opens lines only for the sliders that already see it. So if the target is not
+// attacked and no enemy slider sees the origin, the result is known: 0 >= threshold. score_quiets prepares the maps
+// for the queue's quiet moves; the hash move (handed out before the maps) and evasions go through the full SEE.
 static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int threshold) {
-  constexpr int SPECIAL = 0x100000 | 0xf0000 | 0x400000 | 0x800000;   // cattura, promozione, e.p., arrocco
+  constexpr int SPECIAL = 0x100000 | 0xf0000 | 0x400000 | 0x800000;   // capture, promotion, e.p., castling
   if (q.opp_ready && !(m & SPECIAL) && !((q.opp_att >> move_to(m)) & 1) && !((q.opp_slider >> move_from(m)) & 1)) {
-#ifdef TRIUMV_VERIFY_SEEQ   // verifica: la SEE vera deve dare lo stesso esito
+#ifdef TRIUMV_VERIFY_SEEQ   // check: the full SEE must give the same answer
     if ((0 >= threshold) != see_holds(td, m, threshold)) {
-      printf("info string SEEQ SBAGLIATA: mossa %d soglia %d\n", m, threshold);
+      printf("info string SEEQ WRONG: move %d threshold %d\n", m, threshold);
       fflush(stdout);
       abort();
     }
@@ -106,40 +138,30 @@ static inline bool see_holds_q(ThreadData &td, const MoveQueue &q, int m, int th
   return see_holds(td, m, threshold);
 }
 
-// Inserimento stabile: le mosse con punteggio >= limit vanno in testa in ordine decrescente, le altre restano
-// dopo, nell'ordine di generazione.
-// 04/10/2026 (xperf): qui nasce l'11% dei salti mal predetti del motore (~6 per nodo; l'ordinamento intero ne fa 10,
-// SF 2,7). PROVATA e TOLTA la variante a scambio (la mossa buona prende il posto della prima bassa): salti mal
-// predetti invariati (55,4 -> 55,1 per nodo), cicli per nodo +3,8%, ordine delle mosse basse rimescolato. I salti
-// vengono dai confronti, che dipendono dai dati, non dagli spostamenti: serve un ordinamento senza salti.
-// 04/10/2026 — SENZA SALTI, stesso ordine di prima (albero identico). Ogni mossa sopra la soglia ha una chiave unica
-// (punteggio << 8 | 255 - posizione): a parita' di punteggio vince la prima generata, come nell'inserimento stabile.
-// La sua posizione finale e' il numero di chiavi piu' grandi della sua, contato con un ciclo che il compilatore
-// vettorizza; le mosse sotto la soglia seguono nell'ordine di generazione. Le divisioni fra le due liste si fanno con
-// incrementi condizionati, non con salti. n <= 256, quindi la posizione sta in 8 bit.
-// Misura (xperf, PGO, nodi identici): con chiavi a 64 bit salti mal predetti -10,8% per nodo ma istruzioni +1,2% e
-// cicli invariati. Chiavi a 32 bit (Wide = false): 16 confronti per istruzione AVX-512 invece di 8. Valgono per
-// tattiche e quiete, i cui punteggi stanno ben dentro +-2^22 (la saturazione e' solo una sicurezza). Dal 05/10/2026
-// anche le parate dallo scacco (fill_evasions): prima usavano 1 << 28 per le catture e chiavi a 64 bit.
-// 04/10/2026 notte — SENZA COPIE: le mosse arrivano dalla lista del generatore (mv) con i punteggi accanto (sc) e
-// vengono scritte una volta sola, gia' in ordine, nella lista della coda (out). Prima passavano da tre liste
-// (generatore -> coda -> copia temporanea dell'ordinamento). Stesso ordine, stesso albero.
-#if defined(__AVX512F__)
+// Stable partial sort: moves with score >= limit go first in decreasing order, the others follow in generation order.
+// (04/10/2026) The insertion sort here caused 11% of the engine's mispredicted branches; a swap variant changed
+// nothing (the branches come from data-dependent comparisons) and cost 3.8% cycles, so the sort is branchless, with
+// the same order (identical tree). Each move above the limit gets a unique key (score << 8 | 255 - position): on equal
+// scores the first generated wins, as in the stable insertion. Its final place is the number of larger keys, counted
+// in a loop the compiler vectorises; the moves below the limit follow in generation order, split with conditional
+// increments. n <= 256, so the position fits in 8 bits. 32-bit keys (Wide = false) give 16 comparisons per AVX-512
+// instruction; tactical and quiet scores stay well inside +-2^22 (the clamp is only a safety). Evasions use it too
+// since 05/10/2026. The moves are read from the generator's list (mv) with their scores (sc) and written once, already
+// in order, into the queue (out).
+#if defined(__AVX512F__) || defined(__AVX2__)
 #include <immintrin.h>
 #endif
-// 05/10/2026 — CONTEGGIO A MASCHERE (AVX-512). Il ciclo `r += key[j] > x` ha un conteggio nh che cambia a ogni
-// chiamata: il compilatore lo vettorizza ma lascia una coda scalare di nh % 16 giri (ognuno confronto, somma e salto)
-// e una riduzione orizzontale per ogni mossa. Qui le chiavi oltre nh valgono INT_MIN (sotto ogni chiave vera, che e'
-// almeno -(1 << 30)), cosi' un gruppo parziale si confronta intero: per ogni mossa 16 confronti alla volta ->
-// maschera -> popcount, niente coda. La chiave si scrive gia' nel primo passaggio, nello slot corrente della lista
-// alta, e conta solo se la mossa ci entra: il secondo ciclo su hi[] e' sparito. Stesse chiavi, stesse posizioni.
-// xperf 6 giri, build PGO avx512: cicli per nodo -0,70%. Le build avx2 tengono il ciclo scalare.
-// Restituisce quante mosse sono finite nella parte ordinata (punteggio >= limit).
+// (05/10/2026) Mask counting on AVX-512. The loop `r += key[j] > x` has a trip count nh that changes at every call:
+// vectorised, it still left a scalar tail of nh % 16 iterations and a horizontal reduction per move. Here the keys
+// beyond nh are INT_MIN (below every real key, which is at least -(1 << 30)), so a partial group is compared whole:
+// 16 comparisons at a time -> mask -> popcount, no tail. The key is written in the first pass, in the current slot of
+// the high list, and counts only if the move enters it. Same keys, same positions; -0.70% cycles per node.
+// Returns how many moves went into the sorted part (score >= limit).
 template <bool Wide>
 static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   using Key = std::conditional_t<Wide, long long, int>;
-  alignas(64) Key key[256 + 16];   // 16 slot in piu' per il riempimento INT_MIN del percorso vettoriale
+  alignas(64) Key key[256 + 16];   // 16 extra slots for the INT_MIN padding of the vector path
   unsigned char hi[256], lo[256];
   int nh = 0, nl = 0;
   for (int i = 0; i < n; i++) {
@@ -156,13 +178,29 @@ static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int l
   }
 #if defined(__AVX512F__)
   if constexpr (!Wide) {
-    _mm512_storeu_si512(key + nh, _mm512_set1_epi32(INT_MIN));   // riempimento fino al gruppo di 16 successivo
+    _mm512_storeu_si512(key + nh, _mm512_set1_epi32(INT_MIN));   // padding up to the next group of 16
     const int nchunk = (nh + 15) >> 4;
     for (int k = 0; k < nh; k++) {
       const __m512i x = _mm512_set1_epi32(key[k]);
       int r = 0;
       for (int c = 0; c < nchunk; c++)
         r += count_bits((U64)_mm512_cmpgt_epi32_mask(_mm512_load_si512(key + 16 * c), x));
+      out[r] = {mv[hi[k]], sc[hi[k]]};
+    }
+  } else
+#elif defined(__AVX2__)
+  // (15/10/2026) The same full-group counting on AVX2 builds, 8 keys per comparison (vpcmpgtd -> movmskps -> popcnt):
+  // the tail of the scalar loop left with a mispredicted branch almost at every sorted move (~2.6% of all
+  // mispredictions). Here every move does the same number of groups. Same keys, same positions.
+  if constexpr (!Wide) {
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(key + nh), _mm256_set1_epi32(INT_MIN));
+    const int nchunk = (nh + 7) >> 3;
+    for (int k = 0; k < nh; k++) {
+      const __m256i x = _mm256_set1_epi32(key[k]);
+      int r = 0;
+      for (int c = 0; c < nchunk; c++)
+        r += count_bits((U64)(unsigned)_mm256_movemask_ps(_mm256_castsi256_ps(
+                 _mm256_cmpgt_epi32(_mm256_load_si256(reinterpret_cast<const __m256i *>(key + 8 * c)), x))));
       out[r] = {mv[hi[k]], sc[hi[k]]};
     }
   } else
@@ -185,12 +223,23 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.kind = kind;
   q.depth = depth;
   q.quiets_off = false;
+#ifdef TRIUMV_PRUNELOG
+  q.pl_count_off = false;
+#endif
   q.checks = nullptr;
   q.cut_threshold = 0;
   q.n_tact = q.n_all = q.cur = 0;
   q.n_lose = q.cur_lose = 0;
   q.opp_ready = false;
+  q.menace_ready = false;
   q.quiet_split = -1;
+  q.lgen.ready = false;
+  q.rank_ok = false;
+  q.last_score = q.quiet_top = 0;
+  q.ex = 3, q.good_capt = 1024, q.good_quiet = 0;
+#ifdef TRIUMV_C2
+  q.c2_conv = 0;
+#endif
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -198,22 +247,31 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.step = QS_HASH;
 }
 
-// PromoOrder e BishopPairCapt (08/10/2026, spente = albero invariato): la promozione a donna e la cattura di un
-// alfiere della coppia avversaria salgono nell'ordine. Il punteggio entra anche nella soglia SEE delle tattiche
-// vincenti (-score / GoodCaptSeeDiv), come per ogni altro termine.
-static inline int score_tactic(const ThreadData &td, int m) {
+// Score of a capture (sub-block C): capture history and value of the victim, weighted per expert (HtCapt, HtVict,
+// /1024; the defaults 1024 and 7168 give the old sum history + 7 x value). The score also sets the exchange threshold
+// of a good capture in queue_next (-score x StGood / 19456).
+// PromoOrder and BishopPairCapt (08/10/2026, off = tree unchanged): queen promotions and captures of a bishop of the
+// enemy pair move up in the order. promo and bpair are PromoOrder and BishopPairCapt as the node uses them (scaled per
+// C2 expert with C2OrdReg, fill_tactics).
+static inline int score_tactic(const ThreadData &td, int m, int ex, int promo, int bpair) {
   const int vk = victim_kind(td, m);
-  int s = td.capt_hist[move_piece(m)][move_to(m)][vk] + 7 * unit_value[vk];
-  if (PromoOrder && promo_kind(m) == Q)
-    s += PromoOrder;
-  if (BishopPairCapt && vk == B && count_bits(td.bitboards[td.side == white ? b : B]) >= 2)
-    s += BishopPairCapt;
+#ifdef TRIUMV_C2   // --- C2 piece values (agent SEE) ---: bit 4 of C2SeeReg, the victim in its owner's regime (see.cpp)
+  const int vval = unit_value[vk] + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
+#else
+  const int vval = unit_value[vk];
+#endif
+  int s = (by_exp4(ex, HtCapt0, HtCapt1, HtCapt2, HtCapt3) * td.capt_hist[move_piece(m)][move_to(m)][vk] +
+           by_exp4(ex, HtVict0, HtVict1, HtVict2, HtVict3) * vval) / 1024;
+  if (promo && promo_kind(m) == Q)
+    s += promo;
+  if (bpair && vk == B && count_bits(td.bitboards[td.side == white ? b : B]) >= 2)
+    s += bpair;
   return s;
 }
 
-// AA2 (10/10/2026): case attaccate dall'insieme dei cavalli in `b`, con gli spostamenti di mask_knight_attacks
-// (attacks.cpp) applicati alla bitboard intera: la stessa unione del ciclo su knight_attacks[]. Numerazione a8 = 0:
-// la colonna a e' il bit 0 di ogni byte, quindi uno spostamento a destra di 1 o 2 bit va verso la colonna a.
+// (10/10/2026) Squares attacked by the set of knights in `b`, with the shifts of mask_knight_attacks (attacks.cpp)
+// applied to the whole bitboard: the same union as the loop over knight_attacks[]. With a8 = 0 the a-file is bit 0 of
+// each byte, so a right shift by 1 or 2 bits moves toward the a-file.
 static inline U64 knight_fill(U64 b) {
   const U64 l1 = (b >> 1) & 0x7F7F7F7F7F7F7F7FULL, l2 = (b >> 2) & 0x3F3F3F3F3F3F3F3FULL;
   const U64 r1 = (b << 1) & 0xFEFEFEFEFEFEFEFEULL, r2 = (b << 2) & 0xFCFCFCFCFCFCFCFCULL;
@@ -221,17 +279,9 @@ static inline U64 knight_fill(U64 b) {
   return (h1 << 16) | (h1 >> 16) | (h2 << 8) | (h2 >> 8);
 }
 
-// Reciproci a 40 bit di 1 + ply per la storia dei primi ply (score_quiets): |8 * voce| < 2^16, divisore <= 5, quindi
-// moltiplicare per M = ceil(2^40 / D) e troncare da' la divisione intera (errore M*D - 2^40 < D, come W1).
-static constexpr auto low_ply_recip = [] {
-  std::array<unsigned long long, LOW_PLY_SIZE> r{};
-  for (int p = 0; p < LOW_PLY_SIZE; p++)
-    r[p] = ((1ULL << 40) + (unsigned long long)p) / (unsigned long long)(p + 1);
-  return r;
-}();
 
-// Punteggi delle quiete: statistiche (pesate), bonus agli scacchi diretti che non perdono materiale, e la mossa
-// di un pezzo che esce da (o entra in) una casa attaccata da un pezzo nemico di valore minore.
+// Scores of the quiet moves: weighted statistics, a bonus for direct checks that lose no material, and the move of a
+// piece that leaves (or enters) a square attacked by an enemy piece of lower value.
 static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   PROF_GUARD(prof_score);
   ThreadData &td = *q.td;
@@ -240,25 +290,23 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int eoff = them == white ? 0 : 6, us_off = 6 - eoff;
   const U64 occ = td.occupancies[both];
 
-  // Case attaccate da tutti i pedoni avversari insieme: gli stessi due shift di mask_pawn_attacks (attacks.cpp)
-  // applicati alla bitboard intera, quindi la stessa unione del ciclo per pedone (04/10/2026).
+  // Squares attacked by all enemy pawns together: the two shifts of mask_pawn_attacks (attacks.cpp) applied to the
+  // whole bitboard, the same union as the loop per pawn (04/10/2026).
   const U64 epawns = td.bitboards[P + eoff];
   const U64 by_pawn = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
                                     : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
-  // AA2 (10/10/2026, velocita', stessi punteggi): mappe dell'avversario e attacchi da casa sicura (AttackOrder*) da
-  // UN calcolo DualMagic per pezzo lungo nemico (get_slider_pair, AA1), invece dei quattro cicli by_* e dei cinque cicli
-  // di attack_to, che ricalcolavano gli attacchi degli stessi pezzi (alfiere, torre e donna di nuovo, due volte per la
-  // donna). Contatori (bench 15 su fens30): 0,16 riempimenti per nodo, 0,84 calcoli per nodo prima, ~0,35 ora; nove
-  // cicli a lunghezza variabile per riempimento diventano tre (piu' corti), cavalli e pedoni passano per insiemi.
-  // Primo passo, sui pezzi lunghi: by_bishop, by_rook, by_queen e le parti di attack_to che non dipendono da `safe`
-  // (le torri e la donna sono sempre bersagli per l'alfiere, la donna per la torre).
+  // (10/10/2026, speed, same scores) The opponent's maps and the safe-square attacks (AttackOrder*) come from ONE
+  // slider computation per enemy slider (get_slider_pair), instead of loops that computed the attacks of the same
+  // pieces again (~0.84 computations per node before, ~0.35 now); knights and pawns go through sets.
+  // First pass, over the sliders: by_bishop, by_rook, by_queen and the parts of attack_to that do not depend on `safe`
+  // (rooks and the queen are always targets for the bishop, the queen for the rook).
   const U64 eN = td.bitboards[N + eoff], eB = td.bitboards[B + eoff], eR = td.bitboards[R + eoff],
             eQ = td.bitboards[Q + eoff];
   const U64 by_knight = knight_fill(eN);
   U64 by_bishop = 0, by_rook = 0, by_queen = 0;
-  U64 aa_b = 0, aa_r = 0, aa_q = 0;            // attack_to[B], [R], [Q] (vedi sotto per i bersagli)
-  U64 sl_b[16], sl_r[16];                      // attacchi di alfiere e di torre dei pezzi lunghi, per il secondo passo
-  unsigned char sl_slot[64];                   // indice in sl_b/sl_r per casa (scritto solo per i pezzi lunghi)
+  U64 aa_b = 0, aa_r = 0, aa_q = 0;            // attack_to[B], [R], [Q] (targets below)
+  U64 sl_b[16], sl_r[16];                      // bishop and rook attacks of the sliders, for the second pass
+  unsigned char sl_slot[64];                   // index into sl_b/sl_r per square (written only for sliders)
   int nsl = 0;
   for (U64 t = eB | eR | eQ; t; pop_lsb_bb(t)) {
     const int sq = get_ls1b_index(t);
@@ -275,7 +323,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     sl_slot[sq] = (unsigned char)nsl++;
   }
   const U64 by_minor = by_knight | by_bishop;
-  // Mappa per see_holds_q (la donna e il re non entrano in lesser[], solo qui).
+  // Map for see_holds_q (the queen and the king are not in lesser[], only here).
   q.opp_slider = by_bishop | by_rook | by_queen;
   q.opp_att = by_pawn | by_knight | q.opp_slider | king_attacks[get_ls1b_index(td.bitboards[K + eoff])];
   q.opp_ready = true;
@@ -285,14 +333,35 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   lesser[R] = by_minor | by_pawn;
   lesser[Q] = by_rook | lesser[R];
   lesser[K] = 0;
+  // ThreatHist: threatened squares per piece type (09_history.inc): the lesser[] maps, plus pawn attacks for pawns.
+  if (ThreatHist) {
+    for (int k = P; k <= K; k++) q.menace[k] = lesser[k];
+    q.menace[P] = by_pawn;
+    q.menace_ready = true;
+  }
 
   LmpChkCtx local_checks;
   LmpChkCtx &checks = q.checks ? *q.checks : local_checks;
   if (!checks.ready)
     td_lmp_chk_init(td, checks);
 
-  // Scudo del re (nostra): col re sulla traversa di casa, i nostri pedoni accanto al re si muovono per ultimi.
-  // Vale fino al mediogioco: solo finche' l'avversario ha materiale d'attacco (KingShieldNpm, pezzi non pedoni).
+  // The chess-knowledge terms of this node (below). C2OrdReg (C2 idea 5, agent ORDER, 21/10/2026; OFF by default,
+  // SPSA pending) scales each group by the C2 expert that names its regime (09_history.inc, c2_reg_scales). The tests
+  // that decide whether a map is built stay on the parameters themselves, so a scale of 0 only removes the term.
+  int ks_v = KingShield, op_v = OutpostOrder, opb_v = OutpostOrderB, pass_v = PassedPush;
+  int atk_v = AttackOrder, atkq_v = AttackOrderQ;
+#ifdef TRIUMV_C2
+  if (C2OrdReg) {   // --- C2 ordering (agent ORDER) ---
+    const C2RegScales rs = c2_reg_scales(td, td.side);
+    ks_v = c2_reg_apply(ks_v, rs.ks);
+    atk_v = c2_reg_apply(atk_v, rs.atk), atkq_v = c2_reg_apply(atkq_v, rs.atk);
+    pass_v = c2_reg_apply(pass_v, rs.pass);
+    op_v = c2_reg_apply(op_v, rs.minor), opb_v = c2_reg_apply(opb_v, rs.minor);
+  }
+#endif
+
+  // King shield: with the king on its home rank, our pawns next to the king move last. Only while the opponent has
+  // attacking material (KingShieldNpm, non-pawn pieces).
   U64 shield = 0;
   if (KingShield) {
     const int ksq = get_ls1b_index(td.bitboards[us == white ? K : k]);
@@ -305,13 +374,12 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       shield = king_attacks[ksq] & td.bitboards[us == white ? P : p];
   }
 
-  // Avamposti (08/10/2026, utente): il cavallo che va su una casa della meta' avversaria (traverse 4-6 dal nostro
-  // lato), difesa da un nostro pedone e che nessun pedone avversario potra' mai attaccare (nessun pedone nemico davanti
-  // sulle colonne vicine), si prova prima. OutpostSafe: 1 = in piu' l'avversario non ha alfieri del colore della casa,
-  // 2 = in piu' non ha cavalli (la casa non si puo' contestare con un pezzo minore). Numerazione a8 = 0: il bianco
-  // avanza verso indici piu' bassi.
-  // Case davanti ai pedoni avversari, nella loro direzione di marcia (front), e case che quei pedoni potranno
-  // attaccare avanzando (span). Un nostro pedone fuori da entrambe e' passato.
+  // Outposts (08/10/2026, the user's idea): a knight going to a square in the enemy half (ranks 4-6 from our side),
+  // defended by our pawn and never attackable by an enemy pawn (no enemy pawn ahead on the adjacent files), is tried
+  // earlier. OutpostSafe: 1 = also, the opponent has no bishop of the square's colour; 2 = also, no knights (the square
+  // cannot be contested by a minor piece). With a8 = 0, white advances toward lower indices.
+  // Squares in front of the enemy pawns, in their direction of travel (front), and squares those pawns can attack as
+  // they advance (span). Our pawn outside both is passed.
   U64 front = 0, span = 0;
   if (OutpostOrder || OutpostOrderB || PassedPush) {
     front = epawns;
@@ -325,10 +393,10 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     const U64 ours_p = td.bitboards[P + us_off];
     const U64 guarded = us == white ? ((ours_p >> 7) & not_a_file) | ((ours_p >> 9) & not_h_file)
                                     : ((ours_p << 7) & not_h_file) | ((ours_p << 9) & not_a_file);
-    const U64 rows = us == white ? 0x000000FFFFFF0000ULL : 0x0000FFFFFF000000ULL;   // traverse 4-6 / 5-3
+    const U64 rows = us == white ? 0x000000FFFFFF0000ULL : 0x0000FFFFFF000000ULL;   // ranks 4-6 / 5-3
     outpost = rows & guarded & ~span;
     if (OutpostSafe >= 1) {
-      constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // a8 (indice 0) e' chiara
+      constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // a8 (index 0) is a light square
       const U64 eb = td.bitboards[B + eoff];
       if (eb & light)  outpost &= ~light;
       if (eb & ~light) outpost &= light;
@@ -337,8 +405,8 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       outpost = 0;
   }
 
-  // Spinta del passato (08/10/2026): case d'arrivo dalla traversa relativa PassedPushRank alla settima dove un nostro
-  // pedone e' passato. La SEE (>= 0) si chiede solo alle mosse di pedone che ci arrivano.
+  // Passed-pawn push (08/10/2026): target squares from relative rank PassedPushRank to the seventh where our pawn is
+  // passed. The SEE (>= 0) is asked only of the pawn moves that reach them.
   U64 passed_to = 0;
   if (PassedPush) {
     U64 rows = 0;
@@ -347,18 +415,18 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     passed_to = rows & ~(front | span);
   }
 
-  // Attacchi da casa sicura (08/10/2026; l'idea e' in Reckless, la regola e' nostra): per ogni tipo di pezzo, le case
-  // non attaccate dall'avversario da cui quel pezzo attaccherebbe un bersaglio. Bersagli: pezzi nemici (non pedoni,
-  // non il re) di classe piu' alta (pedone < cavallo = alfiere < torre < donna), o della stessa classe o piu' bassa
-  // ma non difesi. Le case si trovano al contrario, dagli attacchi del bersaglio (pedone: quelli di un pedone nemico).
+  // Attacks from a safe square (08/10/2026; the idea is in Reckless, the rule is ours): for each piece type, the squares
+  // not attacked by the opponent from which that piece would attack a target. Targets: enemy pieces (not pawns, not
+  // the king) of a higher class (pawn < knight = bishop < rook < queen), or of the same or lower class but undefended.
+  // The squares are found backwards, from the target's attacks (pawn: those of an enemy pawn).
   U64 attack_to[6] = {0, 0, 0, 0, 0, 0};
-  if (AttackOrder || AttackOrderQ) {
+  if (AttackOrder || AttackOrderQ || ThreatBal) {   // ThreatBal: the same maps, for the threatened value
     const U64 safe = ~q.opp_att;
     const U64 minors = eN | eB;
-    // AA2, secondo passo. Bersagli: dell'alfiere er|eq|(minors&safe), della torre eq|((minors|er)&safe), della donna
-    // (minors|er)&safe, del cavallo come l'alfiere, del pedone minors|er|eq. Le parti senza `safe` sono gia' in aa_b e
-    // aa_r; alfieri e torri al sicuro riusano i loro attacchi del primo passo; i cavalli al sicuro (0-2) sono gli
-    // unici bersagli che chiedono un calcolo nuovo. Cavalli e pedoni come insiemi (knight_fill, shift dei pedoni).
+    // Second pass. Targets: of the bishop er|eq|(minors&safe), of the rook eq|((minors|er)&safe), of the queen
+    // (minors|er)&safe, of the knight as the bishop, of the pawn minors|er|eq. The parts without `safe` are already in
+    // aa_b and aa_r; safe bishops and rooks reuse their first-pass attacks; safe knights (0-2) are the only targets that
+    // need a new computation. Knights and pawns as sets (knight_fill, pawn shifts).
     for (U64 t = (eB | eR) & safe; t; pop_lsb_bb(t)) {
       const int sq = get_ls1b_index(t), k = sl_slot[sq];
       aa_b |= sl_b[k] & (0 - ((eB >> sq) & 1));
@@ -371,17 +439,17 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       aa_r |= pair_rook(sp);
       aa_q |= pair_bishop(sp) | pair_rook(sp);
     }
-    if (AttackOrder) {
-      const U64 tp = minors | eR | eQ;   // gli attacchi di un pedone nemico posto su ogni bersaglio
+    if (AttackOrder || ThreatBal) {
+      const U64 tp = minors | eR | eQ;   // the attacks of an enemy pawn placed on each target
       attack_to[P] = them == white ? ((tp >> 7) & not_a_file) | ((tp >> 9) & not_h_file)
                                    : ((tp << 7) & not_h_file) | ((tp << 9) & not_a_file);
       attack_to[N] = knight_fill(eR | eQ | (minors & safe));
       attack_to[B] = aa_b;
       attack_to[R] = aa_r;
     }
-    if (AttackOrderQ)
+    if (AttackOrderQ || ThreatBal)
       attack_to[Q] = aa_q;
-#ifdef TRIUMV_VERIFY_AA2   // verifica: i cicli di prima (08/10/2026) devono dare le stesse mappe
+#ifdef TRIUMV_VERIFY_AA2   // check: the earlier loops (08/10/2026) must give the same maps
     {
       const U64 er = eR, eq = eQ;
       U64 old[6] = {0, 0, 0, 0, 0, 0}, ok = 0, ob = 0, orr = 0, oq = 0;
@@ -400,79 +468,202 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       bool same = ok == by_knight && ob == by_bishop && orr == by_rook && oq == by_queen;
       for (int k = P; k <= Q; k++) same = same && old[k] == attack_to[k];
       if (!same) {
-        printf("info string AA2 SBAGLIATA: mappe d'attacco diverse\n");
+        printf("info string AA2 WRONG: attack maps differ\n");
         fflush(stdout);
         abort();
       }
     }
 #endif
-    // AttackSafeSee 0: casa d'arrivo non attaccata da nessun pezzo nemico. 1: non attaccata da pezzi di valore minore
-    // (lesser[]), e lo scambio sulla casa si controlla mossa per mossa con la SEE (sotto).
+    // AttackSafeSee 0: target square not attacked by any enemy piece. 1: not attacked by pieces of lower value
+    // (lesser[]), and the exchange on the square is checked move by move with the SEE (below).
     for (int k = P; k <= Q; k++) attack_to[k] &= AttackSafeSee ? ~lesser[k] : safe;
   }
-  const int attack_bonus[6] = {AttackOrder, AttackOrder, AttackOrder, AttackOrder, AttackOrderQ, 0};
+  const int attack_bonus[6] = {atk_v, atk_v, atk_v, atk_v, atkq_v, 0};
+
+  // ---- Per-expert weights of the quiet-move score (block 1; docs/development/8.1/SEARCH_1_ORDERING.md) ----
+  // tb_e = expert of the node (net_phase), shared by every weight below.
+  //
+  // ThreatBal (ours, off; package lost -17 at 8+0.08 with a hand-set share): one threat balance in units of material
+  // in place of the fixed threat term and the safe-square attack bonuses,
+  //   value saved - value exposed + ThreatBalGain/1024 * value of the best target attacked from a safe square,
+  // times a weight per expert. Threatened = the lesser[] map; targets and safe squares as in attack_to[]. Off: the
+  // tree is the old one.
+  const int tb_e = net_phase(count_bits(occ));
+  const int tb_w = tb_e == 0 ? ThreatBalW0 : tb_e == 1 ? ThreatBalW1 : tb_e == 2 ? ThreatBalW2 : ThreatBalW3;
+  // A. Reading the histories (HistMix), /1024: main history, pawn history, near continuations (1, 2 plies back), far
+  //    ones (3, 4, 6), first-ply history, and the agreement term (ours): when cont1 and cont2 agree in sign, HmAgree/1024
+  //    of the smaller one is added. Defaults (2048, 2048, 1024, 1024, 1024, 0) give exactly the old sum
+  //    2*main + 2*pawn + cont1..cont6 + first plies (checked by the bench, 16/10/2026; old formula removed).
+  struct HmW { int main, pawn, near_, far_, low, agree; };
+  const HmW hm = tb_e == 0 ? HmW{HmMain0, HmPawn0, HmNear0, HmFar0, HmLow0, HmAgree0}
+               : tb_e == 1 ? HmW{HmMain1, HmPawn1, HmNear1, HmFar1, HmLow1, HmAgree1}
+               : tb_e == 2 ? HmW{HmMain2, HmPawn2, HmNear2, HmFar2, HmLow2, HmAgree2}
+                           : HmW{HmMain3, HmPawn3, HmNear3, HmFar3, HmLow3, HmAgree3};
+  // B. Checks: bonus and exchange threshold of a direct check per expert (defaults = the old fixed 13323 and -75).
+  //    ChkDisc (ours, off): bonus for a quiet move that discovers a check: the piece is in checks.disc (between one of
+  //    our sliders and the enemy king) and lands off the line to the king (legalgen::line_bb). Skipped at 0.
+  const int chk_bonus = by_exp4(tb_e, ChkBonus0, ChkBonus1, ChkBonus2, ChkBonus3);
+  const int chk_see = by_exp4(tb_e, ChkSee0, ChkSee1, ChkSee2, ChkSee3);
+  const int chk_disc = by_exp4(tb_e, ChkDisc0, ChkDisc1, ChkDisc2, ChkDisc3);
+  const int eksq = get_ls1b_index(td.bitboards[K + eoff]);
+  // B. Threats: leaving and entering a square attacked by a lower-value piece, separate weights per expert (one weight,
+  //    ThreatOrderMul, served both; defaults give the old term). ThrSafe (ours, off): extra bonus when the threatened
+  //    piece escapes to a square no enemy piece attacks (q.opp_att). Skipped at 0.
+  const int thr_esc = by_exp4(tb_e, ThrEsc0, ThrEsc1, ThrEsc2, ThrEsc3);
+  const int thr_ent = by_exp4(tb_e, ThrEnt0, ThrEnt1, ThrEnt2, ThrEnt3);
+  const int thr_safe = by_exp4(tb_e, ThrSafe0, ThrSafe1, ThrSafe2, ThrSafe3);
+  const U64 tb_safe = ~q.opp_att, tb_minors = eN | eB;
+  // ThreatBal targets per piece type, same rules as attack_to[]: higher-class pieces, or undefended ones.
+  const U64 tb_targets[6] = {tb_minors | eR | eQ, eR | eQ | (tb_minors & tb_safe), eR | eQ | (tb_minors & tb_safe),
+                             eQ | ((tb_minors | eR) & tb_safe), (tb_minors | eR) & tb_safe, 0};
+  auto tb_target_value = [&](int pt, int from, int to) {
+    const U64 o = occ ^ (1ULL << from);
+    U64 a = pt == P ? pawn_attacks[us][to] : pt == N ? knight_attacks[to] : pt == B ? get_bishop_attacks(to, o)
+          : pt == R ? get_rook_attacks(to, o) : get_queen_attacks(to, o);
+    a &= tb_targets[pt];
+    return (a & eQ) ? unit_value[Q] : (a & eR) ? unit_value[R] : (a & eB) ? unit_value[B] : (a & eN) ? unit_value[N] : 0;
+  };
 
   const PieceToRow &c1 = *f[-1].cont_hist, &c2 = *f[-2].cont_hist, &c3 = *f[-3].cont_hist,
                    &c4 = *f[-4].cont_hist, &c6 = *f[-6].cont_hist;
   const PieceToRow &prow = pawn_row(td);
   const int ply = f->ply;
-  // AA2: la divisione per 1 + ply (ply < 5: il 17% delle quiete punteggiate a bench 13, ~8% a 15-16) era una idiv
-  // per mossa, perche' il divisore non e' costante; ora il reciproco del ply del nodo (stesso valore, vedi sopra).
-  const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? low_ply_recip[ply] : 0;
+  // A. First-ply history weight: 8 x entry x 1024 / (1024 + ply x LpDecay), per expert; LpDecay = 1024 is the old
+  //    8 x entry / (1 + ply), same integer division. The divisor is constant in the node, so the division is a
+  //    multiplication by the 40-bit reciprocal M = ceil(2^40 / D) (a per-move idiv cost ~1% of cycles, AA2 10/10/2026),
+  //    read from a table per expert and ply since 20/10/2026 (build_lp_recip, 03_tables.inc; before, one 64-bit
+  //    division per node). Exact while |numerator| < 2^40 / D: numerator <= 8 x HistLimQuiet x 1024 (5.9e7 at the
+  //    default 7183), D <= 1024 + 4 x 3072 = 13312 -> limit 8.3e7, i.e. HistLimQuiet up to ~10,000 (beyond that, lower
+  //    the maximum of LpDecay).
+#ifdef TRIUMV_VERIFY_AA2
+  const unsigned long long lp_den = 1024ULL + (unsigned long long)ply * by_exp4(tb_e, LpDecay0, LpDecay1, LpDecay2, LpDecay3);
+#endif
+  const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? lp_recip_tbl[tb_e][ply] : 0;
+#ifdef TRIUMV_C2
+  // C2 idea 5 (21/10/2026, agent A; OFF by default, SPRT pending): a quiet pawn or king move is scored by the change it
+  // makes to the pawn-king skip of Consilium Plebis (mover's view, clamped to +-C2PkScale), C2PkOrder at the clamp. One
+  // subnetwork probe per such move (the thread's pawn-king cache; the child's evaluation hits the entry if it is played).
+  const int c2_pk_order = C2PkOrder, c2_pk_scale = C2PkScale;   // read once: the stores into sc[] could alias them
+  const int c2_pk_node = c2_pk_order ? c2_pk_skip(td) : 0;
+  // C2 idea 6 (21/10/2026, agent ORDER; OFF by default, SPRT pending): the structure history of the node's pawn-king
+  // signature (09_history.inc), null at 0 or on a pawn-king cache miss.
+  const int c2_sw = C2StructHistW;
+  const PieceToRow *srow = c2_sw ? c2_struct_row(td) : nullptr;
+#endif
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
-    const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc - us_off;   // mossa nostra
+    const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc - us_off;   // our move
     const int key = quiet_key(m);
-    int s = 2 * td.quiet_hist[us][key] + 2 * prow[pc][to];
-    s += c1[pc][to] + c2[pc][to] + c3[pc][to] + c4[pc][to] + c6[pc][to];
-    if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, -75))
-      s += CheckOrderBonus;
-    s += unit_value[pt] * ThreatOrderMul * (int((lesser[pt] >> from) & 1) - int((lesser[pt] >> to) & 1));
+    const int hctx = (ThreatHist && !get_move_promoted(m))
+                         ? (int)((q.menace[pt] >> from) & 1) | (int)((q.menace[pt] >> to) & 1) << 1 : 0;
+    const int v1 = c1[pc][to], v2 = c2[pc][to];
+    long long hs = (long long)hm.main * qh_order(td, us, key, hctx) + (long long)hm.pawn * prow[pc][to] +
+                   (long long)hm.near_ * (v1 + v2) + (long long)hm.far_ * (c3[pc][to] + c4[pc][to] + c6[pc][to]);
+    if ((v1 ^ v2) >= 0)   // same sign (zero included): the agreement is the smaller one in absolute value
+      hs += (long long)hm.agree * (v1 >= 0 ? std::min(v1, v2) : std::max(v1, v2));
+#ifdef TRIUMV_C2
+    if (srow)   // --- C2 ordering (agent ORDER) ---
+      hs += (long long)c2_sw * (*srow)[pc][to];
+#endif
+    int s = (int)(hs / 1024);
+    if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, chk_see))
+      s += chk_bonus;
+    if (chk_disc && ((checks.disc >> from) & 1) && !((legalgen::line_bb[from][eksq] >> to) & 1))
+      s += chk_disc;
+    if (ThreatBal) {
+      int bal = unit_value[pt] * (int((lesser[pt] >> from) & 1) - int((lesser[pt] >> to) & 1));
+      if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
+        bal += tb_target_value(pt, from, to) * ThreatBalGain / 1024;
+      s += bal * tb_w;
+    }
+    else {
+      const int from_t = int((lesser[pt] >> from) & 1), to_t = int((lesser[pt] >> to) & 1);
+      s += unit_value[pt] * (thr_esc * from_t - thr_ent * to_t);
+      if (thr_safe && from_t && !((q.opp_att >> to) & 1))
+        s += unit_value[pt] * thr_safe;
+    }
     if (ply < LOW_PLY_SIZE) {
       const int x = 8 * td.low_ply_hist[ply][key];
-      const int lq = (int)(((unsigned long long)(x < 0 ? -x : x) * lp_recip) >> 40);
+      const unsigned long long ax = (unsigned long long)(x < 0 ? -x : x) * 1024;
+      const int lq = (int)((ax * lp_recip) >> 40);
 #ifdef TRIUMV_VERIFY_AA2
-      if ((x < 0 ? -lq : lq) != x / (1 + ply)) { printf("info string AA2 SBAGLIATA: low ply\n"); fflush(stdout); abort(); }
+      if ((x < 0 ? -lq : lq) != (long long)x * 1024 / (long long)lp_den) { printf("info string AA2 WRONG: low ply\n"); fflush(stdout); abort(); }
 #endif
-      s += x < 0 ? -lq : lq;
+      s += (x < 0 ? -lq : lq) * hm.low / 1024;
     }
     if (shield >> from & 1)
-      s -= KingShield;
+      s -= ks_v;
     if (pt == N && (outpost >> to & 1))
-      s += OutpostOrder;
+      s += op_v;
     if (pt == B && (outpost >> to & 1))
-      s += OutpostOrderB;
-    if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
+      s += opb_v;
+    if (!ThreatBal && (attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
-      s += PassedPush;
+      s += pass_v;
+#ifdef TRIUMV_C2
+    if (c2_pk_order && (pt == P || pt == K) && !get_move_promoted(m)) {
+      const int d = std::clamp(c2_pk_skip_after(td, m) - c2_pk_node, -c2_pk_scale, c2_pk_scale);
+      s += c2_pk_order * d / c2_pk_scale;
+    }
+#endif
     sc[i] = s;
   }
 }
 
-// 05/10/2026 — FUORI DA queue_next (noinline). Incorporate, le tre fill portavano in queue_next le loro liste (mosse
-// del generatore, punteggi, chiavi dell'ordinamento): frame da 5.048 byte, oltre la pagina da 4 KB, e su Windows ogni
-// chiamata di queue_next, cioe' una per mossa, passava dalla sonda dello stack (__chkstk). Le fill girano una volta
-// per fase del nodo: il loro frame resta sotto i 4 KB e la sonda sparisce (verificato nel disassemblato PGO).
-// xperf 6 giri, release PGO avx512, 57,8 M nodi identici: istruzioni -2,76%, cicli -0,81%; insieme alle liste della
-// valutazione fuori dallo stack (AccumulatorStack::BothLists) cicli -1,55%.
+// (05/10/2026) The fill functions stay out of queue_next (noinline). Inlined, they brought their lists into
+// queue_next: a 5,048-byte frame, over the 4 KB page, so on Windows every call of queue_next (one per move) went
+// through the stack probe (__chkstk). The fills run once per stage of the node: their frame stays under 4 KB and the
+// probe disappears. Instructions -2.76%, cycles -0.81%, identical nodes.
 __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
-                    /*promo_quiet=*/true, /*promo_queen_only=*/true);
-  // La mossa hash e' gia' uscita (QS_HASH): si toglie qui compattando sul posto, senza salti, e i cicli di
-  // queue_next non la confrontano piu' a ogni mossa (04/10/2026 sera; stesso ordine delle altre, stesso albero).
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::TACTICS>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, /*captures_only=*/true, /*quiets_only=*/false, /*known_in_check=*/0,
+                      /*promo_quiet=*/true, /*promo_queen_only=*/true);
+  // The hash move has already been handed out (QS_HASH): it is removed here by compacting in place, without
+  // branches, so the loops of queue_next no longer compare it at every move (same order, same tree).
   int n = 0;
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
     ml->moves[n] = m;
     n += m != q.hash_move;
   }
+  q.ex = net_phase(count_bits(td.occupancies[both]));   // expert of the node: capture weights and group thresholds
+  q.good_capt = by_exp4(q.ex, StGood0, StGood1, StGood2, StGood3);
+  int promo = PromoOrder, bpair = BishopPairCapt;
+#ifdef TRIUMV_C2
+  if (C2OrdReg) {   // --- C2 ordering (agent ORDER) --- idea 5: the two chess-knowledge terms of the captures by regime
+    const C2RegScales rs = c2_reg_scales(td, td.side);
+    promo = c2_reg_apply(promo, rs.pass);
+    bpair = c2_reg_apply(bpair, rs.minor);
+  }
+#endif
   for (int i = 0; i < n; i++)
-    sc[i] = score_tactic(td, ml->moves[i]);
+    sc[i] = score_tactic(td, ml->moves[i], q.ex, promo, bpair);
+#ifdef TRIUMV_C2
+  // C2 ideas 2 and 3 (21/10/2026, agent A; OFF by default, SPRT pending), main search only. C2SwitchOrder: a capture
+  // or promotion that gives another expert to either perspective moves up. C2ConvOrder (conversion push, the author's
+  // idea): a trade of pieces of the same class moves up when the side to move is ahead and down when it is behind
+  // (q.c2_conv, move_loop). The score also sets the exchange threshold of a good capture (queue_next): a bonus lets a
+  // slightly losing exchange count as good, a malus sends an even trade among the losing captures.
+  if (q.kind == QK_MAIN && (C2SwitchOrder || (C2ConvOrder && q.c2_conv))) {
+    C2Mat cm;
+    if (C2SwitchOrder)
+      c2_mat_init(td, cm);
+    for (int i = 0; i < n; i++) {
+      const int m = ml->moves[i];
+      if (C2SwitchOrder && c2_switches(td, cm, m))
+        sc[i] += C2SwitchOrder;
+      if (C2ConvOrder && q.c2_conv && c2_even_trade(td, m))
+        sc[i] += q.c2_conv * C2ConvOrder;
+    }
+  }
+#endif
   q.n_tact = q.n_all = n;
   rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
@@ -482,9 +673,12 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
-  // La promozione a donna e' gia' fra le tattiche e la mossa hash e' gia' uscita: si tolgono compattando sul posto,
-  // senza salti.
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::QUIETS>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
+  // The queen promotion is already among the tactical moves and the hash move has been handed out: both are removed
+  // by compacting in place, without branches.
   int n = 0;
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
@@ -493,25 +687,32 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   }
   q.n_all = q.n_tact + n;
   score_quiets(q, ml->moves, sc, n);
-  const int limit = -QuietSortDepthMul * q.depth;
+  if (LmrRank) {   // LmrRank: the highest score among the quiet moves (including the unsorted ones below the limit)
+    int top = n ? sc[0] : 0;
+    for (int i = 1; i < n; i++)
+      top = std::max(top, sc[i]);
+    q.quiet_top = top;
+  }
+  // D. Expert already chosen by fill_tactics (quiet moves always come after captures, same position): StSort sets how
+  //    many quiet moves are sorted, StQuiet the boundary between good and bad ones.
+  const int limit = -by_exp4(q.ex, StSort0, StSort1, StSort2, StSort3) * q.depth;
+  const int gq = q.good_quiet = by_exp4(q.ex, StQuiet0, StQuiet1, StQuiet2, StQuiet3);
   const int nh = rank_into<false>(q.list + q.n_tact, ml->moves, sc, n, limit);
   q.cur = q.n_tact;
-  // V2 (08/10/2026, velocita', stesso ordine): le quiete buone (punteggio > GoodQuietLimit) escono in QS_QUIET_HIGH,
-  // le altre in QS_QUIET_LOW, ognuna nell'ordine della lista; prima ogni fase scorreva tutta la lista e confrontava
-  // ogni punteggio (le buone venivano riviste e scartate una seconda volta in QS_QUIET_LOW). Se limit <=
-  // GoodQuietLimit + 1 (profondita' >= 5 con i valori attuali), la parte non ordinata ha punteggi < limit, quindi
-  // tutti <= GoodQuietLimit, e la parte ordinata e' decrescente: le buone sono esattamente un prefisso della lista.
-  // Il confine si trova una volta (ciclo sui soli nh ordinati) e le due fasi diventano due intervalli contigui, con lo
-  // stesso ordine di uscita di prima. Altrimenti (profondita' basse) si resta allo scorrimento con i confronti.
-  if (limit <= GoodQuietLimit + 1) {
+  // Good quiet moves (score > gq) leave in QS_QUIET_HIGH, the others in QS_QUIET_LOW, each in list order. When
+  // limit <= gq + 1 (depth >= 5 at the starting values) the unsorted tail has scores < limit, so all <= gq, and the
+  // sorted head is decreasing: the good moves are exactly a prefix of the list. The boundary is found once and the two
+  // stages become two contiguous ranges, same output order (V2, 08/10/2026, speed at an identical tree). At low depth
+  // the stages scan the list and compare each score.
+  if (limit <= gq + 1) {
     int b = 0;
-    while (b < nh && q.list[q.n_tact + b].score > GoodQuietLimit)
+    while (b < nh && q.list[q.n_tact + b].score > gq)
       b++;
     q.quiet_split = q.n_tact + b;
-#ifdef TRIUMV_VERIFY_QSPLIT   // verifica: prima del confine solo buone, dopo solo cattive (stesso ordine di prima)
+#ifdef TRIUMV_VERIFY_QSPLIT   // check: only good moves before the boundary, only bad ones after it
     for (int i = q.n_tact; i < q.n_all; i++)
-      if ((q.list[i].score > GoodQuietLimit) != (i < q.quiet_split)) {
-        printf("info string QSPLIT SBAGLIATO: indice %d punteggio %d confine %d\n", i, q.list[i].score, q.quiet_split);
+      if ((q.list[i].score > gq) != (i < q.quiet_split)) {
+        printf("info string QSPLIT WRONG: index %d score %d boundary %d\n", i, q.list[i].score, q.quiet_split);
         fflush(stdout);
         abort();
       }
@@ -523,30 +724,88 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   ThreadData &td = *q.td;
   moves ml[1];
   int sc[256];
-  td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
-  int n = 0;   // senza la mossa hash, gia' uscita (vedi fill_tactics)
+  if (td_lists_legal())
+    ml->count = legal_generate_stage<legalgen::ALL>(td, q.lgen, ml->moves);
+  else
+    td_generate_moves(td, ml, false, false, /*known_in_check=*/1);
+  int n = 0;   // without the hash move, already handed out (see fill_tactics)
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
     ml->moves[n] = m;
     n += m != q.hash_move;
   }
   const PieceToRow &c1 = *q.f[-1].cont_hist;
-  // Le tattiche davanti a tutte le quiete: 1 << 20 basta (|quiete| <= LIM_QUIET + LIM_FOLLOW = 37.183) e sta nei 22
-  // bit delle chiavi a 32 bit; prima 1 << 28 con chiavi a 64 bit (frame di fill_evasions oltre i 4 KB). Stesso
-  // ordine, stesso albero (05/10/2026).
+  // Tactical moves ahead of every quiet one: 1 << 20 is enough (|quiet| <= LIM_QUIET + LIM_FOLLOW = 37,183) and fits
+  // the 22 bits of the 32-bit keys (05/10/2026; same order, same tree).
+  // C. Quiet evasions: main history and first continuation weighted per expert (HeMain, HeCont, /1024; defaults give
+  //    the old sum). With weights up to 2048 a quiet move stays below 1 << 20 (|history| + |cont1| <= 37,183 x 2), so
+  //    captures (+ 1 << 20) always come first.
+  const int eex = q.ex = net_phase(count_bits(td.occupancies[both]));
+  const int he_main = by_exp4(eex, HeMain0, HeMain1, HeMain2, HeMain3), he_cont = by_exp4(eex, HeCont0, HeCont1, HeCont2, HeCont3);
   for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];
     sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 20)
-                           : td.quiet_hist[td.side][quiet_key(m)] + c1[move_piece(m)][move_to(m)];
+                           : (he_main * qh_order(td, td.side, quiet_key(m), quiet_ctx(q, m)) +
+                              he_cont * c1[move_piece(m)][move_to(m)]) / 1024;
   }
   q.n_all = q.n_tact = n;
   rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 
-// Prossima mossa pseudo-legale, 0 a coda finita. La mossa hash esce una volta sola.
+// (15/10/2026) Move m, handed out by the queue, comes from a list of the legal generator and not from the hash table:
+// it is legal without legal_before or the king test in the make. Always false in Chess960.
+static inline bool queue_move_legal(const MoveQueue &q, int m) { return td_lists_legal() && m != q.hash_move; }
+
+// (15/10/2026, speed at an identical tree) When the queue hands out a move from a sorted list, the hash bucket of the
+// NEXT move's child is prefetched (estimated key, as in the make). The child's probe waited for memory even with the
+// make's prefetch, a few hundred cycles earlier; this one starts a whole subtree earlier, and most subtrees are small.
+// Prefetch only: no effect on the tree. The peeked move may not be the one handed out next; then the prefetch is wasted.
+// It pays on Intel (i9-14900KF, one engine per core: +1.1/+1.25%) but costs on AMD (identical nodes: Ryzen 7 2700X
+// -1.4%, Ryzen 7 5700 -1.6% with one engine, -4.2% with seven). The avx2 build serves both, so the choice is made once
+// at startup from the vendor string (CPUID leaf 0). Off outside x86 (not measured). A version that prefetched only the
+// moves about to be played was tried and dropped (Intel -0.27%, AMD still negative).
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+  #if defined(_MSC_VER)
+    #include <intrin.h>
+  #else
+    #include <cpuid.h>
+  #endif
+#endif
+static bool cpu_vendor_intel() {
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+  unsigned b = 0, c = 0, d = 0;
+  #if defined(_MSC_VER)
+  int x[4];
+  __cpuid(x, 0);
+  b = (unsigned)x[1], c = (unsigned)x[2], d = (unsigned)x[3];
+  #else
+  unsigned a = 0;
+  __get_cpuid(0, &a, &b, &c, &d);
+  #endif
+  return b == 0x756e6547u && d == 0x49656e69u && c == 0x6c65746eu;   // "Genu" "ineI" "ntel"
+#else
+  return false;
+#endif
+}
+// (15/10/2026) Off in the AVX-512 builds (avx512, vnni512, avx512icl): on the Xeon, without this prefetch, -0.40%
+// cycles per node in the middlegame and -0.72% in endgames. On where it was measured: Intel without AVX-512 (12th-14th
+// generation) in the avx2, avx2-nopext and avxvnni builds.
+#if defined(USE_AVX512)
+static const bool g_next_prefetch = false;
+#else
+static const bool g_next_prefetch = cpu_vendor_intel();
+#endif
+
+static inline void queue_prefetch(const MoveQueue &q, int m) {
+  if (g_next_prefetch)
+    td_prefetch_child(*q.td, td_child_key_guess(*q.td, m));
+}
+
+// Next pseudo-legal move, 0 when the queue is empty. The hash move is handed out once.
 static int queue_next(MoveQueue &q) {
   ThreadData &td = *q.td;
+  q.rank_ok = false;   // LmrRank: set back to true only by the exits of the sorted quiet moves (below)
   for (;;) {
     switch (q.step) {
     case QS_HASH:
@@ -563,8 +822,12 @@ static int queue_next(MoveQueue &q) {
     case QS_TACT_WIN:
       while (q.cur < q.n_tact) {
         const ScoredMove sm = q.list[q.cur++];
-        if (see_holds(td, sm.move, -sm.score / GoodCaptSeeDiv))
+        // D. Good capture: SEE >= -score x StGood / (19 x 1024); StGood = 1024 is the old -score/19, same truncation.
+        if (see_holds(td, sm.move, (int)(-(long long)sm.score * q.good_capt / 19456))) {
+          if (q.cur < q.n_tact)
+            queue_prefetch(q, q.list[q.cur].move);
           return sm.move;
+        }
         q.losers[q.n_lose++] = (unsigned char)(q.cur - 1);
       }
       q.step = QS_QUIET_FILL;
@@ -577,34 +840,52 @@ static int queue_next(MoveQueue &q) {
       break;
 
     case QS_QUIET_HIGH:
-      if (q.quiet_split >= 0) {   // V2: le buone sono il prefisso [n_tact, quiet_split)
-        if (!q.quiets_off && q.cur < q.quiet_split)
-          return q.list[q.cur++].move;
+      if (q.quiet_split >= 0) {   // the good moves are the prefix [n_tact, quiet_split)
+        if (!q.quiets_off && q.cur < q.quiet_split) {
+          const ScoredMove sm = q.list[q.cur++];
+          if (q.cur < q.n_all)
+            queue_prefetch(q, q.list[q.cur].move);
+          q.rank_ok = true, q.last_score = sm.score;
+          return sm.move;
+        }
       } else
         while (!q.quiets_off && q.cur < q.n_all) {
           const ScoredMove sm = q.list[q.cur++];
-          if (sm.score > GoodQuietLimit)
+          if (sm.score > q.good_quiet) {
+            q.rank_ok = true, q.last_score = sm.score;
             return sm.move;
+          }
         }
       q.step = QS_TACT_LOSE;
       break;
 
     case QS_TACT_LOSE:
-      if (q.cur_lose < q.n_lose)
-        return q.list[q.losers[q.cur_lose++]].move;
+      if (q.cur_lose < q.n_lose) {
+        const int m = q.list[q.losers[q.cur_lose++]].move;
+        if (q.cur_lose < q.n_lose)
+          queue_prefetch(q, q.list[q.losers[q.cur_lose]].move);
+        return m;
+      }
       q.cur = q.quiet_split >= 0 ? q.quiet_split : q.n_tact;
       q.step = QS_QUIET_LOW;
       break;
 
     case QS_QUIET_LOW:
-      if (q.quiet_split >= 0) {   // V2: le cattive sono il resto [quiet_split, n_all), gia' nell'ordine giusto
-        if (!q.quiets_off && q.cur < q.n_all)
-          return q.list[q.cur++].move;
+      if (q.quiet_split >= 0) {   // the bad moves are the rest [quiet_split, n_all), already in order
+        if (!q.quiets_off && q.cur < q.n_all) {
+          const ScoredMove sm = q.list[q.cur++];
+          if (q.cur < q.n_all)
+            queue_prefetch(q, q.list[q.cur].move);
+          q.rank_ok = true, q.last_score = sm.score;
+          return sm.move;
+        }
       } else
         while (!q.quiets_off && q.cur < q.n_all) {
           const ScoredMove sm = q.list[q.cur++];
-          if (sm.score <= GoodQuietLimit)
+          if (sm.score <= q.good_quiet) {
+            q.rank_ok = true, q.last_score = sm.score;
             return sm.move;
+          }
         }
       q.step = QS_DONE;
       break;
@@ -624,6 +905,8 @@ static int queue_next(MoveQueue &q) {
         const ScoredMove sm = q.list[q.cur++];
         if (q.kind == QK_CUTS && !see_holds(td, sm.move, q.cut_threshold))
           continue;
+        if (q.cur < q.n_tact)
+          queue_prefetch(q, q.list[q.cur].move);
         return sm.move;
       }
       q.step = QS_DONE;

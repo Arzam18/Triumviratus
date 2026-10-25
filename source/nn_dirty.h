@@ -1,15 +1,15 @@
-// nn_dirty.h -- Cio' che una mossa cambia per la rete, scritto dalla make del motore (07/10/2026, scacchiera unica v2).
+// nn_dirty.h -- What a move changes for the network, written by the engine's make (07/10/2026, single board v2).
 //
-// Una sola numerazione: case del MOTORE (a8 = 0 .. h1 = 63, 64 = nessuna casa) e codici del motore (0..11 = P N B R Q K
-// p n b r q k). La make scrive qui il pezzo mosso (NnDirtyPiece), su una pila con uno stato per mossa (NnStack); i
-// pedoni toccati (NnDirtyPawns) e le tuple di minaccia che cambiano (NnDirtyThreats) li aggiunge il motore prima di una
-// valutazione (search/06_nndirty.inc, nn_dirty_catch_up). La rete (nnue/) le legge cosi' come sono. Le tabelle degli
-// indici delle feature lavorano direttamente in questa numerazione (vedi nnue/nnue/features/*.h): nessuna conversione
-// a runtime.
+// A single numbering: ENGINE squares (a8 = 0 .. h1 = 63, 64 = no square) and engine codes (0..11 = P N B R Q K
+// p n b r q k). The make writes here the moved piece (NnDirtyPiece), on a stack with one state per move (NnStack); the
+// touched pawns (NnDirtyPawns) and the threat tuples that change (NnDirtyThreats) are added by the engine before an
+// evaluation (search/06_nndirty.inc, nn_dirty_catch_up). The network (consilium/) reads them as they are. The tables of the
+// feature indices work directly in this numbering (consilium/cn.cpp): no conversion
+// at runtime.
 //
-// Il file e' incluso dal motore (threads.cpp, attraverso nnue_bridge.h) e dalla rete (nnue/types.h): solo tipi semplici,
-// nessun tipo ne' macro dell'uno o dell'altra. Lo stesso layout in ogni unita' di compilazione: nessun campo dipende
-// da macro.
+// The file is included by the engine (threads.cpp, through consilium_bridge.h) and by the network (consilium/cn.h): simple types only,
+// no type or macro of either one. The same layout in every translation unit: no field depends
+// on macros.
 
 #ifndef NN_DIRTY_H_INCLUDED
 #define NN_DIRTY_H_INCLUDED
@@ -17,91 +17,91 @@
 #include <cstddef>
 #include <cstdint>
 
-constexpr int NN_SQ_NONE = 64;  // "nessuna casa" (uguale a no_sq del motore)
+constexpr int NN_SQ_NONE = 64;  // "no square" (equal to the engine's no_sq)
 
-// Tipi di pezzo del motore: codice % 6. Il nero e' il bianco + 6.
+// Engine piece types: code % 6. Black is white + 6.
 enum : int { NN_PAWN = 0, NN_KNIGHT = 1, NN_BISHOP = 2, NN_ROOK = 3, NN_QUEEN = 4, NN_KING = 5, NN_BLACK = 6 };
 
-// Pila delle dirty: uno stato per ogni mossa della ricerca dalla radice (le mosse nulle non aggiungono stati: la
-// scacchiera non cambia). 247 = MAX_PLY (246) della rete + la radice; la ricerca non supera max_ply + 16 semimosse.
+// Stack of the dirty entries: one state for every move of the search from the root (null moves add no states: the
+// board does not change). 247 = MAX_PLY (246) of the network + the root; the search does not exceed max_ply + 16 plies.
 constexpr int NN_STACK_SIZE = 247;
 
 struct NnDirtyPiece {
-    std::uint8_t pc;          // pezzo che muove
-    std::uint8_t from, to;    // to = NN_SQ_NONE per le promozioni (il pezzo che arriva e' add_pc)
-    std::uint8_t remove_pc;   // pezzo catturato, o torre dell'arrocco che parte
-    std::uint8_t remove_sq;   // sua casa (en passant: la casa del pedone, non `to`); NN_SQ_NONE se nessuno
-    std::uint8_t add_pc;      // pezzo promosso, o torre dell'arrocco che arriva
-    std::uint8_t add_sq;      // sua casa; NN_SQ_NONE se nessuno. Arrocco = to e add_sq entrambi presenti.
-    std::uint8_t phase;       // fascia di materiale (HalfKA a esperti) della posizione DOPO la mossa
-    std::uint8_t phaseChanged;  // 1 se una cattura ha cambiato fascia: refresh dell'accumulatore, come per il re
+    std::uint8_t pc;          // moving piece
+    std::uint8_t from, to;    // to = NN_SQ_NONE for promotions (the arriving piece is add_pc)
+    std::uint8_t remove_pc;   // captured piece, or castling rook leaving
+    std::uint8_t remove_sq;   // its square (en passant: the pawn's square, not `to`); NN_SQ_NONE if none
+    std::uint8_t add_pc;      // promoted piece, or castling rook arriving
+    std::uint8_t add_sq;      // its square; NN_SQ_NONE if none. Castling = to and add_sq both present.
+    std::uint8_t phase;       // material band (HalfKA with experts) of the position AFTER the move
+    std::uint8_t phaseChanged;  // 1 if a capture changed the band: accumulator refresh, as for the king
 };
 
-// Una tupla di minaccia in 32 bit: casa dell'attaccante (0-7), casa dell'attaccato (8-15), pezzo attaccato (16-19),
-// pezzo attaccante (20-23), 1 = la minaccia compare / 0 = sparisce (31).
+// A threat tuple in 32 bits: attacker square (0-7), attacked square (8-15), attacked piece (16-19),
+// attacking piece (20-23), 1 = the threat appears / 0 = disappears (31).
 constexpr int NN_THR_PCSQ = 0, NN_THR_TSQ = 8, NN_THR_TPC = 16, NN_THR_PC = 20;
 inline std::uint32_t nn_threat(int pc, int tpc, int pcSq, int tSq, bool add) {
     return (std::uint32_t(add) << 31) | (std::uint32_t(pc) << NN_THR_PC) | (std::uint32_t(tpc) << NN_THR_TPC)
          | (std::uint32_t(tSq) << NN_THR_TSQ) | std::uint32_t(pcSq);
 }
 
-// Un pezzo partecipa al massimo a 8 minacce in uscita e 16 in entrata, e muovendosi ne scopre al massimo 8: una mossa
-// che non e' un arrocco ne cambia al massimo (8 + 16) * 3 + 8 = 80, un arrocco 36. Le 16 voci in piu' accolgono le
-// scritture vettoriali da 16 tuple oltre il conteggio (emissione AVX-512).
+// A piece takes part in at most 8 outgoing and 16 incoming threats, and by moving it uncovers at most 8: a move
+// that is not castling changes at most (8 + 16) * 3 + 8 = 80 of them, castling 36. The 16 extra entries take the
+// 16-tuple vector writes beyond the count (AVX-512 emission).
 constexpr int NN_THREATS_MAX = 96;
 struct NnDirtyThreats {
     std::uint32_t n;
     std::uint32_t list[NN_THREATS_MAX];
 };
 
-// I pedoni che una mossa toglie (al massimo 2: pedone per pedone, en passant) e aggiunge (al massimo 1; una promozione
-// nessuno), con i bitboard dei pedoni PRIMA della mossa, per i blocchi PawnPair e PassedPawns.
+// The pawns a move removes (at most 2: pawn takes pawn, en passant) and adds (at most 1; a promotion
+// none), with the pawn bitboards BEFORE the move, for the PawnPair and PassedPawns blocks.
 struct NnDirtyPawns {
-    std::uint64_t before[2];      // pedoni bianchi, neri prima della mossa
+    std::uint64_t before[2];      // white, black pawns before the move
     std::uint8_t  removedSq[2], removedC[2];
-    std::uint8_t  addedSq, addedC;  // addedSq = NN_SQ_NONE se nessuno
+    std::uint8_t  addedSq, addedC;  // addedSq = NN_SQ_NONE if none
     std::uint8_t  nRemoved;
-    std::uint8_t  any;            // 0 = la mossa non tocca pedoni: niente da fare a valle
+    std::uint8_t  any;            // 0 = the move touches no pawns: nothing to do downstream
 };
 
-// (Blocchi da innesto opzionali, PassedRel e PassedState fra gli altri, con la maschera della rete caricata, le diff
-// per stato in NnState e le liste delle voci in NnStack: provati il 09-10/10/2026, nessuno entra nella 8.0, tolti il
-// 10/10/2026. Codice in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 e nel repo del training,
+// (Optional graft blocks, PassedRel and PassedState among others, with the mask of the loaded network, the diffs
+// per state in NnState and the entry lists in NnStack: tried on 09-10/10/2026, none goes into 8.0, removed on
+// 10/10/2026. Code in _backup/Triumviratus_8.0_pre_rimozione_graft_2026-10-10 and in the training repo,
 // 04_consilium/graft_engine_storico.)
 
-// Generazione dei pesi della rete: Network::read_parameters la incrementa a ogni rete letta. La cache "pe" dei blocchi
-// pedoni (update_accumulator_refresh_cache) e' thread_local e la chiave e' fatta di soli pedoni e orientazione: su un
-// thread che sopravvive a un cambio di rete (il thread UCI: eval, nnueverify) una entry scritta con i pesi di prima
-// darebbe un hit sbagliato, quindi la entry porta anche questa generazione (introdotta con i blocchi da innesto il
-// 10/10/2026, tenuta perche' vale per ogni rete).
+// Generation of the network weights: Network::read_parameters increments it at every network read. The "pe" cache of the pawn
+// blocks (update_accumulator_refresh_cache) is thread_local and the key is made of pawns and orientation only: on a
+// thread that survives a network change (the UCI thread: eval, nnueverify) an entry written with the old weights
+// would give a wrong hit, so the entry also carries this generation (introduced with the graft blocks on
+// 10/10/2026, kept because it holds for every network).
 inline unsigned nn_net_epoch = 0;
 
 struct NnState {
-    NnDirtyPiece  dp;            // 9 byte
-    std::uint8_t  computed[2];    // accumulatore di questo stato calcolato, per prospettiva (bianco, nero)
-    std::uint8_t  idx;            // posizione nella pila (nn_stack_of); nel padding, stessa taglia
+    NnDirtyPiece  dp;            // 9 bytes
+    std::uint8_t  computed[2];    // accumulator of this state computed, per perspective (white, black)
+    std::uint8_t  idx;            // position in the stack (nn_stack_of); in the padding, same size
     NnDirtyPawns  pawns;
-    std::uint64_t key;           // -DTRIUMV_VERIFY_NNSYNC: chiave dei pezzi dopo la mossa (controllo di sincronia)
+    std::uint64_t key;           // -DTRIUMV_VERIFY_NNSYNC: piece key after the move (synchronisation check)
     NnDirtyThreats threats;
 };
 static_assert(offsetof(NnState, pawns) == 16, "NnState: idx deve stare nel padding prima di `pawns`");
 
 struct NnStack {
-    int     size;   // stati presenti; lo stato 0 e' la radice
-    int     ready;  // gli stati [ready, size) non hanno ancora minacce e pedoni (nn_dirty_catch_up)
+    int     size;   // states present; state 0 is the root
+    int     ready;  // the states [ready, size) do not have threats and pawns yet (nn_dirty_catch_up)
     NnState st[NN_STACK_SIZE];
-    // R4 (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO3.md §4.1): passati bianchi e neri dopo la mossa dello stato i,
-    // per PassedPawns v1 con OGNI rete. Li scrive il recupero (nn_dirty_catch_up: due passers() per evento di pedone,
-    // copia altrimenti); l'accumulatore prende prima/dopo da [i - 1] e [i] invece di rifare otto passers() per
-    // aggiornamento. v1PassW[0] = ~0 = radice da calcolare (AccumulatorStack::reset). Colori separati: un pedone che
-    // cattura un passato sulla stessa casa lascia la casa passata ma cambia il colore.
+    // R4 (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO3.md §4.1): white and black passers after the move of state i,
+    // for PassedPawns v1 with EVERY network. Written by the catch-up (nn_dirty_catch_up: two passers() per pawn event,
+    // copy otherwise); the accumulator takes before/after from [i - 1] and [i] instead of redoing eight passers() per
+    // update. v1PassW[0] = ~0 = root to be computed (AccumulatorStack::reset). Separate colours: a pawn that
+    // captures a passer on the same square leaves the square passed but changes the colour.
     std::uint64_t v1PassW[NN_STACK_SIZE];
     std::uint64_t v1PassB[NN_STACK_SIZE];
 };
 
-// L'accumulatore riceve gli stati per riferimento: i passati di uno stato (R4) si trovano dalla sua posizione nella
-// pila (NnState::idx, scritto dalla make, nn_make_dirty; la radice da reset), con aritmetica sugli indirizzi: niente
-// thread_local (con MinGW passa da una chiamata, emutls).
+// The accumulator receives the states by reference: the passers of a state (R4) are found from its position in the
+// stack (NnState::idx, written by the make, nn_make_dirty; the root by reset), with address arithmetic: no
+// thread_local (with MinGW it goes through a call, emutls).
 inline const NnStack& nn_stack_of(const NnState& s) {
     const NnState* base = &s - s.idx;
     return *reinterpret_cast<const NnStack*>(reinterpret_cast<const char*>(base) - offsetof(NnStack, st));

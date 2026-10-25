@@ -26,7 +26,7 @@ jobs:
           - { target: sse41, flag: sse4_1, flavour: game, bench: "137419", bin: triumviratus_sse41, out: Triumviratus_8.0_linux_sse41 }
           - { target: all, flag: avx2, flavour: possolver, bench: "2911093", bin: triumviratus, out: Triumviratus_8.0_PosSolver_linux_avx2 }
     env:
-      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue
+      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang C2=0 NET_NAME=nn-consilium.nnue
       BIN: source/${{ matrix.bin }}
     steps:
       - uses: actions/checkout@v4

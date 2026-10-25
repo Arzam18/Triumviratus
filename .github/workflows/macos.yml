@@ -28,7 +28,7 @@ jobs:
           - { runner: intel, target: macos-x86, flavour: possolver, bench: "2911093", out: Triumviratus_8.0_PosSolver_macos_x86 }
     runs-on: ${{ matrix.runner == 'intel' && inputs.intel_runner || matrix.runner }}
     env:
-      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang NET_NAME=nn-consilium.nnue
+      MK: make -C source -j4 ${{ matrix.target }} CXX=clang++ CC=clang C2=0 NET_NAME=nn-consilium.nnue
       BIN: source/triumviratus_${{ matrix.target == 'macos-arm' && 'macos_arm' || 'macos_x86' }}
     steps:
       - uses: actions/checkout@v4

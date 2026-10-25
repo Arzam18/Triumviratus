@@ -236,7 +236,9 @@ def main():
 
     print(f"PGO training: {exe}")
     print(f"  sorgente posizioni : {src}  ({len(positions)} pos)")
-    print(f"  movetime (ms)      : {times}")
+    # 17/10/2026: la ricerca e' a nodi fissi (go nodes), non a tempo: si stampano i nodi, con la scala in ms da cui
+    # vengono, perche' la riga "movetime" faceva pensare a un allenamento a tempo.
+    print(f"  nodi per ricerca   : {[t * NODES_PER_MS for t in times]}  (go nodes = scala ms {times} x {NODES_PER_MS})")
     print(f"  workers paralleli  : {workers}  ({[len(c) for c in chunks]} pos/worker)")
     print(f"  ricerche totali    : {total}  | Hash {hash_mb}MB / {threads} thread per worker"
           + (f" | ucinewgame ogni {newgame_every} pos" if newgame_every else ""))

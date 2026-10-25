@@ -1,18 +1,17 @@
-// search/12_quiesce.inc -- Strumenti dei nodi (tabella hash, legalita', scacco, passi avanti e indietro) e
-// ricerca di quiescenza.
-// Parte di threads.cpp: NON e' un'unita' di compilazione a se'.
+// search/12_quiesce.inc -- Node tools (hash table in the units of the search, legality, check, stepping into a child
+// and back) and the quiescence search (block 5 of 8.1, in our form since 17/10/2026).
+// Part of threads.cpp: NOT a translation unit of its own.
 
 // ============================================================================
-// TABELLA HASH: lettura e scrittura nelle unita' e nelle convenzioni della ricerca
-// La profondita' si salva spostata di 3: -1 = quiescenza, -2 = solo valutazione, -3 = vuota.
+// HASH TABLE: reading and writing in the units and conventions of the search
+// The depth is stored shifted by 3: -1 = quiescence, -2 = evaluation only, -3 = empty.
 // ============================================================================
 constexpr int HD_QUIESCE = -1;
 constexpr int HD_EVAL    = -2;
 constexpr int HD_SHIFT   = 3;
-// La quiescenza scrive e legge profondita' 0 in hash (05/10/2026, audit del nucleo; BAKE HASHQSDEPTH 06/10, opzione
-// ritirata la sera: +3,38 +- 2,58 su 20.162 partite). C'e' un livello in piu' fra "solo valutazione" (-2) e
-// quiescenza: le entry di ProbCut a cut_depth + 1 = -1 restano sotto la quiescenza (non tagliano in quiesce) e a
-// profondita' 4 il piccolo ProbCut accetta le entry di quiescenza. Lo schema storico usava HD_QUIESCE = -1.
+// The quiescence search writes and reads depth 0 in the hash (05/10/2026; +3.38 +- 2.58 over 20,162 games). That
+// leaves one more level between "evaluation only" (-2) and quiescence: ProbCut entries at cut_depth + 1 = -1 stay
+// below the quiescence (they do not cut there), and at depth 4 the small ProbCut accepts quiescence entries.
 static inline int hd_qs() { return 0; }
 
 enum { BOUND_UP = hash_flag_alpha, BOUND_LOW = hash_flag_beta, BOUND_EXACT = hash_flag_exact, BOUND_NIL = hash_flag_none };
@@ -21,39 +20,36 @@ struct HashView {
   bool hit;
   bool pv;
   int  move;
-  int  value;       // VAL_NONE se assente
+  int  value;       // VAL_NONE when absent
   int  depth;
   int  bound;
-  int  eval_raw;    // valutazione salvata (senza smorzamento dei 50 mosse), tt_eval_none se assente
+  int  eval_raw;    // stored evaluation (without the fifty-move damping), tt_eval_none when absent
 };
 
-// Il limite confermato dall'entry vale per il confronto richiesto? (lower = serve un limite inferiore)
+// Does the entry's bound hold for the comparison asked? (lower = a lower bound is needed)
 static inline bool bound_covers(int bound, bool lower) {
   return bound == BOUND_EXACT || bound == (lower ? BOUND_LOW : BOUND_UP);
 }
 
+// Decided values (mates, tablebase wins) are stored as distances from this node, not from the root.
 static inline int to_hash_value(int v, int ply) {
-  if (!val_known(v)) return v;
-  return val_won(v) ? v + ply : val_lost(v) ? v - ply : v;
+  return val_known(v) && val_decided(v) ? v + (v > 0 ? ply : -ply) : v;
 }
 
+// Reading back turns the distance into one from the root again. A win that needs more plies than the fifty-move counter
+// leaves (a mate measured to mate_value, a tablebase win to TB_WIN_TOP) is only "won somewhere": it comes back as the
+// lowest decided value of that side. Rewritten 22/10/2026 in this symmetric form; identical results on all 1.09 billion
+// combinations of value, ply and counter (scratch harness hashval_check.cpp).
 static inline int from_hash_value(int v, int ply, int fifty) {
   if (!val_known(v)) return VAL_NONE;
-  if (val_won(v)) {
-    if (v >= MATE_FLOOR && mate_value - v > 100 - fifty) return TB_WIN_FLOOR - 1;
-    if (TB_WIN_TOP - v > 100 - fifty) return TB_WIN_FLOOR - 1;
-    return v - ply;
-  }
-  if (val_lost(v)) {
-    if (v <= -MATE_FLOOR && mate_value + v > 100 - fifty) return -TB_WIN_FLOOR + 1;
-    if (TB_WIN_TOP + v > 100 - fifty) return -TB_WIN_FLOOR + 1;
-    return v + ply;
-  }
-  return v;
+  if (!val_decided(v)) return v;
+  const int side = v > 0 ? 1 : -1, a = v * side;
+  const int need = a >= MATE_FLOOR ? mate_value - a : TB_WIN_TOP - a;
+  return need > 100 - fifty ? side * (TB_WIN_FLOOR - 1) : v - side * ply;
 }
 
-// Lettura e scrittura passano da tt_key (03_tables.inc): la chiave della scacchiera piu', se accesa, la fascia del
-// contatore delle 50 mosse (HashFiftyStep).
+// Reading and writing go through tt_key (03_tables.inc): the board key plus, when on, the band of the fifty-move
+// counter (HashFiftyStep).
 static inline void hash_read(const ThreadData &td, HashView &h) {
   int move, value, depth, flag, ev;
   bool pv;
@@ -75,7 +71,7 @@ static inline void hash_write(const ThreadData &td, int value, bool pv, int boun
   store_tt(tt_key(td), move, to_hash_value(value, td.ply), depth + HD_SHIFT, bound, 0, pv, eval_raw);
 }
 
-// Toglie un ply all'entry: un limite che non ha tagliato a profondita' sufficiente vale meno.
+// Takes one ply off the entry: a bound that did not cut at sufficient depth is worth less.
 static inline void hash_soften(U64 key) {
   tt_entry *e = tt_find(key);
   if (!e) return;
@@ -88,7 +84,8 @@ static inline void hash_soften(U64 key) {
   e->kw = w ^ nd;
 }
 
-// Valutazione statica del nodo: dalla hash se c'e', altrimenti dalla rete. raw = formato da salvare in hash.
+// Static evaluation of the node: from the hash when present, otherwise from the network. raw = the form stored in the
+// hash.
 static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   if (h.hit && h.eval_raw != tt_eval_none) {
     raw = h.eval_raw;
@@ -99,49 +96,48 @@ static inline int node_eval(ThreadData &td, const HashView &h, int &raw) {
   return v;
 }
 
-// Idea 3 (Contempt, 04/10/2026): la patta vale -c per il colore al tratto alla radice e +c per l'avversario.
-// Punta all'Elo di lista (CCRL: ~90% di patte), non al self-play. 0 = spento, valori di patta di prima.
+// Contempt (idea 3, 04/10/2026): a draw is worth -c for the side to move at the root and +c for the opponent. Aimed at
+// rating lists (CCRL: ~90% draws), not self-play. 0 = off, the old draw values.
 static inline int contempt(const ThreadData &td) {
-  // DrawDefend (13/10/2026): in svantaggio la patta vale +draw_defend per il colore di radice (vedi 01_params.inc).
+  // DrawDefend (13/10/2026): when behind, a draw is worth +draw_defend for the root side (see 01_params.inc).
   const int c = Contempt - (DrawDefend ? td.draw_defend : 0);
   return c ? (td.side == td.root_side ? -c : c) : 0;
 }
 
-// Patta a valore quasi nullo: +-1 secondo i nodi, per non trattare tutte le patte come identiche.
+// A draw with a value close to zero: +-1 depending on the node count, so that draws are not all identical.
 static inline int draw_score(const ThreadData &td) { return -1 + (int)(td.nodes & 2) + contempt(td); }
 
 // ============================================================================
-// LEGALITA' E SCACCO PRIMA DI MUOVERE
+// LEGALITY AND CHECK BEFORE MOVING
 // ============================================================================
 
-// a, b, c sulla stessa linea (riga, colonna o diagonale)?
+// a, b, c on the same line (rank, file or diagonal)?
 static inline bool on_line(int a, int b, int c) {
   return (between_tbl[a][b] >> c & 1) || (between_tbl[a][c] >> b & 1) || (between_tbl[b][c] >> a & 1);
 }
 
 static inline U64 attackers_with(const ThreadData &td, int sq, int by, U64 occ) {
   const int off = by == white ? 0 : 6;
-  const SliderPair sp = get_slider_pair(sq, occ);   // AA1 (10/10/2026): un calcolo per i due (magic.h)
+  const SliderPair sp = get_slider_pair(sq, occ);   // (10/10/2026) one computation for both (magic.h)
   return (pawn_attacks[by ^ 1][sq] & td.bitboards[P + off]) | (knight_attacks[sq] & td.bitboards[N + off]) |
          (king_attacks[sq] & td.bitboards[K + off]) |
          (pair_bishop(sp) & (td.bitboards[B + off] | td.bitboards[Q + off])) |
          (pair_rook(sp) & (td.bitboards[R + off] | td.bitboards[Q + off]));
 }
 
-// Contesto del nodo per legalita' (inchiodature del nostro re) e scacco (case di scacco sul re nemico),
-// calcolato una volta alla prima mossa.
+// Context of the node for legality (pins on our king) and check (check squares on the enemy king), computed once at
+// the first move.
 struct MoveSafety {
   bool ready;
   int  our_king, their_king;
   U64  pinned;
   LmpChkCtx checks;
+  bool pins_ready;   // the pins are computed only when legal_before is needed (hash move, Chess960)
 };
 
-static void safety_init(ThreadData &td, MoveSafety &s) {
-  const int us = td.side, them = us ^ 1;
-  const int off = us == white ? 0 : 6, eoff = them == white ? 0 : 6;
-  s.our_king = get_ls1b_index(td.bitboards[K + off]);
-  s.their_king = get_ls1b_index(td.bitboards[K + eoff]);
+// Pins on our king, for legal_before.
+static void safety_pins(ThreadData &td, MoveSafety &s) {
+  const int us = td.side, eoff = us == white ? 6 : 0;
   const U64 occ = td.occupancies[both];
   U64 snipers = (empty_rook_att[s.our_king] & (td.bitboards[R + eoff] | td.bitboards[Q + eoff])) |
                 (empty_bishop_att[s.our_king] & (td.bitboards[B + eoff] | td.bitboards[Q + eoff]));
@@ -153,15 +149,26 @@ static void safety_init(ThreadData &td, MoveSafety &s) {
       s.pinned |= between;
     pop_lsb_bb(snipers);
   }
-  if (!s.checks.ready)   // l'ordinamento delle quiete puo' averle gia' calcolate
+  s.pins_ready = true;
+}
+
+static void safety_init(ThreadData &td, MoveSafety &s) {
+  const int us = td.side, them = us ^ 1;
+  const int off = us == white ? 0 : 6, eoff = them == white ? 0 : 6;
+  s.our_king = get_ls1b_index(td.bitboards[K + off]);
+  s.their_king = get_ls1b_index(td.bitboards[K + eoff]);
+  // With legal lists, legal_before serves only the hash move, which asks for the pins itself (legal_before).
+  s.pins_ready = false;
+  if (!td_lists_legal())
+    safety_pins(td, s);
+  if (!s.checks.ready)   // the quiet-move ordering may have computed them already
     td_lmp_chk_init(td, s.checks);
   s.ready = true;
 }
 
-// 06/10/2026 (velocita', stessa logica): legal_before chiamata ~2,2 volte per nodo (contatori, bench 14 su fens30) e,
-// nel binario PGO, fuori linea con il prologo completo (otto registri salvati e ripresi) anche per il caso comune:
-// pezzo non re, niente arrocco ne' e.p., di solito non inchiodato, ~10 istruzioni di lavoro. Ora il caso comune e'
-// inline e i tre casi rari (arrocco, en passant, mosse di re) stanno in legal_before_slow, fuori linea.
+// (06/10/2026, speed, same logic) legal_before runs ~2.2 times per node and was out of line with a full prologue even
+// for the common case (not a king, no castling or e.p., usually not pinned: ~10 instructions of work). Now the common
+// case is inline and the three rare cases (castling, en passant, king moves) are in legal_before_slow.
 __attribute__((noinline)) static bool legal_before_slow(ThreadData &td, MoveSafety &s, int m) {
   const int from = move_from(m), to = move_to(m), us = td.side, them = us ^ 1;
   if (get_move_castling(m))
@@ -182,8 +189,9 @@ __attribute__((noinline)) static bool legal_before_slow(ThreadData &td, MoveSafe
 static inline bool legal_before(ThreadData &td, MoveSafety &s, int m) {
   PROF_GUARD(prof_gc);
   if (!s.ready) safety_init(td, s);
+  if (!s.pins_ready) safety_pins(td, s);
   const int from = move_from(m);
-  if ((m & 0xC00000) || from == s.our_king)   // arrocco (bit 23), en passant (bit 22), re
+  if ((m & 0xC00000) || from == s.our_king)   // castling (bit 23), en passant (bit 22), king
     return legal_before_slow(td, s, m);
   return !(s.pinned >> from & 1) || on_line(from, move_to(m), s.our_king);
 }
@@ -226,32 +234,29 @@ static bool checks_before(ThreadData &td, MoveSafety &s, int m) {
 }
 
 // ============================================================================
-// PASSI: entrare in un figlio e tornare indietro
+// STEPS: into a child and back
 // ============================================================================
-static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
+// legal (15/10/2026): the move comes from a list of the legal generator (queue_move_legal), so the make skips the king
+// test even in check.
+static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, bool legal = false) {
   td.repetition_table[++td.repetition_index] = td.hash_key;
   td.ply++;
-  // ⛔ 04/10/2026 — TOLTA la "legalita' decisa una volta" (make con known_legal = true quando legal_before aveva
-  // deciso): nessun guadagno misurabile, e legal_before NON e' completo sotto scacco. Vale per una mossa pseudo-legale
-  // a re non sotto scacco o per una parata del generatore delle parate; la mossa hash, le killer e la contromossa
-  // passano solo dalla pseudo-legalita', e una di loro che non parava lo scacco veniva giocata. Il re si catturava al
-  // ply dopo e la posizione della rete restava senza re: crash in release (1 motore su 16 nel training PGO, 3 partite
-  // perse per disconnessione su 197 contro SF19). La verifica con -DTRIUMV_VERIFY_LEGAL su 3,9 milioni di nodi non
-  // l'aveva trovato.
-  // ✅ 04/10/2026 sera — RIPRESA SOLO DOVE E' COMPLETA: a re NON sotto scacco legal_before decide da solo (inchiodature,
-  // re che non entra in presa, en passant, arrocco) e la make salta il test; sotto scacco il test resta. Arrocco del
-  // 960 sempre alla make. Con -DTRIUMV_VERIFY_LEGAL la make rifa' sempre il test e stampa ogni disaccordo.
+  // (04/10/2026) Legality decided once is used only where it is complete: with the king NOT in check legal_before
+  // decides alone (pins, king not walking into an attack, en passant, castling) and the make skips the test; in check
+  // the test stays (legal_before is not complete there: a hash move or killer that did not answer the check was once
+  // played, the king was captured a ply later and the network saw a position without a king). Chess960 castling always
+  // goes through the make. With -DTRIUMV_VERIFY_LEGAL the make always repeats the test and prints every disagreement.
 #ifdef TRIUMV_VERIFY_LEGAL
-  if (!f->in_check && !td_make_move(td, m, u)) {
-    printf("info string LEGALITA' SBAGLIATA: mossa %d ritenuta legale\n", m);
+  if ((!f->in_check || legal) && !td_make_move(td, m, u)) {
+    printf("info string LEGALITY WRONG: move %d taken as legal\n", m);
     fflush(stdout);
     td.ply--;
     td.repetition_index--;
     return false;
   }
-  if (f->in_check && !td_make_move(td, m, u)) {
+  if (f->in_check && !legal && !td_make_move(td, m, u)) {
 #else
-  if (!td_make_move(td, m, u, !f->in_check && !(g_chess960 && get_move_castling(m)))) {
+  if (!td_make_move(td, m, u, (legal || !f->in_check) && !(g_chess960 && get_move_castling(m)))) {
 #endif
     td.ply--;
     td.repetition_index--;
@@ -259,17 +264,15 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u) {
   }
   td.nodes++;
   f->move = m;
+  f->hctx = 0;   // ThreatHist: the search's move loop rewrites it for its quiet moves
   f->captured = u.captured_piece;
   f->cont_hist = &g_stats.follow[f->in_check][is_tactical(m)][move_piece(m)][move_to(m)];
   f->cont_corr = &td.cont_corr[move_piece(m)][move_to(m)];
-  // CCPF (14/10/2026, velocita' ad albero identico): prefetch delle celle della correzione di continuazione che il
-  // figlio legge per prime in corr_signal. Trovato da noi dal costo di CorrContOppW diverso fra i socket; poi visto che
-  // Stockfish lo fa dall'agosto 2026 ("Prefetch continuation correction histories", 4150d22b86, gia' in SF19: la
-  // riscrittura del 04/10 lo aveva perso). xperf v14 a macchina ferma: ~-0,3% cicli (SF: neutro su AVX-512, +0,5% Zen 3). Nel figlio f[-1] e' questo frame, quindi le righe sono quelle di f[-1] e f[-3]
-  // qui (CorrContW, il figlio a -2 e -4) e di f[-2] (CorrContOppW, il figlio a -3), la cella e' (pezzo arrivato, casa).
-  // Le correzioni per struttura sono gia' anticipate nella make; queste no. Misura del 14/10: con CorrContOppW accesa
-  // il lato in prova perdeva -0,04 ply sul socket 1 (2 banchi di memoria) contro -0,01 sul socket 0: una lettura in
-  // piu' per nodo che manca la cache sotto carico. Le cornici prima della radice esistono sempre (riga sentinella).
+  // (14/10/2026, speed at an identical tree) Prefetch of the continuation-correction cells the child reads first in
+  // corr_signal (~-0.3% cycles). In the child f[-1] is this frame, so the rows are those of f[-1] and f[-3] here
+  // (CorrContW, the child at -2 and -4) and of f[-2] (CorrContOppW, the child at -3); the cell is (arrived piece,
+  // square). The structure corrections are already prefetched in the make. The frames before the root always exist
+  // (sentinel row).
   {
     const int to = move_to(m), pc = td.piece_on[to];
     TT_PREFETCH(&(*f[-1].cont_corr)[pc][to]);
@@ -303,11 +306,11 @@ static inline void step_in_null(ThreadData &td, NodeFrame *f, NullUndo &u) {
   td.enpassant = no_sq;
   td.hash_key ^= side_key;
   td.side ^= 1;
-  // La mossa nulla non incrementa il contatore delle 50 mosse (05/10/2026, audit del nucleo; BAKE PULIZIA 06/10,
-  // opzione NullFiftyKeep ritirata la sera).
+  // The null move does not advance the fifty-move counter (05/10/2026).
   td.plies_from_null = 0;
-  // La rete non registra nulla: i pezzi non si muovono, e gli accumulatori non dipendono dal lato al tratto.
+  // The network records nothing: no piece moves, and the accumulators do not depend on the side to move.
   f->move = NULL_MOVE;
+  f->hctx = 0;
   f->captured = -1;
   f->cont_hist = &g_stats.follow[0][0][NO_PC][0];
   f->cont_corr = &td.cont_corr[NO_PC][0];
@@ -323,10 +326,10 @@ static inline void step_out_null(ThreadData &td, NullUndo &u) {
   td.repetition_index--;
 }
 
-// Patta per la regola delle 50 mosse (salvo matto) o per ripetizione.
-// 06/10/2026 (velocita', stessa logica): drawn_here gira a ogni nodo (~1,1 volte per nodo) e nel binario PGO e' fuori
-// linea con un frame da 1,1 KB (la lista di mosse del caso "50 mosse sotto scacco"). In oltre l'80% delle chiamate la
-// finestra reversibile e' sotto i 4 ply e repeated_draw non fa nemmeno un giro: quel caso ora esce inline.
+// Draw by the fifty-move rule (unless mate) or by repetition.
+// (06/10/2026, speed, same logic) drawn_here runs at every node and was out of line with a 1.1 KB frame (the move list
+// of the "fifty moves in check" case). In more than 80% of the calls the reversible window is under 4 plies and
+// repeated_draw does not even loop: that case now returns inline.
 __attribute__((noinline)) static bool drawn_here_slow(ThreadData &td, bool in_check) {
   PROF_GUARD(prof_rep);
   if (td.fifty > 99) {
@@ -334,6 +337,8 @@ __attribute__((noinline)) static bool drawn_here_slow(ThreadData &td, bool in_ch
       return true;
     moves ml[1];
     td_generate_moves(td, ml, false, false, 1);
+    if (td_lists_legal() && ml->count)   // legal list: one move is enough
+      return true;
     for (int i = 0; i < ml->count; i++) {
       UndoInfo u;
       td.repetition_table[++td.repetition_index] = td.hash_key;
@@ -351,7 +356,7 @@ __attribute__((noinline)) static bool drawn_here_slow(ThreadData &td, bool in_ch
 }
 
 static inline bool drawn_here(ThreadData &td, bool in_check) {
-  if (td.fifty <= 99) {   // stessa finestra di repeated_draw: con meno di 4 ply non c'e' ripetizione possibile
+  if (td.fifty <= 99) {   // same window as repeated_draw: under 4 plies no repetition is possible
     int end = td.fifty < td.plies_from_null ? td.fifty : td.plies_from_null;
     if (end > td.repetition_index)
       end = td.repetition_index;
@@ -361,14 +366,12 @@ static inline bool drawn_here(ThreadData &td, bool in_check) {
   return drawn_here_slow(td, in_check);
 }
 
-// InsufMaterial (10/10/2026; riscritta il 15/10/2026): nessuno dei due lati puo' forzare il matto. Solo re e pezzi
-// minori: con al piu' un minore e' patta (KvK, KNvK, KBvK); con un minore per parte e' patta se nessun re e' in un
-// angolo (con un re nell'angolo esistono matti, anche se non forzati); con due minori dalla stessa parte e' patta solo
-// se sono due alfieri sullo stesso colore di case (KNNvK e KBBvK di colori diversi no, KBNvK vince). L'idea di
-// chiudere cosi' il nodo viene da Reckless; la stessa regola e' in Stormphrax, Berserk, Viridithas, Caissa (solo dopo
-// una cattura, come qui) e Coda. Il codice e' nostro: conta i minori per parte invece dei pezzi in totale. La rete da'
-// a queste posizioni 3-15 cp (KNvK +11, KBvK +12): la regola non corregge una valutazione sbagliata ma chiude il nodo
-// con una patta esatta.
+// InsufMaterial (10/10/2026; rewritten 15/10/2026): neither side can force mate. Only kings and minor pieces: with at
+// most one minor it is a draw (KvK, KNvK, KBvK); with one minor each it is a draw if no king is in a corner (with a
+// king in a corner mates exist, though not forced); with two minors on one side it is a draw only for two bishops on
+// the same colour (KNNvK and KBBvK on different colours are not, KBNvK wins). The idea of closing the node this way
+// comes from Reckless and is common to several engines; our code counts the minors per side. The network gives these
+// positions 3-15 cp: the rule closes the node with an exact draw.
 static inline bool insufficient_material(const ThreadData &td) {
   if (td.bitboards[P] | td.bitboards[p] | td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q])
     return false;
@@ -378,20 +381,22 @@ static inline bool insufficient_material(const ThreadData &td) {
     return true;
   if (nw + nb > 2)
     return false;
-  if (nw == 1) {   // un minore per parte
+  if (nw == 1) {   // one minor each
     constexpr U64 corners = (1ULL << 0) | (1ULL << 7) | (1ULL << 56) | (1ULL << 63);
     return !((td.bitboards[K] | td.bitboards[k]) & corners);
   }
-  const U64 pair = nw ? white_minors : black_minors;   // i due minori della stessa parte
+  const U64 pair = nw ? white_minors : black_minors;   // the two minors of the same side
   if (pair & (td.bitboards[N] | td.bitboards[n]))
     return false;
-  constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // un colore della scacchiera (a8 = 0): basta che sia una scacchiera
+  constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // one colour of the board (a8 = 0); either colour works here
   return !(pair & light) || !(pair & ~light);
 }
 
 static bool has_legal_move(ThreadData &td) {
   moves ml[1];
   td_generate_moves(td, ml, false);
+  if (td_lists_legal())   // the list is already legal
+    return ml->count != 0;
   for (int i = 0; i < ml->count; i++) {
     UndoInfo u;
     td.repetition_table[++td.repetition_index] = td.hash_key;
@@ -417,16 +422,79 @@ static inline void pv_extend(ThreadData &td, int m) {
 }
 
 // ============================================================================
-// QUIESCENZA
+// QUIESCENCE (block 5 in our form, 17/10/2026)
+// A node of the quiescence search has four parts:
+//   1. early exits: draws (repetition ahead, fifty moves, insufficient material) and the hash;
+//   2. the stand: out of check, the corrected evaluation is a value the side to move can claim without moving;
+//   3. the walk: tactical moves (all evasions when in check); qs_worth decides for each one whether it is searched,
+//      and may raise the node's value with what a skipped move was certainly worth;
+//   4. the close: mate or stalemate when nothing was played, the value pulled toward beta, the hash entry.
+// Levers (01_params.inc): QsFut0-3, QsSee0-3, QsGate, QsVictimW, QsSeeFutW, QsFhMix, QsStandMix. At their
+// defaults the tree is the one of the 8.0 quiescence.
 // ============================================================================
 
-// QCHK (AnQsChecks, modalita' analisi, 09/10/2026, idea nostra): primo ply della quiescenza chiamato dalla ricerca
-// principale. Dopo le tattiche si provano anche le mosse quiete che danno scacco con SEE >= 0; il figlio (sotto
-// scacco) e' una quiescenza normale. QCHK = false e' la quiescenza di sempre, identica.
+// What the walk knows about the node.
+struct QsWalk {
+  int ex;         // expert of the node (piece count band of the network)
+  int fut_base;   // stand + futility margin of the expert; -infinity in check (nothing is pruned on value)
+  int prev_to;    // target square of the previous move: a recapture there is never pruned on value
+#ifdef TRIUMV_C2
+  C2Mat cm;       // C2SwitchQs: material and experts of the node (written only when the lever is on)
+#endif
+};
+
+// Pull a value that lies above beta toward beta by a mix weight (/1024); 1024 keeps the value.
+static inline int qs_pull(int value, int beta, int mix) { return (mix * value + (1024 - mix) * beta) / 1024; }
+
+// Is move m worth a search? 'seen' counts the legal moves met so far, m included. A skipped plain capture can still
+// raise 'best' to the value it was sure to reach. While the side to move is being mated, every move is searched.
+static inline bool qs_worth(ThreadData &td, const QsWalk &w, int m, bool gives, int seen, int alpha, int &best) {
+  if (val_lost(best))
+    return true;
+  // A plain capture: no check, no promotion, not a recapture, and a futility base that is a real value.
+  const bool plain = !gives && move_to(m) != w.prev_to && !get_move_promoted(m) && !val_lost(w.fut_base);
+  if (plain) {
+    if (seen > QsGate)
+      return false;
+#ifdef TRIUMV_C2
+    // --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending): with bit 2 of C2SeeReg
+    // the victim is worth its value in the regime of its owner's material (see.cpp; e.p. reads code 15, offset 0).
+    const int victim = unit_value[victim_kind(td, m)] +
+                       ((C2SeeReg & 2) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
+    const int fut = w.fut_base + victim * QsVictimW / 1024;
+#else
+    const int fut = w.fut_base + unit_value[victim_kind(td, m)] * QsVictimW / 1024;
+#endif
+#ifdef TRIUMV_C2
+    // C2 idea 2 (21/10/2026, agent A; OFF by default, SPRT pending): a capture that gives another expert to either
+    // perspective is judged by another learned regime after the move, so the stand plus the victim is a weaker bound:
+    // the test needs C2SwitchQs more (the value the skipped move raises 'best' to stays the plain one).
+    const int c2_wide = (C2SwitchQs && c2_switches(td, w.cm, m)) ? C2SwitchQs : 0;
+    if (fut + c2_wide <= alpha) {
+#else
+    if (fut <= alpha) {   // even winning the victim for free leaves the node under alpha
+#endif
+      best = std::max(best, fut);
+      return false;
+    }
+    if (!see_holds(td, m, (alpha - w.fut_base) * QsSeeFutW / 1024)) {   // the exchange cannot close the gap
+      best = std::max(best, std::min(alpha, w.fut_base));
+      return false;
+    }
+  }
+  if (!is_tactical(m))   // quiet evasions are searched only while being mated (above)
+    return false;
+  return see_holds(td, m, -by_exp4(w.ex, QsSee0, QsSee1, QsSee2, QsSee3));
+}
+
+// QCHK (AnQsChecks, analysis mode, 09/10/2026, our idea): at the first quiescence ply called by the main search, quiet
+// moves that give check with SEE >= 0 are tried after the tactical ones; the child (in check) is a normal quiescence.
+// QCHK = false is the plain quiescence.
 template <bool QCHK = false>
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
+  // ---- 1. Early exits -------------------------------------------------------
   td.pv_length[td.ply] = td.ply;
-  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // soglia = patta per chi muove, come in explore
+  if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // a repetition is in reach: the draw is a floor
     alpha = draw_score(td);
     if (alpha >= beta)
       return alpha;
@@ -434,14 +502,11 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (pv && td.sel_depth < td.ply + 1)
     td.sel_depth = td.ply + 1;
   const bool in_check = f->in_check;
-
   if (td.ply >= max_ply)
     return in_check ? 0 : static_evaluate(td);
   if (drawn_here(td, in_check))
     return contempt(td);
-  // BAKE INSUFMATERIAL (11/10/2026, vedi 01_params.inc): il materiale cambia solo con una cattura, quindi si
-  // controlla solo dopo una cattura.
-  if (f[-1].captured >= 0 && insufficient_material(td))
+  if (f[-1].captured >= 0 && insufficient_material(td))   // material changes only with a capture
     return contempt(td);
 
   HashView h;
@@ -451,95 +516,84 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   if (!pv && h.depth >= hd_qs() && val_known(h.value) && bound_covers(h.bound, h.value >= beta))
     return h.value;
 
-  int best, fut_base, eval_raw = tt_eval_none;
+  // ---- 2. The stand ---------------------------------------------------------
+  QsWalk w;
+  w.ex = net_phase(count_bits(td.occupancies[both]));
+  int best, eval_raw = tt_eval_none;
   if (in_check) {
-    best = fut_base = -infinity;
+    best = w.fut_base = -infinity;
   } else {
     const int signal = corr_signal(td, f);
     const int plain = node_eval(td, h, eval_raw);
     f->static_eval = best = corrected_eval(plain, signal + corr_signal_extra(td));
+    // A hash bound on the right side is a better estimate than the evaluation.
     if (h.hit && val_known(h.value) && !val_decided(h.value) && bound_covers(h.bound, h.value > best))
       best = h.value;
-    if (best >= beta) {
+    if (best >= beta) {   // standing still is already enough
       if (!val_decided(best))
-        best = (QsFhMix * best + (1024 - QsFhMix) * beta) / 1024;
+        best = qs_pull(best, beta, QsFhMix);
       if (!h.hit)
         hash_write(td, VAL_NONE, false, BOUND_LOW, HD_EVAL, 0, eval_raw);
       return best;
     }
-    if (best > alpha)
-      alpha = best;
-    fut_base = f->static_eval + QsFutMargin;
+    alpha = std::max(alpha, best);
+    w.fut_base = f->static_eval + by_exp4(w.ex, QsFut0, QsFut1, QsFut2, QsFut3);
+#ifdef TRIUMV_C2
+    if (C2SwitchQs)
+      c2_mat_init(td, w.cm);
+#endif
   }
 
-  const int prev = f[-1].move;
-  const int prev_to = move_ok(prev) ? move_to(prev) : -1;
+  // ---- 3. The walk ----------------------------------------------------------
+  w.prev_to = move_ok(f[-1].move) ? move_to(f[-1].move) : -1;
   MoveQueue q;
   queue_start(q, td, f, h.move, 0, in_check ? QK_EVADE : QK_QUIESCE);
   MoveSafety safety;
   safety.ready = false;
-  int best_move = 0, count = 0, m;
+  int best_move = 0, seen = 0, m;
   while ((m = queue_next(q)) != 0) {
-    if (!legal_before(td, safety, m))
+    const bool gen_legal = queue_move_legal(q, m);
+    if (!gen_legal && !legal_before(td, safety, m))
       continue;
     const bool gives = checks_before(td, safety, m);
-    const bool tact = is_tactical(m);
-    count++;
-
-    if (!val_lost(best)) {
-      if (!gives && move_to(m) != prev_to && !val_lost(fut_base) && !get_move_promoted(m)) {
-        if (count > 2)
-          continue;
-        const int fut = fut_base + unit_value[victim_kind(td, m)];
-        if (fut <= alpha) {
-          best = std::max(best, fut);
-          continue;
-        }
-        if (!see_holds(td, m, alpha - fut_base)) {
-          best = std::max(best, std::min(alpha, fut_base));
-          continue;
-        }
-      }
-      if (!tact)
-        continue;
-      if (!see_holds(td, m, -QsSeeMargin))
-        continue;
-    }
+    if (!qs_worth(td, w, m, gives, ++seen, alpha, best))
+      continue;
 
     UndoInfo u;
-    if (!step_in(td, f, m, u)) {
-      count--;
+    if (!step_in(td, f, m, u, gen_legal)) {   // illegal after all: it does not count as seen
+      seen--;
       continue;
     }
     f[1].in_check = gives;
     const int value = -quiesce<false>(td, f + 1, -beta, -alpha, pv);
     step_out(td, m, u);
 
-    if (value > best) {
-      best = value;
-      if (value > alpha) {
-        best_move = m;
-        if (pv)
-          pv_extend(td, m);
-        if (value < beta)
-          alpha = value;
-        else
-          break;
-      }
-    }
+    if (value <= best)
+      continue;
+    best = value;
+    if (value <= alpha)
+      continue;
+    best_move = m;
+    if (pv)
+      pv_extend(td, m);
+    if (value >= beta)
+      break;
+    alpha = value;
   }
+  int count = seen;
 
   if constexpr (QCHK) {
     if (!in_check && best < beta) {
       moves ml[1];
       td_generate_moves(td, ml, /*captures_only=*/false, /*quiets_only=*/true, /*known_in_check=*/0);
+      const bool list_legal = td_lists_legal();
       for (int i = 0; i < ml->count && best < beta; i++) {
         const int qm = ml->moves[i];
-        if (is_tactical(qm) || qm == q.hash_move || !legal_before(td, safety, qm) || !checks_before(td, safety, qm) ||
-            !see_holds(td, qm, 0))
+        if (is_tactical(qm) || qm == q.hash_move || (!list_legal && !legal_before(td, safety, qm)) ||
+            !checks_before(td, safety, qm) || !see_holds(td, qm, 0))
           continue;
         UndoInfo u;
-        if (!step_in(td, f, qm, u))
+        if (!step_in(td, f, qm, u, list_legal))
           continue;
         count++;
         f[1].in_check = true;
@@ -561,11 +615,13 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     }
   }
 
+  // ---- 4. The close ---------------------------------------------------------
   if (!count) {
     if (in_check)
       return mated_at(td.ply);
-    // Nessuna cattura: se oltre al re restano solo pedoni bloccati e l'ultima mossa ha catturato un pezzo
-    // (non un pedone), controlla lo stallo (la quiescenza non vede le mosse quiete).
+    // Nothing was played and quiet moves are not generated here, so a stalemate can hide behind the stand. It is
+    // looked for only when it is possible at all: besides the king, only blocked pawns, and the last move took a
+    // piece (not a pawn).
     const int us = td.side, off = us == white ? 0 : 6;
     const U64 pawns = td.bitboards[P + off];
     const U64 pushes = us == white ? pawns >> 8 : pawns << 8;
@@ -574,9 +630,8 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     if (!(pushes & ~td.occupancies[both]) && !non_pawn && took_piece && !has_legal_move(td))
       best = contempt(td);
   }
-
   if (!val_decided(best) && best > beta)
-    best = (QsStandMix * best + (1024 - QsStandMix) * beta) / 1024;
+    best = qs_pull(best, beta, QsStandMix);
   hash_write(td, best, hash_pv, best >= beta ? BOUND_LOW : BOUND_UP, hd_qs(), best_move, eval_raw);
   return best;
 }

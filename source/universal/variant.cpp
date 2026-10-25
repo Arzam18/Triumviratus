@@ -1,10 +1,10 @@
-// Binario universale (08/10/2026): UNA unita' di compilazione per variante ISA. Tutto il motore (i .cpp del progetto
-// tranne fathom, che e' C e indipendente dall'ISA) sta nel namespace della variante, scelto da -DTRIUMV_VID=<n>:
+// Universal binary (08/10/2026): ONE translation unit per ISA variant. The whole engine (the project's .cpp files
+// except fathom, which is C and ISA-independent) lives in the variant's namespace, chosen by -DTRIUMV_VID=<n>:
 //   1 avx2-nopext   2 avx2   3 avx512   4 vnni512   5 avx512icl
-// Il main del motore diventa Triumv_v<n>::main, chiamato da entry.cpp dopo cpuid.
-// I costruttori globali della variante vanno nella sezione .tv<n>$m e non in .CRT$XCU: il CRT non li esegue, li
-// esegue entry.cpp solo per la variante scelta. Compilati con le istruzioni della variante (AVX-512 ...), su una CPU
-// che non le ha non devono partire.
+// The engine's main becomes Triumv_v<n>::main, called by entry.cpp after cpuid.
+// The global constructors of the variant go into the section .tv<n>$m and not into .CRT$XCU: the CRT does not run them,
+// entry.cpp runs them only for the chosen variant. Compiled with the variant's instructions (AVX-512 ...), on a CPU
+// that does not have them they must not start.
 #include "prelude.h"
 
 #if TRIUMV_VID == 1
@@ -22,11 +22,14 @@
 #elif TRIUMV_VID == 6
 #pragma init_seg(".tv6$m")
 #define TRIUMV_VNS Triumv_v6
+#elif TRIUMV_VID == 7
+#pragma init_seg(".tv7$m")
+#define TRIUMV_VNS Triumv_v7
 #elif TRIUMV_VID == 5
 #pragma init_seg(".tv5$m")
 #define TRIUMV_VNS Triumv_v5
 #else
-#error "TRIUMV_VID mancante (1..6)"
+#error "TRIUMV_VID mancante (1..7)"
 #endif
 
 namespace TRIUMV_VNS {
@@ -45,24 +48,16 @@ namespace TRIUMV_VNS {
 #include "../uci_mt.cpp"
 #include "../zobrist.cpp"
 #include "../chess960.cpp"
-#include "../nnue_bridge.cpp"
-#include "../nnue/bitboard.cpp"
-#include "../nnue/attacks.cpp"
-#include "../nnue/misc.cpp"
-#include "../nnue/memory.cpp"
-#include "../nnue/nnue/network.cpp"
-#include "../nnue/nnue/nnue_accumulator.cpp"
-#include "../nnue/nnue/features/feat_perm.cpp"
-#include "../nnue/nnue/features/full_threats.cpp"
-#include "../nnue/nnue/features/pawn_pair.cpp"
-#include "../nnue/nnue/features/passed_pawns.cpp"
-#include "../nnue/nnue/features/half_ka_v2_hm.cpp"
+#include "../consilium_bridge.cpp"
+#include "../sliders.cpp"
+#include "../large_pages.cpp"
+#include "../consilium/cn.cpp"
 #include "../syzygy.cpp"
 }  // namespace TRIUMV_VNS
 
 #ifdef TRIUMV_STANDALONE
-// Build della sola variante (training PGO e prove): il main vero chiama quello della variante. Qui i costruttori
-// globali stanno in .tv<n>$m e il CRT non li esegue: li esegue questo main, come fa entry.cpp.
+// Build of the single variant (PGO training and trials): the real main calls the variant's one. Here the global
+// constructors are in .tv<n>$m and the CRT does not run them: this main runs them, as entry.cpp does.
 typedef void(__cdecl *TvInit)(void);
 #if TRIUMV_VID == 1
 #pragma section(".tv1$a", read)
@@ -89,6 +84,11 @@ __declspec(allocate(".tv4$z")) const TvInit tv_z = nullptr;
 #pragma section(".tv6$z", read)
 __declspec(allocate(".tv6$a")) const TvInit tv_a = nullptr;
 __declspec(allocate(".tv6$z")) const TvInit tv_z = nullptr;
+#elif TRIUMV_VID == 7
+#pragma section(".tv7$a", read)
+#pragma section(".tv7$z", read)
+__declspec(allocate(".tv7$a")) const TvInit tv_a = nullptr;
+__declspec(allocate(".tv7$z")) const TvInit tv_z = nullptr;
 #else
 #pragma section(".tv5$a", read)
 #pragma section(".tv5$z", read)

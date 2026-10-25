@@ -9,15 +9,14 @@
  */
 
 #include "threads.h"
-#include "sstats.h"   // contatori di diagnosi, solo con -DTRIUMV_SSTATS (03/10/2026)
-#include "cstats.h"   // precisione delle correzioni, solo con -DTRIUMV_CORRSTATS (06/10/2026)
+#include "sstats.h"   // diagnostic counters, only with -DTRIUMV_SSTATS (03/10/2026)
+#include "cstats.h"   // precision of the corrections, only with -DTRIUMV_CORRSTATS (06/10/2026)
 #include "attacks.h"
 #include "chess960.h"
-#include "evaluation.h"
 #include "magic.h"
 #include "misc.h"
 #include "movegen.h"
-#include "nnue_bridge.h"
+#include "consilium_bridge.h"
 #include "search.h"
 #include "see.h"
 #include "tt.h"
@@ -34,7 +33,7 @@
 #include <iostream>
 
 #ifndef _WIN32
-#include <unistd.h> // getpid() (su Windows il pid arriva da GetCurrentProcessId in windows.h)
+#include <unistd.h> // getpid() (on Windows the pid comes from GetCurrentProcessId in windows.h)
 #endif
 #include "io.h"
 #include "profile.h"
@@ -69,15 +68,15 @@ unsigned long long prof_dead_pair[8][8] = {};
 #include "syzygy.h"
 
 #include <climits>
-// windows.h (via defs.h) definisce min e max come macro: con clang-cl rompono std::min/std::max.
+// windows.h (via defs.h) defines min and max as macros: with clang-cl they break std::min/std::max.
 #undef min
 #undef max
 
 // ============================================================================
-// threads.cpp -- la ricerca. Una sola unita' di compilazione, divisa in search/*.inc inclusi qui in ordine
-// (le funzioni del percorso caldo sono `static inline` e il compilatore le vede insieme ai chiamanti).
-// Ricerca riscritta il 04/10/2026 sulla logica di Stockfish 19: vedi threads.h e
-// docs/audit_8.0/L_RISCRITTURA_RICERCA.md. Generatore di mosse, make/unmake e SEE sono quelli del motore.
+// threads.cpp -- the search. A single translation unit, split into search/*.inc included here in order
+// (the hot-path functions are `static inline` and the compiler sees them together with their callers).
+// Algorithmic base: the Stockfish 19 search (see threads.h); the code, like the move generator, make/unmake and
+// SEE, is the engine's own.
 // ============================================================================
 #include "search/01_params.inc"
 #include "search/02_state.inc"

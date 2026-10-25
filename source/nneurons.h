@@ -1,13 +1,13 @@
-// nneurons.h -- studio dei neuroni del primo strato della rete (09/10/2026), SOLO con -DTRIUMV_NEURONS.
-// Per ogni valutazione vera della ricerca registra le uscite della trasformazione (clipped ReLU e prodotto a coppie:
-// uscita j = clamp(acc[j]) * clamp(acc[j + L1/2]) / 512, per le due prospettive) separate per fascia di materiale,
-// cioe' per esperto di HalfKAv2_hm_P4 (pezzi sulla scacchiera, re compresi: <=9, 10-15, 16-23, >=24):
-//  - statistiche per uscita: valutazioni con uscita diversa da zero, somma, somma dei quadrati, uscite al massimo;
-//  - un campione dei vettori interi (uno ogni NEURONS_EVERY valutazioni, al massimo NEURONS_MAX per fascia) con
-//    numero di pezzi, differenza di materiale dal lato al tratto e case dei re, per correlazioni e doppioni.
-// Uscita nella cartella della variabile d'ambiente NEURONS_DIR (nulla se non e' impostata): stats_b<k>.txt e
-// sample_b<k>.bin (record: 8 byte di intestazione + le uscite). Analisi: tools/neurons_analyze.py.
-// Pensato per un thread (Threads 1): i contatori non sono atomici. Senza TRIUMV_NEURONS: codice identico.
+// nneurons.h -- study of the neurons of the network's first layer (09/10/2026), ONLY with -DTRIUMV_NEURONS.
+// For every real evaluation of the search it records the outputs of the transformation (clipped ReLU and pairwise product:
+// output j = clamp(acc[j]) * clamp(acc[j + L1/2]) / 512, for the two perspectives) separated per material band,
+// i.e. per expert of HalfKAv2_hm_P4 (pieces on the board, kings included: <=9, 10-15, 16-23, >=24):
+//  - statistics per output: evaluations with a non-zero output, sum, sum of squares, outputs at the maximum;
+//  - a sample of the whole vectors (one every NEURONS_EVERY evaluations, at most NEURONS_MAX per band) with
+//    number of pieces, material difference from the side to move and king squares, for correlations and duplicates.
+// Output in the folder of the environment variable NEURONS_DIR (nothing if it is not set): stats_b<k>.txt and
+// sample_b<k>.bin (record: 8-byte header + the outputs). Analysis: tools/neurons_analyze.py.
+// Meant for one thread (Threads 1): the counters are not atomic. Without TRIUMV_NEURONS: identical code.
 #pragma once
 
 #ifdef TRIUMV_NEURONS
@@ -23,7 +23,7 @@ inline std::uint64_t nz[Bands][MaxOut], sum[Bands][MaxOut], sumsq[Bands][MaxOut]
 inline int           width = 0;
 inline std::uint64_t kept[Bands];
 inline std::FILE*    sample[Bands];
-inline std::FILE*    meta[Bands];   // posizioni dei record del campione (record piu' sotto)
+inline std::FILE*    meta[Bands];   // positions of the sample records (record further below)
 inline long          every = -1, maxkeep = 0;
 inline std::string   dir;
 
@@ -58,11 +58,11 @@ inline void init() {
     std::atexit(dump);
 }
 
-// out: le uscite della trasformazione (n byte, n = 2 * L1/2); pieces, matdiff (centesimi di pedone dal lato al tratto),
-// stm, ksq_us, ksq_them: dalla posizione valutata.
-// bbs (09/10/2026 sera, per il raggruppamento delle uscite e la ricerca di concetti): i dodici bitboard per pezzo
-// della posizione (P N B R Q K p n b r q k, case a8 = 0 .. h1 = 63), scritti in meta_b<k>.bin accanto a ogni record
-// del campione (104 byte: 12 x 8 byte, lato al tratto, 7 byte a zero), cosi' l'analisi ricostruisce la posizione.
+// out: the outputs of the transformation (n bytes, n = 2 * L1/2); pieces, matdiff (centipawns from the side to move),
+// stm, ksq_us, ksq_them: from the evaluated position.
+// bbs (evening of 09/10/2026, for the clustering of the outputs and the search for concepts): the twelve bitboards per piece
+// of the position (P N B R Q K p n b r q k, squares a8 = 0 .. h1 = 63), written in meta_b<k>.bin next to every record
+// of the sample (104 bytes: 12 x 8 bytes, side to move, 7 zero bytes), so the analysis rebuilds the position.
 inline void record(const std::uint8_t* out, int n, int pieces, int matdiff, int stm, int ksq_us, int ksq_them,
                    const unsigned long long* bbs = nullptr) {
     if (every < 0) init();

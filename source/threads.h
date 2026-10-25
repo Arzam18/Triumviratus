@@ -12,34 +12,39 @@
 #include <atomic>
 #include <mutex>
 
-struct NnStack;   // pila delle dirty della rete (nn_dirty.h)
+struct NnStack;   // stack of the network's dirty entries (nn_dirty.h)
 
 // ============================================================================
-// Ricerca di Triumviratus, riscritta il 04/10/2026 sulla logica della ricerca di Stockfish 19 (GPLv3).
-// Strutture, nomi e codice sono nostri; le regole e i numeri seguono SF19 (vedi
-// docs/audit_8.0/L_RISCRITTURA_RICERCA.md). La ricerca precedente e' in
-// _backup/Triumviratus_8.0_pre_riscrittura_ricerca_2026-10-04.
+// Triumviratus search (8.1). Its algorithmic base is the Stockfish 19 search (GPLv3), on which the 8.0 search
+// was rewritten on 04/10/2026. In 8.1 the code is the engine's own: every block has been rewritten in its own
+// form, with our structures and names, and no Stockfish source remains. Some numeric constants still have the
+// values of Stockfish 19 (marked in search/01_params.inc); they will be retuned by SPSA after the training of
+// the next network.
 // ============================================================================
 
 #define MAX_THREADS 512
 
-// Dimensioni delle tabelle di history.
-constexpr int QH_SIZE       = 64 * 64 * 5;   // indice della mossa: da | a<<6 | tipo di promozione<<12
-constexpr int LOW_PLY_SIZE  = 5;             // ply vicini alla radice con la history dedicata
-constexpr int NO_PC         = 12;            // "nessun pezzo": blocco sentinella delle continuation
-constexpr int CAPT_NONE     = 6;             // tipo catturato per le promozioni senza cattura e l'e.p.
+// Sizes of the history tables.
+constexpr int QH_SIZE       = 64 * 64 * 5;   // move index: from | to<<6 | promotion type<<12
+// Stage 1 of 8.1 (16/10/2026, ThreatHist): the quiet history has three more 64*64 tables, the corrections
+// per threat context 1..3 of the factored form (qh_order/qh_push in 09_history.inc); the flat table stays
+// at the usual index.
+constexpr int QH_CTX_SIZE   = QH_SIZE + 3 * 64 * 64;
+constexpr int LOW_PLY_SIZE  = 5;             // plies near the root with their own history
+constexpr int NO_PC         = 12;            // "no piece": sentinel block of the continuations
+constexpr int CAPT_NONE     = 6;             // captured type for promotions without capture and for e.p.
 
-// Una tabella pezzo x casa d'arrivo: e' la "riga" a cui puntano le continuation history.
+// A piece x arrival-square table: it is the "row" the continuation histories point to.
 typedef int16_t PieceToRow[12][64];
 
-// Stato di un ply del cammino corrente.
+// State of one ply of the current path.
 struct NodeFrame {
-    PieceToRow* cont_hist;        // continuation history scelta dalla mossa che porta al figlio
-    PieceToRow* cont_corr;        // continuation correction history, stessa chiave
+    PieceToRow* cont_hist;        // continuation history chosen by the move leading to the child
+    PieceToRow* cont_corr;        // continuation correction history, same key
     int  ply;
-    int  move;                    // mossa fatta a questo ply (0 = nessuna, NULL_MOVE = mossa nulla)
-    int  captured;                // pezzo catturato da quella mossa (P..k), -1 = nessuno
-    int  excluded;                // mossa esclusa (ricerca singolare)
+    int  move;                    // move made at this ply (0 = none, NULL_MOVE = null move)
+    int  captured;                // piece captured by that move (P..k), -1 = none
+    int  excluded;                // excluded move (singular search)
     int  static_eval;
     int  stat_score;
     int  move_count;
@@ -49,14 +54,21 @@ struct NodeFrame {
     bool tt_pv;
     bool tt_hit;
     bool follow_pv;
-    unsigned char ldse;           // la mossa in ricerca da questo frame e' stata estesa da Ldse (LdseMax)
-    unsigned char ldse_path;      // estensioni Ldse lungo la linea fino a questo nodo
-    unsigned char negext;         // la mossa in ricerca da questo frame e' estesa da una riduzione negativa (NegExtMax)
-    unsigned char negext_path;    // estensioni da riduzione negativa lungo la linea fino a questo nodo
-    int  refute;                  // CausalRed: mossa che ha dato il taglio beta in questo nodo (0 = nessuna)
+    unsigned char ldse;           // the move being searched from this frame was extended by Ldse (LdseMax)
+    unsigned char ldse_path;      // Ldse extensions along the line up to this node
+    unsigned char negext;         // the move being searched from this frame is extended by a negative reduction (NegExtMax)
+    unsigned char negext_path;    // extensions from negative reduction along the line up to this node
+    int  refute;                  // CausalRed: move that gave the beta cutoff in this node (0 = none)
+    unsigned char hctx;           // ThreatHist: threat context of the move made at this ply (0 = none)
+#ifdef TRIUMV_C2
+    // C2 regime selectivity (21/10/2026; 13_search.inc), written only when the option that reads them is on.
+    unsigned char c2pair;         // C2SameRegImp: Consilium Plebis experts of this node (White | Black << 4)
+    unsigned char settle;         // C2SettleHorizon: the move searched from this frame got the settling ply
+    unsigned char settle_path;    // C2SettleHorizon: settling plies along the line up to this node
+#endif
 };
 
-// Una mossa di radice con la sua linea e le statistiche raccolte su di essa.
+// A root move with its line and the statistics collected on it.
 struct RootLine {
     int       pv[max_ply + 4];
     int       pv_len;
@@ -67,14 +79,14 @@ struct RootLine {
     int       avg_score;
     long long mean_sq;
     int       uci_score;
-    bool      lower;              // lo score e' solo un limite inferiore (fail-high in finestra)
-    bool      upper;              // solo un limite superiore
+    bool      lower;              // the score is only a lower bound (fail high in the window)
+    bool      upper;              // only an upper bound
     bool      prev_exact;
     int       sel_depth;
-    U64       effort;             // nodi spesi sotto questa mossa
+    U64       effort;             // nodes spent under this move
 };
 
-// Limiti della ricerca, scritti da parse_go (uci_mt.cpp).
+// Search limits, written by parse_go (uci_mt.cpp).
 struct SearchLimits {
     int  time[2];
     int  inc[2];
@@ -90,26 +102,26 @@ struct SearchLimits {
 };
 extern SearchLimits g_limits;
 
-constexpr int FRAME_OFFSET = 7;   // frame[FRAME_OFFSET] e' la radice; 7 frame sentinella prima
+constexpr int FRAME_OFFSET = 7;   // frame[FRAME_OFFSET] is the root; 7 sentinel frames before it
 
 struct ThreadData {
     int thread_id;
 
-    // Scacchiera del thread
+    // Board of the thread
     U64 bitboards[12];
     U64 occupancies[3];
-    int piece_on[64];             // pezzo su ogni casa (P..k), -1 = vuota
+    int piece_on[64];             // piece on every square (P..k), -1 = empty
     int side;
     int enpassant;
     int castle;
     U64 hash_key;
-    // Chiavi parziali: td_keys_update (07_makemove.inc) le vede come un array contiguo di sei U64 a partire da
-    // pawn_key (pedoni, minori, maggiori, non-pedoni bianchi e neri, pozzo) e vi scrive con indici da tabella,
-    // senza salti sul tipo di pezzo. L'ordine qui sotto e' vincolato da static_assert.
+    // Partial keys: td_keys_update (07_makemove.inc) sees them as a contiguous array of six U64 starting from
+    // pawn_key (pawns, minors, majors, white and black non-pawns, sink) and writes into it with indices from a table,
+    // without branches on the piece type. The order below is enforced by static_assert.
     U64 pawn_key;
-    U64 mm_key[2];                // [0] = pezzi minori (N,B,n,b), [1] = maggiori (R,Q,r,q)
-    U64 np_key[2];                // non-pedoni per colore, re compreso
-    U64 key_sink;                 // pozzo: riceve gli XOR che non appartengono a nessuna chiave (mai letto)
+    U64 mm_key[2];                // [0] = minor pieces (N,B,n,b), [1] = majors (R,Q,r,q)
+    U64 np_key[2];                // non-pawns per colour, king included
+    U64 key_sink;                 // sink: receives the XORs that belong to no key (never read)
     int fifty;
     int plies_from_null;
     int seldepth;
@@ -125,9 +137,9 @@ struct ThreadData {
     NodeFrame frames[max_ply + 16];
     int pv_length[max_ply + 8];
     int pv_table[max_ply + 8][max_ply + 8];
-    signed char chk_hint[max_ply + 8];   // scacco al figlio gia' calcolato dal padre (-1 = ignoto)
+    signed char chk_hint[max_ply + 8];   // check on the child already computed by the parent (-1 = unknown)
 
-    // Radice
+    // Root
     RootLine root[256];
     int  root_count;
     int  pv_idx;
@@ -138,69 +150,68 @@ struct ThreadData {
     int  sel_depth;
     int  nmp_min_ply;
     U64  best_move_changes;
-    int  last_pv[max_ply + 4];        // linea dell'iterazione precedente per la mossa pv_idx
+    int  last_pv[max_ply + 4];        // line of the previous iteration for the move pv_idx
     int  last_pv_len;
-    int  opt[2];                      // optimism di questo thread (lato bianco, nero)
-    int  root_side;                   // colore al tratto alla radice (Contempt)
-    int  draw_defend;                 // DrawDefend: valore della patta per il colore di radice in questa ricerca
-    int  deep_w;                      // peso 0..1024 dei termini Deep* per l'iterazione corrente
-    // Modalita' analisi (09/10/2026, search/01_params.inc): valori EFFETTIVI per l'iterazione corrente, gia'
-    // pesati. In partita valgono quanto i parametri (Deep* a 0 = termini a 0), quindi l'albero non cambia.
-    int  an_bits;                     // componenti dell'analisi attivi in questa ricerca (0 = partita)
+    int  opt[2];                      // optimism of this thread (white side, black)
+    int  root_side;                   // colour to move at the root (Contempt)
+    int  draw_defend;                 // DrawDefend: draw value for the root colour in this search
+    int  c2_conv_root;                // C2ConvRoot: conversion decided at the root (+1 / -1 for the root side, 0 = none)
+    int  deep_w;                      // weight 0..1024 of the Deep* terms for the current iteration
+    // Analysis mode (09/10/2026, search/01_params.inc): EFFECTIVE values for the current iteration, already
+    // weighted. In games they equal the parameters (Deep* at 0 = terms at 0), so the tree does not change.
+    int  an_bits;                     // analysis components active in this search (0 = game)
     int  dz_rfp, dz_fut, dz_lmr, dz_nmp, dz_sing, dz_ext;   // = Deep* x deep_w / 1024
-    int  hunt_from;                   // profondita' di radice da cui vale hunt_mate (16 in partita)
-    int  crystal_ply;                 // AnCrystal: niente potature sulla linea precedente fino a questo ply (-1)
-    int  gd_heat;                     // AnGold: "calore" tattico della radice (-1000 in partita = mai)
-    int  gd_rfp_pct;                  // AnGold: margine RFP in percento (100 = invariato)
-    int  gd_razor;                    // AnGold: soglia del razoring piu' bassa di tanto (0)
-    int  gd_style;                    // AnGold: 0 neutro, 1 attacco, 2 manovra, 3 difesa
-    // Rampa "tempo lungo" (Lt*, 01_params.inc): peso e valori effettivi delle leve per l'iterazione corrente.
+    int  hunt_from;                   // root depth from which hunt_mate applies (16 in games)
+    int  crystal_ply;                 // AnCrystal: no pruning on the previous line up to this ply (-1)
+    int  gd_heat;                     // AnGold: tactical "heat" of the root (-1000 in games = never)
+    int  gd_rfp_pct;                  // AnGold: RFP margin in percent (100 = unchanged)
+    int  gd_razor;                    // AnGold: razoring threshold lower by this much (0)
+    int  gd_style;                    // AnGold: 0 neutral, 1 attack, 2 manoeuvre, 3 defence
+    // "Long time" ramp (Lt*, 01_params.inc): weight and effective values of the levers for the current iteration.
     int  lt_w;
     int  lt_lmr_not_improving, lt_lmr_offset, lt_lmr_all_node, lt_lmr_no_tt_full;
     int  lt_nmp_improving, lt_quiet_fut_alpha, lt_rfp_max_depth, lt_nmp_verify_depth;
-    int  lt_lmr_log_mul;              // valore effettivo da cui e' stata costruita lt_red_log
-    int  lt_red_log[256];             // tabella delle riduzioni del thread quando LmrLogMulLt != 0
-    // SeePinned (05/10/2026): inchiodati e inchiodatori dei due colori, calcolati una volta per posizione.
-    U64  see_pin_key;                 // posizione per cui valgono i campi sotto
-    U64  see_pinned[2];               // pezzi di ciascun colore inchiodati al proprio re
-    U64  see_pinners[2];              // pezzi lunghi di ciascun colore che inchiodano un pezzo avversario
+    int  lt_lmr_log_mul;              // effective value from which lt_red_log was built
+    int  lt_red_log[256];             // reduction table of the thread when LmrLogMulLt != 0
+    // SeePinned (05/10/2026): pinned pieces and pinners of both colours, computed once per position.
+    U64  see_pin_key;                 // position for which the fields below hold
+    U64  see_pinned[2];               // pieces of each colour pinned to their own king
+    U64  see_pinners[2];              // sliders of each colour that pin an enemy piece
+#ifdef TRIUMV_C2
+    // --- C2 piece values (agent SEE) --- (21/10/2026): the per-thread table of the regime piece values (see.cpp),
+    // rebuilt only when the expert pair of the position changes; -1 = to rebuild (set at each search start).
+    mutable int c2_see_pair;          // expert pair (White | Black << 4) the two tables below were built for
+    mutable int c2_see_val[16];       // SEE value per piece code: SeeVal* + offset of the owner's regime
+    mutable int c2_see_off[16];       // the offset alone (margins built on unit_value); codes 12..15 = 0
+#endif
 
-    // Risultato, letto dal driver e dal voto fra thread
+    // Result, read by the driver and by the vote between threads
     int best_move;
     int best_score;
     int depth;
     int best_reply;
 
-    // History di questo thread (le continuation, pawn e correction sono condivise: vedi 09_history.inc)
-    int16_t    quiet_hist[2][QH_SIZE];
+    // History of this thread (the continuation, pawn and correction histories are shared: see 09_history.inc)
+    int16_t    quiet_hist[2][QH_CTX_SIZE];
     int16_t    low_ply_hist[LOW_PLY_SIZE][QH_SIZE];
     int16_t    capt_hist[12][64][7];
     PieceToRow cont_corr[NO_PC + 1][64];
     int        tt_move_hist;
 
-    // Rete incrementale e cache della valutazione
+    // Rete incrementale
     void* nnpos = nullptr;
-    NnStack* nnstack = nullptr;   // pila delle dirty dell'handle nnpos: la scrivono make e unmake (06_nndirty.inc)
-    static constexpr int EVAL_CACHE_BITS = 16;
-    static constexpr int EVAL_CACHE_SIZE = 1 << EVAL_CACHE_BITS;
-    static constexpr U64 EVAL_CACHE_MASK = EVAL_CACHE_SIZE - 1;
-    // EVC8 ADOTTATA 14/10/2026 (xperf a macchina ferma, 3 giri: con ext-tsp -0,6% cicli mediogioco, 0 finali; albero
-    // identico; unico percorso dal 14/10/2026, la voce da 16 byte e' in _backup/Triumviratus_8.0_pre_pulizia_2026-10-14).
-    // EVC8 (14/10/2026, velocita' ad albero identico, idea 2 di AG2_VELOCITA_IDEE): una parola da 8 byte invece di 16 =
-    // 48 bit alti della chiave + 16 bit di valutazione. L'indice usa gia' i 16 bit bassi, quindi indice + 48 bit
-    // confrontano tutti i 64 bit della chiave: stessi hit. La tabella passa da 1 MB a 512 KB (la L2 di questo Xeon e'
-    // 1 MB). Le valutazioni fuori da int16 non si scrivono (hit perso, stesso valore ricalcolato: albero identico).
-    struct EvalCacheEntry { U64 word; };
-    EvalCacheEntry eval_cache[EVAL_CACHE_SIZE];
+    NnStack* nnstack = nullptr;   // stack of the dirty entries of the nnpos handle: written by make and unmake (06_nndirty.inc)
+    // E1 (15/10/2026, speed at identical tree): REMOVED the per-thread evaluation cache (EVC8, 512 KB).
+    // Counters: bench 20 2,519,149 lookups and 12 hits; a game of 40 plies at 500k nodes (cache never cleared
+    // between moves) 9,382,726 lookups and 62 hits, and a perfect cache would have caught only 0.5% more. The
+    // positions already evaluated are found by the TT, which keeps the evaluation (node_eval): the cache cost a read (often
+    // outside L2), a write, two prefetches per move and 512 KB of L2 per thread.
 };
 
-// V1 (08/10/2026, velocita', albero identico): i ThreadData su large pages. Ognuno e' ~3 MB letti a caso a ogni
-// nodo (cache delle valutazioni 1 MB, correzioni di continuazione 1,4 MB, storie delle quiete): su pagine da 4 KB
-// ~750 pagine per thread, su pagine da 2 MB 2. Senza il privilegio l'allocazione ripiega su pagine normali.
-namespace Triumviratus {
-void* aligned_large_pages_alloc(std::size_t size);
-void  aligned_large_pages_free(void* mem);
-}
+// V1 (08/10/2026, speed, identical tree): the ThreadData on large pages. Each is ~3 MB read at random at every
+// node (evaluation cache 1 MB, continuation corrections 1.4 MB, quiet histories): on 4 KB pages
+// ~750 pages per thread, on 2 MB pages 2. Without the privilege the allocation falls back to normal pages.
+#include "large_pages.h"
 template <class T>
 struct LargePageAllocator {
     using value_type = T;
@@ -208,12 +219,12 @@ struct LargePageAllocator {
     template <class U>
     LargePageAllocator(const LargePageAllocator<U>&) {}
     T* allocate(std::size_t n) {
-        void* p = Triumviratus::aligned_large_pages_alloc(n * sizeof(T));
+        void* p = large_pages_alloc(n * sizeof(T));
         if (!p)
             throw std::bad_alloc();
         return static_cast<T*>(p);
     }
-    void deallocate(T* p, std::size_t) { Triumviratus::aligned_large_pages_free(p); }
+    void deallocate(T* p, std::size_t) { large_pages_free(p); }
     template <class U>
     bool operator==(const LargePageAllocator<U>&) const { return true; }
     template <class U>
@@ -236,7 +247,7 @@ extern std::thread search_master;
 extern void launch_search(int depth);
 extern void ponder_hit();
 extern void wait_for_search_done();
-extern void search_clear();            // ucinewgame: azzera history e stato della partita
+extern void search_clear();            // ucinewgame: clears history and game state
 
 extern void set_data_log_enabled(bool enabled);
 extern void set_data_log_file(const char* path);
@@ -244,9 +255,9 @@ extern void set_data_log_file(const char* path);
 extern int debug_eval_position();
 extern int debug_eval_position_raw();
 
-// Opzioni UCI della ricerca: stampa e impostazione (01_params.inc).
+// Search UCI options: printing and setting (01_params.inc).
 extern void print_search_options();
-extern void print_analysis_options();   // modalita' analisi (search/01_params.inc), anche nella release
+extern void print_analysis_options();   // analysis mode (search/01_params.inc), also in the release
 extern bool set_search_param(const char* name, int value);
 
 #endif
