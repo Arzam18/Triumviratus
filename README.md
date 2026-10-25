@@ -15,7 +15,7 @@
 
 <sub>in collaboration with Maurizio Platino</sub>
 
-**Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026), **number 1 on CCRL Blitz** · `main`: development of 8.1
+**Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026) · `main`: development of 8.1
 
 **Triumviratus is becoming a community project.** The project has a Discord server where the development is followed,
 ideas are shared and contributions are discussed: to join, just contact me ([@Tors3](https://github.com/Tors3) on
@@ -80,16 +80,19 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-**Triumviratus 8.0 is number 1 on the CCRL Blitz list of 24 October 2026: 3847 ± 17 on a single CPU, ahead of every engine, the 8-CPU builds included** (Stockfish 19, 8 CPU: 3803). On CCRL 40/15 it has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19, 1 CPU: 3630).
+On CCRL 40/15 Triumviratus 8.0 has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19,
+1 CPU: 3630).
 
 **Note (25 October 2026): the CCRL Blitz test of Triumviratus 8.0 is being redone.** By mistake its games were played
-from openings that were too unbalanced, so the 8.0 rating below is provisional and will be replaced by the new games.
+from openings that were too unbalanced. The 8.0 rating in the Blitz list of 24 October (3847 ± 17) comes from those
+games, and so does its place above the 8-CPU builds (Stockfish 19, 8 CPU: 3803), which is not correct. The rating will
+be replaced by the new games.
 
 **CCRL Blitz** (2 min + 1 s), list of 2026-10-24
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| **Triumviratus 8.0** (1 CPU) | **3847** ± 17 | **1** | 960 |
+| Triumviratus 8.0 (1 CPU) | 3847 ± 17 (provisional, see the note above) | | 960 |
 | Triumviratus 7.0 (8 CPU) | 3780 ± 20 | | 1,106 |
 | Triumviratus 7.0 (1 CPU) | 3755 ± 12 | | 2,015 |
 | Triumviratus 6.0 (1 CPU) | 3743 ± 12 | | 2,056 |
