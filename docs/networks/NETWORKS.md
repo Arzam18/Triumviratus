@@ -34,6 +34,78 @@ The full record of each one — data, recipe, epoch-by-epoch measurements — is
 
 ---
 
+## Consilium Plebis — the network of Triumviratus 8.1 (in training)
+
+> **Status, 26 October 2026: training in progress** (pretraining P, 550 epochs, started 21 October; epoch 443
+> exported). The network file is not published yet: it will be released with 8.1. The engine side is written and
+> verified; the development source of 8.1 now uses this network only.
+
+The name comes from the *Concilium Plebis* of the Roman Republic, the assembly of the plebs. Here the plebs are the
+pawns: in this network they get a subnetwork of their own, together with the two kings.
+
+<p align="center"><img src="consilium_plebis_architecture.svg" alt="Consilium Plebis architecture" width="100%"></p>
+
+### Why a new network
+
+Consilium splits its king-relative block (HalfKA) into four input buckets, the "experts", chosen by the **total piece
+count**, pawns included, and the same bucket serves both perspectives. Two things follow. A pawn more or less can
+move a position to another bucket, and a position with a material imbalance (an exchange for two minor pieces, a
+queen against two rooks) is read with the same bucket by both sides, although each side faces very different enemy
+material. Consilium Plebis keys the buckets on what each side is facing.
+
+### Architecture
+
+| part | Consilium (8.0) | **Consilium Plebis (8.1)** |
+|---|---|---|
+| feature set (trainer name) | `Full_Threats+HalfKAv2_hm_P4^+PP_3Wide+PassedPawns` | `Full_Threats+HalfKAv2_hm_X8^+PP_3Wide+PassedPawns` |
+| king-relative block | 4 buckets by total piece count, shared by both perspectives | **8 buckets per perspective**, chosen by a **routing table** (learnable) over the non-pawn material |
+| HalfKA weights | int16 | **int8** (merged weights clamped to the int8 grid during training) |
+| threats, pawn pairs, passed pawns | int8 | int8 (unchanged) |
+| L1 / L2 / L3, layer stacks | 1024 / 32 / 32, 8 stacks by (pieces - 1) / 4 | unchanged |
+| pawn-king subnetwork | no | **yes**: 256 hidden units, its 32 outputs added to the first-layer outputs of the stack |
+
+**Buckets and routing.** For each side a signature counts its knights, bishops and rooks (each capped at 2) and its
+queen (capped at 1): 54 values. A perspective's cell is the pair (own signature, opponent's signature), 2,916 cells,
+and a table maps every cell to one of 8 buckets. Pawn moves and pawn captures never change a cell, so the bucket
+changes only on a non-pawn capture or a promotion, and only where the table says so. The table starts from the
+opponent's non-pawn material (N = B = 3, R = 5, Q = 9) in eight classes: 0-3, 4-5, 6-8, 9, 10-13, 14-18, 19-25, 26-31.
+It can be **learned during training** with a hard EM step (on a sample of positions, the loss of each perspective moved
+to every bucket, summed per cell, decides the reassignment of cells, under a budget on how often a capture changes
+bucket, since each change costs the engine an accumulator refresh), but in this run it moved under 1% of its cells:
+in practice each side's bucket is set by the material it faces. The table is stored in the network file. Training
+weights: a base per king bucket shared by all buckets, plus a delta per bucket, so a rarely used bucket falls back to
+the base.
+
+**Pawn-king subnetwork.** Inputs from the side to move's view: own pawns, enemy pawns, own king, enemy king (64
+squares each, at most 18 active). h = clamp(b1 + sum of W1 rows, 0, 127/128); out = b2 + W2 h, added to the 32
+first-layer outputs of the stack before its activations. The integer form is exact (the trainer keeps the weights on
+the integer grid). The engine keeps a per-thread cache keyed by pawns, kings and side to move.
+
+**File format.** As Consilium (header, feature transformer, 8 stacks), then a routing section (`RTB1`: 2,916 cells,
+8 buckets, one byte per cell) and a pawn-king section (`PKN1`). As for Consilium, the first-layer neurons are permuted
+at export so that the sparse first layer skips more zero blocks (+2.5% nodes per second, identical evaluations).
+
+### Training
+
+The BT4-relabelled corpus of Consilium (about 700 GB of binpacks); lambda 0.75 as the reference (reached early and
+then held); piece-count sampling shifted towards the endgames so that the endgame buckets get more data. Before the
+launch, a Python integer evaluator had to
+match the trainer on exported networks, and the loader indices (cells, buckets, pawn-king inputs) had to match an
+independent python-chess computation; after it, the engine had to match the Python evaluator move by move across
+bucket changes.
+
+### First measurements (provisional, during training)
+
+- **Loss on held-out data** (the same positions for every network): at epoch 435 Consilium Plebis is better than the
+  final Consilium in every material bucket, by 2.9% at lambda 0.75 overall, most of all in endgames, and the gap
+  still grows as the learning rate falls.
+- **Against Consilium with the same 8.1 search, at fixed nodes (100k per move):** +4.7 ± 3.5 Elo over 10,418 games,
+  pooling the exports from epoch 358 to 435; single exports scatter by ±7-10 around it, as snapshots taken at a high
+  learning rate do.
+- Numbers for the final network will be given with the release of 8.1.
+
+---
+
 ## Consilium — the Triumviratus 8.0 network
 
 > **Status: training finished on 29 September 2026.** The final network is the **average of the last five epochs of
