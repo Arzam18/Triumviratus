@@ -48,8 +48,10 @@ the mixture-of-experts models of language AI.
 [How it was built](docs/networks/NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](docs/project/NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
-**Next network.** **Consilium Plebis**, the network of the next version, is in training; the details will come with
-its release.
+**Next network.** **Consilium Plebis**, the network of 8.1, is in training: eight input buckets per perspective chosen
+by a learned routing table over the non-pawn material each side faces, int8 king-relative weights and a pawn-king
+subnetwork ([architecture](docs/networks/NETWORKS.md#consilium-plebis--the-network-of-triumviratus-81-in-training)).
+The network file comes with the release of 8.1.
 
 <details>
 <summary><b>What "mixture of experts" means here</b></summary>
