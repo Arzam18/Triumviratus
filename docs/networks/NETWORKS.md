@@ -58,7 +58,7 @@ material. Consilium Plebis keys the buckets on what each side is facing.
 | part | Consilium (8.0) | **Consilium Plebis (8.1)** |
 |---|---|---|
 | feature set (trainer name) | `Full_Threats+HalfKAv2_hm_P4^+PP_3Wide+PassedPawns` | `Full_Threats+HalfKAv2_hm_X8^+PP_3Wide+PassedPawns` |
-| king-relative block | 4 buckets by total piece count, shared by both perspectives | **8 buckets per perspective**, chosen by a **learned routing table** over the non-pawn material |
+| king-relative block | 4 buckets by total piece count, shared by both perspectives | **8 buckets per perspective**, chosen by a **routing table** (learnable) over the non-pawn material |
 | HalfKA weights | int16 | **int8** (merged weights clamped to the int8 grid during training) |
 | threats, pawn pairs, passed pawns | int8 | int8 (unchanged) |
 | L1 / L2 / L3, layer stacks | 1024 / 32 / 32, 8 stacks by (pieces - 1) / 4 | unchanged |
