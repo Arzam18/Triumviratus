@@ -43,6 +43,8 @@ The full record of each one — data, recipe, epoch-by-epoch measurements — is
 The name comes from the *Concilium Plebis* of the Roman Republic, the assembly of the plebs. Here the plebs are the
 pawns: in this network they get a subnetwork of their own, together with the two kings.
 
+<p align="center"><img src="consilium_plebis_architecture.svg" alt="Consilium Plebis architecture" width="100%"></p>
+
 ### Why a new network
 
 Consilium splits its king-relative block (HalfKA) into four input buckets, the "experts", chosen by the **total piece
@@ -65,13 +67,14 @@ material. Consilium Plebis keys the buckets on what each side is facing.
 **Buckets and routing.** For each side a signature counts its knights, bishops and rooks (each capped at 2) and its
 queen (capped at 1): 54 values. A perspective's cell is the pair (own signature, opponent's signature), 2,916 cells,
 and a table maps every cell to one of 8 buckets. Pawn moves and pawn captures never change a cell, so the bucket
-changes only on a non-pawn capture or a promotion, and only where the table says so. The table starts from classes
-of material and is then **learned during training** with a hard EM step: on a sample of positions, the loss of each
-perspective moved to every bucket, summed per cell, decides the reassignment of cells, under a budget on how often a
-capture changes bucket (each change costs the engine an accumulator refresh). The table is stored in the network file.
-In the final tables the bucket follows mainly the opponent's non-pawn material, from bare kings and minor pieces
-(buckets 0-1) to the full set of pieces (bucket 7). Training weights: a base per king bucket shared by all buckets, plus
-a delta per bucket, so a rarely used bucket falls back to the base.
+changes only on a non-pawn capture or a promotion, and only where the table says so. The table starts from the
+opponent's non-pawn material (N = B = 3, R = 5, Q = 9) in eight classes: 0-3, 4-5, 6-8, 9, 10-13, 14-18, 19-25, 26-31.
+It can be **learned during training** with a hard EM step (on a sample of positions, the loss of each perspective moved
+to every bucket, summed per cell, decides the reassignment of cells, under a budget on how often a capture changes
+bucket, since each change costs the engine an accumulator refresh), but in this run it moved under 1% of its cells:
+in practice each side's bucket is set by the material it faces. The table is stored in the network file. Training
+weights: a base per king bucket shared by all buckets, plus a delta per bucket, so a rarely used bucket falls back to
+the base.
 
 **Pawn-king subnetwork.** Inputs from the side to move's view: own pawns, enemy pawns, own king, enemy king (64
 squares each, at most 18 active). h = clamp(b1 + sum of W1 rows, 0, 127/128); out = b2 + W2 h, added to the 32

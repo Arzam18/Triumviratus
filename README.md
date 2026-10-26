@@ -27,11 +27,27 @@ GitHub). Everyone is welcome, as long as discussions stay open and respectful.
 
 <div align="center">
 
-[8.0](#triumviratus-80) · [Rating lists](#rating-lists) · [Download](#download) · [What is new](docs/project/NOVELTIES.md) ·
+[8.1](#triumviratus-81-in-development) · [8.0](#triumviratus-80) · [Rating lists](#rating-lists) · [Download](#download) · [What is new](docs/project/NOVELTIES.md) ·
 [Networks](docs/networks/NETWORKS.md) · [Tests](docs/tests/) · [History](docs/project/HISTORY.md) ·
 [Credits](#credits) · [License](#license)
 
 </div>
+
+---
+
+## Triumviratus 8.1 (in development)
+
+8.1 brings a new network, **Consilium Plebis**, now in training. Consilium chose its experts by the total piece count,
+the same for both sides; Consilium Plebis gives **each side its own expert, chosen by the non-pawn material that side
+is facing**, so positions with a material imbalance are read differently from the two points of view and a pawn more or
+less no longer moves a position to another expert. The king-relative weights are **int8** (eight experts in the memory
+of four), and a small **pawn-king subnetwork**, cached per thread, adds its view of the pawns and the kings to every
+layer stack.
+
+<p align="center"><img src="docs/networks/consilium_plebis_architecture.svg" alt="Consilium Plebis architecture: int8 HalfKA split into eight experts chosen per side by the opponent's non-pawn material, two 1024 accumulators, a pawn-king subnetwork added to the first layer of each of the eight layer stacks" width="100%"></p>
+
+[Architecture and first measurements](docs/networks/NETWORKS.md#consilium-plebis--the-network-of-triumviratus-81-in-training) ·
+the network file comes with the release of 8.1.
 
 ---
 
@@ -47,11 +63,6 @@ the mixture-of-experts models of language AI.
 
 [How it was built](docs/networks/NETWORKS.md#consilium--the-triumviratus-80-network) ·
 [why it is new](docs/project/NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
-
-**Next network.** **Consilium Plebis**, the network of 8.1, is in training: eight input buckets per perspective chosen
-by a learned routing table over the non-pawn material each side faces, int8 king-relative weights and a pawn-king
-subnetwork ([architecture](docs/networks/NETWORKS.md#consilium-plebis--the-network-of-triumviratus-81-in-training)).
-The network file comes with the release of 8.1.
 
 <details>
 <summary><b>What "mixture of experts" means here</b></summary>
