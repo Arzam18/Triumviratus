@@ -45,14 +45,6 @@ static void nn_dirty_init() {
     }
 }
 
-// Material band of the network (HalfKA with experts) by number of pieces: <= 9, 10-15, 16-23, >= 24 (half_ka_v2_hm.h).
-static constexpr unsigned char nn_phase_of_count[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
-                                                        2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
-// ExpertFix (20/10/2026): the expert the network uses per piece count during this search, set in start_search (the
-// bands above, or the root's expert kept for a margin of pieces). The network side reads cn::g_phase_map, set at the
-// same moment through nn_set_phase_map.
-static unsigned char g_nn_phase_map[33] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2,
-                                           2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3};
 
 // Working board of the steps: bitboards per type (P..K, both colours), per colour and occupancy.
 struct NnTB {
@@ -304,10 +296,10 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
     dp.add_pc = (std::uint8_t)promoted;
     dp.add_sq = (std::uint8_t)(promoted ? target : NN_SQ_NONE);
   }
-#if defined(TRIUMV_C2) && defined(CN_C2_ONE_EXPERT)
+#if defined(CN_C2_ONE_EXPERT)
   dp.phase = 0;  // cost diagnosis only (21/10/2026): one expert, no refresh on material changes
   dp.phaseChanged = 0;
-#elif defined(TRIUMV_C2)
+#else
   // Consilium Plebis: the expert of each perspective comes from the network's routing table over the non-pawn material
   // signatures (consilium/cn.h router_sig). Only a capture or a promotion changes material, so other moves copy the
   // parent's experts (the root's state has none: computed from the board).
@@ -344,18 +336,20 @@ static inline void nn_make_dirty(ThreadData &td, int piece, int source, int targ
     };
     if (cap != -1) dec(cap, -1);
     if (promoted) dec(promoted, 1);
-    const int e1w = rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
-    const int e1b = rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+    int e1w = rt[cn_sig(n[0], bsh[0], r[0], q[0]) * 54 + cn_sig(n[1], bsh[1], r[1], q[1])];
+    int e1b = rt[cn_sig(n[1], bsh[1], r[1], q[1]) * 54 + cn_sig(n[0], bsh[0], r[0], q[0])];
+    // Expert holds (25/10/2026, 01_params.inc, off): keep the parent's experts (C2HoldDepth, C2HoldQs: the frame said
+    // so through td.nn_hold) while the true one is close enough. C2HoldRoot and C2HoldPv removed on 27/10/2026.
+    if (td.nn_hold) {
+      if (std::abs(e1w - e0w) <= C2HoldDist) e1w = e0w;
+      if (std::abs(e1b - e0b) <= C2HoldDist) e1b = e0b;
+    }
     dp.phase = (std::uint8_t)(e1w | e1b << 4);
     dp.phaseChanged = (std::uint8_t)((e0w != e1w) | (e0b != e1b) << 1);
   } else {
     dp.phase = S.st[S.size - 2].dp.phase;
     dp.phaseChanged = 0;
   }
-#else
-  const int pieces = count_bits(td.occupancies[both]);
-  dp.phase = g_nn_phase_map[pieces - (cap != -1)];
-  dp.phaseChanged = g_nn_phase_map[pieces] != dp.phase;
 #endif
   // Threats and pawns: nn_dirty_catch_up, only if an evaluation is reached.
   // Prefetch of the network rows this move changes (19/10/2026): the memory latency runs under the hash probe and the
@@ -472,7 +466,6 @@ static inline void nn_dirty_catch_up(ThreadData &td) {
   S.ready = last;
 }
 
-#ifdef TRIUMV_C2
 // --- C2 signals (agent B) ---
 // Consilium Plebis signals for the code outside the main search loop (21/10/2026): time management (14_deepen.inc) and
 // corrections (09_history.inc). The expert of a perspective is the network's routing table over the non-pawn material
@@ -512,7 +505,6 @@ static inline int c2_experts_td(const ThreadData &td) {
   const NnStack &S = *td.nnstack;
   return S.size >= 2 ? S.st[S.size - 1].dp.phase : c2_experts(c2_count(td.bitboards));
 }
-#endif
 
 // Synchronisation check (-DTRIUMV_VERIFY_NNSYNC, like TRIUMV_VERIFY_SEEQ): the network's stack must describe the
 // thread's board. Every state carries the piece key after its move (written by the successful make; at the root

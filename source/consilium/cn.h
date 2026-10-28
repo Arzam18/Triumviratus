@@ -32,10 +32,10 @@ namespace cn {
 
 // ---------------------------------------------------------------- network shape (specification, sec. 1-2)
 constexpr int L1 = 1024, L1H = L1 / 2, L2 = 32, L3 = 32, NPSQT = 8, NBUCKETS = 8;
-// -DTRIUMV_C2 (Consilium Plebis, 21/10/2026; docs/rete/ARCHITETTURA_CONSILIUM2_2026-10-21.md): 8 experts chosen per
-// perspective by the routing table of the network (non-pawn material signature), HalfKA rows in int8, and the
-// pawn-king subnetwork added to the l1 outputs. Without it: Consilium (8.0), 4 experts by piece count, int16 HalfKA.
-#ifdef TRIUMV_C2
+// Consilium Plebis (21/10/2026; docs/rete/ARCHITETTURA_CONSILIUM2_2026-10-21.md): 8 experts chosen per perspective by
+// the routing table of the network (non-pawn material signature), HalfKA rows in int8, and the pawn-king subnetwork
+// added to the l1 outputs. The Consilium (8.0) network, 4 experts by piece count and int16 HalfKA, was removed on
+// 26/10/2026 (last source with it: _backup/Triumviratus_8.1_pre_rimozione_c1_2026-10-26).
 constexpr int NEXPERTS = 8;
 constexpr int ROUTER_SIG = 54, ROUTER_CELLS = ROUTER_SIG * ROUTER_SIG;   // cell = sig(own) * 54 + sig(opponent)
 constexpr int PK_INPUTS = 256, PK_H = 256, PK_ACTIVE = 18;              // pawn-king subnetwork
@@ -45,9 +45,6 @@ constexpr int PK_INPUTS = 256, PK_H = 256, PK_ACTIVE = 18;              // pawn-
     #define CN_PK_CACHE_LOG2 13
 #endif
 constexpr int PK_CACHE = 1 << CN_PK_CACHE_LOG2;
-#else
-constexpr int NEXPERTS = 4;
-#endif
 constexpr int ROWS_THR = 59808, ROWS_HKA = NEXPERTS * 32 * 704, ROWS_PP = 4560, ROWS_PAS = 96;
 constexpr int HKA_PHASE_ROWS = 32 * 704;
 constexpr int ROW16 = L1 + 32;   // int16 row: 2048 bytes of weights + 64 bytes (8 int32 PSQT + padding)
@@ -74,29 +71,28 @@ struct alignas(64) Net {
     // second line per row was ~4% of the engine in the 17/10 profile).
     // (Widening the int8 blocks to int16 at load, one add per register instead of two, was measured on 17/10: +60%
     // L3 misses, -10% speed in the middlegame.)
-#ifdef TRIUMV_C2
     std::int8_t  wHka[ROWS_HKA][ROW8];   // int8 like the threat rows (trained inside +-127/256)
-#else
-    std::int16_t wHka[ROWS_HKA][ROW16];
-#endif
     std::int8_t  wThr[ROWS_THR][ROW8];   // stored in the order of thr_slot (cn.cpp)
     std::int8_t  wPP[ROWS_PP][ROW8];
     std::int8_t  wPas[ROWS_PAS][ROW8];
     Stack        stack[NBUCKETS];
-#ifdef TRIUMV_C2
     std::uint8_t router[ROUTER_CELLS];                // cell -> expert (section RTB1 of the file)
     alignas(64) std::int16_t pkB1[PK_H];              // pawn-king subnetwork (section PKN1)
     alignas(64) std::int16_t pkW1[PK_INPUTS][PK_H];   // one row per input
     alignas(64) std::int32_t pkB2[L2];
     alignas(64) std::int8_t  pkW2[L2][PK_H];
     alignas(64) std::int8_t  pkW2g[PK_H / 4][L2][4];  // SIMD product: pkW2g[g][o][k] = pkW2[o][4g + k]
-#endif
     std::uint64_t contentHash;   // FNV-1a of the file bytes, names the shared-memory copy
 };
 
 // Reads a .nnue file (or an image of one in memory) into `net`. On failure returns false with a reason in `err`.
 bool load_file(const char* path, Net* net, std::string* err);
 bool load_memory(const unsigned char* data, std::size_t size, Net* net, std::string* err);
+
+// PassedScale (26/10/2026): percent applied at load time to the PassedPawns rows (weights and PSQT); 100 = the file
+// as it is. Read by the next load_*: the bridge reloads the network when the option changes.
+void set_passed_scale(int pct);
+int  passed_scale();
 
 // The engine's board (consilium_bridge.h): twelve piece bitboards P..k, occupancy white/black/all, mailbox (-1 = empty).
 struct Board {
@@ -122,7 +118,6 @@ struct alignas(64) KingCacheEntry {
 
 // Per-thread state: the dirty stack the engine writes, one accumulator per stack state and perspective (bit 1 of
 // NnState::computed[p]), the refresh cache, room for the row lists of one evaluation.
-#ifdef TRIUMV_C2
 // Pawn-king cache entry: the exact key (pawns of both colours, king squares, side to move, bit 15 = valid) and the 32
 // outputs of the subnetwork for it. Three cache lines exactly (21/10/2026: 148 bytes unaligned touched up to four).
 struct alignas(64) PkEntry {
@@ -130,18 +125,19 @@ struct alignas(64) PkEntry {
     std::uint32_t kk;
     std::int32_t  out[L2];
 };
-#endif
 
 struct alignas(64) Handle {
     NnStack       stack;
     Acc           acc[NN_STACK_SIZE][2];
     std::uint64_t cacheNet;           // contentHash of the network the cache was built from (0 = empty)
     KingCacheEntry    kcache[2][64][NEXPERTS];
-#ifdef TRIUMV_C2
     std::uint64_t pkNet;              // contentHash of the network the pawn-king cache was built from
     PkEntry       pkc[PK_CACHE];
+    // C2PkStale (27/10/2026): the cache entry of the last pawn-king lookup of this thread, and the flag the search
+    // sets at shallow nodes: on a cache miss reuse that entry's outputs instead of computing (zeroed with the handle).
+    const std::int32_t* pkLast;
+    int           pkStale;
     alignas(64) std::int32_t x1[L2];  // l1 sums of the last evaluate (pawn-king outputs included): pk_effect
-#endif
     alignas(64) unsigned char scratch[4 * 50 * 1024];
 };
 
@@ -161,8 +157,6 @@ void prefetch_move(const Net& net, const std::uint64_t* bb, int phase, int pc, i
                    int capSq);
 
 extern int g_bucket_override;     // EvalBucketOverride probe: -1 normal, 0..7 forces the output bucket
-extern unsigned char g_phase_map[33];   // expert per piece count (ExpertFix: set by the search at each start)
-#ifdef TRIUMV_C2
 // Routing table of the last network loaded (copied at load: the make and Persp read it without the Net).
 extern std::uint8_t g_router[ROUTER_CELLS];
 // SmpRouteShift (21/10/2026): a second table with every expert shifted by a number of material classes, built by the
@@ -213,7 +207,6 @@ int           pk_effect(const Net& net, Handle& h, const Board& b, int positiona
 int           pk_effect_refresh(const Net& net, const Board& b, const Acc acc[2]);
 int           expert_of_board(const Board& b, int p);                          // expert of perspective p
 void          pk_measure(const Net& net);   // ranks and medians of the outputs (at load)
-#endif
 
 }  // namespace cn
 

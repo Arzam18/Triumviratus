@@ -7,11 +7,6 @@
 
 #include "defs.h"
 
-extern unsigned int random_state;
-extern U64 generate_magic_number();
-extern void init_magic_numbers();
-extern U64 get_random_U64_number();
-extern U64 find_magic_number(int square, int relevant_bits, int bishop);
 extern void init_sliders_attacks(int bishop);
 // ⛔ 04/10/2026 - TRIED AND REMOVED as inline in this header: with the PGO + ThinLTO build +1.27% instructions and
 // +0.77% cycles per node (xperf, 6 rounds, identical nodes). The compiler already inlined them where it pays; forcing them everywhere

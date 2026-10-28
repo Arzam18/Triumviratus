@@ -96,11 +96,7 @@ class NnBoard {
 
 }  // namespace cnb
 
-#ifdef TRIUMV_C2
     #define CN_DEFAULT_NET_FILE "nn-consilium2.nnue"   // Consilium Plebis: another format, another default name
-#else
-    #define CN_DEFAULT_NET_FILE "nn-consilium.nnue"
-#endif
 
 // GCC and clang builds from the Makefile (Linux, Android, MinGW): the default network is embedded with incbin when it
 // sits at the build root (the Makefile sets NNUE_EMBEDDING_OFF otherwise). incbin.h is Dale Weiler's public-domain
@@ -126,6 +122,7 @@ static cn::Net*        g_cn      = nullptr;
 static const cn::Net*  g_cn_view = nullptr;
 static std::string     g_net_mem_status;
 static std::atomic<int> g_net_gen{1};
+static std::string     g_net_path;   // path of the network loaded last (PassedScale reloads it)
 #define NET_REF (*g_cn_view)
 
 const char* nn_net_memory_status(void) { return g_net_mem_status.c_str(); }
@@ -173,6 +170,7 @@ static int load_net_impl(const char* path) {
     cn::Net* old = g_cn;
     g_cn      = net;
     g_cn_view = net;
+    g_net_path = path;
 #ifdef TRIUMV_SHARED_NET
     {
         std::string st;
@@ -345,6 +343,18 @@ const char* nn_default_net_name(void) { return CN_DEFAULT_NET_FILE; }
 int nn_load_net(const char* net_path) { return load_net_impl(net_path); }
 int nn_reload_big(const char* net_path) { return load_net_impl(net_path); }
 
+int nn_set_passed_scale(int pct) {
+    const int old = cn::passed_scale();
+    cn::set_passed_scale(pct);
+    if (cn::passed_scale() == old || g_net_path.empty())
+        return 0;
+    const std::string path = g_net_path;   // load_net_impl rewrites g_net_path
+    if (load_net_impl(path.c_str()))
+        return 1;
+    cn::set_passed_scale(old);   // the old network stays loaded: keep the value it was read with
+    return 0;
+}
+
 // (nn_export_graft, nn_export_pst, nn_pst_indices and nn_graft_entries, for the graft blocks: removed on 10/10/2026;
 // the code is in the training repository, 04_consilium/graft_engine_storico.)
 
@@ -463,7 +473,6 @@ int nn_finalize(int unadjusted, int rule50, int bucket) {
     return scale_and_bound(fifty_pull(unadjusted, rule50), g_eval_scale_b[bucket < 0 ? 0 : (bucket > 7 ? 7 : bucket)]);
 }
 
-#ifdef TRIUMV_C2
 // --- C2 signals (agent B) ---
 // Two evaluation terms that only Consilium Plebis allows (21/10/2026), both applied to the two network outputs before the
 // evaluation constants (nn_scale), in the incremental and in the from-scratch path alike (nnueverify compares them).
@@ -546,7 +555,6 @@ void nn_set_c2_eval(const int* conv, const int* exp_scale) {
     g_c2_exp_on = any;
     g_c2_on     = any || g_c2_conv[0] != 0;
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // Per-thread handle
@@ -558,11 +566,9 @@ struct CnPos {
     cn::Handle* h;
     int         opt[2] = {0, 0};
     NnLast      last;
-#ifdef TRIUMV_C2
     int         pk_effect = 0;   // C2 signals (agent B): cn::pk_effect of the last evaluation that computed it
     int         last_pos  = 0;   // conversion push: positional output of the last incremental evaluation (its l1 sums
                                  // are in Handle::x1), for nn_pk_effect_fresh
-#endif
     CnPos() {
         h = static_cast<cn::Handle*>(large_pages_alloc(sizeof(cn::Handle)));
         std::memset(static_cast<void*>(h), 0, sizeof(cn::Handle));
@@ -587,13 +593,11 @@ inline int eval_full(const NnBoard& board, int rule50, int* raw_out = nullptr, c
     if (raw_out) *raw_out = o.psqt + o.positional;
     if (psqt_out) *psqt_out = o.psqt;
     if (pos_out) *pos_out = o.positional;
-#ifdef TRIUMV_C2
     if (g_c2_on) {   // C2 evaluation terms (agent B), as in nn_pos_eval
         int ps = o.psqt, po = o.positional;
         c2_adjust(board, g_c2_conv[0] ? cn::pk_effect_refresh(NET_REF, board.view(), scratch().acc) : 0, ps, po);
         return nn_scale(board, ps, po, rule50, nullptr, opt_local);
     }
-#endif
     return nn_scale(board, o.psqt, o.positional, rule50, nullptr, opt_local);
 }
 
@@ -614,13 +618,8 @@ void nn_pos_set_optimism(void* handle, int w, int b) {
 
 void nn_pos_set(void* handle) { cn::reset(*static_cast<CnPos*>(handle)->h); }
 
-void nn_set_phase_map(const unsigned char* map) {
-    for (int c = 0; c <= 32; c++) cn::g_phase_map[c] = map[c] <= 3 ? map[c] : 3;
-}
-
 NnStack* nn_pos_stack(void* handle) { return &static_cast<CnPos*>(handle)->h->stack; }
 
-#ifdef TRIUMV_C2
 // The routing table of the calling thread (SmpRouteShift: the shifted copy on the odd helpers, else the network's).
 const unsigned char* nn_router_table(void) { return cn::thread_router(); }
 void nn_router_alt_build(int shift) { cn::router_alt_build(shift); }
@@ -704,13 +703,14 @@ int nn_pk_effect_now(void* handle, const unsigned long long* bb, const unsigned 
     p->last_pos     = o.positional;
     return pk_effect_checked(board, cn::pk_effect(NET_REF, *p->h, board.view(), o.positional), "now");
 }
-#endif
 
 void nn_prefetch_move(const unsigned long long* bb, int phase, int pc, int from, int toPc, int to, int capPc,
                       int capSq) {
     if (g_cn_view)
         cn::prefetch_move(NET_REF, reinterpret_cast<const std::uint64_t*>(bb), phase, pc, from, toPc, to, capPc, capSq);
 }
+
+void nn_set_pk_stale(void* handle, int on) { static_cast<CnPos*>(handle)->h->pkStale = on; }
 
 thread_local int nn_last_disagree = -1;
 
@@ -723,7 +723,6 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
         return eval_full(board, rule50, nullptr, opt);
 
     const cn::Out o   = cn::evaluate(NET_REF, *p->h, board.view());
-#ifdef TRIUMV_C2
     int ps = o.psqt, po = o.positional;
     p->last_pos = o.positional;   // conversion push (nn_pk_effect_fresh): one store
     if (g_c2_on | g_c2_want_effect) {   // C2 evaluation terms (agent B); pk_effect reads the l1 sums evaluate just left
@@ -738,9 +737,6 @@ int nn_pos_eval(void* handle, const unsigned long long* bb, const unsigned long 
                    std::uint32_t(cn::pk_signature(NET_REF, *p->h, board.view(), 32, true)));
 #endif
     const int inc = nn_scale(board, ps, po, rule50, nullptr, opt);
-#else
-    const int     inc = nn_scale(board, o.psqt, o.positional, rule50, nullptr, opt);
-#endif
     nn_last_disagree  = std::abs(int(o.psqt) - int(o.positional));
 
     if (g_verify) {

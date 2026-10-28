@@ -80,8 +80,37 @@ static inline int net_evaluate(ThreadData &td) {
 }
 
 // Evaluation in the units of the search margins: x EvalUnits/1024, inside the tablebase band.
+// C2StmOffset (26/10/2026, OFF): a constant taken from the side to move's evaluation, against the side-to-move offset
+// of some Consilium Plebis exports. Every static evaluation of the search passes here.
+// EgScale* (27/10/2026, ours; 01_params.inc): the scale of a drawish endgame class, 100 outside them. Classes in the
+// order of the fit (match_moe fortress data): pure opposite-colour bishops, opposite-colour bishops with other pieces
+// (no scale: they scored like the other endgames), rook endgames, pawns on one wing only. At most 20 men.
+static inline int eg_scale(const ThreadData &td) {
+  if (count_bits(td.occupancies[both]) > 20)
+    return 100;
+  const U64 wb = td.bitboards[B], bb = td.bitboards[b];
+  const U64 minors_majors_w = td.bitboards[N] | td.bitboards[R] | td.bitboards[Q];
+  const U64 minors_majors_b = td.bitboards[n] | td.bitboards[r] | td.bitboards[q];
+  constexpr U64 light = 0xAA55AA55AA55AA55ULL;   // a8 = 0 is light
+  if (count_bits(wb) == 1 && count_bits(bb) == 1 && !(wb & light) != !(bb & light))
+    return (minors_majors_w | minors_majors_b) ? 100 : EgScaleOcb;
+  if (!(wb | bb | td.bitboards[N] | td.bitboards[n] | td.bitboards[Q] | td.bitboards[q]) && td.bitboards[R] &&
+      td.bitboards[r])
+    return EgScaleRook;
+  const U64 pawns = td.bitboards[P] | td.bitboards[p];
+  constexpr U64 qside = 0x0707070707070707ULL, kside = 0xE0E0E0E0E0E0E0E0ULL;   // files a-c, f-h
+  if (pawns && (!(pawns & qside) || !(pawns & kside)))
+    return EgScaleWing;
+  return 100;
+}
+
 static inline int static_evaluate(ThreadData &td) {
-  const int v = (int)((long long)net_evaluate(td) * EvalUnits / 1024);
+  int v = (int)((long long)(net_evaluate(td) - C2StmOffset) * EvalUnits / 1024);
+  if (EgScaleOcb != 100 || EgScaleRook != 100 || EgScaleWing != 100) {
+    const int s = eg_scale(td);
+    if (s != 100)
+      v = (int)((long long)v * s / 100);
+  }
   return std::clamp(v, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);
 }
 
@@ -152,7 +181,6 @@ static inline int  victim_kind(const ThreadData &td, int m) {
   return kPieceKind[td.piece_on[move_to(m)] & 15];
 }
 
-#ifdef TRIUMV_C2
 // ============================================================================
 // --- C2 signals for the search (agent A) --- (21/10/2026)
 // Consilium Plebis picks the expert of each perspective with the routing table of the net over the non-pawn material
@@ -173,6 +201,35 @@ static inline int c2_expert(const ThreadData &td, int c) {
   if (S.size >= 2)
     return (S.st[S.size - 1].dp.phase >> (4 * c)) & 15;
   return nn_router_table()[c2_sig_of(td, c) * 54 + c2_sig_of(td, c ^ 1)];
+}
+// C2Cells (26/10/2026, OFF; 01_params.inc): the cell of the node, C2 expert of the side to move (C2ExpSide as for the
+// C2 tables) x pawn-structure class, and the slot of the four-entry per-band tables each cell reads.
+// Pawn class, side-independent, in this order: 0 few pawns (<= 6 in total), 1 closed (>= 3 rams: a white pawn with a
+// black pawn right in front), 2 a passed pawn on either side, 3 normal. Squares a8 = 0: north is -8, south +8.
+static inline int c2_pawn_class(const ThreadData &td) {
+  const U64 wp = td.bitboards[P], bp = td.bitboards[p];
+  if (count_bits(wp | bp) <= 6)
+    return 0;
+  if (count_bits((wp >> 8) & bp) >= 3)
+    return 1;
+  auto spread = [](U64 x) { return x | ((x << 1) & not_a_file) | ((x >> 1) & not_h_file); };
+  U64 s = spread(bp) << 8;   // squares south of a black pawn's file and neighbours: a white pawn there is not passed
+  s |= s << 8, s |= s << 16, s |= s << 32;
+  U64 n = spread(wp) >> 8;   // the same for black pawns, north of white pawns
+  n |= n >> 8, n |= n >> 16, n |= n >> 32;
+  return ((wp & ~s) | (bp & ~n)) ? 2 : 3;
+}
+#ifdef TRIUMV_RELEASE
+static constexpr unsigned char g_cell_band[32] = {
+    C2CellBand00, C2CellBand01, C2CellBand02, C2CellBand03, C2CellBand10, C2CellBand11, C2CellBand12, C2CellBand13,
+    C2CellBand20, C2CellBand21, C2CellBand22, C2CellBand23, C2CellBand30, C2CellBand31, C2CellBand32, C2CellBand33,
+    C2CellBand40, C2CellBand41, C2CellBand42, C2CellBand43, C2CellBand50, C2CellBand51, C2CellBand52, C2CellBand53,
+    C2CellBand60, C2CellBand61, C2CellBand62, C2CellBand63, C2CellBand70, C2CellBand71, C2CellBand72, C2CellBand73};
+#else
+static unsigned char g_cell_band[32];   // filled by c2_tables_refresh (13_search.inc) at start and at every setoption
+#endif
+static inline int c2_cell(const ThreadData &td) {
+  return (c2_expert(td, C2ExpSide ? td.side ^ 1 : td.side) & 7) * 4 + c2_pawn_class(td);
 }
 // Did the move just made (top state of the stack) change the expert of either perspective?
 static inline bool c2_last_switched(const ThreadData &td) {
@@ -317,13 +374,18 @@ static inline PieceToRow *c2_struct_row(const ThreadData &td) {
   const int k = c2_struct_key(td);
   return k >= 0 ? &g_stats.struct_rows[k] : nullptr;
 }
-#endif
+
+// Slot of the four-entry per-band tables for this node: the piece band of Consilium (net_phase), or with C2Cells the
+// slot of the node's cell (C2CellBand). Every per-band lookup of the search goes through here.
+static inline int search_band(const ThreadData &td) {
+  if (C2Cells)
+    return g_cell_band[c2_cell(td)];
+  return net_phase(count_bits(td.occupancies[both]));
+}
 
 static inline PieceToRow &pawn_row(const ThreadData &td) {
-#ifdef TRIUMV_C2
   if (C2PawnHist)   // C2 idea 4 (21/10/2026, agent A): the pawn history split by expert; OFF by default, SPRT pending
     return g_stats.pawn_rows[(td.pawn_key ^ c2_pawn_salt(td)) & g_stats.pawn_mask];
-#endif
   return g_stats.pawn_rows[td.pawn_key & g_stats.pawn_mask];
 }
 
@@ -368,31 +430,8 @@ static inline int hist_amount(int e, int depth, int mul, int sub, int cap) {
   return std::min(mul * depth - sub + q * depth * depth / 64, cap);
 }
 
-// Continuation histories: the move (pc, to) after the moves made 1..6 plies back.
-// - weight per distance (ContDist*) and a factor that grows with the number of distances already rewarding the move
-//   (ContAgree*): the values are those of Stockfish 19, never tuned by us (they were not among the RW1 levers);
-// - per expert: near (1-2) and far (3-6) weights, the fixed reward at distance 1 (ContNear), how many distances are
-//   updated when the node is in check (ContChk), the gravity of the quiet histories.
-// Defaults (ContNear 73, ContChk 2) give the old tree.
-static void learn_followups(NodeFrame *f, int pc, int to, int bonus, int ex) {
-  const int dist_weight[7] = {0, ContDist1, ContDist2, ContDist3, ContDist4, ContDist5, ContDist6};
-  const int agree_mul[7] = {ContAgree0, ContAgree1, ContAgree2, ContAgree3, ContAgree4, ContAgree5, ContAgree6};
-  const int grav = hist_grav(ex);
-  const int w_near = by_exp4(ex, HlFNear0, HlFNear1, HlFNear2, HlFNear3);
-  const int w_far = by_exp4(ex, HlFFar0, HlFFar1, HlFFar2, HlFFar3);
-  const int near_bonus = by_exp4(ex, ContNear0, ContNear1, ContNear2, ContNear3);
-  const int last_d = f->in_check ? by_exp4(ex, ContChk0, ContChk1, ContChk2, ContChk3) : 6;
-  int agreeing = 0;
-  for (int d = 1; d <= last_d; d++) {
-    if (!move_ok(f[-d].move))
-      continue;
-    int16_t &cell = (*f[-d].cont_hist)[pc][to];
-    if (cell > 0)
-      agreeing++;
-    const int wb = bonus * dist_weight[d] * agree_mul[agreeing] / 65536;
-    hist_learn(cell, wb * (d <= 2 ? w_near : w_far) / 1024 + (d < 2 ? near_bonus : 0), LIM_FOLLOW, grav);
-  }
-}
+// The updates themselves (continuations, the quiet set, captures, corrections) and the events that call them are in
+// 13_learn.inc (C5a, 27/10/2026).
 
 // ============================================================================
 // QUIET HISTORY BY THREAT CONTEXT (ThreatHist, block 1 of 8.1)
@@ -454,29 +493,6 @@ static inline int quiet_ctx_slow(const ThreadData &td, int m) {
   return (int)square_menaced(td, move_from(m), pt) | (int)square_menaced(td, move_to(m), pt) << 1;
 }
 
-// A quiet move learns in all its histories: main (with its threat-context correction), first plies, continuations,
-// pawn structure. ex = expert of the node; HlAux scales the three auxiliary updates per expert.
-static void learn_quiet(ThreadData &td, NodeFrame *f, int m, int bonus, int ctx, int ex) {
-  const int key = quiet_key(m);
-  const int grav = hist_grav(ex);
-  const int aux = by_exp4(ex, HlAux0, HlAux1, HlAux2, HlAux3);
-  qh_push(td, td.side, key, ctx, bonus, grav);
-  if (f->ply < LOW_PLY_SIZE)
-    hist_learn(td.low_ply_hist[f->ply][key], bonus * LowPlyScale / 1024 * aux / 1024, LIM_QUIET, grav);
-  learn_followups(f, move_piece(m), move_to(m), bonus * ContUpdScale / 1024 * aux / 1024, ex);
-  hist_learn(pawn_row(td)[move_piece(m)][move_to(m)],
-             bonus * (bonus > PawnHistSplit ? PawnBonusScale : PawnMalusScale) / 1024 * aux / 1024, LIM_PAWN, grav);
-#ifdef TRIUMV_C2
-  if (C2StructHistW)   // --- C2 ordering (agent ORDER) --- idea 6: structure history, learned only while it is read
-    if (PieceToRow *row = c2_struct_row(td))
-      hist_learn((*row)[move_piece(m)][move_to(m)], bonus * C2StructHistUpd / 1024 * aux / 1024, LIM_PAWN, grav);
-#endif
-}
-
-static inline void learn_capture(ThreadData &td, int m, int bonus, int ex) {
-  hist_learn(td.capt_hist[move_piece(m)][move_to(m)][victim_kind(td, m)], bonus, LIM_CAPT, hist_cgrav(ex));
-}
-
 // ============================================================================
 // CORRECTION OF THE STATIC EVALUATION (sub-block I of block 1)
 // The tables learn the difference between the searched value and the static evaluation, by structure keys (pawns,
@@ -499,7 +515,6 @@ static constexpr auto corr_phase_keys_by_count = [] {
     t[c] = keys[c <= 9 ? 0 : c <= 15 ? 1 : c <= 23 ? 2 : 3];   // = net_phase(c)
   return t;
 }();
-#ifdef TRIUMV_C2
 // --- C2 corrections (agent B) ---
 // CorrC2Key (21/10/2026, ours): CorrPhase separates the corrections by the expert of the network, but its bands are
 // the piece counts of Consilium (8.0). Consilium Plebis chooses the expert of each perspective from a learned routing table
@@ -523,20 +538,20 @@ static inline U64 c2_corr_salt(const ThreadData &td) {
   const int own = (e >> (4 * us)) & 15, opp = (e >> (4 * (us ^ 1))) & 15;
   return c2_corr_salts[CorrC2Key == 1 ? own : 8 + 8 * own + opp];
 }
-#endif
 
 // CorrPhaseQueen (17/10/2026, off = old tables; report R2 of the 8.1 rewrite): eight regimes instead of four, the piece
 // band times "queens on the board". Inside a band the queens double the evaluation swings, so the systematic error on
 // one structure differs with and without them. Same tables, a different key: with queens the band key is XORed with a
-// fixed salt. Callers (prefetch in the make, corr_signal, corr_learn) all go through here, so they stay consistent.
+// fixed salt. Callers (prefetch in the make, corr_signal, Learner::corrections) all go through here, so they stay consistent.
 static inline U64 corr_phase_key(const ThreadData &td) {
-#ifdef TRIUMV_C2
   if (CorrC2Key)
     return c2_corr_salt(td);
-#endif
-  if (!CorrPhase)
-    return 0;
-  const U64 k = corr_phase_keys_by_count[count_bits(td.occupancies[both])];
+  // C2Cells 1: the key of the cell's slot (four keys, as with the piece bands: a piece count inside that band selects it
+  // from the same table); 2: one key per cell (32). 26/10: with 2 the tables lost -21.3 +- 16.8 over 458 games at 60k
+  // nodes (each cell's corrections learn from an eighth of the data), stopped for the test of 1.
+  static constexpr int slot_count[4] = {2, 12, 20, 30};
+  const U64 k = C2Cells >= 2 ? (U64)(c2_cell(td) + 1) * 0x9E3779B97F4A7C15ULL
+              : corr_phase_keys_by_count[C2Cells ? slot_count[search_band(td)] : count_bits(td.occupancies[both])];
   return (CorrPhaseQueen && (td.bitboards[Q] | td.bitboards[q])) ? k ^ 0x6A09E667F3BCC909ULL : k;
 }
 
@@ -577,8 +592,11 @@ static int corr_signal(const ThreadData &td, const NodeFrame *f) {
   }
   // Weight of the correction per expert (CorrGain, /1024; 1024 = old value, s*1024/1024 = s). The tables were already
   // separate by expert band (CorrPhase); the weight was one for all.
-  const int s = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + cont;
-  const int ex = net_phase(count_bits(td.occupancies[both]));
+  // Our form (27/10/2026, docs/audit_8.1/R9): the two non-pawn tables, one per colour, may weigh differently for the
+  // side to move and its opponent: CorrNonPawnW * (own + opp) + CorrNpSideW * (own - opp). At 0: one weight for both.
+  const int np_side = us == white ? npw - npb : npb - npw;
+  const int s = CorrPawnW * pawn + CorrMinorW * minor + CorrNonPawnW * (npw + npb) + CorrNpSideW * np_side + cont;
+  const int ex = search_band(td);
   return (int)((long long)s * by_exp4(ex, CorrGain0, CorrGain1, CorrGain2, CorrGain3) / 1024);
 }
 
@@ -590,11 +608,10 @@ static inline U64 corr_expert_key(const ThreadData &td) {
   static constexpr U64 keys[4] = {0x3C6EF372FE94F82BULL, 0xA54FF53A5F1D36F1ULL, 0x510E527FADE682D1ULL,
                                   0x9B05688C2B3E6C1FULL};
   const int pcs = count_bits(td.occupancies[both]);
-  const int band = CorrExpertBands == 2 ? (pcs <= 15 ? 0 : 3) : net_phase(pcs);
+  const int band = CorrExpertBands == 2 ? (pcs <= 15 ? 0 : 3) : search_band(td);
   return td.pawn_key ^ keys[band];
 }
 
-#ifdef TRIUMV_C2
 // CorrPkW (21/10/2026, ours, C2 corrections of agent B): a correction keyed by the pawn structure as the network has
 // learned it. The pawn-king subnetwork of Consilium Plebis maps pawns and kings to 32 outputs; the key keeps only the signs
 // of the CorrPkBits most variable outputs against their medians (consilium/cn.cpp, pk_signature), so structures the
@@ -609,17 +626,14 @@ static inline bool c2_pk_key(const ThreadData &td, U64 &key) {
   key = ((U64)s * 0x9E3779B97F4A7C15ULL) ^ 0x5851F42D4C957F2DULL;
   return s >= 0;
 }
-#endif
 
 static inline int corr_signal_extra(const ThreadData &td) {
   int s = 0;
   if (CorrExpertW)
     s += CorrExpertW * g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][td.side];
-#ifdef TRIUMV_C2
   U64 pk_key;
   if (CorrPkW && c2_pk_key(td, pk_key))
     s += CorrPkW * g_stats.corr_x[pk_key & g_stats.corr_mask][td.side];
-#endif
   return s;
 }
 
@@ -627,33 +641,4 @@ static inline int corrected_eval(int v, int signal) {
   return std::clamp(v + signal / CorrEvalDiv, -TB_WIN_FLOOR + 1, TB_WIN_FLOOR - 1);   // CorrEvalDiv: was 131072
 }
 
-// Update of the correction tables through hist_learn with the gravity of the node's expert (CorrGrav; 1024 = the old
-// update, identical tree).
-static void corr_learn(ThreadData &td, NodeFrame *f, int bonus, int ex) {
-  PROF_GUARD(prof_corr);
-  const int us = td.side;
-  const int g = corr_grav(ex);
-  const U64 phk = corr_phase_key(td);
-  const U64 fk = corr_fifty_key(td);
-  hist_learn(corr_slot(td.pawn_key ^ phk ^ fk, us).pawn, bonus * CorrPawnUpd / 128, LIM_CORR, g);
-  hist_learn(corr_slot(td.mm_key[0] ^ phk, us).minor, bonus * CorrMinorUpd / 128, LIM_CORR, g);
-  hist_learn(corr_slot(td.np_key[white] ^ fk, us).np_white, bonus * CorrNonPawnUpd / 128, LIM_CORR, g);
-  hist_learn(corr_slot(td.np_key[black] ^ fk, us).np_black, bonus * CorrNonPawnUpd / 128, LIM_CORR, g);
-  const int prev = f[-1].move;
-  if (move_ok(prev)) {
-    const int to = move_to(prev), pc = td.piece_on[to];
-    hist_learn((*f[-2].cont_corr)[pc][to], bonus * CorrCont2Upd / 128, LIM_CORR, g);
-    hist_learn((*f[-4].cont_corr)[pc][to], bonus * CorrCont4Upd / 128, LIM_CORR, g);
-    if (CorrCont6W)
-      hist_learn((*f[-6].cont_corr)[pc][to], bonus * CorrCont6Upd / 128, LIM_CORR, g);
-    if (CorrContOppW)
-      hist_learn((*f[-3].cont_corr)[pc][to], bonus * CorrContOppUpd / 128, LIM_CORR, g);
-  }
-  if (CorrExpertW)
-    hist_learn(g_stats.corr_x[corr_expert_key(td) & g_stats.corr_mask][us], bonus * CorrExpertUpd / 128, LIM_CORR, g);
-#ifdef TRIUMV_C2
-  U64 pk_key;   // C2 corrections (agent B)
-  if (CorrPkW && c2_pk_key(td, pk_key))
-    hist_learn(g_stats.corr_x[pk_key & g_stats.corr_mask][us], bonus * CorrPkUpd / 128, LIM_CORR, g);
-#endif
-}
+// The update of the correction tables (Learner::corrections) is in 13_learn.inc, with the events that teach them.

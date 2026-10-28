@@ -101,9 +101,7 @@ struct MoveQueue {
   // Expert of the node and group thresholds: written by fill_tactics / fill_evasions (ex, good_capt) and fill_quiets
   // (good_quiet), read by queue_next.
   int           ex, good_capt, good_quiet;
-#ifdef TRIUMV_C2
   int           c2_conv;         // C2 idea 3: the side to move is ahead (+1) or behind (-1), set by move_loop; else 0
-#endif
 };
 
 // ThreatHist: threat context of a quiet move, from the node's maps when they exist, otherwise from its two squares.
@@ -237,9 +235,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
   q.rank_ok = false;
   q.last_score = q.quiet_top = 0;
   q.ex = 3, q.good_capt = 1024, q.good_quiet = 0;
-#ifdef TRIUMV_C2
   q.c2_conv = 0;
-#endif
   bool hash_ok = hash_move > 0 && td_is_pseudo_legal(td, hash_move);
   if (kind == QK_CUTS)
     hash_ok = hash_ok && is_tactical(hash_move);
@@ -255,11 +251,7 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
 // C2 expert with C2OrdReg, fill_tactics).
 static inline int score_tactic(const ThreadData &td, int m, int ex, int promo, int bpair) {
   const int vk = victim_kind(td, m);
-#ifdef TRIUMV_C2   // --- C2 piece values (agent SEE) ---: bit 4 of C2SeeReg, the victim in its owner's regime (see.cpp)
   const int vval = unit_value[vk] + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
-#else
-  const int vval = unit_value[vk];
-#endif
   int s = (by_exp4(ex, HtCapt0, HtCapt1, HtCapt2, HtCapt3) * td.capt_hist[move_piece(m)][move_to(m)][vk] +
            by_exp4(ex, HtVict0, HtVict1, HtVict2, HtVict3) * vval) / 1024;
   if (promo && promo_kind(m) == Q)
@@ -350,7 +342,6 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   // that decide whether a map is built stay on the parameters themselves, so a scale of 0 only removes the term.
   int ks_v = KingShield, op_v = OutpostOrder, opb_v = OutpostOrderB, pass_v = PassedPush;
   int atk_v = AttackOrder, atkq_v = AttackOrderQ;
-#ifdef TRIUMV_C2
   if (C2OrdReg) {   // --- C2 ordering (agent ORDER) ---
     const C2RegScales rs = c2_reg_scales(td, td.side);
     ks_v = c2_reg_apply(ks_v, rs.ks);
@@ -358,7 +349,6 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     pass_v = c2_reg_apply(pass_v, rs.pass);
     op_v = c2_reg_apply(op_v, rs.minor), opb_v = c2_reg_apply(opb_v, rs.minor);
   }
-#endif
 
   // King shield: with the king on its home rank, our pawns next to the king move last. Only while the opponent has
   // attacking material (KingShieldNpm, non-pawn pieces).
@@ -420,7 +410,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   // the king) of a higher class (pawn < knight = bishop < rook < queen), or of the same or lower class but undefended.
   // The squares are found backwards, from the target's attacks (pawn: those of an enemy pawn).
   U64 attack_to[6] = {0, 0, 0, 0, 0, 0};
-  if (AttackOrder || AttackOrderQ || ThreatBal) {   // ThreatBal: the same maps, for the threatened value
+  if (AttackOrder || AttackOrderQ) {
     const U64 safe = ~q.opp_att;
     const U64 minors = eN | eB;
     // Second pass. Targets: of the bishop er|eq|(minors&safe), of the rook eq|((minors|er)&safe), of the queen
@@ -439,7 +429,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       aa_r |= pair_rook(sp);
       aa_q |= pair_bishop(sp) | pair_rook(sp);
     }
-    if (AttackOrder || ThreatBal) {
+    if (AttackOrder) {
       const U64 tp = minors | eR | eQ;   // the attacks of an enemy pawn placed on each target
       attack_to[P] = them == white ? ((tp >> 7) & not_a_file) | ((tp >> 9) & not_h_file)
                                    : ((tp << 7) & not_h_file) | ((tp << 9) & not_a_file);
@@ -447,7 +437,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       attack_to[B] = aa_b;
       attack_to[R] = aa_r;
     }
-    if (AttackOrderQ || ThreatBal)
+    if (AttackOrderQ)
       attack_to[Q] = aa_q;
 #ifdef TRIUMV_VERIFY_AA2   // check: the earlier loops (08/10/2026) must give the same maps
     {
@@ -481,15 +471,10 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int attack_bonus[6] = {atk_v, atk_v, atk_v, atk_v, atkq_v, 0};
 
   // ---- Per-expert weights of the quiet-move score (block 1; docs/development/8.1/SEARCH_1_ORDERING.md) ----
-  // tb_e = expert of the node (net_phase), shared by every weight below.
-  //
-  // ThreatBal (ours, off; package lost -17 at 8+0.08 with a hand-set share): one threat balance in units of material
-  // in place of the fixed threat term and the safe-square attack bonuses,
-  //   value saved - value exposed + ThreatBalGain/1024 * value of the best target attacked from a safe square,
-  // times a weight per expert. Threatened = the lesser[] map; targets and safe squares as in attack_to[]. Off: the
-  // tree is the old one.
-  const int tb_e = net_phase(count_bits(occ));
-  const int tb_w = tb_e == 0 ? ThreatBalW0 : tb_e == 1 ? ThreatBalW1 : tb_e == 2 ? ThreatBalW2 : ThreatBalW3;
+  // tb_e = expert of the node (net_phase), shared by every weight below. (ThreatBal, one threat balance in place of
+  // the threat term and the safe-square attack bonuses, lost -17 and was removed on 28/10/2026; code in
+  // _backup/Triumviratus_8.1_pre_pulizia_2026-10-28.)
+  const int tb_e = search_band(td);
   // A. Reading the histories (HistMix), /1024: main history, pawn history, near continuations (1, 2 plies back), far
   //    ones (3, 4, 6), first-ply history, and the agreement term (ours): when cont1 and cont2 agree in sign, HmAgree/1024
   //    of the smaller one is added. Defaults (2048, 2048, 1024, 1024, 1024, 0) give exactly the old sum
@@ -512,17 +497,6 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int thr_esc = by_exp4(tb_e, ThrEsc0, ThrEsc1, ThrEsc2, ThrEsc3);
   const int thr_ent = by_exp4(tb_e, ThrEnt0, ThrEnt1, ThrEnt2, ThrEnt3);
   const int thr_safe = by_exp4(tb_e, ThrSafe0, ThrSafe1, ThrSafe2, ThrSafe3);
-  const U64 tb_safe = ~q.opp_att, tb_minors = eN | eB;
-  // ThreatBal targets per piece type, same rules as attack_to[]: higher-class pieces, or undefended ones.
-  const U64 tb_targets[6] = {tb_minors | eR | eQ, eR | eQ | (tb_minors & tb_safe), eR | eQ | (tb_minors & tb_safe),
-                             eQ | ((tb_minors | eR) & tb_safe), (tb_minors | eR) & tb_safe, 0};
-  auto tb_target_value = [&](int pt, int from, int to) {
-    const U64 o = occ ^ (1ULL << from);
-    U64 a = pt == P ? pawn_attacks[us][to] : pt == N ? knight_attacks[to] : pt == B ? get_bishop_attacks(to, o)
-          : pt == R ? get_rook_attacks(to, o) : get_queen_attacks(to, o);
-    a &= tb_targets[pt];
-    return (a & eQ) ? unit_value[Q] : (a & eR) ? unit_value[R] : (a & eB) ? unit_value[B] : (a & eN) ? unit_value[N] : 0;
-  };
 
   const PieceToRow &c1 = *f[-1].cont_hist, &c2 = *f[-2].cont_hist, &c3 = *f[-3].cont_hist,
                    &c4 = *f[-4].cont_hist, &c6 = *f[-6].cont_hist;
@@ -539,7 +513,6 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const unsigned long long lp_den = 1024ULL + (unsigned long long)ply * by_exp4(tb_e, LpDecay0, LpDecay1, LpDecay2, LpDecay3);
 #endif
   const unsigned long long lp_recip = ply < LOW_PLY_SIZE ? lp_recip_tbl[tb_e][ply] : 0;
-#ifdef TRIUMV_C2
   // C2 idea 5 (21/10/2026, agent A; OFF by default, SPRT pending): a quiet pawn or king move is scored by the change it
   // makes to the pawn-king skip of Consilium Plebis (mover's view, clamped to +-C2PkScale), C2PkOrder at the clamp. One
   // subnetwork probe per such move (the thread's pawn-king cache; the child's evaluation hits the entry if it is played).
@@ -549,7 +522,6 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   // signature (09_history.inc), null at 0 or on a pawn-king cache miss.
   const int c2_sw = C2StructHistW;
   const PieceToRow *srow = c2_sw ? c2_struct_row(td) : nullptr;
-#endif
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
@@ -562,22 +534,14 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
                    (long long)hm.near_ * (v1 + v2) + (long long)hm.far_ * (c3[pc][to] + c4[pc][to] + c6[pc][to]);
     if ((v1 ^ v2) >= 0)   // same sign (zero included): the agreement is the smaller one in absolute value
       hs += (long long)hm.agree * (v1 >= 0 ? std::min(v1, v2) : std::max(v1, v2));
-#ifdef TRIUMV_C2
     if (srow)   // --- C2 ordering (agent ORDER) ---
       hs += (long long)c2_sw * (*srow)[pc][to];
-#endif
     int s = (int)(hs / 1024);
     if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, chk_see))
       s += chk_bonus;
     if (chk_disc && ((checks.disc >> from) & 1) && !((legalgen::line_bb[from][eksq] >> to) & 1))
       s += chk_disc;
-    if (ThreatBal) {
-      int bal = unit_value[pt] * (int((lesser[pt] >> from) & 1) - int((lesser[pt] >> to) & 1));
-      if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
-        bal += tb_target_value(pt, from, to) * ThreatBalGain / 1024;
-      s += bal * tb_w;
-    }
-    else {
+    {
       const int from_t = int((lesser[pt] >> from) & 1), to_t = int((lesser[pt] >> to) & 1);
       s += unit_value[pt] * (thr_esc * from_t - thr_ent * to_t);
       if (thr_safe && from_t && !((q.opp_att >> to) & 1))
@@ -598,16 +562,14 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += op_v;
     if (pt == B && (outpost >> to & 1))
       s += opb_v;
-    if (!ThreatBal && (attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
+    if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
       s += pass_v;
-#ifdef TRIUMV_C2
     if (c2_pk_order && (pt == P || pt == K) && !get_move_promoted(m)) {
       const int d = std::clamp(c2_pk_skip_after(td, m) - c2_pk_node, -c2_pk_scale, c2_pk_scale);
       s += c2_pk_order * d / c2_pk_scale;
     }
-#endif
     sc[i] = s;
   }
 }
@@ -633,19 +595,16 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
     ml->moves[n] = m;
     n += m != q.hash_move;
   }
-  q.ex = net_phase(count_bits(td.occupancies[both]));   // expert of the node: capture weights and group thresholds
+  q.ex = search_band(td);   // expert of the node: capture weights and group thresholds
   q.good_capt = by_exp4(q.ex, StGood0, StGood1, StGood2, StGood3);
   int promo = PromoOrder, bpair = BishopPairCapt;
-#ifdef TRIUMV_C2
   if (C2OrdReg) {   // --- C2 ordering (agent ORDER) --- idea 5: the two chess-knowledge terms of the captures by regime
     const C2RegScales rs = c2_reg_scales(td, td.side);
     promo = c2_reg_apply(promo, rs.pass);
     bpair = c2_reg_apply(bpair, rs.minor);
   }
-#endif
   for (int i = 0; i < n; i++)
     sc[i] = score_tactic(td, ml->moves[i], q.ex, promo, bpair);
-#ifdef TRIUMV_C2
   // C2 ideas 2 and 3 (21/10/2026, agent A; OFF by default, SPRT pending), main search only. C2SwitchOrder: a capture
   // or promotion that gives another expert to either perspective moves up. C2ConvOrder (conversion push, the author's
   // idea): a trade of pieces of the same class moves up when the side to move is ahead and down when it is behind
@@ -663,7 +622,6 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
         sc[i] += q.c2_conv * C2ConvOrder;
     }
   }
-#endif
   q.n_tact = q.n_all = n;
   rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
@@ -740,7 +698,7 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   // C. Quiet evasions: main history and first continuation weighted per expert (HeMain, HeCont, /1024; defaults give
   //    the old sum). With weights up to 2048 a quiet move stays below 1 << 20 (|history| + |cont1| <= 37,183 x 2), so
   //    captures (+ 1 << 20) always come first.
-  const int eex = q.ex = net_phase(count_bits(td.occupancies[both]));
+  const int eex = q.ex = search_band(td);
   const int he_main = by_exp4(eex, HeMain0, HeMain1, HeMain2, HeMain3), he_cont = by_exp4(eex, HeCont0, HeCont1, HeCont2, HeCont3);
   for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];

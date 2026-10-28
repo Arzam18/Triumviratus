@@ -21,11 +21,9 @@ static constexpr int see_piece_values[12] = {
 #ifndef TRIUMV_RELEASE
 extern int g_see_val[12];          // SeeValP..SeeValQ for both colours, kings 20000
 #endif
-#ifdef TRIUMV_C2
 // Offsets of the regime piece values for the current position of the thread, indexed by piece code (16 entries:
 // pawns, kings and codes 12..15, i.e. "no piece" & 15, are 0). Refreshed when the expert pair changes (see.cpp).
 const int* see_c2_offsets(const ThreadData& td);
-#endif
 
 // Static Exchange Evaluation for thread-local state
 int td_see(ThreadData& td, int move);

@@ -256,7 +256,10 @@ static inline bool step_in(ThreadData &td, NodeFrame *f, int m, UndoInfo &u, boo
   }
   if (f->in_check && !legal && !td_make_move(td, m, u)) {
 #else
-  if (!td_make_move(td, m, u, (legal || !f->in_check) && !(g_chess960 && get_move_castling(m)))) {
+  td.nn_hold = f->nn_hold;   // expert holds (C2HoldDepth, C2HoldQs): read by the make, cleared right after it
+  const int made = td_make_move(td, m, u, (legal || !f->in_check) && !(g_chess960 && get_move_castling(m)));
+  td.nn_hold = 0;
+  if (!made) {
 #endif
     td.ply--;
     td.repetition_index--;
@@ -438,9 +441,7 @@ struct QsWalk {
   int ex;         // expert of the node (piece count band of the network)
   int fut_base;   // stand + futility margin of the expert; -infinity in check (nothing is pruned on value)
   int prev_to;    // target square of the previous move: a recapture there is never pruned on value
-#ifdef TRIUMV_C2
   C2Mat cm;       // C2SwitchQs: material and experts of the node (written only when the lever is on)
-#endif
 };
 
 // Pull a value that lies above beta toward beta by a mix weight (/1024); 1024 keeps the value.
@@ -456,24 +457,16 @@ static inline bool qs_worth(ThreadData &td, const QsWalk &w, int m, bool gives, 
   if (plain) {
     if (seen > QsGate)
       return false;
-#ifdef TRIUMV_C2
     // --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending): with bit 2 of C2SeeReg
     // the victim is worth its value in the regime of its owner's material (see.cpp; e.p. reads code 15, offset 0).
     const int victim = unit_value[victim_kind(td, m)] +
                        ((C2SeeReg & 2) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
     const int fut = w.fut_base + victim * QsVictimW / 1024;
-#else
-    const int fut = w.fut_base + unit_value[victim_kind(td, m)] * QsVictimW / 1024;
-#endif
-#ifdef TRIUMV_C2
     // C2 idea 2 (21/10/2026, agent A; OFF by default, SPRT pending): a capture that gives another expert to either
     // perspective is judged by another learned regime after the move, so the stand plus the victim is a weaker bound:
     // the test needs C2SwitchQs more (the value the skipped move raises 'best' to stays the plain one).
     const int c2_wide = (C2SwitchQs && c2_switches(td, w.cm, m)) ? C2SwitchQs : 0;
     if (fut + c2_wide <= alpha) {
-#else
-    if (fut <= alpha) {   // even winning the victim for free leaves the node under alpha
-#endif
       best = std::max(best, fut);
       return false;
     }
@@ -494,6 +487,8 @@ template <bool QCHK = false>
 static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
   // ---- 1. Early exits -------------------------------------------------------
   td.pv_length[td.ply] = td.ply;
+  // Expert holds: quiescence is below any depth limit (C2HoldDepth); C2HoldQs holds here only.
+  f->nn_hold = (unsigned char)(C2HoldDepth || C2HoldQs);
   if (alpha < contempt(td) && td_upcoming_repetition(td)) {   // a repetition is in reach: the draw is a floor
     alpha = draw_score(td);
     if (alpha >= beta)
@@ -518,12 +513,14 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
 
   // ---- 2. The stand ---------------------------------------------------------
   QsWalk w;
-  w.ex = net_phase(count_bits(td.occupancies[both]));
+  w.ex = search_band(td);
   int best, eval_raw = tt_eval_none;
   if (in_check) {
     best = w.fut_base = -infinity;
   } else {
     const int signal = corr_signal(td, f);
+    if (C2PkStale)   // quiescence: a pawn-king miss reuses the last outputs (01_params.inc)
+      nn_set_pk_stale(td.nnpos, 1);
     const int plain = node_eval(td, h, eval_raw);
     f->static_eval = best = corrected_eval(plain, signal + corr_signal_extra(td));
     // A hash bound on the right side is a better estimate than the evaluation.
@@ -538,10 +535,8 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     }
     alpha = std::max(alpha, best);
     w.fut_base = f->static_eval + by_exp4(w.ex, QsFut0, QsFut1, QsFut2, QsFut3);
-#ifdef TRIUMV_C2
     if (C2SwitchQs)
       c2_mat_init(td, w.cm);
-#endif
   }
 
   // ---- 3. The walk ----------------------------------------------------------

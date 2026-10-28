@@ -46,19 +46,11 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # sorgenti-only per le VM). NB: il nome deve restare allineato a CN_DEFAULT_NET_FILE.
 # 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
-# Consilium Plebis by default (22/10/2026, author: from here on every test runs on the engine adapted to the new network).
-# C2=1 defines TRIUMV_C2 (8 experts per perspective, int8 HalfKA, pawn-king subnetwork) and names the default network
-# nn-consilium2.nnue, as CN_DEFAULT_NET_FILE does; `make C2=0` builds the Consilium (8.0) engine with nn-consilium.nnue.
-# On main the default is C2=0 (24/10/2026): the Consilium Plebis network is still in training and not yet published,
-# so a plain `make` builds with Consilium; `make C2=1` with nn-consilium2.nnue next to the Makefile builds Plebis.
-C2 ?= 0
-ifeq ($(C2),1)
-  NET_NAME ?= nn-consilium2.nnue
-  C2_DEF := -DTRIUMV_C2
-else
-  NET_NAME ?= nn-consilium.nnue
-  C2_DEF :=
-endif
+# Consilium Plebis is the only network of 8.1 (26/10/2026: the Consilium engine was removed from this source; the last
+# source with both is _backup/Triumviratus_8.1_pre_rimozione_c1_2026-10-26). The default network is nn-consilium2.nnue,
+# as CN_DEFAULT_NET_FILE. -DTRIUMV_C2 is still passed for scripts that test for it; the code no longer reads it.
+NET_NAME ?= nn-consilium2.nnue
+C2_DEF := -DTRIUMV_C2
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
   $(info [i] $(NET_NAME) trovata: rete EMBEDDATA nel binario)

@@ -186,11 +186,7 @@ static ThreadData *pick_thread() {
   const int nt = (int)thread_data.size();
   // SmpRouteShift with SmpRouteVote 0: the odd helpers searched with shifted experts; they neither vote nor can be
   // chosen (always true without TRIUMV_C2 or with the shift off, so the choice is the one of before).
-#ifdef TRIUMV_C2
   auto voter = [](int i) { return !(SmpRouteShift && !SmpRouteVote && (i & 1)); };
-#else
-  auto voter = [](int) { return true; };
-#endif
   int floor_score = infinity;
   for (int i = 0; i < nt; i++)
     if (voter(i))
@@ -206,21 +202,27 @@ static ThreadData *pick_thread() {
     for (int j = 0; j < nt; j++)
       if (thread_data[j].root[0].pv[0] == thread_data[i].root[0].pv[0])
         support[i] += share[j];
-  int bi = 0;
-  for (int i = 0; i < nt; i++) {
-    if (!voter(i))
-      continue;
-    const RootLine &b = thread_data[bi].root[0], &c = thread_data[i].root[0];
-    const bool b_dec = b.score != -infinity && val_decided(b.score) && !b.lower && !b.upper;
-    const bool c_dec = c.score != -infinity && val_decided(c.score) && !c.lower && !c.upper;
-    if (b_dec) {
-      if (c_dec && std::abs(c.score) > std::abs(b.score))
-        bi = i;
-    } else if (c_dec || (!val_lost(c.score) && (support[i] > support[bi] ||
-                                                (support[i] == support[bi] && c.pv_len > b.pv_len))))
-      bi = i;
-  }
-  best = &thread_data[bi];
+  // Order of preference between the line of thread i and that of the current choice (rewritten 27/10/2026 as one
+  // comparison, same choices): a complete decided result beats everything, and between two of them the larger one
+  // (the shorter mate); a lost score never replaces anything; otherwise more support wins, then the longer line.
+  auto decided = [](const RootLine &l) { return l.score != -infinity && val_decided(l.score) && !l.lower && !l.upper; };
+  auto prefer = [&](int i, int cur) {
+    const RootLine &cand = thread_data[i].root[0], &held = thread_data[cur].root[0];
+    if (decided(held))
+      return decided(cand) && std::abs(cand.score) > std::abs(held.score);
+    if (decided(cand))
+      return true;
+    if (val_lost(cand.score))
+      return false;
+    if (support[i] != support[cur])
+      return support[i] > support[cur];
+    return cand.pv_len > held.pv_len;
+  };
+  int chosen = 0;
+  for (int i = 0; i < nt; i++)
+    if (voter(i) && prefer(i, chosen))
+      chosen = i;
+  best = &thread_data[chosen];
   return best;
 }
 
@@ -286,27 +288,11 @@ void search_position_mt(int depth) {
 
   int list[256];
   copy_board_to_thread(thread_data[0]);
-  // ExpertFix (20/10/2026, ours, 0 = off): the network keeps the expert of the root while the piece count stays within
-  // ExpertFix pieces of the root's band; beyond, the expert of the count as usual (32 = the root's expert everywhere).
-  // Fewer expert changes inside the tree (each costs a refresh-like update) and fewer HalfKA rows in use, so they stay
-  // in cache; the price is the neighbouring expert's view after captures that cross a band (Z1: same mean, 20-40 cp
-  // of noise one band away). xperf with 32: -4.9% cycles per node in the middlegame, -2.8% in endgames.
-  {
-    const int root_ph = nn_phase_of_count[count_bits(occupancies[both])];
-    int lo = 32, hi = 0;   // piece counts of the root's band
-    for (int c = 0; c <= 32; c++)
-      if (nn_phase_of_count[c] == root_ph) lo = std::min(lo, c), hi = std::max(hi, c);
-    for (int c = 0; c <= 32; c++) {
-      const int dist = c < lo ? lo - c : c > hi ? c - hi : 0;
-      g_nn_phase_map[c] = ExpertFix && dist <= ExpertFix ? (unsigned char)root_ph : nn_phase_of_count[c];
-    }
-    nn_set_phase_map(g_nn_phase_map);
-  }
-#ifdef TRIUMV_C2
+  // (26/10/2026) ExpertFix, the root's expert kept for a margin of pieces in the Consilium network, removed with that
+  // network (32 = -27.7 +- 18.2 over 352 games at 10+0.1 HT); its Consilium Plebis form C2HoldRoot removed on 27/10 (H0).
   c2_eval_push();   // C2 evaluation terms (agent B, 21/10/2026; 13_search.inc): all 0 = evaluation unchanged
   if (SmpRouteShift)   // SmpRouteShift: the shifted routing table, before the helpers start (deepen chooses it)
     nn_router_alt_build(SmpRouteShift);
-#endif
   // Expected reply (TmExpect*): are we in the position expected at the end of the previous search?
   g_clock.expected = g_clock.expect_key && thread_data[0].hash_key == g_clock.expect_key;
   g_clock.surprise = g_clock.expect_key && !g_clock.expected;   // TmSurpriseScale

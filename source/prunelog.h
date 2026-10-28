@@ -26,6 +26,10 @@
 // 15 quiet exchange, 16 move count.
 static thread_local int pl_rule = 0;
 static thread_local int pl_in_probe = 0;   // no sampling inside a probe
+// Margins the rules actually used at the sampled node/move (26/10/2026, margin calibration for Consilium Plebis,
+// docs/rete/C2_SCALA_2026-10-22.md): set where each rule computes them, PL_NONE when the rule did not get that far.
+#define PL_NONE (-1000000)
+static thread_local int pl_razor = PL_NONE, pl_rfp = PL_NONE, pl_nmp_floor = PL_NONE, pl_fut = PL_NONE;
 
 #pragma pack(push, 1)
 struct PruneNodeRec {
@@ -39,6 +43,11 @@ struct PruneNodeRec {
   int8_t rule;
   int32_t ret;             // value the rule returned, relative to eval (0 when none)
   int16_t pieces;
+  // 26/10/2026: margins used (razoring and reverse futility margins; null-move floor relative to beta; PL_NONE when
+  // the rule stopped before computing it) and the Consilium Plebis experts of the side to move's and the opponent's
+  // perspective (-1 in a Consilium build).
+  int32_t razor, rfp, nmp_floor;
+  int8_t c2_us, c2_them;
 };
 struct PruneMoveRec {
   int16_t depth, expert, ply, move_no;
@@ -49,6 +58,8 @@ struct PruneMoveRec {
   int32_t v_red, v_full;   // probe values relative to alpha
   uint32_t n_red, n_full;
   int16_t victim, pieces;
+  int32_t fut;             // 26/10/2026: quiet futility value (static eval + margin) relative to alpha, or PL_NONE
+  int8_t c2_us, c2_them;   // as in PruneNodeRec
 };
 #pragma pack(pop)
 
@@ -81,3 +92,4 @@ static inline void prunelog_write(int tid, const char *stem, int slot, const R &
 }
 
 #define PL_RULE(x) (pl_rule = (x))
+#define PL_SET(var, v) (var = (v))

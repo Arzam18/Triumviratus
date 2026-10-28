@@ -260,6 +260,34 @@
   /*  experts); 1: they vote like the others.                                                                      */ \
   P(SmpRouteShift, 0, -2, 2)                                                                              \
   P(SmpRouteVote, 0, 0, 1)                                                                                \
+  /* Expert holds (25/10/2026; Consilium Plebis builds only; all OFF, to be tested on a late export at time control, */ \
+  /*  since the gain is speed and the price is accuracy). A child keeps an expert instead of the one its material    */ \
+  /*  calls for, so the accumulator is updated instead of refreshed. The experts are numbered by material class, so */ \
+  /*  "within N" means at most N classes away (1 = adjacent experts).                                               */ \
+  /*  C2HoldDepth  (idea of Probably James, Discord 24/10/2026) no expert change below a node of depth <=          */ \
+  /*               C2HoldDepth, nor in quiescence: the child keeps its parent's experts while the true one is within */ \
+  /*               C2HoldDist                                                                                        */ \
+  /*  C2HoldQs     (author, 25/10/2026) only inside quiescence: a capture made from a quiescence node keeps the      */ \
+  /*               parent's experts while the true one is within C2HoldDist; the main search is untouched            */ \
+  /*  C2HoldDist   the distance allowed by C2HoldDepth and C2HoldQs (1 = adjacent experts, 7 = always)               */ \
+  /* With a hold on, nnueverify and the expert check of nnperft disagree with the board by design.                   */ \
+  /* REMOVED 27/10/2026 (author: closed, backup _backup/Triumviratus_8.1_pre_rimozione_hold_2026-10-27):             */ \
+  /*  C2HoldRoot (the root's experts kept while the true one is within N classes, the C2 form of ExpertFix):        */ \
+  /*  1 = -21.8 +- 1.9 / 32,420 g, 10+0.1, ep310 (25/10), H0.                                                       */ \
+  /*  C2HoldPv (the experts change only on PV nodes; same source as C2HoldDepth): 1 = -15.2 +- 11.3 / 918 g,          */ \
+  /*  10+0.1 noHT, ep486 + adopted margins (27/10), stopped. Holding the wrong expert after a capture on the non-PV   */ \
+  /*  nodes costs more than the refreshes saved (+6% nps).                                                           */ \
+  /* C2HoldDepth 4: -5.6 +- 8.0 / 1,750 g, 10+0.1, ep310 (25/10), stopped; ep486 + adopted margins (27/10): +0.35 */ \
+  /* +- 3.33 / 10,020 g, 10+0.1 noHT, stopped at 10k (+8.7 at 2,078 g faded; s0 -1.7, s1 +2.4). 6: -2% nps, not run */ \
+  P(C2HoldDepth, 0, 0, 16)                                                                                \
+  P(C2HoldQs, 0, 0, 1)                                                                                    \
+  P(C2HoldDist, 1, 1, 7)                                                                                  \
+  /* C2PkStale D (27/10/2026, the author's idea of 25/10: the pawn subnetwork only at some moments of the search; OFF  */ \
+  /* at 0): at nodes of depth <= D and in quiescence a pawn-king cache miss reuses the outputs of the thread's last   */ \
+  /* lookup instead of computing them (consilium/cn.cpp pawn_king). Saves up to ~2% of the time; the evaluation       */ \
+  /* differs only after a pawn or king move that the cache has not seen.                                             */ \
+  /* 4 vs 0, ep486 (27/10): +1.94 +- 3.37 / 10,012 g, 10+0.1 noHT, stopped at 10k (s0 +1.2, s1 +2.7): not shown.     */ \
+  P(C2PkStale, 0, 0, 16)                                                                                  \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
@@ -346,14 +374,8 @@
   P(ThreatHist, 0, 0, 3)                                                                                  \
   P(ThreatCtxW, 1024, 0, 3072)           /* weight of the context correction in the ordering, /1024 */          \
   P(ThreatCtxUpd, 1024, 0, 3072)         /* scale of the update of the context correction, /1024 */             \
-  /* ThreatBal (ours, off; the package lost -17): one threat balance of a quiet move in place of the fixed      */ \
-  /* threat term and the safe-square attack bonuses (11_queue.inc); weight per expert, share of the target /1024. */ \
-  P(ThreatBal, 0, 0, 1)                                                                                   \
-  P(ThreatBalW0, 20, 0, 60)                                                                               \
-  P(ThreatBalW1, 20, 0, 60)                                                                               \
-  P(ThreatBalW2, 20, 0, 60)                                                                               \
-  P(ThreatBalW3, 20, 0, 60)                                                                               \
-  P(ThreatBalGain, 256, 0, 1024)                                                                          \
+  /* ThreatBal (ours; one threat balance of a quiet move in place of the threat term and the safe-square attack     */ \
+  /*  bonuses) lost -17.3 +- 12.7 over 684 games in a package and was REMOVED on 28/10/2026 with its weights.     */ \
   /* LmrRank (block 2 of 8.1, 16/10/2026, ours): for the ordered quiet moves, the move number of the base reduction */ \
   /* mixed with an "effective" number from the gap between its ordering score and the best quiet move of the node   */ \
   /* (13_search.inc). 0 = off (tree unchanged). Scale: points of gap for one more move; mix per expert, /1024 (0 = */ \
@@ -389,7 +411,13 @@
   P(ProbCutRedImp, 2, 0, 4)                                                                                \
   P(ProbCutExp0, 0, -200, 200) P(ProbCutExp1, 0, -200, 200) P(ProbCutExp2, 0, -200, 200)                         \
   P(ProbCutExp3, 0, -200, 200)                                                                             \
-  P(LmpBase, 3, 0, 12)                   /* move count: (LmpBase + d^2), halved when not improving         */ \
+  /* Move count in our form (27/10/2026, docs/audit_8.1/R9): threshold = LmpBase + (LmpLin*d + LmpQuad*d^2)/16,    */ \
+  /* times LmpNotImp/1024 when the node is not improving. At 0/16/512 it is the old (LmpBase + d^2) halved when not   */ \
+  /* improving (bench unchanged); the SPSA moves the three levers.                                                  */ \
+  P(LmpBase, 3, 0, 12)                                                                                    \
+  P(LmpLin, 0, -32, 64)                                                                                   \
+  P(LmpQuad, 16, 4, 48)                                                                                   \
+  P(LmpNotImp, 512, 256, 1024)                                                                            \
   P(CaptFutMaxDepth, 8, 2, 16)           /* capture futility below this corrected depth                    */ \
   P(QuietFutMaxDepth, 12, 4, 20)         /* quiet futility below this corrected depth                      */ \
   P(RazorMul, 452, 100, 1200)                                                                             \
@@ -401,6 +429,12 @@
   P(RfpImproving, 2852, 0, 5000)                                                                          \
   P(RfpOppWorse, 335, 0, 1500)                                                                            \
   P(RfpCorrDiv, 198435, 50000, 800000)                                                                    \
+  /* Reverse futility in our form (27/10/2026, docs/audit_8.1/R9; 13_search.inc eval_gates): margin = mult*d -      */ \
+  /* lean*mult/1024 + |corr| + RfpCorrSign*corr/1024 + RfpMarginBase, corr = signal/RfpCorrDiv. RfpMarginBase is a   */ \
+  /* constant in evaluation units (pawn = 208) that does not grow with depth; RfpCorrSign reads the sign of the     */ \
+  /* correction (positive = wider margin when the correction raised the evaluation). Neutral 0/0 = the old margin.  */ \
+  P(RfpMarginBase, 0, -100, 200)                                                                          \
+  P(RfpCorrSign, 0, -1024, 1024)                                                                          \
   /* RfpDisagree (20/10/2026, ours, off): reverse-futility margin + RfpDisagree/1024 per unit of |psqt - positional| */ \
   /* above RfpDisThr of the expert (upper quartile of the disagreement in the prunelog data, 6,000 positions).     */ \
   P(RfpDisagree, 0, -1024, 1024)         /* 256: -6.60 +- 9.04 (1,422, 12+0.12 noHT, UHO): DISCARDED 20/10 */ \
@@ -411,6 +445,12 @@
   P(NmpBase, 302, 0, 800)                                                                                 \
   P(NmpRedBase, 7, 3, 12)                                                                                 \
   P(NmpEvalDiv, 223, 64, 1024)                                                                            \
+  /* Null-move reduction in our form (27/10/2026, docs/audit_8.1/R9; 13_search.inc null_probe): R = NmpRedBase +    */ \
+  /* d/NmpDepthDiv + max((eval - beta)/NmpEvalDiv, 0) + (DeepNmp + NmpRedDepth*d + NmpRedImp*improving + 10 key   */ \
+  /* bits) / 1024. NmpRedDepth is a continuous slope (1024ths of a ply per ply of depth) on top of the integer      */ \
+  /* d/NmpDepthDiv; NmpRedImp is 1024ths of a ply on an improving node. Neutral 0/0 = the old R (bench unchanged).   */ \
+  P(NmpRedDepth, 0, -128, 128)                                                                            \
+  P(NmpRedImp, 0, -1024, 1024)                                                                            \
   P(NmpVerifyDepth, 16, 6, 30)                                                                            \
   /* Endgame rule (report R2, 18/10/2026): no null move when the side to move has at most NmpFewMoves legal moves  */ \
   /*  and at most NmpFewPieces pieces are on the board (zugzwang is likely there). 0 = off, identical tree.        */ \
@@ -454,6 +494,23 @@
   P(QuietFutAlpha, 90, 0, 300)                                                                            \
   P(QuietFutBase, 160, 0, 400)                                                                            \
   P(QuietSeeMul, 24, 5, 80)                                                                               \
+  /* Block 3 forms of ours (27/10/2026, docs/audit_8.1/R9): one term per rule that the inherited form lacks, at its */ \
+  /* neutral value (bench unchanged); with the coefficients above they form the rule our way once the SPSA (or the */ \
+  /* prunelog estimate) moves them. d = depth, rd = depth corrected by the reduction (and the history, quiet moves). */ \
+  /*  RazorLin       razoring margin RazorMul*d^2 + RazorLin*d                                                      */ \
+  /*  ProbCutDepth   ProbCut raise + ProbCutDepth*d/16                                                              */ \
+  /*  CaptFutVictim  capture futility counts the victim at CaptFutVictim/1024 of its value                          */ \
+  /*  CaptSeeQuad    capture exchange margin CaptSeeDepth*d + CaptSeeQuad*d^2/16                                     */ \
+  /*  QuietHistBase  quiet history prune below -(QuietHistPrune*d + QuietHistBase)                                  */ \
+  /*  QuietFutQuad   quiet futility + QuietFutQuad*rd^2/16 (rd > 0)                                                  */ \
+  /*  QuietSeeLin    quiet exchange margin QuietSeeMul*rd^2 + QuietSeeLin*rd                                         */ \
+  P(RazorLin, 0, -400, 400)                                                                               \
+  P(ProbCutDepth, 0, -160, 320)                                                                           \
+  P(CaptFutVictim, 1024, 512, 1536)                                                                       \
+  P(CaptSeeQuad, 0, -64, 128)                                                                             \
+  P(QuietHistBase, 0, -4000, 8000)                                                                        \
+  P(QuietFutQuad, 0, -64, 128)                                                                            \
+  P(QuietSeeLin, 0, -60, 120)                                                                             \
   /* estensioni */                                                                                        \
   P(SingMarginBase, 76, 20, 150)                                                                          \
   P(SingMarginTtPv, 70, 0, 200)                                                                           \
@@ -480,6 +537,11 @@
   P(SingHashSlack, 3, 0, 6)              /* the hash entry may be this many plies shallower than the node   */ \
   P(SingMarginDiv, 64, 32, 128)          /* the margin of the bar is per this many plies of depth          */ \
   P(SingDepthMul, 1026, 512, 1536)       /* depth of the exclusion search, new_depth * Mul / 2048          */ \
+  /* Singular bar in our form (27/10/2026, docs/audit_8.1/R9): s_beta = hash value - margin*d/SingMarginDiv -        */ \
+  /* SingBarBase (evaluation units, a constant at every depth); s_depth = (new_depth*SingDepthMul + 128*SingDepthOfs) */ \
+  /* / 2048 (SingDepthOfs in sixteenths of a ply). Neutral 0/0 = the old bar and depth (bench unchanged).           */ \
+  P(SingBarBase, 0, -32, 64)                                                                               \
+  P(SingDepthOfs, 0, -32, 32)                                                                              \
   P(SingExp0, 0, -40, 40)                /* ours: margin of the bar per expert of the network              */ \
   P(SingExp1, -1, -40, 40)                                                                                  \
   P(SingExp2, 3, -40, 40)                                                                                  \
@@ -587,6 +649,10 @@
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
   P(CorrMinorW, 10827, 0, 40000)                                                                          \
   P(CorrNonPawnW, 11613, 0, 40000)                                                                        \
+  /* Correction combination in our form (27/10/2026, docs/audit_8.1/R9; 09_history.inc corr_signal): the non-pawn  */ \
+  /* tables of the two colours weigh CorrNonPawnW * (own + opp) + CorrNpSideW * (own - opp), own = side to move.    */ \
+  /* Neutral 0 = one weight for both (the old sum, bench unchanged); the SPSA (block Q) moves it.                   */ \
+  P(CorrNpSideW, 0, -10000, 10000)                                                                        \
   P(CorrContW, 8022, 0, 30000)                                                                            \
   P(CorrMinorUpd, 150, 0, 400)           /* /128 */                                                       \
   P(CorrNonPawnUpd, 186, 0, 400)                                                                          \
@@ -784,8 +850,8 @@
        -3.06 +- 9.59 over 1,248; tile variant (TRIUMV_BLEND_TILE) fewer instructions but IPC 1.38 -> 1.30, worse       \
        cycles. Reports docs/audit_8.0/Z1_CONFINI_ESPERTI_CALIBRAZIONE.md, Z2_BLEND_COSTO.md,                          \
        BLEND_ESPERTI_CHIUSURA.md; code in _backup/Triumviratus_8.0_pre_rimozione_blend_2026-10-11. */                  \
-  P(CorrPhase, 1, 0, 1)                  /* BAKE 06/10/2026 (was 0, see the header): idea 9, pawn/minor  */ \
-                                         /* correction separate per expert                               */ \
+  /* CorrPhase (BAKE 06/10/2026, see the header; idea 9, pawn/minor corrections separate per expert): option       */ \
+  /*     retired on 28/10/2026, the separation is fixed code (corr_phase_key, 09_history.inc).                     */ \
   /* CorrPhaseQueen (17/10/2026, off = old tables): with CorrPhase on, eight regimes (piece band x queens on the  */ \
   /* board) instead of four; same tables, different key (09_history.inc, corr_phase_key). Own SPRT before use.    */ \
   P(CorrPhaseQueen, 0, 0, 1)                                                                               \
@@ -799,8 +865,8 @@
   /* SeePromo (17/10/2026, review by Bastiii): baked and retired the same day. Promotions go to the SEE, which adds */ \
   /* the promotion gain (see_holds in 11_queue.inc, see.cpp). SPRT on endgames at 8+0.08, non-regression.          */ \
   /* HashQsDepth, NullFiftyKeep, EvalRefadeBridge: baked on 06/10 (see the header) and retired as options the same  \
-     evening (fixed code in 12_quiesce.inc and 09_history.inc). SeePinned and CorrPhase stay options: subtler trials, \
-     candidates for an ablation at long TCs. */                                                                     \
+     evening (fixed code in 12_quiesce.inc and 09_history.inc). SeePinned stays an option (CorrPhase retired 28/10), \
+     candidate for an ablation at long TCs. */                                                                     \
   /* "Long time" ramp (05/10/2026): the selectivity levers move from the RW1 value (tuned at 20+0.2, root ~15)        \
      to the value of the SPSA LTC1 (40+0.4, root ~17) according to the root depth: weight 0 up to LtKnee, 1 from       \
      LtKnee + LtSpan up, with no extrapolation beyond. The Lt are offsets from the base value: at 0 identical tree,   \
@@ -825,7 +891,7 @@
   P(HistLimQuiet, 7183, 2000, 20000)     /* quiet histories (butterfly, low ply, per expert)               */ \
   P(HistLimCapt, 10692, 3000, 30000)     /* capture history                                                */ \
   P(HistLimFollow, 30000, 8000, 32000)   /* continuation histories (int16: at most 32767)                  */ \
-  /* learn_followups (09_history.inc): weight per distance 1..6 plies and factor by the number of distances already rewarding */ \
+  /* Learner::followups (13_learn.inc): weight per distance 1..6 plies and factor by the number of distances already rewarding */ \
   P(ContDist1, 520, 0, 1500)                                                                               \
   P(ContDist2, 390, 0, 1500)                                                                               \
   P(ContDist3, 145, 0, 1000)                                                                               \
@@ -914,13 +980,12 @@
   /* _backup/Triumviratus_8.1_pre_rimozione_lmr_nostro_2026-10-22; tools redfit_engine.py and redout_fit.py keep the fits. */ \
   /* Reduction levers of our own (19/10/2026, all off; 13_search.inc before neg_cap). Each lowers the reduction,   */ \
   /* the sum stops at zero. Units 1/1024 ply: RdDisagree per 1024 of |psqt - positional| (up to 8), RdBoundCapt   */ \
-  /* once for a capture into another expert, RdKingAtt per unit of king_attack_weight (up to 6), RdKingDanger per */ \
-  /* attacked square next to our king (up to 4). First tests at strong values to see the sign.                    */ \
+  /* once for a capture into another expert, RdKingDanger per attacked square next to our king (up to 4).          */ \
+  /* RdKingAtt (king-zone hits of the moved piece) REMOVED 28/10/2026: no positive value on 19/10.                  */ \
   P(RdDisagree, 0, -1024, 1024)             /* 19/10/2026: 1024 -4.94 +- 6.16 (3,308, 8+0.08 HT, UHO), stopped. */ \
                                             /* |psqt - positional| on game positions: median 239, 90% 961.      */ \
   P(RdBoundCapt, 0, -3072, 3072)            /* 19/10/2026: 3072 +1.54 +- 5.89 (3,394, 8+0.08 HT, UHO). With     */ \
                                             /* RdDisagree=-512: +0.75 +- 3.25 (11,652), lean, to be closed.     */ \
-  P(RdKingAtt, 0, -1024, 1024)                                                                               \
   P(RdKingDanger, 0, -1024, 1024)                                                                            \
   P(RdPawnBreak, 0, -3072, 3072)            /* once for a pawn break in a closed structure (>= 3 blocked).     */ \
                                             /* CLOSED 19/10/2026: 2048 +0.19 +- 5.74 (3,724, 8+0.08 HT, UHO),  */ \
@@ -969,6 +1034,11 @@
   P(HistDiv14, 2991, 500, 8000)                                                                            \
   P(HistDiv15, 3090, 500, 8000)                                                                            \
   P(HistDiv16, 3542, 500, 8000)                                                                            \
+  /* History divisor in our form (27/10/2026, docs/audit_8.1/R9; 13_search.inc make_hist_div): the divisor at depth */ \
+  /* d is HistDiv<d> * (1024 + HistDivScale + HistDivTilt*(d - 8)) / 1024, clamped to [256, 8192]: one level and one */ \
+  /* slope over the inherited table, which the SPSA keeps locked (block P2). Neutral 0/0 = the table (bench same).  */ \
+  P(HistDivScale, 0, -512, 1024)                                                                           \
+  P(HistDivTilt, 0, -64, 64)                                                                               \
   /* Quiescence (12_quiesce.inc): a value above beta is pulled toward it, (Mix*best + (1024-Mix)*beta)/1024.   */ \
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
@@ -1089,7 +1159,7 @@
   /*     C2AtkExp[e_them]   AttackOrder, AttackOrderQ (our attacks matter when we have the material);                */ \
   /*     C2PassExp[e_us]    PassedPush, PromoOrder (a passer runs when the opponent has little to stop it);          */ \
   /*     C2MinorExp[e_them] OutpostOrder, OutpostOrderB, BishopPairCapt (whether we still have the minors).          */ \
-  /*     The reduction credits (PassedPushRed with PassedPushNpm, RdKingAtt) live in 13_search.inc: not gated here;   */ \
+  /*     The reduction credits (PassedPushRed with PassedPushNpm) live in 13_search.inc: not gated here;   */ \
   /*     c2_reg_scale (09_history.inc) serves them when they are.                                                     */ \
   P(C2OrdReg, 0, 0, 1)                                                                                     \
   P(C2KsExp0, 1024, 0, 4096) P(C2KsExp1, 1024, 0, 4096) P(C2KsExp2, 1024, 0, 4096)                        \
@@ -1227,8 +1297,107 @@
   P(C2EvalExp5, 0, -256, 256)                                                                              \
   P(C2EvalExp6, 0, -256, 256)                                                                              \
   P(C2EvalExp7, 0, -256, 256)                                                                              \
-  P(ExpertFix, 0, 0, 32)                 /* 20/10/2026, ours, OFF: 32 = -27.7 +- 18.2 over 352 g. 10+0.1 HT, stopped */ \
-                                         /* (15_threads.inc): no expert change in the tree, fewer rows in cache */ \
+  P(C2StmOffset, 0, -64, 64)             /* 26/10/2026, OFF: subtracted from the C2 static evaluation (network    */ \
+                                         /* units, side to move). The side-to-move offset against Consilium jumps */ \
+                                         /* +4..+19 between exports (C2_SCALA); exports above +16 scored 4-8 Elo  */ \
+                                         /* lower at 100k nodes (ep387 18.6, ep435 17.4 vs ep358/394 ~11-12)       */ \
+                                         /* 6 on ep435, 60k nodes, margins e5/e6/e7 both sides: -1.2 +- 7.6 over  */ \
+                                         /* 2,238 games (stopped 26/10 09:28): neutral, stays OFF                 */ \
+  /* EgScale* (27/10/2026, ours, OFF at 100): the static evaluation times scale / 100 in three drawish endgame      */ \
+  /* classes (at most 20 men; static_evaluate, 09_history.inc). From the results of 6,203 games at 20-30 s: at the */ \
+  /* same search eval (+0.80..+1.50) the side ahead scored 0.71 with pawns on one wing only, 0.58 with pure        */ \
+  /* opposite-colour bishops, 0.80 in rook endgames, against 0.84 in the other endgames; the network alone is more */ \
+  /* drawish than the search there (Plebis residual probe), so the search inflates those advantages.               */ \
+  /* SPRT 27/10 (Ocb 70, Rook 90, Wing 80 from the fit eg_scale_fit.py; ep486 perm, endgame_12_18 without draw     */ \
+  /* adjudication, 10+0.1 noHT 20+20): 0.00 +- 3.86 over 2,356 games (Ptnml 0/89/1000/89/0; s0 +3.3, s1 -3.2),      */ \
+  /* stopped by the author: neutral. Stays OFF (100); levers for the evaluation block of the SPSA.                  */ \
+  P(EgScaleOcb, 100, 20, 120)            /* K + pawns + one bishop each, opposite colours                         */ \
+  P(EgScaleRook, 100, 20, 120)           /* K + pawns + rooks only, both sides with a rook                        */ \
+  P(EgScaleWing, 100, 20, 120)           /* pawns on one wing only (none on files a-c or none on f-h), otherwise  */ \
+  /* C2Regime (26/10/2026, OFF, closed): the per-band tables chosen by the C2 expert alone (slot = the most         */ \
+  /* common piece band of the expert) gave -5.0 +- 6.1 over 3,476 games at 60k nodes on ep443 (stopped by the       */ \
+  /* author): the losses sat where an expert spans two bands (9-16 and 25-28 pieces), i.e. where the pawns          */ \
+  /* decide the band. Replaced by C2Cells.                                                                          */ \
+  /* C2Cells (26/10/2026, ours, OFF): one regime system for the search, cells = C2 expert of the side to move       */ \
+  /* (C2ExpSide as for the C2 tables) x pawn-structure class: 0 few pawns (<= 6 in total), 1 closed (>= 3 rams),    */ \
+  /* 2 a passed pawn on either side, 3 normal (09_history.inc, c2_pawn_class). With 1, every table indexed by       */ \
+  /* the piece band of Consilium (RfpExp, FutExp, LmrExp, NmpExp, RazorExp, ProbCutExp, CaptFut/SeeExp,             */ \
+  /* LmpExp, LmrScale, LmrRankMix, Hl*, RfpDisThr, StGood, HeMain/HeCont, quiescence, CorrGain, CorrPhase,          */ \
+  /* CorrExpertW, ThreatBalW) reads the slot C2CellBand<e><p> of the cell; default slots: the most common           */ \
+  /* piece band of each cell over 49,594 match positions with the ep443 routing (76.6% agreement with the           */ \
+  /* band, against about 66% for the expert alone). On top, offsets per cell (C2c<family><e><p>, 0 = none)          */ \
+  /* for reverse futility (multiplier), quiet futility, LMR (/1024), null-move floor, razoring, ProbCut             */ \
+  /* margin and move count (/1024): the levers of the SPSA on the final network.                                    */ \
+  /* C2Cells 1 = tables by cell, corrections keyed by the cell's slot (4 keys); 2 = corrections keyed by cell (32).   */ \
+  /* 2 lost -21.3 +- 16.8 / 458 at 60k nodes (26/10). The OFFSETS C2c* do not need C2Cells (author, 26/10: split    */ \
+  /* byte-identical): they add to the piece-band tables, any offset not 0 turns the cells on, all 0 = identical tree.*/ \
+  P(C2Cells, 0, 0, 2)                                                                                                 \
+  P(C2CellBand00, 0, 0, 3) P(C2CellBand01, 1, 0, 3) P(C2CellBand02, 1, 0, 3) P(C2CellBand03, 1, 0, 3)                 \
+  P(C2CellBand10, 0, 0, 3) P(C2CellBand11, 1, 0, 3) P(C2CellBand12, 1, 0, 3) P(C2CellBand13, 1, 0, 3)                 \
+  P(C2CellBand20, 1, 0, 3) P(C2CellBand21, 2, 0, 3) P(C2CellBand22, 1, 0, 3) P(C2CellBand23, 1, 0, 3)                 \
+  P(C2CellBand30, 0, 0, 3) P(C2CellBand31, 2, 0, 3) P(C2CellBand32, 1, 0, 3) P(C2CellBand33, 1, 0, 3)                 \
+  P(C2CellBand40, 1, 0, 3) P(C2CellBand41, 2, 0, 3) P(C2CellBand42, 2, 0, 3) P(C2CellBand43, 2, 0, 3)                 \
+  P(C2CellBand50, 1, 0, 3) P(C2CellBand51, 2, 0, 3) P(C2CellBand52, 2, 0, 3) P(C2CellBand53, 2, 0, 3)                 \
+  P(C2CellBand60, 2, 0, 3) P(C2CellBand61, 3, 0, 3) P(C2CellBand62, 2, 0, 3) P(C2CellBand63, 3, 0, 3)                 \
+  P(C2CellBand70, 2, 0, 3) P(C2CellBand71, 3, 0, 3) P(C2CellBand72, 3, 0, 3) P(C2CellBand73, 3, 0, 3)                 \
+  P(C2cRfp00, 0, -40, 40) P(C2cRfp01, 0, -40, 40) P(C2cRfp02, 0, -40, 40) P(C2cRfp03, 0, -40, 40)                     \
+  P(C2cRfp10, 0, -40, 40) P(C2cRfp11, 0, -40, 40) P(C2cRfp12, 0, -40, 40) P(C2cRfp13, 0, -40, 40)                     \
+  P(C2cRfp20, 0, -40, 40) P(C2cRfp21, 0, -40, 40) P(C2cRfp22, 0, -40, 40) P(C2cRfp23, 0, -40, 40)                     \
+  P(C2cRfp30, 0, -40, 40) P(C2cRfp31, 0, -40, 40) P(C2cRfp32, 0, -40, 40) P(C2cRfp33, 0, -40, 40)                     \
+  P(C2cRfp40, 0, -40, 40) P(C2cRfp41, 0, -40, 40) P(C2cRfp42, 0, -40, 40) P(C2cRfp43, 0, -40, 40)                     \
+  P(C2cRfp50, 0, -40, 40) P(C2cRfp51, 0, -40, 40) P(C2cRfp52, 0, -40, 40) P(C2cRfp53, 0, -40, 40)                     \
+  P(C2cRfp60, 0, -40, 40) P(C2cRfp61, 0, -40, 40) P(C2cRfp62, 0, -40, 40) P(C2cRfp63, 0, -40, 40)                     \
+  P(C2cRfp70, 0, -40, 40) P(C2cRfp71, 0, -40, 40) P(C2cRfp72, 0, -40, 40) P(C2cRfp73, 0, -40, 40)                     \
+  P(C2cFut00, 0, -200, 200) P(C2cFut01, 0, -200, 200) P(C2cFut02, 0, -200, 200) P(C2cFut03, 0, -200, 200)             \
+  P(C2cFut10, 0, -200, 200) P(C2cFut11, 0, -200, 200) P(C2cFut12, 0, -200, 200) P(C2cFut13, 0, -200, 200)             \
+  P(C2cFut20, 0, -200, 200) P(C2cFut21, 0, -200, 200) P(C2cFut22, 0, -200, 200) P(C2cFut23, 0, -200, 200)             \
+  P(C2cFut30, 0, -200, 200) P(C2cFut31, 0, -200, 200) P(C2cFut32, 0, -200, 200) P(C2cFut33, 0, -200, 200)             \
+  P(C2cFut40, 0, -200, 200) P(C2cFut41, 0, -200, 200) P(C2cFut42, 0, -200, 200) P(C2cFut43, 0, -200, 200)             \
+  P(C2cFut50, 0, -200, 200) P(C2cFut51, 0, -200, 200) P(C2cFut52, 0, -200, 200) P(C2cFut53, 0, -200, 200)             \
+  P(C2cFut60, 0, -200, 200) P(C2cFut61, 0, -200, 200) P(C2cFut62, 0, -200, 200) P(C2cFut63, 0, -200, 200)             \
+  P(C2cFut70, 0, -200, 200) P(C2cFut71, 0, -200, 200) P(C2cFut72, 0, -200, 200) P(C2cFut73, 0, -200, 200)             \
+  P(C2cLmr00, 0, -1536, 1536) P(C2cLmr01, 0, -1536, 1536) P(C2cLmr02, 0, -1536, 1536) P(C2cLmr03, 0, -1536, 1536)     \
+  P(C2cLmr10, 0, -1536, 1536) P(C2cLmr11, 0, -1536, 1536) P(C2cLmr12, 0, -1536, 1536) P(C2cLmr13, 0, -1536, 1536)     \
+  P(C2cLmr20, 0, -1536, 1536) P(C2cLmr21, 0, -1536, 1536) P(C2cLmr22, 0, -1536, 1536) P(C2cLmr23, 0, -1536, 1536)     \
+  P(C2cLmr30, 0, -1536, 1536) P(C2cLmr31, 0, -1536, 1536) P(C2cLmr32, 0, -1536, 1536) P(C2cLmr33, 0, -1536, 1536)     \
+  P(C2cLmr40, 0, -1536, 1536) P(C2cLmr41, 0, -1536, 1536) P(C2cLmr42, 0, -1536, 1536) P(C2cLmr43, 0, -1536, 1536)     \
+  P(C2cLmr50, 0, -1536, 1536) P(C2cLmr51, 0, -1536, 1536) P(C2cLmr52, 0, -1536, 1536) P(C2cLmr53, 0, -1536, 1536)     \
+  P(C2cLmr60, 0, -1536, 1536) P(C2cLmr61, 0, -1536, 1536) P(C2cLmr62, 0, -1536, 1536) P(C2cLmr63, 0, -1536, 1536)     \
+  P(C2cLmr70, 0, -1536, 1536) P(C2cLmr71, 0, -1536, 1536) P(C2cLmr72, 0, -1536, 1536) P(C2cLmr73, 0, -1536, 1536)     \
+  P(C2cNmp00, 0, -200, 200) P(C2cNmp01, 0, -200, 200) P(C2cNmp02, 0, -200, 200) P(C2cNmp03, 0, -200, 200)             \
+  P(C2cNmp10, 0, -200, 200) P(C2cNmp11, 0, -200, 200) P(C2cNmp12, 0, -200, 200) P(C2cNmp13, 0, -200, 200)             \
+  P(C2cNmp20, 0, -200, 200) P(C2cNmp21, 0, -200, 200) P(C2cNmp22, 0, -200, 200) P(C2cNmp23, 0, -200, 200)             \
+  P(C2cNmp30, 0, -200, 200) P(C2cNmp31, 0, -200, 200) P(C2cNmp32, 0, -200, 200) P(C2cNmp33, 0, -200, 200)             \
+  P(C2cNmp40, 0, -200, 200) P(C2cNmp41, 0, -200, 200) P(C2cNmp42, 0, -200, 200) P(C2cNmp43, 0, -200, 200)             \
+  P(C2cNmp50, 0, -200, 200) P(C2cNmp51, 0, -200, 200) P(C2cNmp52, 0, -200, 200) P(C2cNmp53, 0, -200, 200)             \
+  P(C2cNmp60, 0, -200, 200) P(C2cNmp61, 0, -200, 200) P(C2cNmp62, 0, -200, 200) P(C2cNmp63, 0, -200, 200)             \
+  P(C2cNmp70, 0, -200, 200) P(C2cNmp71, 0, -200, 200) P(C2cNmp72, 0, -200, 200) P(C2cNmp73, 0, -200, 200)             \
+  P(C2cRaz00, 0, -400, 400) P(C2cRaz01, 0, -400, 400) P(C2cRaz02, 0, -400, 400) P(C2cRaz03, 0, -400, 400)             \
+  P(C2cRaz10, 0, -400, 400) P(C2cRaz11, 0, -400, 400) P(C2cRaz12, 0, -400, 400) P(C2cRaz13, 0, -400, 400)             \
+  P(C2cRaz20, 0, -400, 400) P(C2cRaz21, 0, -400, 400) P(C2cRaz22, 0, -400, 400) P(C2cRaz23, 0, -400, 400)             \
+  P(C2cRaz30, 0, -400, 400) P(C2cRaz31, 0, -400, 400) P(C2cRaz32, 0, -400, 400) P(C2cRaz33, 0, -400, 400)             \
+  P(C2cRaz40, 0, -400, 400) P(C2cRaz41, 0, -400, 400) P(C2cRaz42, 0, -400, 400) P(C2cRaz43, 0, -400, 400)             \
+  P(C2cRaz50, 0, -400, 400) P(C2cRaz51, 0, -400, 400) P(C2cRaz52, 0, -400, 400) P(C2cRaz53, 0, -400, 400)             \
+  P(C2cRaz60, 0, -400, 400) P(C2cRaz61, 0, -400, 400) P(C2cRaz62, 0, -400, 400) P(C2cRaz63, 0, -400, 400)             \
+  P(C2cRaz70, 0, -400, 400) P(C2cRaz71, 0, -400, 400) P(C2cRaz72, 0, -400, 400) P(C2cRaz73, 0, -400, 400)             \
+  P(C2cPcut00, 0, -200, 200) P(C2cPcut01, 0, -200, 200) P(C2cPcut02, 0, -200, 200) P(C2cPcut03, 0, -200, 200)         \
+  P(C2cPcut10, 0, -200, 200) P(C2cPcut11, 0, -200, 200) P(C2cPcut12, 0, -200, 200) P(C2cPcut13, 0, -200, 200)         \
+  P(C2cPcut20, 0, -200, 200) P(C2cPcut21, 0, -200, 200) P(C2cPcut22, 0, -200, 200) P(C2cPcut23, 0, -200, 200)         \
+  P(C2cPcut30, 0, -200, 200) P(C2cPcut31, 0, -200, 200) P(C2cPcut32, 0, -200, 200) P(C2cPcut33, 0, -200, 200)         \
+  P(C2cPcut40, 0, -200, 200) P(C2cPcut41, 0, -200, 200) P(C2cPcut42, 0, -200, 200) P(C2cPcut43, 0, -200, 200)         \
+  P(C2cPcut50, 0, -200, 200) P(C2cPcut51, 0, -200, 200) P(C2cPcut52, 0, -200, 200) P(C2cPcut53, 0, -200, 200)         \
+  P(C2cPcut60, 0, -200, 200) P(C2cPcut61, 0, -200, 200) P(C2cPcut62, 0, -200, 200) P(C2cPcut63, 0, -200, 200)         \
+  P(C2cPcut70, 0, -200, 200) P(C2cPcut71, 0, -200, 200) P(C2cPcut72, 0, -200, 200) P(C2cPcut73, 0, -200, 200)         \
+  P(C2cLmp00, 0, -1024, 1024) P(C2cLmp01, 0, -1024, 1024) P(C2cLmp02, 0, -1024, 1024) P(C2cLmp03, 0, -1024, 1024)     \
+  P(C2cLmp10, 0, -1024, 1024) P(C2cLmp11, 0, -1024, 1024) P(C2cLmp12, 0, -1024, 1024) P(C2cLmp13, 0, -1024, 1024)     \
+  P(C2cLmp20, 0, -1024, 1024) P(C2cLmp21, 0, -1024, 1024) P(C2cLmp22, 0, -1024, 1024) P(C2cLmp23, 0, -1024, 1024)     \
+  P(C2cLmp30, 0, -1024, 1024) P(C2cLmp31, 0, -1024, 1024) P(C2cLmp32, 0, -1024, 1024) P(C2cLmp33, 0, -1024, 1024)     \
+  P(C2cLmp40, 0, -1024, 1024) P(C2cLmp41, 0, -1024, 1024) P(C2cLmp42, 0, -1024, 1024) P(C2cLmp43, 0, -1024, 1024)     \
+  P(C2cLmp50, 0, -1024, 1024) P(C2cLmp51, 0, -1024, 1024) P(C2cLmp52, 0, -1024, 1024) P(C2cLmp53, 0, -1024, 1024)     \
+  P(C2cLmp60, 0, -1024, 1024) P(C2cLmp61, 0, -1024, 1024) P(C2cLmp62, 0, -1024, 1024) P(C2cLmp63, 0, -1024, 1024)     \
+  P(C2cLmp70, 0, -1024, 1024) P(C2cLmp71, 0, -1024, 1024) P(C2cLmp72, 0, -1024, 1024) P(C2cLmp73, 0, -1024, 1024)     \
+  /* ExpertFix (20/10/2026, OFF, 32 = -27.7 +- 18.2 over 352 g. at 10+0.1 HT) removed on 26/10/2026 with the    */ \
+  /* Consilium network it acted on; its Consilium Plebis form C2HoldRoot was removed on 27/10/2026 (H0).            */ \
   /* Base of our own (budget_own, 14_deepen.inc, 20/10/2026): moves left from material and ply, share of the      */ \
   /*  reserve growing with its log. Switch TmOwn baked on 20/10 (-0.23 +- 3.87 over 7,468 at 10+0.1 noHT, laptop    */ \
   /*  8+0.08 -1.06 +- 5.39 over 3,922; 4% less time per move, same depth) and retired on 21/10 with the old budget. */ \
@@ -1262,10 +1431,30 @@
   P(PriorRedHigh, 3, 1, 8)               /* parent reduced >= this many plies, opponent not worsening: depth+1 */ \
   P(PriorRedLow, 2, 1, 8)                /* parent reduced >= this, the two evals above PriorRedEvalSum: depth-1 */ \
   P(PriorRedMinDepth, 2, 1, 8)           /* ... only from this depth                                        */ \
-  P(SmallPcSlack, 4, 0, 8)               /* hash lower bound >= beta + ProbCutTTMargin cuts this short of depth */ \
-  P(AlphaRedLo, 3, 3, 8)                 /* alpha raised, AlphaRedLo < depth < AlphaRedHi: depth -= AlphaRed */ \
+  P(SmallPcSlack, 4, 0, 8)               /* hash lower bound >= beta + margin cuts this short of depth      */ \
+  /* Structure of the node (27-28/10/2026, docs/audit_8.1/R11 §4.2: the four top engines compared all take the hash   */ \
+  /*  cutoff and the tablebases before the static evaluation, none has the hash-bound cut before the move loop, three */ \
+  /*  have no depth reduction after alpha is raised). Removing steps cost Elo, so the steps stay in forms of ours.     */ \
+  /*  HashCutEarly, REMOVED 27/10/2026 (the evaluation stays before the hash cutoff): 1 = hash cutoff and tablebases  */ \
+  /*  before node_evaluate, -1.65 +- 4.14 / 6,754 at 10+0.1 noHT; 2 = as 1 plus a hash entry one ply deeper after a   */ \
+  /*  parent's reduction >= PriorRedHigh, -0.60 +- 2.87 / 15,104 at 10+0.1 HT and -3.30 +- 5.87 / 3,262 at 15+0.15     */ \
+  /*  noHT (author: leans negative, no loss accepted). Code in _backup/Triumviratus_8.1_pre_rimozione_hashcutearly.   */ \
+  /*  SmallProbCut, REMOVED 28/10/2026: 0 (no hash-bound cut before the move loop) -1.81 +- 8.26 / 1,724 at 10+0.1     */ \
+  /*  noHT, leaning negative from the start; the step stays in our form (hash_bound_cut, 13_search.inc):             */ \
+  P(SpcGapW, 0, -60, 60)                 /* margin per ply the hash entry is shallower than the node        */ \
+  P(SpcExp0, 0, -200, 200)               /* margin term per expert of the node                              */ \
+  P(SpcExp1, 0, -200, 200)                                                                                 \
+  P(SpcExp2, 0, -200, 200)                                                                                 \
+  P(SpcExp3, 0, -200, 200)                                                                                 \
+  P(AlphaRedLo, 3, 3, 8)                 /* alpha raised, AlphaRedLo < depth < AlphaRedHi: depth -= cut      */ \
   P(AlphaRedHi, 12, 6, 24)                                                                                 \
   P(AlphaRed, 3, 1, 3)                   /* <= minimum of AlphaRedLo: the depth stays >= 1                   */ \
+  /*  The cut in our form (28/10/2026, alpha_raised_cut in 13_search.inc): AlphaRed + per-expert plies + jump term.   */ \
+  P(AlphaRedExp0, 0, -2, 2)              /* plies of cut per expert of the node                             */ \
+  P(AlphaRedExp1, 0, -2, 2)                                                                                \
+  P(AlphaRedExp2, 0, -2, 2)                                                                                \
+  P(AlphaRedExp3, 0, -2, 2)                                                                                \
+  P(AlphaRedJumpW, 0, -64, 64)           /* plies = (value - old alpha) * W / 4096, within [-1, 2]           */ \
   P(CutoffExtCap, 2, 1, 4)               /* a fail high counts as a child cutoff with extension below this   */ \
   P(NudgePly, 2, 0, 6)                   /* equal score may take the best move within this of the root depth */ \
   P(ShuffleFifty, 10, 4, 30)             /* shuffling move (no singular test): fifty counter >= this,        */ \
@@ -1281,7 +1470,7 @@
   /* -- histories and ordering --                                                                                  */ \
   P(BonusTriedDiv, 256, 64, 1024)        /* non-PV: bonus grows by bonus * moves tried / this                */ \
   /* HistGrad (22/10/2026, ours): quiet history updates scaled by the gradient of a listwise ranker over the        */ \
-  /* ordering scores of the best move and of the quiet moves tried (13_search.inc, reward_best). HistGradT is the    */ \
+  /* ordering scores of the best move and of the quiet moves tried (13_learn.inc, hist_grad_factors). HistGradT is the    */ \
   /* temperature in score units: the own form is a log-odds x 1000 (about 1000), the inherited score is in history   */ \
   /* units (several thousand).                                                                                  */ \
   /* BAKE HISTGRAD (22/10/2026, user): HistGradMix 0 -> 256 on the inherited ordering. Mix 512 lost (-4.0 +- 6.3     */ \
@@ -1552,19 +1741,16 @@ bool      g_see_fix       = true;
 // --- C2 piece values (agent SEE) --- (21/10/2026): copies for see.cpp, from the parameter defaults, synced at setoption.
 int       g_see_val[12]   = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000,
                              SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
-#ifdef TRIUMV_C2
 int       g_c2_see_reg    = C2SeeReg;
 int       g_c2_val_off[4][8] = {
     {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
     {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
     {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
     {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
-#endif
 static void see_values_sync() {
   const int v[6] = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
   for (int i = 0; i < 6; i++)
     g_see_val[i] = g_see_val[i + 6] = v[i];
-#ifdef TRIUMV_C2
   g_c2_see_reg = C2SeeReg;
   const int off[4][8] = {
       {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
@@ -1572,7 +1758,6 @@ static void see_values_sync() {
       {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
       {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
   std::memcpy(g_c2_val_off, off, sizeof(off));
-#endif
 }
 #else
 // Release (06/10/2026): this copy is a constant in see.cpp; it must match the parameter's default.
