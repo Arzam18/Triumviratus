@@ -96,7 +96,8 @@ class NnBoard {
 
 }  // namespace cnb
 
-    #define CN_DEFAULT_NET_FILE "nn-consilium2.nnue"   // Consilium Plebis: another format, another default name
+    // Default network file (28/10/2026, author: "nn-consilium-plebis"; nn-consilium2.nnue before).
+    #define CN_DEFAULT_NET_FILE "nn-consilium-plebis.nnue"
 
 // GCC and clang builds from the Makefile (Linux, Android, MinGW): the default network is embedded with incbin when it
 // sits at the build root (the Makefile sets NNUE_EMBEDDING_OFF otherwise). incbin.h is Dale Weiler's public-domain

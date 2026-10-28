@@ -16,7 +16,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Network
-        run: curl -sSL -o source/nn-consilium2.nnue https://github.com/Tors3/Triumviratus-Networks/releases/download/consilium-plebis/nn-consilium2.nnue
+        run: curl -sSL -o source/nn-consilium-plebis.nnue https://github.com/Tors3/Triumviratus-Networks/releases/download/consilium-plebis/nn-consilium-plebis.nnue
       - name: Build
         run: make -C source -j4 all CXX=clang++ CC=clang EXTRACXXFLAGS="-DTRIUMV_RELEASE -DTRIUMV_OFFICIAL -ffp-contract=off"
       - name: Bench

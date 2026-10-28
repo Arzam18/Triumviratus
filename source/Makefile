@@ -47,9 +47,9 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
 # Consilium Plebis is the only network of 8.1 (26/10/2026: the Consilium engine was removed from this source; the last
-# source with both is _backup/Triumviratus_8.1_pre_rimozione_c1_2026-10-26). The default network is nn-consilium2.nnue,
+# source with both is _backup/Triumviratus_8.1_pre_rimozione_c1_2026-10-26). The default network is nn-consilium-plebis.nnue (nn-consilium2.nnue until 28/10/2026),
 # as CN_DEFAULT_NET_FILE. -DTRIUMV_C2 is still passed for scripts that test for it; the code no longer reads it.
-NET_NAME ?= nn-consilium2.nnue
+NET_NAME ?= nn-consilium-plebis.nnue
 C2_DEF := -DTRIUMV_C2
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
@@ -217,9 +217,9 @@ ifneq (,$(filter sse41,$(MAKECMDGOALS)))
 endif
 
 # ---- macOS (15/10/2026, issue #4) ------------------------------------------
-#   make macos-arm CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
+#   make macos-arm CXX=clang++   Apple Silicon (M1 e successivi): NEON + dot product,
 #                                                           gli stessi percorsi della build android-dotprod
-#   make macos-x86 CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Mac Intel con AVX2 (Haswell, 2013, e successivi)
+#   make macos-x86 CXX=clang++   Mac Intel con AVX2 (Haswell, 2013, e successivi)
 # Compilati e verificati col bench dal workflow .github/workflows/macos.yml (macchine macOS di GitHub).
 ifneq (,$(filter macos-arm,$(MAKECMDGOALS)))
   DEFS := -DNDEBUG $(EMBED_DEF) $(C2_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8 -DUSE_NEON_DOTPROD
