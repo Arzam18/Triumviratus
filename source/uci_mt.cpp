@@ -315,7 +315,7 @@ void uci_loop()
     parse_fen(start_position);
 
     // Buffered I/O (12/10/2026). Before, unbuffered: every printf of an "info" line (one per move of the pv)
-    // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4; SF19 1.2).
+    // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4).
     // Output stays prompt: fflush after every info, currmove and bestmove line, and the loop below does fflush
     // before every read (uciok, readyok, info string). Buffered stdin: nobody reads stdin behind our back any more
     // during the search (read_input/communicate of misc.cpp are not called).
@@ -367,7 +367,7 @@ void uci_loop()
             printf("id author %s\n", AUTHOR);
             printf("option name Hash type spin default 64 min 1 max %d\n", max_hash);
             printf("option name Threads type spin default 1 min 1 max %d\n", max_threads);
-            // MultiPV (Stockfish-style analysis): OFFICIAL option, always advertised
+            // MultiPV (multi-line analysis): OFFICIAL option, always advertised
             // (also in TRIUMV_RELEASE). The setoption arrives via the generic handler
             // -> set_search_param("MultiPV") in threads.cpp.
             printf("option name MultiPV type spin default 1 min 1 max 64\n");

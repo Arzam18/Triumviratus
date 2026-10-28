@@ -22,8 +22,7 @@
 // NOTE: these MUST stay within the signed 16-bit range, because the
 // transposition table packs the score into 16 bits (see tt.h). With the old
 // values (49000/50000) every mate score overflowed int16 and was corrupted
-// when stored/read from the TT. Stockfish uses the same idea (VALUE_MATE well
-// under 32767). The gap mate_value - mate_score (1000) exceeds max_ply, so
+// when stored/read from the TT (mate values must stay well under 32767). The gap mate_value - mate_score (1000) exceeds max_ply, so
 // real (non-mate) evaluations never reach the mate band.
 #define infinity 32000
 #define mate_value 31000
@@ -35,7 +34,7 @@
 // 1 thread the seldepth stays below 30, but the SMP measurements of 07/09 (10 s, 16-40
 // threads) reached **seldepth 42-54**, and at long TC with many threads the
 // cap is really reached - precisely in the forcing lines, where stopping costs
-// most. Stockfish uses MAX_PLY = 246.
+// most.
 // Cost: the ply-indexed arrays of ThreadData are [max_ply + 8]; the only
 // quadratic one is pv_table, 20 KB -> 72 KB. On a ThreadData of 21.25 MB that is
 // 0.24%. The derived constants (TB_VALUE_WIN in syzygy.cpp, the corr_max bands in

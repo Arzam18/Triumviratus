@@ -23,7 +23,7 @@
 // get time in milliseconds
 // 12/10/2026: on Windows it was GetTickCount(), which advances in steps of ~15.6 ms: the time check overshot by ~10 ms
 // per move (go movetime 100 -> 109 ms) and every clock decision had that grain. Now steady_clock (QPC) on
-// all platforms, like Stockfish, counted from the process start (no int wrap-around after 24.8 days).
+// all platforms, counted from the process start (no int wrap-around after 24.8 days).
 int get_time_ms()
 {
     using namespace std::chrono;

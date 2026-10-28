@@ -138,7 +138,6 @@ static void td_generate_moves_side(ThreadData &td, moves *move_list, bool captur
   // `count` lives IN THE SAME STRUCT as the array: the compiler cannot
   // prove that `moves[i]` does not alias `count` (it does not know that i < 256), so
   // it reloads the counter at every move. Three memory accesses instead of one.
-  // Stockfish writes with `*moveList++`, i.e. a pointer in a register.
   // Here the counter sits in a register and is stored ONCE, at the end.
   // Node-identical: same moves, same order.
   int  mg_cnt = 0;

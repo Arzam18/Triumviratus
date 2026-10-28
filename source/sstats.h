@@ -1,10 +1,10 @@
 // sstats.h -- search counters per depth (03/10/2026), ONLY with -DTRIUMV_SSTATS.
-// They serve to compare the decisions of our search with those of Stockfish 19, which receives an identical copy
-// of this file (scratchpad sfstats). One thread, one position per process: at the end of the process, if the environment
+// They serve to compare the decisions of our search with those of a reference engine, which receives an identical copy
+// of this file. One thread, one position per process: at the end of the process, if the environment
 // variable SSTATS_FILE is set, it appends to the file a line "key depth value" for every non-zero
 // counter. The depth is that of the node at ENTRY (before IIR, extensions, internal depth--).
 // Without TRIUMV_SSTATS the SSTAT/SSTATV macros do nothing: identical generated code (bench unchanged).
-// Scripts: match_moe/search_stats_vs_sf19.py (comparison with SF), match_moe/prune_grid.py (option trials).
+// Scripts: match_moe/search_stats_vs_*.py (comparison), match_moe/prune_grid.py (option trials).
 #pragma once
 
 #ifdef TRIUMV_SSTATS

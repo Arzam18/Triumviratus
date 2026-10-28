@@ -332,7 +332,7 @@ static void settle_lines(ThreadData &td, int from, int to) {
 }
 
 // AnDirect (Pos Solver, 15/10/2026): the position collections give the most direct win as the key, and whoever
-// analyses wants to see that one; we (and SF19) often choose a quiet move with a slightly higher score.
+// analyses wants to see that one; we often choose a quiet move with a slightly higher score.
 // With two exact lines both above DirectFrom and at most DirectGap apart, if the second is forcing (check,
 // capture, promotion) and the first is not, they are swapped. It must be called with the board at the root.
 // Direct move at the root (AnDirect, AnDirLine): check, capture, promotion, or sacrifice (quiet move with
@@ -808,7 +808,7 @@ static void deepen(ThreadData &td) {
           total_time *= TmSurpriseScale / 1000.0;
       }
       // TmDefendMul (08/10/2026, audit X3; BAKED at 500 on 11/10/2026): in defence (root between -TmDefendTo and -TmDefendFrom) more time; the
-      // cap stays the move's maximum. Against SF19 in defence we err 2-3 times more often than it does.
+      // cap stays the move's maximum. Against a stronger reference engine in defence we erred 2-3 times more often.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;
       // TmTrans (20/10/2026, ours, 0 = off): the captures in the first TmTransPlies moves of the principal variation

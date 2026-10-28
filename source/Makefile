@@ -84,7 +84,7 @@ ARCH := -mavx2 -mbmi2 -mfma -mpopcnt -msse4.1 -mssse3 -msse2
 # conteneva 44 `vpdpbusd` e moriva con SIGILL (exit 132) alla prima valutazione,
 # subito dopo `readyok` — cioe' il tester vede il motore rispondere a `uci` e poi
 # sparire alla prima mossa.
-# ✅ Tre gradini, come Stockfish (x86-64-avx512 / vnni512 / avx512icl):
+# ✅ Tre gradini (x86-64-avx512 / vnni512 / avx512icl):
 #   make avx512      F/BW/DQ/VL              -> Skylake-X, Xeon W-21xx
 #   make vnni512     + VNNI                  -> Cascade Lake, Ice Lake SP, Zen4
 #   make avx512icl   + VBMI/VBMI2/BITALG     -> Ice Lake client+, Sapphire Rapids, Zen5

@@ -75,8 +75,7 @@ unsigned long long prof_dead_pair[8][8] = {};
 // ============================================================================
 // threads.cpp -- the search. A single translation unit, split into search/*.inc included here in order
 // (the hot-path functions are `static inline` and the compiler sees them together with their callers).
-// Algorithmic base: the Stockfish 19 search (see threads.h); the code, like the move generator, make/unmake and
-// SEE, is the engine's own.
+// The code, like the move generator, make/unmake and SEE, is the engine's own (see threads.h).
 // ============================================================================
 #include "search/01_params.inc"
 #include "search/02_state.inc"

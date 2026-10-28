@@ -212,11 +212,6 @@ Details of both contributions: [Contributions](docs/project/CONTRIBUTING.md#cont
   random keys, FEN parsing, perft and parts of the UCI input still descend from it, rewritten and extended over the
   years; each of these files carries a note of its origin. The input polling came to BBC from VICE by Richard Allbert.
   Many thanks to Maksim Korzh for publishing BBC.
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): up to 8.0, the NNUE inference (`nnue/`,
-  ported from SFNNv16) and a search written in October 2026 on the algorithmic base of Stockfish 19. **8.1 contains no
-  Stockfish code**: the inference is Consilium's own, written from a specification, and every part of the search has
-  been rewritten in the project's own form. Some numeric constants of the search still have the values of Stockfish 19;
-  they will be retuned by SPSA when the training of the next network ends.
 - **[Fathom](https://github.com/jdart1/Fathom)** (MIT): Syzygy tablebase probing.
 - **[Zoomies](https://github.com/CodeAdopter/Zoomies)** by A Tin Man (MIT, © 2026 Angelo Wolff) and
   **[Surge](https://github.com/nkarve/surge)** (MIT, © 2020 DiehardTheTryhard), from which the Zoomies generator
@@ -230,6 +225,11 @@ Details of both contributions: [Contributions](docs/project/CONTRIBUTING.md#cont
 Ideas for search, move ordering, time management, pruning and network inputs were studied from these engines and,
 where adopted, implemented in our own way and re-tuned on the project's own network:
 
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): studied for the search. Up to 8.0 the
+  engine contained Stockfish code: the NNUE inference ported from SFNNv16 and a search written in October 2026 on the
+  algorithmic base of Stockfish 19 (tag `v8.0`). 8.1 contains no Stockfish code: the inference is Consilium Plebis's
+  own and the search is written in the project's own form. Many numeric constants of the search still have the values
+  of Stockfish 19; they are being retuned by SPSA on the new network.
 - **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**: the **`PawnPair`** input block (pairs of pawns on
   the same or adjacent files), **invented by Jonathan Hallström** and also used by Stormphrax and Viridithas; our
   implementation and weights are our own, the idea is his.

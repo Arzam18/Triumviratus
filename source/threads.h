@@ -15,11 +15,9 @@
 struct NnStack;   // stack of the network's dirty entries (nn_dirty.h)
 
 // ============================================================================
-// Triumviratus search (8.1). Its algorithmic base is the Stockfish 19 search (GPLv3), on which the 8.0 search
-// was rewritten on 04/10/2026. In 8.1 the code is the engine's own: every block has been rewritten in its own
-// form, with our structures and names, and no Stockfish source remains. Some numeric constants still have the
-// values of Stockfish 19 (marked in search/01_params.inc); they will be retuned by SPSA after the training of
-// the next network.
+// Triumviratus search (8.1). The code is the engine's own: every block is written in its own form, with our
+// structures and names. Many numeric constants still have inherited values (marked in search/01_params.inc); they
+// will be retuned by SPSA. Engines studied are listed in the credits of the README.
 // ============================================================================
 
 #define MAX_THREADS 512

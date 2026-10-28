@@ -75,7 +75,7 @@
 // BAKE TIME IN DEFENCE (11/10/2026 evening, user: "I think it is acceptable now"): TmDefendMul 0 -> 500 (time of the
 // move x1.5 with the root between -TmDefendTo and -TmDefendFrom, i.e. defending but not lost) and TmEarlySave 0 -> 200
 // (target share -20% with >= 24 pieces), the two levers of audit X3 (defence with a short clock = 34% of the loss
-// against SF19), together. SPRT UHO 40+0.4, tm30 (bench 325747), TmFenPly=1 on both sides: +7.27 +- 7.08 Elo over
+// against the reference engine), together. SPRT UHO 40+0.4, tm30 (bench 325747), TmFenPly=1 on both sides: +7.27 +- 7.08 Elo over
 // 2,150 games (LLR +0.73, zero excluded; socket 0 +5.17, socket 1 +9.38). Bench unchanged (time management). To be
 // split later (which of the two gains) and reviewed at a longer TC: the slower socket gained more.
 // BAKE NEGEXTMAX (11/10/2026 morning, user): a cap of ONE extension from a negative reduction per line (13_search.inc,
@@ -90,9 +90,9 @@
 // SPRT 8+0.08 on the endgame book endgame_12_18 without draw adjudication, tm28, two runs pooled (aeinsuf_eg_8
 // + aeinsuf_eg_8b): +1.13 +- 1.56 Elo over 17,162 games (LLR +0.97; socket 0 +0.77, socket 1 +1.50). First run
 // +1.47 +- 2.39 over 7,000, then the user: "another 10,000 and then bake". At fixed depth the tree does not grow (nodes
-// -0.1% on 200 endgames of the book at depth 15, +2.2% on 164 endgames at depth 16 with median 0, -0.9% on the SF19
+// -0.1% on 200 endgames of the book at depth 15, +2.2% on 164 endgames at depth 16 with median 0, -0.9% on the reference
 // bench at depth 14). Bench 460041 (before 297400).
-// BAKE REPCYCLEOTHER (10/10/2026 evening, user): the "other" filter of SF19 in the cycle test (td_upcoming_repetition,
+// BAKE REPCYCLEOTHER (10/10/2026 evening, user): the "other" filter in the cycle test (td_upcoming_repetition,
 // 10_order.inc), option retired. SPRT 8+0.08 UHO with hyperthreading, tm26: +5.62 +- 4.47 Elo over 6,500 games (LLR
 // +1.48, zero excluded; socket 0 +9.72, socket 1 +1.49), stopped by the user. Bench 297400 (before 222811).
 // BAKE CAUSALRED (10/10/2026, user): CausalRed 0 -> 512 (the user's idea of June, "causal pruning"). SPRT at 25+0.25
@@ -689,7 +689,7 @@
   /* 08/10/2026: the continuation term after the null move, formerly the constant 64049, is a lever. It serves the \
      SPSA CORR1: adding CorrCont6W the total correction grows (here it also enters RFP, LMR and the singular      \
      margins), so the weights must be rebalanced together and not one at a time as in the trial of 06/10.         \
-     The rebalancing with -6 is also in Stockfish's work after 19; our SPSA searches the values. */              \
+     The SPSA searches the values together. */              \
   P(CorrNoMoveW, 64049, 0, 200000)       /* continuation term after the null move */                      \
   /* our techniques on top of the new search (04/10/2026), off = tree unchanged */                        \
   P(KingShield, 5371, 0, 40000)             /* ordering malus for the pawn leaving the king's shield */   \
@@ -717,7 +717,7 @@
   P(PromoOrder, 2412, 0, 40000)             /* queen promotion, added to the score of the tactical moves       */ \
   P(BishopPairCapt, 601, 0, 4000)          /* capture of a bishop when the opponent has the pair              */ \
   /* Audit X3 (08/10/2026, docs/audit_8.0/X3_DOVE_PERDIAMO.md), OFF by default: at 0 tree and timing identical.      \
-     Against SF19 we lose points in defence with little clock, above all between 10 and 23 pieces. ProgressFade:      \
+     Against the reference engine we lose points in defence with little clock, above all between 10 and 23 pieces. ProgressFade:      \
      extra damping with the fifty-move counter beyond ProgressFrom (12_quiesce.inc). TmDefendMul: more time           \
      when the root is defending. TmEarlySave: optimum share reduced with >= 24 pieces (14_deepen.inc). */             \
   /* ProgressFade/ProgressFrom: closed neutral and REMOVED in the cleanup of the evening of 11/10/2026 (see below, CLEANUP). */ \
@@ -728,7 +728,7 @@
   /* Idea F (13/10/2026, user): time per network expert. Optimum share x (1 + TmExpK/1000) according to the expert   \
      of the root (net_phase: <=9, 10-15, 16-23, >=24 pieces), after TmEarlySave. 0 = unchanged. To be tried as a     \
      REDISTRIBUTION (more time in endgames, less in the opening): in self-play the side that spends more wins.        \
-     X5: the errors against SF19 are in endgames with <= 9 pieces; X3: in defence with 10-23 pieces. */               \
+     X5: the errors against the reference are in endgames with <= 9 pieces; X3: in defence with 10-23 pieces. */               \
   P(TmExp0, 0, -500, 1000)               /* 20/10: TMLOG data show the verdict stops a little early in endgames  */ \
                                          /* (move changes later 4.9% vs 3.2-4.1%, least time). 300 on the endgame */ \
                                          /* book, no draw adj, 10+0.1 noHT: +0.66 +- 2.16 over 5,226 (first 1,372 */ \
@@ -798,8 +798,8 @@
   P(LmrScaleExp2, 0, -256, 256)                                                                           \
   P(LmrScaleExp3, 0, -256, 256)                                                                           \
   P(Contempt, 0, 0, 200)                 /* idea 3: draw = -c for the root colour (rating-list Elo) */    \
-  /* DrawDefend (13/10/2026, user: "the dynamic draw when behind, you must implement it"). Measured against SF19     \
-     (tools/defense_vs_engine.py): we hold 37% of the worse positions, SF 51%. If the previous move closed            \
+  /* DrawDefend (13/10/2026, user: "the dynamic draw when behind, you must implement it"). Measured against a reference \
+     (tools/defense_vs_engine.py): we hold 37% of the worse positions, the reference 51%. If the previous move closed            \
      below -DrawDefendFrom, for the root colour the draw is worth up to +DrawDefend (linear ramp over                 \
      DrawDefendSpan, full beyond): the search prefers the lines that simplify, repeat or reach a fortress.             \
      It goes through contempt(), so it applies to repetitions, fifty moves, stalemate, insufficient material and       \
@@ -1621,7 +1621,7 @@ static bool g_eval_off           = false;    // NPS diagnostics: material-only e
 // Origin of the ideas. "Depth instead of pruning" in analysis is inspired by (not ported from) the GoldDigger of
 // ShashChess (amchess): here it is built with our Deep* levers (14_deepen.inc), our code. AnGold instead is the
 // mechanism of the GoldDigger itself (idea of ShashChess/amchess), rewritten by us on our search: see
-// gd_root_setup in 14_deepen.inc. AnCrystal is inspired by Crystal (a Stockfish derivative made to remove the blind
+// gd_root_setup in 14_deepen.inc. AnCrystal is inspired by Crystal (an engine made to remove the blind
 // spots of aggressive pruning; here: no pruning along the principal variation), others' idea and our code. The quiet checks in the first ply of quiescence (AnQsChecks), the
 // SMP threads with reduced pruning (AnSmp) and the early mate hunt (AnHunt) are ours.
 // ---------------------------------------------------------------------------

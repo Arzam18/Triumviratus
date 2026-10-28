@@ -144,7 +144,7 @@ extern int g_searchmoves_count;  // 0 = off (search all root moves).
 // 🔴 INLINE, not extern (09/09/2026). They were out-of-line functions in misc.cpp: in the
 // PGO+ThinLTO binary 31 `call get_ls1b_index` and 4 `call count_bits` remained, and the -pg profile
 // counted ~120 bit scans per node. A tzcnt costs 1 cycle, a call ~10, and it breaks the
-// dependency chains in the `while (bb)` loops. Stockfish has always had them inline.
+// dependency chains in the `while (bb)` loops.
 // IDENTICAL semantics (ls1b of 0 = -1): node-identical by construction.
 static inline int count_bits(U64 bitboard) {
 #ifdef _WIN32

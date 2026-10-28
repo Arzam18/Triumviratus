@@ -120,7 +120,7 @@ static inline int by_expert(int e, int v0, int v1, int v2, int v3) {
 // afterwards that touch none of these squares (neither start nor arrival) usually change nothing against that refutation,
 // and are reduced more. Never pruned: the reduced search that beats alpha is repeated at full depth as always.
 // Checks, the hash move and passer pushes stay out. Known precedent: the "threat" of the null move
-// used by Stockfish 1.x-2.x to prune unconnected moves (connected_threat); here the threat is the refutation
+// used by older engines to prune unconnected moves (connected threats); here the threat is the refutation
 // of the siblings and the move is reduced, not pruned.
 // Squares attacked by the piece pc (code P..k) from the square sq with the occupancy occ.
 static inline U64 piece_attacks(int pc, int sq, U64 occ) {
@@ -1761,8 +1761,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         continue;
     }
     f->move_count = ++n.moves;
-    // "info currmove" at the root (like 7.0 and the old SFs: main thread only, only after 3 s; SF19 instead uses
-    // 10 million nodes of the main thread, NODES_LIMIT_OUTPUT, corrected on 16/10/2026): the GUIs show the
+    // "info currmove" at the root (like 7.0: main thread only, only after 3 s, corrected on 16/10/2026): the GUIs show the
     // move being examined. Lost with the rewrite of 04/10, reported by Maurizio Platino on 12/10/2026 (Fritz 18).
     // The time keeps it out of bench and short games; at the root the loop runs few times, zero cost.
     if (n.root && td.thread_id == 0 && get_time_ms() - g_limits.start_ms > 3000) {
