@@ -132,6 +132,18 @@ static inline int units_to_cp(int v) {
   return (int)(cp * 100 / 400);
 }
 
+// Value printed to the GUI (28/10/2026, 8.1 with Consilium Plebis): the same scale fitted again on the moves of 8.1 in
+// 3,588 games against 8.0 (183,630 positions, match_moe/fit_cp_scale_81.py): 50% wins fell at +0.94 printed with 400,
+// flat with the material (0.92-0.985 in every band), so the screen divides by 376. Only the printed cp and WDL use it;
+// every decision of the search that reads centipawns (TmJumpGuard, DirectFrom, QuietCp, the root style) keeps
+// units_to_cp, so the games do not change.
+static inline int units_to_print_cp(int v) {
+  const long long net = (long long)v * 1024 / EvalUnits;
+  const int es = nn_get_eval_scale();
+  const long long cp = es == 100 ? net : net * 100 / es;
+  return (int)(cp * 100 / 376);
+}
+
 // ============================================================================
 // MOVE STATISTICS
 // ============================================================================

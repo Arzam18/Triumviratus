@@ -272,7 +272,7 @@ static void print_score(char *out, size_t sz, int v) {
   else if (v <= -TB_WIN_FLOOR)
     snprintf(out, sz, "cp %d", -20000 + (TB_WIN_TOP + v));
   else
-    snprintf(out, sz, "cp %d", units_to_cp(v));
+    snprintf(out, sz, "cp %d", units_to_print_cp(v));   // screen scale (09_history.inc, 28/10/2026)
 }
 
 static void report_lines(ThreadData &td, int depth) {
@@ -304,7 +304,7 @@ static void report_lines(ThreadData &td, int depth) {
       int w, dd, l;
       if (v >= TB_WIN_FLOOR) { w = 1000; dd = l = 0; }        // mates and tablebase wins
       else if (v <= -TB_WIN_FLOOR) { l = 1000; w = dd = 0; }
-      else wdl_from_cp(units_to_cp(v), w, dd, l);
+      else wdl_from_cp(units_to_print_cp(v), w, dd, l);
       printf(" wdl %d %d %d", w, dd, l);
     }
     printf(" nodes %llu nps %llu hashfull %d tbhits %llu time %d pv", (unsigned long long)nodes,

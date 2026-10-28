@@ -181,7 +181,8 @@ on Arasan 2026, against 145 and 137 for 8.0 (details in
 
 **Maurizio Platino** is the project's tester and search-tuner. Beyond SPSA tuning, he tests the engine on hard
 positions at long time controls and against other engines on his own machine, and shares with the author the cost of
-the cloud GPUs on which the networks are trained. Triumviratus would be materially weaker without his work.
+the cloud GPUs on which the networks are trained. Maurizio has been a fundamental asset for this project: without
+Maurizio, the fast development that started with version 4 would never have been possible.
 
 **Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
 extensively, in matches and on tactical test suites such as IQ4, and his reports shaped the release. His remark that

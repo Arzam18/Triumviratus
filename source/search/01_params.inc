@@ -1067,8 +1067,8 @@
   P(C2ValB4, 0, -300, 300) P(C2ValB5, 0, -300, 300) P(C2ValB6, 0, -300, 300) P(C2ValB7, 0, -300, 300)      \
   P(C2ValR0, 0, -400, 400) P(C2ValR1, 0, -400, 400) P(C2ValR2, 0, -400, 400) P(C2ValR3, 0, -400, 400)      \
   P(C2ValR4, 0, -400, 400) P(C2ValR5, 0, -400, 400) P(C2ValR6, 0, -400, 400) P(C2ValR7, 0, -400, 400)      \
-  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 0, -600, 600)      \
-  P(C2ValQ4, 0, -600, 600) P(C2ValQ5, 0, -600, 600) P(C2ValQ6, 0, -600, 600) P(C2ValQ7, 0, -600, 600)      \
+  P(C2ValQ0, 0, -800, 800) P(C2ValQ1, 0, -800, 800) P(C2ValQ2, 0, -800, 800) P(C2ValQ3, 0, -800, 800)      \
+  P(C2ValQ4, 0, -800, 800) P(C2ValQ5, 0, -800, 800) P(C2ValQ6, 0, -800, 800) P(C2ValQ7, 0, -800, 800)      \
   /*  Pawn structure in the value of a pawn taken (see.h pawn_struct_adj, 28/10/2026), SEE units, 0 = old values: */ \
   P(PawnIsoAdj, 0, -150, 150)            /* isolated (no own pawn on the side files)                     */  \
   P(PawnDblAdj, 0, -150, 150)            /* doubled (another own pawn on its file)                       */  \
