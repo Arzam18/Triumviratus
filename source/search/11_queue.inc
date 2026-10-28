@@ -215,6 +215,87 @@ static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int l
   return nh;
 }
 
+// (28/10/2026, speed, same output as rank_into<false>) On AVX-512 the first pass and the copy of the unsorted part run
+// 16 moves at a time. Per group: the mask of the moves at or above the limit, their keys (same clamp, same 255 -
+// position) and their moves and scores packed in register (vpcompressd) into small arrays; the moves below the limit
+// are packed, interleaved into ScoredMove pairs and stored straight after the sorted part, whose size is counted first.
+// The ranks of the sorted part are counted as in rank_into. Stores are whole vectors: they stay inside the 256 slots
+// (at most 218 moves plus 15 lanes) and never reach a part already written. Used from 8 moves up: on the short lists
+// (the 2-4 captures of a quiescence node) the fixed cost of the vector code is larger than the scalar loop. Xeon
+// (PGO, xperf, with the other patches of 28/10/2026 night), cycles per node middlegame / endgame: from 8 moves
+// 4012 / 3803, on every list 4020 / 3819. -DTRIUMV_VERIFY_RANK compares every call with rank_into.
+#if defined(__AVX512F__)
+static int rank_into_v(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
+  PROF_GUARD(prof_mp);
+  alignas(64) int key[256 + 16], hmv[256 + 16], hsc[256 + 16];
+  __mmask16 up[16];
+  const int ng = (n + 15) >> 4;
+  const __m512i lim = _mm512_set1_epi32(limit);
+  int nh = 0;
+  for (int g = 0; g < ng; g++) {
+    const __mmask16 k = n - 16 * g >= 16 ? (__mmask16)0xFFFF : (__mmask16)((1u << (n - 16 * g)) - 1);
+    up[g] = _mm512_mask_cmpge_epi32_mask(k, _mm512_maskz_loadu_epi32(k, sc + 16 * g), lim);
+    nh += count_bits(up[g]);
+  }
+  const __m512i iota = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  // pair interleave: lanes 0..7 of the moves with lanes 0..7 of the scores, then lanes 8..15
+  const __m512i ilo = _mm512_setr_epi32(0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23);
+  const __m512i ihi = _mm512_setr_epi32(8, 24, 9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31);
+  int h = 0, l = nh;
+  for (int g = 0; g < ng; g++) {
+    const __mmask16 k = n - 16 * g >= 16 ? (__mmask16)0xFFFF : (__mmask16)((1u << (n - 16 * g)) - 1);
+    const __m512i s = _mm512_maskz_loadu_epi32(k, sc + 16 * g), m = _mm512_maskz_loadu_epi32(k, mv + 16 * g);
+    const __mmask16 u = up[g], d = k & (__mmask16)~u;
+    const __m512i cl = _mm512_min_epi32(_mm512_max_epi32(s, _mm512_set1_epi32(-(1 << 22))), _mm512_set1_epi32((1 << 22) - 1));
+    const __m512i ky = _mm512_or_si512(_mm512_slli_epi32(cl, 8),
+                                       _mm512_sub_epi32(_mm512_set1_epi32(255 - 16 * g), iota));
+    _mm512_storeu_si512(key + h, _mm512_maskz_compress_epi32(u, ky));
+    _mm512_storeu_si512(hmv + h, _mm512_maskz_compress_epi32(u, m));
+    _mm512_storeu_si512(hsc + h, _mm512_maskz_compress_epi32(u, s));
+    h += count_bits(u);
+    const __m512i lm = _mm512_maskz_compress_epi32(d, m), ls = _mm512_maskz_compress_epi32(d, s);
+    _mm512_storeu_si512(reinterpret_cast<void *>(out + l), _mm512_permutex2var_epi32(lm, ilo, ls));
+    _mm512_storeu_si512(reinterpret_cast<void *>(out + l + 8), _mm512_permutex2var_epi32(lm, ihi, ls));
+    l += count_bits(d);
+  }
+  _mm512_storeu_si512(key + nh, _mm512_set1_epi32(INT_MIN));   // padding up to the next group of 16
+  const int nchunk = (nh + 15) >> 4;
+  for (int j = 0; j < nh; j++) {
+    const __m512i x = _mm512_set1_epi32(key[j]);
+    int r = 0;
+    for (int c = 0; c < nchunk; c++)
+      r += count_bits((U64)_mm512_cmpgt_epi32_mask(_mm512_load_si512(key + 16 * c), x));
+    out[r] = {hmv[j], hsc[j]};
+  }
+  return nh;
+}
+#endif
+
+// The ranking the fills call: the vector code on AVX-512 from 8 moves, rank_into otherwise (same output).
+static inline int rank_list(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
+#if defined(__AVX512F__)
+#if defined(TRIUMV_VERIFY_RANK)   // check: the same list and size as rank_into
+  if (n >= 8) {
+    ScoredMove chk[256];
+    const int a = rank_into_v(out, mv, sc, n, limit), b = rank_into<false>(chk, mv, sc, n, limit);
+    bool same = a == b;
+    for (int i = 0; i < n && same; i++)
+      same = out[i].move == chk[i].move && out[i].score == chk[i].score;
+    if (!same) {
+      printf("info string RANK WRONG: n %d limit %d\n", n, limit);
+      fflush(stdout);
+      abort();
+    }
+    return a;
+  }
+#else
+  if (n >= 8)
+    return rank_into_v(out, mv, sc, n, limit);
+#endif
+#endif
+  return rank_into<false>(out, mv, sc, n, limit);
+}
+
 static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_move, int depth, int kind) {
   q.td = &td;
   q.f = f;
@@ -272,6 +353,89 @@ static inline U64 knight_fill(U64 b) {
   return (h1 << 16) | (h1 >> 16) | (h2 << 8) | (h2 >> 8);
 }
 
+// (28/10/2026 night, speed, same scores) VECTOR QUIET SCORE on AVX-512: the histories (main, pawn, the five
+// continuations, /1024) and the threat term of 16 quiet moves at a time; the moves that give a direct check or touch a
+// map of the chess-knowledge terms are flagged and finished by score_quiets in scalar, as are the first-ply histories.
+// In the scalar loop the seven tables, their rows and the node's maps did not fit in the registers, so every read went
+// through a pointer reloaded from the stack (~45 instructions per move for the histories alone). The history sum is
+// exact in 32 bits (with the largest weights of 01_params.inc it stays below 27648 x 32767 < 2^31) and the division
+// truncates toward zero as in the scalar code. Xeon (PGO, xperf, with the vector ranking above and the compaction of
+// fill_quiets): -2.4% cycles per node in the middlegame, -2.1% in endgames, -6% instructions, bench unchanged.
+// -DTRIUMV_VERIFY_VQ compares every score with the scalar loop.
+#if defined(__AVX512F__)
+// 16 int16 entries tab[idx[j]], sign-extended, each read as the aligned dword that holds it: an aligned dword never
+// crosses a page, so no lane touches memory outside the page of its own entry.
+static inline __m512i gather16(__mmask16 k, const int16_t *tab, __m512i idx) {
+  const uintptr_t a = reinterpret_cast<uintptr_t>(tab);
+  const __m512i off = _mm512_add_epi32(_mm512_slli_epi32(idx, 1), _mm512_set1_epi32((int)(a & 3)));
+  const __m512i dw = _mm512_mask_i32gather_epi32(_mm512_setzero_si512(), k, _mm512_srli_epi32(off, 2),
+                                                 reinterpret_cast<const void *>(a & ~(uintptr_t)3), 4);
+  // entry in the low half (off & 2 = 0): left 16, then arithmetic right 16; in the high half: arithmetic right 16 only
+  const __m512i sh = _mm512_sub_epi32(_mm512_set1_epi32(16),
+                                      _mm512_slli_epi32(_mm512_and_si512(off, _mm512_set1_epi32(2)), 3));
+  return _mm512_srai_epi32(_mm512_sllv_epi32(dw, sh), 16);
+}
+// Tables and maps of the node for the vector score.
+struct QuietVecIn {
+  const int16_t *qh, *pw, *h1, *h2, *h3, *h4, *h6;   // main (side to move), pawn row, continuation rows 1-4 and 6
+  int w_main, w_pawn, w_near, w_far;                  // weights of the history sum, /1024
+  int us_off, thr_esc, thr_ent;
+  const U64 *lesser, *chk, *kn_to;                    // per piece type: lower-value attackers, check squares, knowledge
+  U64 shield;                                         // origins of the king-shield malus
+  const int *mval;                                    // 16 piece codes
+};
+// sc[] = history sum + threat term; flags[g] = lanes of group g that score_quiets finishes in scalar.
+static inline void quiet_vec_score(const QuietVecIn &in, const int *mv, int *sc, int n, unsigned short *flags) {
+  const __m512i pk_tab = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3);   // kPromoKind
+  const __m512i LES = _mm512_maskz_loadu_epi64(0x3F, in.lesser), CHK = _mm512_maskz_loadu_epi64(0x3F, in.chk),
+                KN = _mm512_maskz_loadu_epi64(0x3F, in.kn_to), SH = _mm512_set1_epi64((long long)in.shield);
+  const __m512i MV = _mm512_loadu_si512(in.mval);
+  const __m512i one = _mm512_set1_epi64(1), m63 = _mm512_set1_epi32(63);
+  for (int i = 0, g = 0; i < n; i += 16, g++) {
+    const __mmask16 k = n - i >= 16 ? (__mmask16)0xFFFF : (__mmask16)((1u << (n - i)) - 1);
+    const __m512i m = _mm512_maskz_loadu_epi32(k, mv + i);
+    // histories: pc * 64 + to indexes the piece-to rows, the quiet key the main table
+    const __m512i pidx = _mm512_and_si512(_mm512_srli_epi32(m, 6), _mm512_set1_epi32(0x3ff));
+    const __m512i pkind =
+        _mm512_permutexvar_epi32(_mm512_and_si512(_mm512_srli_epi32(m, 16), _mm512_set1_epi32(15)), pk_tab);
+    const __m512i key = _mm512_or_si512(_mm512_and_si512(m, _mm512_set1_epi32(0xfff)), _mm512_slli_epi32(pkind, 12));
+    __m512i hs = _mm512_mullo_epi32(gather16(k, in.qh, key), _mm512_set1_epi32(in.w_main));
+    hs = _mm512_add_epi32(hs, _mm512_mullo_epi32(gather16(k, in.pw, pidx), _mm512_set1_epi32(in.w_pawn)));
+    const __m512i nr = _mm512_add_epi32(gather16(k, in.h1, pidx), gather16(k, in.h2, pidx));
+    hs = _mm512_add_epi32(hs, _mm512_mullo_epi32(nr, _mm512_set1_epi32(in.w_near)));
+    const __m512i fr = _mm512_add_epi32(_mm512_add_epi32(gather16(k, in.h3, pidx), gather16(k, in.h4, pidx)),
+                                        gather16(k, in.h6, pidx));
+    hs = _mm512_add_epi32(hs, _mm512_mullo_epi32(fr, _mm512_set1_epi32(in.w_far)));
+    // hs / 1024 truncated toward zero: 1023 is added to the negative sums before the arithmetic shift
+    __m512i qv = _mm512_srai_epi32(
+        _mm512_add_epi32(hs, _mm512_and_si512(_mm512_srai_epi32(hs, 31), _mm512_set1_epi32(1023))), 10);
+    // squares and piece type of each lane; the bit tests on 64-bit maps run in two halves of 8 lanes
+    const __m512i from = _mm512_and_si512(m, m63), to = _mm512_and_si512(_mm512_srli_epi32(m, 6), m63);
+    const __m512i pc = _mm512_and_si512(_mm512_srli_epi32(m, 12), _mm512_set1_epi32(15));
+    const __m512i pt = _mm512_sub_epi32(pc, _mm512_set1_epi32(in.us_off));
+    unsigned fm = 0, tm = 0, cm = 0, km = 0;
+    const auto half = [&](__m256i pt4, __m256i from4, __m256i to4, int sh) {
+      const __m512i pt8 = _mm512_cvtepi32_epi64(pt4);
+      const __m512i fb = _mm512_sllv_epi64(one, _mm512_cvtepi32_epi64(from4));
+      const __m512i tb = _mm512_sllv_epi64(one, _mm512_cvtepi32_epi64(to4));
+      const __m512i les = _mm512_permutexvar_epi64(pt8, LES);
+      fm |= (unsigned)_mm512_test_epi64_mask(les, fb) << sh;
+      tm |= (unsigned)_mm512_test_epi64_mask(les, tb) << sh;
+      cm |= (unsigned)_mm512_test_epi64_mask(_mm512_permutexvar_epi64(pt8, CHK), tb) << sh;
+      km |= (unsigned)(_mm512_test_epi64_mask(_mm512_permutexvar_epi64(pt8, KN), tb) |
+                       _mm512_test_epi64_mask(SH, fb)) << sh;
+    };
+    half(_mm512_castsi512_si256(pt), _mm512_castsi512_si256(from), _mm512_castsi512_si256(to), 0);
+    half(_mm512_extracti64x4_epi64(pt, 1), _mm512_extracti64x4_epi64(from, 1), _mm512_extracti64x4_epi64(to, 1), 8);
+    // threat term: mval[pc] * (thr_esc * from_t - thr_ent * to_t)
+    const __m512i th = _mm512_sub_epi32(_mm512_maskz_mov_epi32((__mmask16)fm, _mm512_set1_epi32(in.thr_esc)),
+                                        _mm512_maskz_mov_epi32((__mmask16)tm, _mm512_set1_epi32(in.thr_ent)));
+    qv = _mm512_add_epi32(qv, _mm512_mullo_epi32(th, _mm512_permutexvar_epi32(pc, MV)));
+    _mm512_mask_storeu_epi32(sc + i, k, qv);
+    flags[g] = (unsigned short)((cm | km) & k);
+  }
+}
+#endif
 
 // Scores of the quiet moves: weighted statistics, a bonus for direct checks that lose no material, and the move of a
 // piece that leaves (or enters) a square attacked by an enemy piece of lower value.
@@ -529,6 +693,62 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int brk_order = BreakOrder;
   const U64 their_pawns = td.bitboards[us == white ? p : P];
 
+#if defined(TRIUMV_VERIFY_VQ)   // check: the vector scores go to vbuf, the scalar loop below fills sc, compared at the end
+  int vbuf[256];
+  bool vq_on = false;
+#endif
+#if defined(__AVX512F__)
+  // Vector score (quiet_vec_score), when the scalar loop has no term outside it: no threat context, no agreement or
+  // structure history, no discovered-check, safe-escape, pawn-break or pawn-king term (all off by default).
+  if (!ThreatHist && hm.agree == 0 && !srow && !chk_disc && !thr_safe && !brk_order && !c2_pk_order) {
+#if defined(TRIUMV_VERIFY_VQ)
+    int *const vs = vbuf;
+    vq_on = true;
+#else
+    int *const vs = sc;
+#endif
+    U64 kn_to[6];   // target squares where a chess-knowledge term can apply, per piece type
+    for (int k = P; k <= K; k++) kn_to[k] = attack_to[k];
+    kn_to[N] |= outpost;
+    kn_to[B] |= outpost;
+    kn_to[P] |= passed_to;
+    const QuietVecIn in = {td.quiet_hist[us], &prow[0][0], &c1[0][0], &c2[0][0], &c3[0][0], &c4[0][0], &c6[0][0],
+                           hm.main, hm.pawn, hm.near_, hm.far_, us_off, thr_esc, thr_ent, lesser, checks.chk, kn_to,
+                           shield, mval};
+    unsigned short flags[16];
+    quiet_vec_score(in, mv, vs, n, flags);
+    for (int g = 0; 16 * g < n; g++)   // the flagged moves: direct checks and chess-knowledge terms, as below
+      for (unsigned fl = flags[g]; fl; fl &= fl - 1) {
+        const int i = 16 * g + __builtin_ctz(fl), m = mv[i];
+        const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc - us_off;
+        int s = vs[i];
+        if (((checks.chk[pt] >> to) & 1) && see_holds_q(td, q, m, chk_see))
+          s += chk_bonus;
+        if (shield >> from & 1)
+          s -= ks_v;
+        if (pt == N && (outpost >> to & 1))
+          s += op_v;
+        if (pt == B && (outpost >> to & 1))
+          s += opb_v;
+        if ((attack_to[pt] >> to & 1) && (!AttackSafeSee || see_holds_q(td, q, m, 0)))
+          s += attack_bonus[pt];
+        if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
+          s += pass_v;
+        vs[i] = s;
+      }
+    if (ply < LOW_PLY_SIZE)   // first plies: their history for every move, as below
+      for (int i = 0; i < n; i++) {
+        const int x = 8 * td.low_ply_hist[ply][quiet_key(mv[i])];
+        const unsigned long long ax = (unsigned long long)(x < 0 ? -x : x) * 1024;
+        const int lq = (int)((ax * lp_recip) >> 40);
+        vs[i] += (x < 0 ? -lq : lq) * hm.low / 1024;
+      }
+#if !defined(TRIUMV_VERIFY_VQ)
+    return;
+#endif
+  }
+#endif
+
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
     const int pc = move_piece(m), to = move_to(m), from = move_from(m), pt = pc - us_off;   // our move
@@ -580,6 +800,15 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
     }
     sc[i] = s;
   }
+#if defined(TRIUMV_VERIFY_VQ)
+  if (vq_on)
+    for (int i = 0; i < n; i++)
+      if (vbuf[i] != sc[i]) {
+        printf("info string VQ WRONG: move %d vector %d scalar %d\n", mv[i], vbuf[i], sc[i]);
+        fflush(stdout);
+        abort();
+      }
+#endif
 }
 
 // (05/10/2026) The fill functions stay out of queue_next (noinline). Inlined, they brought their lists into
@@ -631,7 +860,7 @@ __attribute__((noinline)) static void fill_tactics(MoveQueue &q) {
     }
   }
   q.n_tact = q.n_all = n;
-  rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
+  rank_list(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 
@@ -646,11 +875,30 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   // The queen promotion is already among the tactical moves and the hash move has been handed out: both are removed
   // by compacting in place, without branches.
   int n = 0;
+#if defined(__AVX512F__)
+  // (28/10/2026 night, speed, same list) 16 moves at a time: queen promotion = promotion field 4 (Q) or 10 (q); the
+  // kept moves are packed in register (vpcompressd) and stored whole. The store at n <= i never reaches the moves not
+  // read yet, and the list has room for the 16 lanes (n + 16 <= 256).
+  {
+    const __m512i hmv = _mm512_set1_epi32(q.hash_move);
+    for (int i = 0; i < ml->count; i += 16) {
+      const __mmask16 k = ml->count - i >= 16 ? (__mmask16)0xFFFF : (__mmask16)((1u << (ml->count - i)) - 1);
+      const __m512i v = _mm512_maskz_loadu_epi32(k, ml->moves + i);
+      const __m512i pr = _mm512_and_si512(_mm512_srli_epi32(v, 16), _mm512_set1_epi32(15));
+      const __mmask16 keep = _mm512_mask_cmpneq_epi32_mask(k, v, hmv) &
+                             _mm512_cmpneq_epi32_mask(pr, _mm512_set1_epi32(Q)) &
+                             _mm512_cmpneq_epi32_mask(pr, _mm512_set1_epi32(Q + 6));   // black queen (q)
+      _mm512_storeu_si512(ml->moves + n, _mm512_maskz_compress_epi32(keep, v));
+      n += count_bits(keep);
+    }
+  }
+#else
   for (int i = 0; i < ml->count; i++) {
     const int m = ml->moves[i];
     ml->moves[n] = m;
     n += (promo_kind(m) != Q) & (m != q.hash_move);
   }
+#endif
   q.n_all = q.n_tact + n;
   score_quiets(q, ml->moves, sc, n);
   if (LmrRank) {   // LmrRank: the highest score among the quiet moves (including the unsorted ones below the limit)
@@ -663,7 +911,7 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
   //    many quiet moves are sorted, StQuiet the boundary between good and bad ones.
   const int limit = -by_exp4(q.ex, StSort0, StSort1, StSort2, StSort3) * q.depth;
   const int gq = q.good_quiet = by_exp4(q.ex, StQuiet0, StQuiet1, StQuiet2, StQuiet3);
-  const int nh = rank_into<false>(q.list + q.n_tact, ml->moves, sc, n, limit);
+  const int nh = rank_list(q.list + q.n_tact, ml->moves, sc, n, limit);
   q.cur = q.n_tact;
   // Good quiet moves (score > gq) leave in QS_QUIET_HIGH, the others in QS_QUIET_LOW, each in list order. When
   // limit <= gq + 1 (depth >= 5 at the starting values) the unsorted tail has scores < limit, so all <= gq, and the
@@ -716,7 +964,7 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
                               he_cont * c1[move_piece(m)][move_to(m)]) / 1024;
   }
   q.n_all = q.n_tact = n;
-  rank_into<false>(q.list, ml->moves, sc, n, INT_MIN);
+  rank_list(q.list, ml->moves, sc, n, INT_MIN);
   q.cur = 0;
 }
 

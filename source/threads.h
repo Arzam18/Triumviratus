@@ -144,6 +144,9 @@ struct ThreadData {
     int  root_depth;
     int  completed_depth;
     int  root_delta;
+    // (28/10/2026 night) LmrDeltaMul / root_delta of a null window, with the two values it came from (move_loop
+    // divides again only when one of them changes).
+    int  rw1_delta = 0, rw1_mul = 0, rw1_term = 0;
     int  sel_depth;
     int  nmp_min_ply;
     U64  best_move_changes;

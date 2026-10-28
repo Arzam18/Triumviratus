@@ -1820,7 +1820,17 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     int new_depth = n.depth - 1;
     if (n.beta - n.alpha != red_window) {
       red_window = n.beta - n.alpha;
-      red_window_term = red_window * LmrDeltaMul / td.root_delta;
+      // (28/10/2026 night, speed, same value) Most nodes have a null window, whose term is the same in the whole
+      // iteration: it is divided once and kept in the thread with the two values it came from (before, a 32-bit
+      // division at almost every node).
+      if (red_window == 1) {
+        if (td.rw1_delta != td.root_delta || td.rw1_mul != LmrDeltaMul || td.rw1_delta == 0) {
+          td.rw1_delta = td.root_delta, td.rw1_mul = LmrDeltaMul;
+          td.rw1_term = LmrDeltaMul / td.root_delta;
+        }
+        red_window_term = td.rw1_term;
+      } else
+        red_window_term = red_window * LmrDeltaMul / td.root_delta;
     }
     // LmrRank (block 2 of 8.1, 16/10/2026, ours; docs/development/8.1/SEARCH_2_REDUCTIONS.md in the repo): for a
     // quiet move of the ordered list, the base reduction does not read only its order number. The "effective" number

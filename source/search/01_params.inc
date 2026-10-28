@@ -692,9 +692,15 @@
      The SPSA searches the values together. */              \
   P(CorrNoMoveW, 64049, 0, 200000)       /* continuation term after the null move */                      \
   /* our techniques on top of the new search (04/10/2026), off = tree unchanged */                        \
-  P(KingShield, 5371, 0, 40000)             /* ordering malus for the pawn leaving the king's shield */   \
+  /* LEAN (28/10/2026 night, SPRT lean vs base 6+0.06 noHT [-1, 2]: +4.21 +- 2.79 over 15,194 games, H1, both     \
+     sockets positive; the terms never passed an SPRT alone: KingShield -1.57, OutpostOrder +0.21, trio +0.39 on    \
+     8.0, then valued by the 8.0 SPSAs; no long-TC retest by the author's decision): the six chess-knowledge         \
+     terms of the quiet ordering at 0 (were KingShield 5371, OutpostOrder 4179, AttackOrder 5807, AttackOrderQ     \
+     6371, PassedPush 3975, OutpostOrderB 1078). In the release the compiler removes their maps and tests: -1.5%   \
+     cycles per node in the middlegame, -2.4% in endgames (Xeon, PGO, xperf). Bench 219346 -> 273963. */          \
+  P(KingShield, 0, 0, 40000)                /* ordering malus for the pawn leaving the king's shield */   \
   P(KingShieldNpm, 3600, 0, 8000)        /* ...only if the opponent has at least this non-pawn material */ \
-  P(OutpostOrder, 4179, 0, 40000)           /* 08/10/2026 (user): ordering bonus for the knight going to an */ \
+  P(OutpostOrder, 0, 0, 40000)              /* 08/10/2026 (user): ordering bonus for the knight going to an */ \
                                          /* outpost (defended by a pawn, never attackable by pawns) */     \
   P(OutpostSafe, 1, 0, 2)                /* 1: also without enemy bishops of the square's colour; 2: and without knights */ \
   /* Ordering with chess knowledge (08/10/2026, user, after the outposts), OFF by default. AttackOrder            \
@@ -703,17 +709,17 @@
      heavier or undefended. In July, in the 7.0 search, -9.7 +- 10.4 over 1,290 games: retried on the new search.  \
      PassedPush (passer push), OutpostOrderB (bishop outpost), BishopPairCapt (capture of a bishop of the pair)    \
      are ours; PromoOrder (queen promotion first among the tactical moves) is also in Reckless. */                  \
-  P(AttackOrder, 5807, 0, 40000)            /* pawn, knight, bishop, rook attacking a target from a safe square */ \
-  P(AttackOrderQ, 6371, 0, 40000)           /* ...the queen (undefended targets)                               */ \
+  P(AttackOrder, 0, 0, 40000)               /* pawn, knight, bishop, rook attacking a target from a safe square */ \
+  P(AttackOrderQ, 0, 0, 40000)              /* ...the queen (undefended targets)                               */ \
   /* AttackSafeSee (evening of 08/10/2026, check docs/audit_8.0/Y2_VERIFICA_ORDINAMENTO.md): with 0 the target       \
      square must be free of any enemy attack, but the target almost always sees the square it is attacked from        \
      (pawn on bishop, piece on queen: 40% of the attacks on heavier pieces never rewarded). With 1 the square must     \
      not be attacked by lower-valued pieces and the exchange on the square must not lose material (SEE >= 0). The     \
      SPRT of the trio (08/10, +0.39 +- 5.42) was with 0. */                                                           \
   P(AttackSafeSee, 1, 0, 1)                                                                               \
-  P(PassedPush, 3975, 0, 40000)             /* passed pawn advancing to a square that does not lose material */ \
+  P(PassedPush, 0, 0, 40000)                /* passed pawn advancing to a square that does not lose material */ \
   P(PassedPushRank, 6, 4, 7)             /* ...from the (relative) rank PassedPushRank up                  */ \
-  P(OutpostOrderB, 1078, 0, 40000)          /* bishop on an outpost (same mask as the knights)                */ \
+  P(OutpostOrderB, 0, 0, 40000)             /* bishop on an outpost (same mask as the knights)                */ \
   P(PromoOrder, 2412, 0, 40000)             /* queen promotion, added to the score of the tactical moves       */ \
   P(BishopPairCapt, 601, 0, 4000)          /* capture of a bishop when the opponent has the pair              */ \
   /* Audit X3 (08/10/2026, docs/audit_8.0/X3_DOVE_PERDIAMO.md), OFF by default: at 0 tree and timing identical.      \
