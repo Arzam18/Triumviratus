@@ -17,12 +17,12 @@ static constexpr int see_piece_values[12] = {
 // Piece values (28/10/2026): base SeeValP..SeeValQ plus an offset per type and per expert (C2ValP..C2ValQ, search/
 // 01_params.inc). The development builds read the copies g_see_val and g_c2_val_off, synced at setoption; the release
 // reads the constant tables here (identical values, static_assert in 01_params.inc).
-static constexpr int see_val_offsets[5][8] = {   // C2ValP..C2ValQ x experts 0..7 (baked 28/10/2026, pawns still 0)
+static constexpr int see_val_offsets[5][8] = {   // C2ValP..C2ValQ x experts 0..7 (unbaked 28/10/2026: all 0)
     {0, 0, 0, 0, 0, 0, 0, 0},
-    {-182, 0, -56, 166, -5, 10, 27, 11},
-    {-159, 0, -72, 243, -1, 20, 17, 24},
-    {0, 55, -21, 0, 57, 26, -17, -28},
-    {0, 0, 0, 600, -120, -193, -43, 46}};
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {0, 0, 0, 0, 0, 0, 0, 0},
+    {0, 0, 0, 0, 0, 0, 0, 0}};
 #ifndef TRIUMV_RELEASE
 extern int g_see_val[12];          // SeeValP..SeeValQ for both colours, kings 20000
 #endif

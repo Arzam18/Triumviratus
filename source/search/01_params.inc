@@ -1053,18 +1053,22 @@
   /*  piece of 8,000 positions, match_moe/piece_values/REPORT_ALL_Plebis_finale.md), +0.35 +- 2.04 over 30,104 games */ \
   /*  at 4+0.04 noHT on [-1, 2] (author's rule: H1 or positive at 30,000). Pawn offsets and pawn structure (below)  */ \
   /*  on the new base: H0, -8.00 +- 4.06 over 7,688 games at the same conditions; they stay 0.                    */ \
+  /*  UNBAKED 28/10/2026 (author, for the pre-release): 8.1 vs 8.0 at 30+0.3 gave +10.7 +- 8.0 over 1,756 games   */ \
+  /*  with the offsets against +20.8 +- 9.4 for the 26-27/10 build without them; measured only at 4+0.04, so all  */ \
+  /*  offsets back to 0 (bench 219346). The measured vector stays as an SPSA start: N -182 0 -56 166 -5 10 27 11, */ \
+  /*  B -159 0 -72 243 -1 20 17 24, R 0 55 -21 0 57 26 -17 -28, Q 0 0 0 600 -120 -193 -43 46 (experts 0..7).        */ \
   P(SeeValP, 208, 100, 400) P(SeeValN, 781, 500, 1100) P(SeeValB, 825, 500, 1100)                          \
   P(SeeValR, 1276, 900, 1800) P(SeeValQ, 2538, 1800, 3400)                                                 \
   P(C2ValP0, 0, -150, 150) P(C2ValP1, 0, -150, 150) P(C2ValP2, 0, -150, 150) P(C2ValP3, 0, -150, 150)      \
   P(C2ValP4, 0, -150, 150) P(C2ValP5, 0, -150, 150) P(C2ValP6, 0, -150, 150) P(C2ValP7, 0, -150, 150)      \
-  P(C2ValN0, -182, -300, 300) P(C2ValN1, 0, -300, 300) P(C2ValN2, -56, -300, 300) P(C2ValN3, 166, -300, 300) \
-  P(C2ValN4, -5, -300, 300) P(C2ValN5, 10, -300, 300) P(C2ValN6, 27, -300, 300) P(C2ValN7, 11, -300, 300)  \
-  P(C2ValB0, -159, -300, 300) P(C2ValB1, 0, -300, 300) P(C2ValB2, -72, -300, 300) P(C2ValB3, 243, -300, 300) \
-  P(C2ValB4, -1, -300, 300) P(C2ValB5, 20, -300, 300) P(C2ValB6, 17, -300, 300) P(C2ValB7, 24, -300, 300)  \
-  P(C2ValR0, 0, -400, 400) P(C2ValR1, 55, -400, 400) P(C2ValR2, -21, -400, 400) P(C2ValR3, 0, -400, 400)   \
-  P(C2ValR4, 57, -400, 400) P(C2ValR5, 26, -400, 400) P(C2ValR6, -17, -400, 400) P(C2ValR7, -28, -400, 400) \
-  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 600, -600, 600)    \
-  P(C2ValQ4, -120, -600, 600) P(C2ValQ5, -193, -600, 600) P(C2ValQ6, -43, -600, 600) P(C2ValQ7, 46, -600, 600) \
+  P(C2ValN0, 0, -300, 300) P(C2ValN1, 0, -300, 300) P(C2ValN2, 0, -300, 300) P(C2ValN3, 0, -300, 300)      \
+  P(C2ValN4, 0, -300, 300) P(C2ValN5, 0, -300, 300) P(C2ValN6, 0, -300, 300) P(C2ValN7, 0, -300, 300)      \
+  P(C2ValB0, 0, -300, 300) P(C2ValB1, 0, -300, 300) P(C2ValB2, 0, -300, 300) P(C2ValB3, 0, -300, 300)      \
+  P(C2ValB4, 0, -300, 300) P(C2ValB5, 0, -300, 300) P(C2ValB6, 0, -300, 300) P(C2ValB7, 0, -300, 300)      \
+  P(C2ValR0, 0, -400, 400) P(C2ValR1, 0, -400, 400) P(C2ValR2, 0, -400, 400) P(C2ValR3, 0, -400, 400)      \
+  P(C2ValR4, 0, -400, 400) P(C2ValR5, 0, -400, 400) P(C2ValR6, 0, -400, 400) P(C2ValR7, 0, -400, 400)      \
+  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 0, -600, 600)      \
+  P(C2ValQ4, 0, -600, 600) P(C2ValQ5, 0, -600, 600) P(C2ValQ6, 0, -600, 600) P(C2ValQ7, 0, -600, 600)      \
   /*  Pawn structure in the value of a pawn taken (see.h pawn_struct_adj, 28/10/2026), SEE units, 0 = old values: */ \
   P(PawnIsoAdj, 0, -150, 150)            /* isolated (no own pawn on the side files)                     */  \
   P(PawnDblAdj, 0, -150, 150)            /* doubled (another own pawn on its file)                       */  \
