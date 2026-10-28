@@ -178,7 +178,8 @@ struct ThreadData {
     // rebuilt only when the expert pair of the position changes; -1 = to rebuild (set at each search start).
     mutable int c2_see_pair;          // expert pair (White | Black << 4) the two tables below were built for
     mutable int c2_see_val[16];       // SEE value per piece code: SeeVal* + offset of the owner's regime
-    mutable int c2_see_off[16];       // the offset alone (margins built on unit_value); codes 12..15 = 0
+    mutable int c2_see_off[16];       // the offset alone; codes 12..15 = 0
+    mutable int mat_val[16];          // material value per piece code (kings 0): the table the search reads
 
     // Result, read by the driver and by the vote between threads
     int best_move;

@@ -538,9 +538,10 @@ static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
   if (td.gd_heat < -100)
     return false;
   const int off = td.side == white ? 0 : 6;
+  const int *pv = piece_values_mat(td);
   int npm = 0;
   for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * count_bits(td.bitboards[t + off]);
+    npm += pv[t + off] * count_bits(td.bitboards[t + off]);
   return td.gd_heat + (npm > 2000) + (n.depth > 8) + (n.depth > 12) >= 4;
 }
 
@@ -1100,10 +1101,11 @@ static bool capture_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQ
   const int vk = victim_kind(td, m);
   const int ch = td.capt_hist[pc][to][vk];
   if (!gives && red_depth < CaptFutMaxDepth) {
-    const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth + unit_value[vk] * CaptFutVictim / 1024 +
+    const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth +
+                    (piece_values_mat(td)[td.piece_on[to] & 15] + pawn_struct_adj(td, to, td.piece_on[to])) *
+                        CaptFutVictim / 1024 +
                     CaptFutHist * ch / 1024 +
                     (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0)
-                    + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[to] & 15] : 0)
                     ;
     if (fut <= n.alpha) {
       PL_RULE(11);
@@ -1379,10 +1381,11 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
   nr.last_kind = (int8_t)(lmpc >= 0 && lmpc < 12 ? kPieceKind[lmpc] : -1);
   nr.last_victim = (int8_t)(lm > 0 && f[-1].captured >= 0 && f[-1].captured < 12 ? kPieceKind[f[-1].captured] : -1);
   int hang_n = 0, hang_max = -1;
+  const int *pv = piece_values_mat(td);   // per-expert values of the node (see.cpp)
   for (U64 t = td.occupancies[us] & ~td.bitboards[K + us_off]; t; pop_lsb_bb(t)) {
     const int sq = get_ls1b_index(t), k = kPieceKind[td.piece_on[sq]];
     const int a = ol_min_attacker(td, sq, them, occ);
-    if (a >= 0 && (unit_value[a] < unit_value[k] || !(attackers_with(td, sq, us, occ) & occ & ~(1ULL << sq))))
+    if (a >= 0 && (pv[a + eoff] < pv[td.piece_on[sq]] || !(attackers_with(td, sq, us, occ) & occ & ~(1ULL << sq))))
       hang_n++, hang_max = std::max(hang_max, k);
   }
   nr.hanging_n = (int8_t)hang_n;
@@ -1422,9 +1425,9 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
     const U64 fromb = 1ULL << from, tob = 1ULL << to;
     const int fa = ol_min_attacker(td, from, them, occ);
     r.from_att = fa >= 0;
-    r.from_lesser = fa >= 0 && unit_value[fa] < unit_value[pt];
+    r.from_lesser = fa >= 0 && pv[fa + eoff] < pv[pc];
     r.from_hang = fa >= 0 && pt != K &&
-                  (unit_value[fa] < unit_value[pt] || !(attackers_with(td, from, us, occ) & occ & ~fromb));
+                  (pv[fa + eoff] < pv[pc] || !(attackers_with(td, from, us, occ) & occ & ~fromb));
     U64 occ2 = (occ ^ fromb) | tob, gone = cap ? tob : 0;
     if (ep) {
       const int cs = us == white ? to + 8 : to - 8;
@@ -1442,7 +1445,7 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
       nt++;
       mx = std::max(mx, k);
       const bool undef = !(attackers_with(td, sq, them, occ2) & occ2 & ~gone);
-      ng += unit_value[k] > unit_value[apt] || undef;
+      ng += pv[td.piece_on[sq]] > pv[apt + us_off] || undef;
     }
     r.n_targets = (int8_t)nt;
     r.max_target = (int8_t)mx;
@@ -1520,9 +1523,10 @@ static bool passed_push(const ThreadData &td, int m) {
   const int to = move_to(m), us = td.side, row = to / 8, file = to % 8;   // row 0 = ottava traversa
   if (us == white ? (row != 1 && row != 2) : (row != 5 && row != 6))
     return false;
+  const int *pv = piece_values_mat(td);
   int npm = 0;
   for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
+    npm += pv[t] * count_bits(td.bitboards[t]) + pv[t + 6] * count_bits(td.bitboards[t + 6]);
   if (npm > PassedPushNpm)
     return false;
   U64 files = 0;
@@ -1871,7 +1875,9 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (tact) {
       // Piece actually captured (for en passant it is the pawn, not the empty arrival square).
       const int took = kPieceKind[u.captured_piece & 15];
-      f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
+      // The captured piece at its per-expert value; the move is made, so the table is the child's, whose owner
+      // regime already counts the capture (28/10/2026).
+      f->stat_score = CaptStatMul * piece_values_mat(td)[u.captured_piece & 15] / 128 + td.capt_hist[pc][to][took];
     }
     else
       f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +

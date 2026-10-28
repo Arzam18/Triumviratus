@@ -136,8 +136,8 @@ static inline int units_to_cp(int v) {
 // MOVE STATISTICS
 // ============================================================================
 
-// Value of a piece type in the units of the margins (index: P..K, then "none").
-static const int unit_value[7] = {208, 781, 825, 1276, 2538, 0, 0};
+// Piece values: one per-expert table for the whole engine since 28/10/2026 (piece_values_mat, see.cpp; the inherited
+// unit_value table of the search is gone).
 
 // Every statistic of the engine (move histories, correction histories, hash-move history) is updated by
 // hist_learn, below. The former update (stat_push, in the inherited form) was removed on 17/10/2026: hist_learn with

@@ -251,7 +251,8 @@ static void queue_start(MoveQueue &q, ThreadData &td, NodeFrame *f, int hash_mov
 // C2 expert with C2OrdReg, fill_tactics).
 static inline int score_tactic(const ThreadData &td, int m, int ex, int promo, int bpair) {
   const int vk = victim_kind(td, m);
-  const int vval = unit_value[vk] + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[move_to(m)] & 15] : 0);
+  const int vto = move_to(m);   // per-expert value of the victim (see.cpp) and its pawn-structure correction (see.h)
+  const int vval = piece_values_mat(td)[td.piece_on[vto] & 15] + pawn_struct_adj(td, vto, td.piece_on[vto]);
   int s = (by_exp4(ex, HtCapt0, HtCapt1, HtCapt2, HtCapt3) * td.capt_hist[move_piece(m)][move_to(m)][vk] +
            by_exp4(ex, HtVict0, HtVict1, HtVict2, HtVict3) * vval) / 1024;
   if (promo && promo_kind(m) == Q)
@@ -356,10 +357,11 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   if (KingShield) {
     const int ksq = get_ls1b_index(td.bitboards[us == white ? K : k]);
     const bool home = us == white ? ksq >= a1 : ksq <= h8;
-    const int their_npm = unit_value[N] * count_bits(td.bitboards[N + eoff]) +
-                          unit_value[B] * count_bits(td.bitboards[B + eoff]) +
-                          unit_value[R] * count_bits(td.bitboards[R + eoff]) +
-                          unit_value[Q] * count_bits(td.bitboards[Q + eoff]);
+    const int *pv = piece_values_mat(td);
+    const int their_npm = pv[N + eoff] * count_bits(td.bitboards[N + eoff]) +
+                          pv[B + eoff] * count_bits(td.bitboards[B + eoff]) +
+                          pv[R + eoff] * count_bits(td.bitboards[R + eoff]) +
+                          pv[Q + eoff] * count_bits(td.bitboards[Q + eoff]);
     if (home && their_npm >= KingShieldNpm)
       shield = king_attacks[ksq] & td.bitboards[us == white ? P : p];
   }
@@ -521,6 +523,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   // C2 idea 6 (21/10/2026, agent ORDER; OFF by default, SPRT pending): the structure history of the node's pawn-king
   // signature (09_history.inc), null at 0 or on a pawn-king cache miss.
   const int c2_sw = C2StructHistW;
+  const int *mval = piece_values_mat(td);   // per-expert piece values of the node (see.cpp)
   const PieceToRow *srow = c2_sw ? c2_struct_row(td) : nullptr;
 
   for (int i = 0; i < n; i++) {
@@ -543,9 +546,9 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += chk_disc;
     {
       const int from_t = int((lesser[pt] >> from) & 1), to_t = int((lesser[pt] >> to) & 1);
-      s += unit_value[pt] * (thr_esc * from_t - thr_ent * to_t);
+      s += mval[pc] * (thr_esc * from_t - thr_ent * to_t);
       if (thr_safe && from_t && !((q.opp_att >> to) & 1))
-        s += unit_value[pt] * thr_safe;
+        s += mval[pc] * thr_safe;
     }
     if (ply < LOW_PLY_SIZE) {
       const int x = 8 * td.low_ply_hist[ply][key];
@@ -702,7 +705,8 @@ __attribute__((noinline)) static void fill_evasions(MoveQueue &q) {
   const int he_main = by_exp4(eex, HeMain0, HeMain1, HeMain2, HeMain3), he_cont = by_exp4(eex, HeCont0, HeCont1, HeCont2, HeCont3);
   for (int i = 0; i < n; i++) {
     const int m = ml->moves[i];
-    sc[i] = is_tactical(m) ? unit_value[victim_kind(td, m)] + (1 << 20)
+    sc[i] = is_tactical(m) ? piece_values_mat(td)[td.piece_on[move_to(m)] & 15] +
+                                 pawn_struct_adj(td, move_to(m), td.piece_on[move_to(m)]) + (1 << 20)
                            : (he_main * qh_order(td, td.side, quiet_key(m), quiet_ctx(q, m)) +
                               he_cont * c1[move_piece(m)][move_to(m)]) / 1024;
   }

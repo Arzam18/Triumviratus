@@ -411,11 +411,12 @@ static GdRoot gd_root_facts(ThreadData &td) {
     const int m = td.root[i].pv[0];
     if (!get_move_capture(m) || kPieceKind[move_piece(m)] == K)
       continue;
-    int mover = unit_value[kPieceKind[move_piece(m)]];
+    const int *pv = piece_values_mat(td);   // per-expert values of the root (see.cpp)
+    int mover = pv[move_piece(m)];
     if (get_move_promoted(m))
-      mover += unit_value[kPieceKind[get_move_promoted(m) & 15]] - unit_value[P];
-    const int vk = get_move_enpassant(m) ? P : kPieceKind[td.piece_on[move_to(m)] & 15];
-    if (mover > unit_value[vk]) { g.sacrificial = true; break; }
+      mover += pv[get_move_promoted(m) & 15] - pv[move_piece(m)];
+    const int victim = get_move_enpassant(m) ? pv[td.side == white ? p : P] : pv[td.piece_on[move_to(m)] & 15];
+    if (mover > victim) { g.sacrificial = true; break; }
   }
   // Pedoni bianchi in 5a-7a (righe 1-3 con a8 = 0, case 8-31), neri in 2a-4a (righe 4-6, case 32-55).
   g.near_promo = (td.bitboards[P] & 0x00000000FFFFFF00ULL) || (td.bitboards[p] & 0x00FFFFFF00000000ULL);

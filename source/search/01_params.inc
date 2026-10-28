@@ -1043,28 +1043,34 @@
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
   P(QsStandMix, 462, 0, 1024)                                                                              \
-  /* --- C2 piece values (agent SEE) --- (21/10/2026; OFF by default; SPRT/SPSA pending)                            */ \
-  /*  SEE piece values (see.cpp, the units of the search margins): the exchange evaluation reads the copy g_see_val, */ \
-  /*  synced at setoption (constants in the release, static_assert below). Defaults = the old table 208/781/825/  */ \
-  /*  1276/2538, identical tree. unit_value (09_history.inc, futility and ordering margins) keeps its own values.   */ \
+  /* PIECE VALUES (28/10/2026, author: one value per piece per expert, replacing the inherited values everywhere;  */ \
+  /*  see.cpp): value = SeeVal<type> + C2Val<type><expert>, the expert that reads the owner's material. One table   */ \
+  /*  for the exchange evaluation, the futility and quiescence margins, the capture order, the threat terms, the    */ \
+  /*  material thresholds and the stat score of a capture (unit_value of the search is gone). Bases at the old     */ \
+  /*  table 208/781/825/1276/2538 (inherited values) and offsets at 0 = the old tree. The C2SeeReg switch (offsets   */ \
+  /*  in some places only) was removed: partial form +0.56 +- 5.19 over 4,352 games at 8+0.08 HT, neutral.          */ \
+  /*  BAKED 28/10/2026: the knight, bishop, rook and queen offsets measured on the final network (removal of every   */ \
+  /*  piece of 8,000 positions, match_moe/piece_values/REPORT_ALL_Plebis_finale.md), +0.35 +- 2.04 over 30,104 games */ \
+  /*  at 4+0.04 noHT on [-1, 2] (author's rule: H1 or positive at 30,000). Pawn offsets and pawn structure (below)  */ \
+  /*  on the new base: H0, -8.00 +- 4.06 over 7,688 games at the same conditions; they stay 0.                    */ \
   P(SeeValP, 208, 100, 400) P(SeeValN, 781, 500, 1100) P(SeeValB, 825, 500, 1100)                          \
   P(SeeValR, 1276, 900, 1800) P(SeeValQ, 2538, 1800, 3400)                                                 \
-  /*  Regime piece values (idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; Consilium Plebis builds only, elsewhere the */ \
-  /*  options do nothing): a piece is valued by the material class of its OWNER, i.e. by the expert of the other  */ \
-  /*  perspective (the C2 router follows the opponent's material): value = base + C2Val<type><expert>, in SEE      */ \
-  /*  units, pawns and kings without offset. C2SeeReg bits: 1 = SEE (see.cpp), 2 = victim of the quiescence        */ \
-  /*  futility (qs_worth), 4 = victim of the capture futility and of the capture order (capture_gate,             */ \
-  /*  score_tactic). Per-thread table rebuilt when the expert pair changes (see.cpp). 0 = off, identical tree.     */ \
-  /*  Seeds from the network's PSQT rows: tools/c2_psqt_seeds.py (ep27: the rows are flat across experts).        */ \
-  P(C2SeeReg, 0, 0, 7)                                                                                     \
-  P(C2ValN0, 0, -300, 300) P(C2ValN1, 0, -300, 300) P(C2ValN2, 0, -300, 300) P(C2ValN3, 0, -300, 300)      \
-  P(C2ValN4, 0, -300, 300) P(C2ValN5, 0, -300, 300) P(C2ValN6, 0, -300, 300) P(C2ValN7, 0, -300, 300)      \
-  P(C2ValB0, 0, -300, 300) P(C2ValB1, 0, -300, 300) P(C2ValB2, 0, -300, 300) P(C2ValB3, 0, -300, 300)      \
-  P(C2ValB4, 0, -300, 300) P(C2ValB5, 0, -300, 300) P(C2ValB6, 0, -300, 300) P(C2ValB7, 0, -300, 300)      \
-  P(C2ValR0, 0, -400, 400) P(C2ValR1, 0, -400, 400) P(C2ValR2, 0, -400, 400) P(C2ValR3, 0, -400, 400)      \
-  P(C2ValR4, 0, -400, 400) P(C2ValR5, 0, -400, 400) P(C2ValR6, 0, -400, 400) P(C2ValR7, 0, -400, 400)      \
-  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 0, -600, 600)      \
-  P(C2ValQ4, 0, -600, 600) P(C2ValQ5, 0, -600, 600) P(C2ValQ6, 0, -600, 600) P(C2ValQ7, 0, -600, 600)      \
+  P(C2ValP0, 0, -150, 150) P(C2ValP1, 0, -150, 150) P(C2ValP2, 0, -150, 150) P(C2ValP3, 0, -150, 150)      \
+  P(C2ValP4, 0, -150, 150) P(C2ValP5, 0, -150, 150) P(C2ValP6, 0, -150, 150) P(C2ValP7, 0, -150, 150)      \
+  P(C2ValN0, -182, -300, 300) P(C2ValN1, 0, -300, 300) P(C2ValN2, -56, -300, 300) P(C2ValN3, 166, -300, 300) \
+  P(C2ValN4, -5, -300, 300) P(C2ValN5, 10, -300, 300) P(C2ValN6, 27, -300, 300) P(C2ValN7, 11, -300, 300)  \
+  P(C2ValB0, -159, -300, 300) P(C2ValB1, 0, -300, 300) P(C2ValB2, -72, -300, 300) P(C2ValB3, 243, -300, 300) \
+  P(C2ValB4, -1, -300, 300) P(C2ValB5, 20, -300, 300) P(C2ValB6, 17, -300, 300) P(C2ValB7, 24, -300, 300)  \
+  P(C2ValR0, 0, -400, 400) P(C2ValR1, 55, -400, 400) P(C2ValR2, -21, -400, 400) P(C2ValR3, 0, -400, 400)   \
+  P(C2ValR4, 57, -400, 400) P(C2ValR5, 26, -400, 400) P(C2ValR6, -17, -400, 400) P(C2ValR7, -28, -400, 400) \
+  P(C2ValQ0, 0, -600, 600) P(C2ValQ1, 0, -600, 600) P(C2ValQ2, 0, -600, 600) P(C2ValQ3, 600, -600, 600)    \
+  P(C2ValQ4, -120, -600, 600) P(C2ValQ5, -193, -600, 600) P(C2ValQ6, -43, -600, 600) P(C2ValQ7, 46, -600, 600) \
+  /*  Pawn structure in the value of a pawn taken (see.h pawn_struct_adj, 28/10/2026), SEE units, 0 = old values: */ \
+  P(PawnIsoAdj, 0, -150, 150)            /* isolated (no own pawn on the side files)                     */  \
+  P(PawnDblAdj, 0, -150, 150)            /* doubled (another own pawn on its file)                       */  \
+  P(PawnSupAdj, 0, -150, 150)            /* supported (defended by an own pawn)                          */  \
+  P(PawnPassAdj, 0, -150, 200)           /* passed, on its 5th or 6th rank                               */  \
+  P(PawnR7Adj, 0, -100, 400)             /* on its 7th rank                                              */  \
   /* Endgame rule (report R2, 18/10/2026): at the first quiescence ply called by the main search, quiet moves that */ \
   /*  give check with SEE >= 0 are also searched when at most QsChecksPieces pieces are on the board (the quiesce */ \
   /*  QCHK form of analysis mode). 0 = off, identical tree.                                                        */ \
@@ -1080,15 +1086,18 @@
   /*  1. Margins per C2 expert, added to the old per-band terms: RFP multiplier (as RfpExp), quiet futility (as       */ \
   /*     FutExp), reduction in 1/1024 ply (as LmrExp), null-move floor (as NmpExp). C2ExpSide picks the expert:        */ \
   /*     0 = side to move's perspective (opponent's material), 1 = opponent's perspective (our material).              */ \
+  /*  BAKE 28/10/2026 (author, for the release): the margins of e5/e6/e7 from the rough SPSA of 25/10 on the new     */ \
+  /*  network, used in every Plebis test since (vs Consilium +10.8/+10.3 at 100k, +11.2 at 30k): 5 = -1/2/-6/2,   */ \
+  /*  6 = 4/22/-72/13, 7 = 0/-1/5/-3 (Rfp/Fut/Lmr/Nmp). A dedicated on/off SPRT goes into the SPSA phase.          */ \
   P(C2ExpSide, 0, 0, 1)                                                                                    \
   P(C2Rfp0, 0, -40, 40) P(C2Rfp1, 0, -40, 40) P(C2Rfp2, 0, -40, 40) P(C2Rfp3, 0, -40, 40)                  \
-  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, 0, -40, 40) P(C2Rfp6, 0, -40, 40) P(C2Rfp7, 0, -40, 40)                  \
+  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, -1, -40, 40) P(C2Rfp6, 4, -40, 40) P(C2Rfp7, 0, -40, 40)                  \
   P(C2Fut0, 0, -200, 200) P(C2Fut1, 0, -200, 200) P(C2Fut2, 0, -200, 200) P(C2Fut3, 0, -200, 200)          \
-  P(C2Fut4, 0, -200, 200) P(C2Fut5, 0, -200, 200) P(C2Fut6, 0, -200, 200) P(C2Fut7, 0, -200, 200)          \
+  P(C2Fut4, 0, -200, 200) P(C2Fut5, 2, -200, 200) P(C2Fut6, 22, -200, 200) P(C2Fut7, -1, -200, 200)          \
   P(C2Lmr0, 0, -1536, 1536) P(C2Lmr1, 0, -1536, 1536) P(C2Lmr2, 0, -1536, 1536) P(C2Lmr3, 0, -1536, 1536)  \
-  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, 0, -1536, 1536) P(C2Lmr6, 0, -1536, 1536) P(C2Lmr7, 0, -1536, 1536)  \
+  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, -6, -1536, 1536) P(C2Lmr6, -72, -1536, 1536) P(C2Lmr7, 5, -1536, 1536)  \
   P(C2Nmp0, 0, -200, 200) P(C2Nmp1, 0, -200, 200) P(C2Nmp2, 0, -200, 200) P(C2Nmp3, 0, -200, 200)          \
-  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 0, -200, 200) P(C2Nmp6, 0, -200, 200) P(C2Nmp7, 0, -200, 200)          \
+  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 2, -200, 200) P(C2Nmp6, 13, -200, 200) P(C2Nmp7, -3, -200, 200)          \
   /*  2. Expert-switching captures (a capture or promotion after which the routing table gives another expert to    */ \
   /*     either perspective): ordering bonus in the main search, less reduction (1/1024 ply, positive = less, stops  */ \
   /*     at zero), and a wider futility margin for such captures in the quiescence (evaluation units).               */ \
@@ -1741,18 +1750,25 @@ bool      g_see_fix       = true;
 // --- C2 piece values (agent SEE) --- (21/10/2026): copies for see.cpp, from the parameter defaults, synced at setoption.
 int       g_see_val[12]   = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000,
                              SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
-int       g_c2_see_reg    = C2SeeReg;
-int       g_c2_val_off[4][8] = {
+int       g_c2_val_off[5][8] = {
+    {C2ValP0, C2ValP1, C2ValP2, C2ValP3, C2ValP4, C2ValP5, C2ValP6, C2ValP7},
     {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
     {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
     {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
     {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
+int       g_pawn_adj[5]   = {PawnIsoAdj, PawnDblAdj, PawnSupAdj, PawnPassAdj, PawnR7Adj};
+bool      g_pawn_adj_on   = PawnIsoAdj || PawnDblAdj || PawnSupAdj || PawnPassAdj || PawnR7Adj;
 static void see_values_sync() {
+  {
+    const int pa[5] = {PawnIsoAdj, PawnDblAdj, PawnSupAdj, PawnPassAdj, PawnR7Adj};
+    std::memcpy(g_pawn_adj, pa, sizeof(pa));
+    g_pawn_adj_on = PawnIsoAdj || PawnDblAdj || PawnSupAdj || PawnPassAdj || PawnR7Adj;
+  }
   const int v[6] = {SeeValP, SeeValN, SeeValB, SeeValR, SeeValQ, 20000};
   for (int i = 0; i < 6; i++)
     g_see_val[i] = g_see_val[i + 6] = v[i];
-  g_c2_see_reg = C2SeeReg;
-  const int off[4][8] = {
+  const int off[5][8] = {
+      {C2ValP0, C2ValP1, C2ValP2, C2ValP3, C2ValP4, C2ValP5, C2ValP6, C2ValP7},
       {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
       {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
       {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
@@ -1766,7 +1782,22 @@ static_assert(SeePinned == 1, "see.cpp congela g_see_pinned = 1 nella release");
 static_assert(SeeValP == see_piece_values[P] && SeeValN == see_piece_values[N] && SeeValB == see_piece_values[B] &&
                   SeeValR == see_piece_values[R] && SeeValQ == see_piece_values[Q],
               "see.cpp freezes the SEE piece values in the release");
-static_assert(C2SeeReg == 0, "see.cpp freezes C2SeeReg = 0 in the release");
+static_assert([] {
+  const int off[5][8] = {
+      {C2ValP0, C2ValP1, C2ValP2, C2ValP3, C2ValP4, C2ValP5, C2ValP6, C2ValP7},
+      {C2ValN0, C2ValN1, C2ValN2, C2ValN3, C2ValN4, C2ValN5, C2ValN6, C2ValN7},
+      {C2ValB0, C2ValB1, C2ValB2, C2ValB3, C2ValB4, C2ValB5, C2ValB6, C2ValB7},
+      {C2ValR0, C2ValR1, C2ValR2, C2ValR3, C2ValR4, C2ValR5, C2ValR6, C2ValR7},
+      {C2ValQ0, C2ValQ1, C2ValQ2, C2ValQ3, C2ValQ4, C2ValQ5, C2ValQ6, C2ValQ7}};
+  for (int t = 0; t < 5; t++)
+    for (int e = 0; e < 8; e++)
+      if (off[t][e] != see_val_offsets[t][e]) return false;
+  return true;
+}(), "see.h freezes the per-expert piece-value offsets in the release");
+static_assert(PawnIsoAdj == see_pawn_adj[0] && PawnDblAdj == see_pawn_adj[1] && PawnSupAdj == see_pawn_adj[2] &&
+                  PawnPassAdj == see_pawn_adj[3] && PawnR7Adj == see_pawn_adj[4] && PawnIsoAdj == 0 && PawnDblAdj == 0 &&
+                  PawnSupAdj == 0 && PawnPassAdj == 0 && PawnR7Adj == 0,
+              "see.h freezes the pawn-structure corrections (and g_pawn_adj_on = false) in the release");
 // Release: tt.h holds these copies as constants; they must equal the parameters.
 static_assert(TtKeepMargin == g_tt_keep_margin && TtKeepPv == g_tt_keep_pv && TtAgeWeight == g_tt_age_weight,
               "tt.h freezes the hash-table copies in the release");
@@ -1853,7 +1884,7 @@ bool set_search_param(const char* name, int value) {
     g_tt_keep_margin = TtKeepMargin;
     g_tt_keep_pv = TtKeepPv;
     g_tt_age_weight = TtAgeWeight;
-    see_values_sync();   // C2 piece values (agent SEE): SeeVal*, C2SeeReg, C2Val*
+    see_values_sync();   // piece values: SeeVal* and C2Val*
     param_tables_refresh();
   };
 #define TP_SET(pname, def, lo, hi)                                                                         \

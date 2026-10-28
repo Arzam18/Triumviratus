@@ -85,29 +85,26 @@ extern bool g_see_fix;
 extern int  g_see_pinned;      // SeePinned (copy of the search parameter, 01_params.inc)
 #endif
 
-// --- C2 piece values (agent SEE) ---
-// REGIME PIECE VALUES (21/10/2026, idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; OFF by default; SPRT/SPSA pending).
-// Consilium Plebis routes each perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone
-// rook, e2 two minors or rook + minor, e3 a lone queen, e4 10-13, e5 14-18, e6 19-25, e7 26-31 points). The expert of
-// the Black perspective therefore reads White's material, and the reverse. With C2SeeReg on, a piece is valued by the
-// regime of its OWNER's material: White's pieces take the offsets of the Black perspective's expert, Black's pieces
-// those of the White perspective's expert (the proposal's choice; the other side's reading is the "own rows" half of
-// the network's PSQT, tools/c2_psqt_seeds.py). value(piece) = SeeVal<type> + C2Val<type><expert>, pawns and kings
-// without offset (the pawn is the unit of the scale).
-// The two tables (values and offsets, 16 piece codes each) live in the thread and are rebuilt only when the expert
-// pair changes: the pair is one byte on the network's stack (dp.phase, written by the make), so the check per call is
-// one load and one compare; at the root of a search (one state) the pair is read from the board. copy_board_to_thread
-// marks the table stale (c2_see_pair = -1) at each search start, which also catches a setoption in between.
-// C2SeeReg bits: 1 = the exchange evaluation (this file); 2 = the victim of the quiescence futility (qs_worth,
-// 12_quiesce.inc); 4 = the victim of the capture futility and of the capture order (capture_gate, score_tactic).
+// PIECE VALUES (28/10/2026, author: "one value per piece per expert, replacing the inherited values everywhere").
+// One definition for the whole engine: value(piece) = SeeVal<type> + C2Val<type><expert>, every type with an offset
+// per expert, pawns included (kings: 20000 in the exchange evaluation, 0 as material). Consilium Plebis routes each
+// perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone rook, e2 two minors or
+// rook + minor, e3 a lone queen, e4 10-13, e5 14-18, e6 19-25, e7 26-31 points), so a piece is valued by the expert
+// that reads its OWNER's material: White's pieces take the Black perspective's expert, Black's the White one's.
+// The exchange evaluation, the capture and quiescence futility, the capture order, the threat terms of the quiet
+// order, the material thresholds and the stat score of a capture all read this table (piece_values_mat for the
+// search, see_values here); unit_value of the search is gone. With every offset at 0 the values are the old table
+// 208/781/825/1276/2538 and the tree is the old one. The offsets come from the network: match_moe/piece_values.
+// The tables (SEE values, material values, offsets; 16 piece codes each) live in the thread and are rebuilt only when
+// the expert pair changes: the pair is one byte on the network's stack (dp.phase, written by the make), so the check
+// per call is one load and one compare; at the root of a search (one state) the pair is read from the board.
+// copy_board_to_thread marks the tables stale (c2_see_pair = -1) at each search start, which also catches a setoption.
 // Least valuable attacker: the swap list keeps taking the attackers by kind (pawn, knight, bishop, rook, queen) even
 // where the offsets would reorder two kinds; the values only change the balance of the exchange.
 #ifdef TRIUMV_RELEASE
-constexpr int g_c2_see_reg = 0;                   // C2SeeReg (static_assert in 01_params.inc)
-static constexpr int g_c2_val_off[4][8] = {};      // C2ValN..C2ValQ, experts 0..7
+static constexpr const int (&g_c2_val_off)[5][8] = see_val_offsets;   // C2ValP..C2ValQ (static_assert in 01_params.inc)
 #else
-extern int g_c2_see_reg;                           // copies of C2SeeReg and C2Val*, synced at setoption
-extern int g_c2_val_off[4][8];
+extern int g_c2_val_off[5][8];                     // copies of C2Val*, synced at setoption
 #endif
 
 // Expert pair of the thread's position, White | Black << 4 (the same byte as c2_experts_td, 06_nndirty.inc).
@@ -127,12 +124,13 @@ static void c2_see_rebuild(const ThreadData& td, int pair) {
     const int e_of_owner[2] = {(pair >> 4) & 7, pair & 7};   // White's pieces: Black's expert; Black's: White's
     for (int c = 0; c < 2; c++)
         for (int t = 0; t < 6; t++) {
-            const int off = (t >= N && t <= Q) ? g_c2_val_off[t - N][e_of_owner[c]] : 0;
+            const int off = t <= Q ? g_c2_val_off[t][e_of_owner[c]] : 0;
             td.c2_see_off[6 * c + t] = off;
             td.c2_see_val[6 * c + t] = g_see_val[6 * c + t] + off;
+            td.mat_val[6 * c + t] = t == K ? 0 : g_see_val[6 * c + t] + off;
         }
     for (int i = 12; i < 16; i++)
-        td.c2_see_off[i] = td.c2_see_val[i] = 0;
+        td.c2_see_off[i] = td.c2_see_val[i] = td.mat_val[i] = 0;
     td.c2_see_pair = pair;
 }
 
@@ -142,23 +140,20 @@ static inline void c2_see_sync(const ThreadData& td) {
         c2_see_rebuild(td, pair);
 }
 
-const int* see_c2_offsets(const ThreadData& td) {
+const int* piece_values_mat(const ThreadData& td) {
     c2_see_sync(td);
-    return td.c2_see_off;
+    return td.mat_val;
 }
 
-// Values the SEE reads: the regime table when bit 1 of C2SeeReg is on, otherwise SeeVal*.
+// Values the exchange evaluation reads (kings 20000).
 static inline const int* see_values(const ThreadData& td) {
-    if (g_c2_see_reg & 1) {
-        c2_see_sync(td);
-        return td.c2_see_val;
-    }
-    return g_see_val;
+    c2_see_sync(td);
+    return td.c2_see_val;
 }
 
 // SEE implementation
 int td_see(ThreadData& td, int move) {
-    const int* const val = see_values(td);   // piece values (SeeVal*, or the C2 regime table)
+    const int* const val = see_values(td);   // piece values (the per-expert table of the thread)
     int from = get_move_source(move);
     int to = get_move_target(move);
     int piece = get_move_piece(move);
@@ -203,7 +198,7 @@ int td_see(ThreadData& td, int move) {
     int current_side = td.side;
 
     // Initial gain (0 for quiet moves: no piece collected by the move itself)
-    gain[0] = (captured != -1) ? val[captured] : 0;
+    gain[0] = (captured != -1) ? val[captured] + pawn_struct_adj(td, captured_sq, captured) : 0;
 
     // Remove attacker from source
     pop_bit(bb[piece], from);
@@ -294,7 +289,7 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
     const int from = get_move_source(move);
     const int to   = get_move_target(move);
     int piece      = get_move_piece(move);
-    // Piece values by piece code (agent SEE, 21/10/2026): SeeVal*, or with C2SeeReg the regime table of the thread,
+    // Piece values by piece code (the per-expert table of the thread, 28/10/2026),
     // where the two colours can differ (a kind index t is turned into a code with the side's base below).
     const int* const val = see_values(td);
 
@@ -314,7 +309,8 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
 
     int gain[40];
     int d = 0;
-    gain[0] = ((captured != -1) ? val[captured] : 0) + promo_gain;
+    // The first victim with its pawn-structure correction (see.h; 0 unless a PawnAdj lever is set).
+    gain[0] = ((captured != -1) ? val[captured] + pawn_struct_adj(td, get_move_enpassant(move) ? (td.side == white ? to + 8 : to - 8) : to, captured) : 0) + promo_gain;
     int standing = val[piece];   // value of the piece now on `to`, the next victim
 
     // Bounds of the resolved list, known before any attacker is looked up (20/10/2026, speed, same answers): the
@@ -365,11 +361,10 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
         }
         gain[d + 1] = standing - gain[d];
         d++;
-#if !defined(TRIUMV_RELEASE)
-        standing = val[base + t];   // the regime table may differ between the colours
-#else
-        standing = val[t];          // both colours share the values (same code as before)
-#endif
+        // The two colours have different values (each side's pieces are valued by its own expert, 28/10/2026). The
+        // release used val[t] (White's values for both sides) until 28/10: harmless with one shared table, a different
+        // tree with the per-expert offsets (bench 365341 instead of 366783).
+        standing = val[base + t];
         const U64 bb = mine & td.bitboards[base + t];
         occupied ^= bb & (0 - bb);
         const SliderPair sp = get_slider_pair(to, occupied);
