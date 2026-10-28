@@ -54,7 +54,11 @@ param(
     # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
     # dell'11/10), id name "Triumviratus - 8.1 Pos Solver", file Triumviratus_8.1_PosSolver_windows_universal.exe. Il bench e'
     # quello della modalita' analisi: va passato con -ExpectedBench.
-    [switch]$PosSolver
+    [switch]$PosSolver,
+    # Training one variant at a time (28/10/2026, author: "usa 3 processi cosi non interferisce col torneo"): every
+    # variant gets all $Workers in turn, instead of all variants together with at least one worker each (4 processes
+    # or more even with -Workers 3). Slower, same profiles. Use with -Jobs for the compilations.
+    [switch]$SerialTrain
 )
 $MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
@@ -299,15 +303,17 @@ if (-not $NoPgo) {
         $env:PGO_EVALFILE_SHARE = "$PgoNetShare"
         Say "rete di training: $($env:PGO_EVALFILE) ($PgoNetShare% dei worker)"
     }
+    $perVar = if ($SerialTrain) { $Workers } else { [Math]::Max(1, [int]($Workers / $train.Count)) }
     $ps = foreach ($n in $train.Keys) {
         Remove-Item -Recurse -Force "$PROF\v$n" -ErrorAction SilentlyContinue; New-Item -ItemType Directory "$PROF\v$n" | Out-Null
         $env:LLVM_PROFILE_FILE = "$PROF\v$n\p_%p.profraw"
-        Keep-Handle (Start-Process -FilePath $py -ArgumentList @("`"$U\pgo_train_det.py`"", "`"$OBJ\g$n.exe`"", '0', "`"$U\pgo_positions.epd`"",
-                      '200', '--workers', "$([Math]::Max(1, [int]($Workers / $train.Count)))") -NoNewWindow -PassThru `
+        $p = Keep-Handle (Start-Process -FilePath $py -ArgumentList @("`"$U\pgo_train_det.py`"", "`"$OBJ\g$n.exe`"", '0', "`"$U\pgo_positions.epd`"",
+                      '200', '--workers', "$perVar") -NoNewWindow -PassThru `
                       -WorkingDirectory $OBJ -RedirectStandardOutput "$OBJ\train$n.log" -RedirectStandardError "$OBJ\train$n.err")
+        if ($SerialTrain) { Wait-All @($p) "training $($names[$n])"; Say "training $($names[$n]) finito" } else { $p }
     }
     Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
-    Wait-All $ps "training"
+    if (-not $SerialTrain) { Wait-All $ps "training" }
     Remove-Item Env:PGO_EVALFILE, Env:PGO_EVALFILE_SHARE -ErrorAction SilentlyContinue
     foreach ($n in $train.Keys) {
         $raw = @(Get-ChildItem "$PROF\v$n\*.profraw")

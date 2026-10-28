@@ -1154,6 +1154,26 @@
   P(C2PkVol, 0, -3072, 3072)                                                                               \
   P(C2PkOrder, 0, -16384, 16384)                                                                           \
   P(C2PkScale, 32, 4, 1024)                                                                                \
+  /*  5b. PkCrit (28/10/2026, ours; author: "the network values the pawns but the signal does not enter the search"):*/ \
+  /*     a node is decided by the pawn structure when the pawn-king subnetwork adds at least PkCritFrom to the        */ \
+  /*     positional output (|cn::pk_effect|, side to move, positional units; bench 21/10: mean 74, 27% above 100).   */ \
+  /*     Read only right after a fresh network evaluation of the node (one tail pass, nn_pk_effect_fresh); a node    */ \
+  /*     whose evaluation comes from the hash is not marked. In a marked node: PkCritRed = less reduction for every  */ \
+  /*     pawn move (1/1024 ply; positive down to zero at most, negative = more), PkCritPrune 1 = quiet pawn moves    */ \
+  /*     skip the quiet gate (history prune, futility, exchange test). Both 0 = off, identical tree.                 */ \
+  /*  5c. Pawn breaks (28/10/2026, ours; author: "implement something that changes the behaviour on pawn breaks and  */ \
+  /*     test it directly"). Study of 28/10 (match_moe/pawn_study, reference Stockfish dev at 20M nodes, partial): a    */ \
+  /*     break is the best move the search finds least (37.5% at depth 14, 50% at 20, settled only from depth 13.5)  */ \
+  /*     and the costliest to miss (61 cp), only 8 positions so far. A break = a quiet pawn push that attacks an enemy  */ \
+  /*     pawn from its new square, in any structure (RdPawnBreak, closed structures only, was neutral on 19/10).        */ \
+  /*     BreakOrder: ordering bonus of the quiet stage; BreakRed: less reduction (1/1024 ply, positive down to zero at  */ \
+  /*     most, negative = more); BreakPrune 1: breaks skip the quiet gate. All 0 = off, identical tree.               */ \
+  P(BreakOrder, 0, -16384, 16384)                                                                          \
+  P(BreakRed, 0, -3072, 3072)                                                                              \
+  P(BreakPrune, 0, 0, 1)                                                                                   \
+  P(PkCritFrom, 150, 0, 4000)                                                                              \
+  P(PkCritRed, 0, -3072, 3072)                                                                             \
+  P(PkCritPrune, 0, 0, 1)                                                                                  \
   /*  6. (C2NmpMask, no null move per expert, became NmpNpmFloor on 22/10/2026: it only read material.)             */ \
   /*  7. Asymmetric experts: the two perspectives use different experts (the routing table separates the material */ \
   /*     of the two sides): RFP margin plus C2AsymRfp (evaluation units), reduction minus C2AsymLmr (1/1024 ply).     */ \
@@ -1831,7 +1851,9 @@ void print_search_options() {
 // visible in the development builds and in the Pos Solver. Hidden does not mean off: setoption still accepts them.
 void print_analysis_options() {
   printf("option name UCI_AnalyseMode type check default %s\n", PSV(false, true) ? "true" : "false");
-#if defined(TRIUMV_RELEASE) && !defined(TRIUMV_POS_SOLVER)
+  // 28/10/2026 (author: a Pos Solver for Maurizio Platino "without all the options visible"): -DTRIUMV_HIDE_AN_OPTIONS
+  // hides them in the Pos Solver too; their defaults (kAnDefaultBits) still apply and setoption still accepts them.
+#if defined(TRIUMV_RELEASE) && (!defined(TRIUMV_POS_SOLVER) || defined(TRIUMV_HIDE_AN_OPTIONS))
   return;
 #endif
   printf("option name AnalyseOnInfinite type check default true\n");

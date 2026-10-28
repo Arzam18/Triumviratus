@@ -57,6 +57,7 @@ struct NodeState {
   bool c2_asym;                  // the two perspectives use different experts
   int  c2_pk;                    // conversion push (C2ConvPkSrc 1): exact pawn-king effect of this node, INT_MIN = not read
   int  c2_imb;                   // C2Imb*: +1 ahead, -1 behind by material class and evaluation, 0 otherwise or off
+  bool pk_crit;                  // PkCrit: the pawn-king subnetwork adds >= PkCritFrom here (fresh evaluations only)
 };
 
 #ifdef TRIUMV_REDLOG
@@ -622,6 +623,7 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   n.c2e = n.c2_own = 0;
   n.c2_asym = false;
   n.c2_pk = INT_MIN;
+  n.pk_crit = false;
   if (g_c2_node) {   // C2 ideas 1, 6, 7: the two experts of the node (from the make's state, one load)
     const int e_us = c2_expert(td, td.side), e_them = c2_expert(td, td.side ^ 1);
     n.c2e = C2ExpSide ? e_them : e_us;
@@ -789,6 +791,10 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
     // exact pawn-king effect for one tail pass. From the hash: read at the move loop (move_loop, c2_conv_side).
     if (c2_conv_exact() && n.disagree >= 0)
       n.c2_pk = c2_pk_effect_fresh(td);
+    // PkCrit (28/10/2026, ours, OFF): the same exact effect, read only at a fresh evaluation (reused when the
+    // conversion push has just read it); a node evaluated from the hash stays unmarked.
+    if ((PkCritRed | PkCritPrune) && n.disagree >= 0)
+      n.pk_crit = std::abs(n.c2_pk != INT_MIN ? n.c2_pk : c2_pk_effect_fresh(td)) >= PkCritFrom;
     f->static_eval = n.eval = corrected_eval(plain, n.signal + n.signal_x);
     if (n.h.hit) {
       if (val_known(n.h.value) && bound_covers(n.h.bound, n.h.value > n.eval))
@@ -1057,6 +1063,10 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 template <bool AN>
 static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, int m, int red_depth, int ctx) {
   const int us = td.side, pc = move_piece(m), to = move_to(m);
+  if (PkCritPrune && n.pk_crit && kPieceKind[pc] == P)   // PkCrit: the structure decides here, pawn moves are searched
+    return false;
+  if (BreakPrune && pawn_break(td, m))   // pawn breaks (28/10/2026, ours, OFF): searched, not pruned by this gate
+    return false;
   int hist = (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
   if (hist < -(QuietHistPrune * n.depth + QuietHistBase)) {
     PL_RULE(13);
@@ -1850,6 +1860,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
                                       get_move_enpassant(m));
     if (c2_pkm && c2_pk_here == INT_MIN)
       c2_pk_here = c2_pk_skip(td);
+    const bool brk = BreakRed && pawn_break(td, m);   // pawn break, read before the move is made
     const U64 nodes_before = td.nodes;
     UndoInfo u;
     if (!step_in(td, f, m, u, gen_legal)) {
@@ -1990,6 +2001,20 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           r = std::max(r - less, std::min(r, 0));
         else
           r -= less;
+      }
+      // Pawn breaks (28/10/2026, ours, OFF): a quiet pawn push that attacks an enemy pawn, same sign rule.
+      if (BreakRed && brk) {
+        if (BreakRed > 0)
+          r = std::max(r - BreakRed, std::min(r, 0));
+        else
+          r -= BreakRed;
+      }
+      // PkCrit (28/10/2026, ours, OFF): a pawn move in a node decided by the pawn structure, same sign rule.
+      if (PkCritRed && n.pk_crit && kPieceKind[pc] == P) {
+        if (PkCritRed > 0)
+          r = std::max(r - PkCritRed, std::min(r, 0));
+        else
+          r -= PkCritRed;
       }
       // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind in material class and
       // evaluation, checks and losing captures (the queue's losing stage: sacrifices) are the counterplay the defender

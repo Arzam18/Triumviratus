@@ -314,6 +314,14 @@ static inline int c2_pk_skip_after(const ThreadData &td, int m) {
   bb[pc] ^= (1ULL << move_from(m)) | (1ULL << move_to(m));
   return -nn_pk_skip(td.nnpos, bb, td.side != white);
 }
+// Pawn break (28/10/2026, ours; BreakOrder/BreakRed/BreakPrune, 01_params.inc): a quiet pawn push of the side to move
+// (no capture, no promotion) that attacks an enemy pawn from its new square, in any structure. Asked before the move is
+// made (td.side is the mover).
+static inline bool pawn_break(const ThreadData &td, int m) {
+  if (kPieceKind[move_piece(m)] != P || get_move_capture(m) || get_move_promoted(m))
+    return false;
+  return (pawn_attacks[td.side][move_to(m)] & td.bitboards[td.side == white ? p : P]) != 0;
+}
 // C2PawnHist: constant per expert mixed into the key of the pawn-structure history (1 = expert of the side to move,
 // 2 = pair of experts). One salt per expert, as CorrPhase has one per band for the corrections.
 static inline U64 c2_pawn_salt(const ThreadData &td) {

@@ -525,6 +525,9 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int c2_sw = C2StructHistW;
   const int *mval = piece_values_mat(td);   // per-expert piece values of the node (see.cpp)
   const PieceToRow *srow = c2_sw ? c2_struct_row(td) : nullptr;
+  // Pawn breaks (28/10/2026, ours, OFF): ordering bonus for a quiet pawn push that attacks an enemy pawn (pawn_break).
+  const int brk_order = BreakOrder;
+  const U64 their_pawns = td.bitboards[us == white ? p : P];
 
   for (int i = 0; i < n; i++) {
     const int m = mv[i];
@@ -569,6 +572,8 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += attack_bonus[pt];
     if (pt == P && (passed_to >> to & 1) && see_holds_q(td, q, m, 0))
       s += pass_v;
+    if (brk_order && pt == P && !get_move_promoted(m) && (pawn_attacks[us][to] & their_pawns))
+      s += brk_order;
     if (c2_pk_order && (pt == P || pt == K) && !get_move_promoted(m)) {
       const int d = std::clamp(c2_pk_skip_after(td, m) - c2_pk_node, -c2_pk_scale, c2_pk_scale);
       s += c2_pk_order * d / c2_pk_scale;
