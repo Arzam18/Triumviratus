@@ -76,9 +76,14 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // Intel P cores (AVX2) vpmovsxbw ymm 1/cycle on port 5 only, vpsraw/vpaddw on p01/p015. Implies the W1 interleave.
 // On by default, with CN_SQ_MADD below, in the AVX-512 build without VNNI of Consilium Plebis (21/10/2026, xperf on the Xeon,
 // Skylake-SP, deterministic PGO, against W1: W2 -0.72% cycles per node in the middlegame and -0.29% in endgames,
-// W2 + CN_SQ_MADD -1.06% and -0.66%, a null build of the same source +0.15% and +0.47%). The other builds wait for Zen 4
-// and Intel Core Ultra. -DCN_NO_W2 and -DCN_NO_SQ_MADD turn them off (with -DCN_NO_W1 as well for vpmovsxbw).
-#if defined(USE_AVX512) && !defined(USE_VNNI)
+// W2 + CN_SQ_MADD -1.06% and -0.66%, a null build of the same source +0.15% and +0.47%). -DCN_NO_W2 and
+// -DCN_NO_SQ_MADD turn them off (with -DCN_NO_W1 as well for vpmovsxbw).
+// 28/10/2026: also on in the avx2 build (AVX2 with PEXT, no VNNI: Intel before Alder Lake, AMD Zen 3): on the Xeon with
+// the avx2 variant (deterministic PGO, 3 rounds) W2 + CN_SQ_MADD gave -4.2% cycles per node in the middlegame and
+// -4.0% in endgames against vpmovsxbw (port 5 on Intel). On the Zen 4 (avx512icl, native PGO) W2 was neutral (+0.1%),
+// so the VNNI builds keep vpmovsxbw; Zen 3 and the avxvnni build (Intel 12th-14th gen) are not measured yet.
+#if (defined(USE_AVX512) && !defined(USE_VNNI)) \
+    || (defined(USE_AVX2) && !defined(USE_AVX512) && defined(USE_PEXT) && !defined(USE_VNNI))
     #if !defined(CN_NO_W2) && !defined(CN_W2)
         #define CN_W2 1
     #endif
@@ -456,13 +461,20 @@ u64 passers(int c, u64 own, u64 opp) {
     #define CN_PREFETCH_HALF(w) ((void)0)
 #endif
 
+// (28/10/2026, speed, same rows) Consilium Plebis has no int16 rows (HalfKA is int8 like the other blocks), so the int16
+// counts are the constant 0 and every loop over them disappears at compile time (push16 was removed: nothing called
+// it); and the removed-row list starts one cache line off the 8 KB distance from the added one (a8[i] and s8[i] fell in
+// the same L1 set, 4K aliasing between the stores of push and the loads of the sums). xperf on the Xeon (deterministic
+// PGO, avx512, 3 rounds): -0.31% cycles per node in the middlegame, -0.5% in endgames.
 struct RowList {
-    static constexpr int CAP16 = 512, CAP8 = 1024;
+    static constexpr int CAP16 = 1, CAP8 = 1024;
     const Net* net;
-    int n16a = 0, n16s = 0, n8a = 0, n8s = 0;
+    static constexpr int n16a = 0, n16s = 0;
+    int n8a = 0, n8s = 0;
     const std::int16_t* a16[CAP16];
     const std::int16_t* s16[CAP16];
     const std::int8_t*  a8[CAP8];
+    const std::int8_t*  pad8[8];
     const std::int8_t*  s8[CAP8];
     explicit RowList(const Net* n) : net(n) {}
     // A row added (add = 1) or removed (add = 0) without a branch on the sign: written in both lists, only the right
@@ -491,15 +503,6 @@ struct RowList {
         s8[n8s] = w;
         n8a += add & valid;
         n8s += (1 - add) & valid;
-    }
-    void push16(const std::int16_t* w, int add) {
-        CN_PREFETCH(w);
-        CN_PREFETCH_HALF(w);
-        CN_PREFETCH(w + L1);
-        a16[n16a] = w;
-        s16[n16s] = w;
-        n16a += add;
-        n16s += 1 - add;
     }
     void pushH(int r, int sign) { push8(net->wHka[r], sign > 0); }
     void pushP(int r, int sign) { push8(net->wPP[r], sign > 0); }
@@ -1896,7 +1899,7 @@ void reset(Handle& h) {
 
 // The HalfKA rows a move changes for both perspectives (the piece leaving, the piece arriving, the captured piece),
 // first line and PSQT line of each, requested from the make (19/10/2026): the hash probe and the rest of the child
-// node cover the memory latency before its evaluation reads them (push16 asks for the same lines, then already in
+// node cover the memory latency before its evaluation reads them (push8 asks for the same lines, then already in
 // cache). Without a capture the captured row is the leaving one again, so nothing depends on a branch. A king move
 // refreshes its own perspective from the cache instead, and the rows asked for there go unused. Only a hint: no
 // state is read or written besides the king squares. -DCN_NO_MAKE_PREFETCH turns it off.
@@ -2191,8 +2194,14 @@ Out evaluate(const Net& net, Handle& h, const Board& b) {
             const Persp P(p, b, state_phase(S, top, b, p));
             const NnDirtyPiece& dpt = S.st[top].dp;
 #ifndef CN_NO_KINGSTEP
+            // (28/10/2026, speed, same accumulator) Only with at least KINGSTEP_MIN_PIECES pieces on the board: with few
+            // pieces the refresh adds few threat rows, while the step reads three accumulators and writes three. xperf on
+            // the Xeon (deterministic PGO, avx512, 3 rounds): -0.34% cycles per node in the middlegame, -1.0% in
+            // endgames. 81% of the endgame king steps had fewer than 15 pieces.
+            constexpr int KINGSTEP_MIN_PIECES = 15;
             if (refresh[p] && from[p] == top && top > 0 && (S.st[top - 1].computed[p] & 1)
-                && !(dpt.pc == KING + 6 * p && mirror_oth(dpt.from) != mirror_oth(dpt.to))) {
+                && !(dpt.pc == KING + 6 * p && mirror_oth(dpt.from) != mirror_oth(dpt.to))
+                && CN_POPCNT(b.occ[2]) >= KINGSTEP_MIN_PIECES) {
                 // King step inside the same half, or a phase change, from a computed parent: no O recomputation.
                 std::uint64_t bbp[12], occp[3];
                 for (int pc = 0; pc < 12; pc++) bbp[pc] = b.bb[pc];

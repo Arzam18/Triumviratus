@@ -32,6 +32,9 @@ static std::atomic<bool> g_stop_at_ponderhit{false};
 // "go searchmoves": definite in defs.h, riempite da parse_go.
 int  g_searchmoves[256];
 int  g_searchmoves_count = 0;
+// TbDrawSearch (28/10/2026): the current search chooses among the moves that keep a tablebase draw at the root, with the
+// in-search tablebase probe off (15_threads.inc launch_search). Set before the threads start, read-only during search.
+static bool g_tb_root_draw_search = false;
 
 // Anti-forfeit floor: the time cut waits until thread 0 has searched at least one root move.
 static inline bool root_move_ready() {

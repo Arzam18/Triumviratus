@@ -165,8 +165,9 @@ bool syzygy_probe_wdl(const ThreadData& td, int ply, int& score)
 // ---------------------------------------------------------------------------
 // root DTZ probe (GLOBAL board)
 // ---------------------------------------------------------------------------
-bool syzygy_probe_root(int& best_move, int& score)
+bool syzygy_probe_root(int& best_move, int& score, int* keep_moves, int* n_keep)
 {
+    if (n_keep) *n_keep = 0;
     if (!g_tb_initialized) return false;
     if (castle != 0) return false;                                 // need no castling rights
     if ((unsigned)count_bits(occupancies[both]) > TB_LARGEST) return false;
@@ -175,11 +176,12 @@ bool syzygy_probe_root(int& best_move, int& score)
     to_fathom(bitboards, occupancies,
               w, b, kings, queens, rooks, bishops, knights, pawns);
 
+    unsigned results[TB_MAX_MOVES];
     unsigned res = tb_probe_root(w, b, kings, queens, rooks, bishops, knights,
                                  pawns, (unsigned)fifty, 0u,
                                  fathom_ep(enpassant),
                                  /*turn=*/ side == white,
-                                 /*results=*/ NULL);
+                                 /*results=*/ keep_moves ? results : NULL);
     if (res == TB_RESULT_FAILED) return false;   // includes "DTZ tables missing"
 
     unsigned wdl       = TB_GET_WDL(res);
@@ -206,5 +208,21 @@ bool syzygy_probe_root(int& best_move, int& score)
     score = (wdl == TB_WIN) ?  TB_VALUE_WIN
           : (wdl == TB_LOSS) ? -TB_VALUE_WIN
           : 0;
+    // TbDrawSearch (28/10/2026): every legal move with the same WDL as the best one (the moves that keep the result),
+    // matched against the move list like the best move; the caller searches among them when the root is drawn.
+    if (keep_moves && n_keep) {
+        for (int k = 0; k < TB_MAX_MOVES && results[k] != TB_RESULT_FAILED; k++) {
+            if (TB_GET_WDL(results[k]) != wdl) continue;
+            const int f = (int)TB_GET_FROM(results[k]) ^ 56, t = (int)TB_GET_TO(results[k]) ^ 56;
+            const unsigned pr = TB_GET_PROMOTES(results[k]);
+            for (int i = 0; i < move_list.count; i++) {
+                const int m = move_list.moves[i];
+                if (get_move_source(m) == f && get_move_target(m) == t && promo_matches(get_move_promoted(m), pr)) {
+                    if (*n_keep < 256) keep_moves[(*n_keep)++] = m;
+                    break;
+                }
+            }
+        }
+    }
     return true;
 }

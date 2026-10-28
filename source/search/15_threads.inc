@@ -91,9 +91,21 @@ void launch_search(int depth) {
   g_limits.depth = depth;
 
   // Root position covered by the tablebases (DTZ): the perfect move is played at once.
+  // TbDrawSearch (28/10/2026, ours, OFF; evaluation-ideas agent, STATO §0.2 T8): when the root is a tablebase draw and
+  // more than one move keeps it, the normal search runs among those moves only (as "go searchmoves") with the in-search
+  // tablebase probe off for that search, so the network can choose the draw that leaves the opponent most chances to
+  // go wrong, instead of the DTZ move (every draw has DTZ 0). 0: the DTZ move at once, as before.
+  g_tb_root_draw_search = false;
   if (!g_limits.infinite && !g_limits.ponder) {
-    int tb_move = 0, tb_score = 0;
-    if (syzygy_probe_root(tb_move, tb_score)) {
+    int tb_move = 0, tb_score = 0, keep[256], n_keep = 0;
+    const bool want_keep = TbDrawSearch && !g_searchmoves_count;
+    const bool probed = syzygy_probe_root(tb_move, tb_score, want_keep ? keep : nullptr, want_keep ? &n_keep : nullptr);
+    if (probed && want_keep && tb_score == 0 && n_keep > 1) {
+      for (int i = 0; i < n_keep; i++)
+        g_searchmoves[i] = keep[i];
+      g_searchmoves_count = n_keep;
+      g_tb_root_draw_search = true;
+    } else if (probed) {
       new_search();
       std::lock_guard<std::mutex> lock(output_mutex);
       char sc[32];   // the internal tablebase value through print_score (it was printed raw: cp 29872)

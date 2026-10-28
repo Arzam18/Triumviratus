@@ -1171,6 +1171,30 @@
   P(BreakOrder, 0, -16384, 16384)                                                                          \
   P(BreakRed, 0, -3072, 3072)                                                                              \
   P(BreakPrune, 0, 0, 1)                                                                                   \
+  /*  5d. Trust in the cuts by node type and by the side's standing (28/10/2026, ours; search-ideas agent, prunelog of */ \
+  /*     27/10, 3M nodes and 14.7M pruned moves each checked by a probe, match_moe/idee_ricerca_2026-10-28; STATO     */ \
+  /*     §0.2 C1-C4). All 0 = off, identical tree; to be tuned by a short SPSA, then SPRT. A high error ratio is not  */ \
+  /*     Elo by itself (RfpDisagree: x1.53 errors, -6.6 Elo).                                                         */ \
+  /*     RfpBehind/RfpBehindD/RfpBehindFrom: reverse futility of a side far behind (static < -700: wrong x2.1 / x2.9 / */ \
+  /*     x5.1 at depths 1-2 / 3-5 / 6-12); RfpAll: reverse futility in ALL nodes (x2.73 at every depth).              */ \
+  P(RfpBehind, 0, 0, 2048)                                                                                 \
+  P(RfpBehindD, 0, 0, 256)                                                                                 \
+  P(RfpBehindFrom, 150, 0, 1000)                                                                           \
+  P(RfpAll, 0, -100, 400)                                                                                  \
+  /*     Move pruning by node type (CUT wrong x1.8-2.3, ALL x0.4, every filter) and with static >= alpha (LMP x6.1,     */ \
+  /*     history prune x3.0, quiet exchange test x2.7). Positive = prune less. LMP threshold /1024 (LmpCut, -LmpAll,  */ \
+  /*     LmpAbove); history threshold per ply (HistCut, -HistAll, HistAbove); quiet futility margin (FutCut, -FutAll);*/ \
+  /*     quiet exchange test, extra loss accepted per ply when static >= alpha (SeeAbove); capture futility           */ \
+  /*     (CaptFutCut, -CaptFutAll).                                                                                  */ \
+  P(LmpCut, 0, -512, 2048) P(LmpAll, 0, -512, 2048) P(LmpAbove, 0, -512, 2048)                             \
+  P(HistCut, 0, -2000, 4000) P(HistAll, 0, -2000, 4000) P(HistAbove, 0, -2000, 4000)                       \
+  P(FutCut, 0, -200, 300) P(FutAll, 0, -200, 300)                                                          \
+  P(SeeAbove, 0, -40, 120)                                                                                 \
+  P(CaptFutCut, 0, -200, 300) P(CaptFutAll, 0, -200, 300)                                                  \
+  /*  5e. TbDrawSearch (28/10/2026, ours; evaluation-ideas agent, STATO §0.2 T8): a tablebase draw at the root with    */ \
+  /*     more than one drawing move: search among those moves (in-search probe off) instead of playing the DTZ move,  */ \
+  /*     to keep chances against an opponent without tablebases. 0 = the DTZ move at once (old behaviour).           */ \
+  P(TbDrawSearch, 0, 0, 1)                                                                                 \
   P(PkCritFrom, 150, 0, 4000)                                                                              \
   P(PkCritRed, 0, -3072, 3072)                                                                             \
   P(PkCritPrune, 0, 0, 1)                                                                                  \

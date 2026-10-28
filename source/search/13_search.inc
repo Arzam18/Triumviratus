@@ -742,7 +742,7 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   unsigned men = syzygy_max_pieces();
   if (g_syzygy_probe_limit >= 0 && (unsigned)g_syzygy_probe_limit < men)
     men = (unsigned)g_syzygy_probe_limit;
-  if (!men || td.castle || td.fifty)
+  if (!men || td.castle || td.fifty || g_tb_root_draw_search)   // TbDrawSearch: no probe while choosing among draws
     return NO_VALUE;
   const unsigned pieces = (unsigned)count_bits(td.occupancies[both]);
   if (pieces > men || (pieces == men && n.depth < g_syzygy_probe_depth))
@@ -913,6 +913,17 @@ static int reverse_futility(ThreadData &td, NodeFrame *f, NodeState &n) {
   // with a negative value). OFF by default; SPRT pending.
   if (C2AsymRfp && n.c2_asym)
     margin += C2AsymRfp;
+  // RfpBehind / RfpAll (28/10/2026, ours, OFF; search-ideas agent, prunelog of 27/10, match_moe/idee_ricerca_2026-10-28):
+  // at equal depth and surplus eval - beta, the cuts of a side whose static evaluation is far below zero were wrong
+  // x2.1 / x2.9 / x5.1 at depths 1-2 / 3-5 / 6-12 (static < -700), and the cuts of ALL nodes x2.73 at every depth. So
+  // the margin grows with the deficit beyond RfpBehindFrom (capped at 2048 units), RfpBehind/4096 per unit plus
+  // RfpBehindD/4096 per unit and ply, and by RfpAll in ALL nodes. All 0: the old margin.
+  if (RfpBehind | RfpBehindD) {
+    const int def = std::min(std::max(-f->static_eval - RfpBehindFrom, 0), 2048);
+    margin += def * (RfpBehind + RfpBehindD * n.depth) / 4096;
+  }
+  if (RfpAll && n.all)
+    margin += RfpAll;
   // RfpDisagree: in the prunelog data the error of the static evaluation is 12-45% larger in the quarter of nodes
   // with the most disagreement, at equal size of the evaluation, and flat below; so the margin grows only past a
   // threshold per expert (its upper quartile).
@@ -1067,8 +1078,15 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
     return false;
   if (BreakPrune && pawn_break(td, m))   // pawn breaks (28/10/2026, ours, OFF): searched, not pruned by this gate
     return false;
+  // Node type and "static above alpha" in the quiet gate (28/10/2026, ours, OFF; prunelog of 27/10: quiet moves pruned in
+  // CUT nodes wrong x1.8-2.3, in ALL nodes x0.4; with static >= alpha history prune x3.0, exchange test x2.7, futility
+  // x2.0 even with QuietFutAlpha). Positive values prune less: the history threshold grows by (HistCut in CUT nodes -
+  // HistAll in ALL nodes + HistAbove when static >= alpha) per ply, the futility margin by FutCut / -FutAll, the exchange
+  // test accepts SeeAbove more per ply of corrected depth when static >= alpha. All 0: the old gate.
+  const bool above = f->static_eval >= n.alpha;
   int hist = (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
-  if (hist < -(QuietHistPrune * n.depth + QuietHistBase)) {
+  if (hist < -(QuietHistPrune * n.depth + QuietHistBase +
+               (HistCut * n.cut - HistAll * n.all + HistAbove * above) * n.depth)) {
     PL_RULE(13);
     return true;
   }
@@ -1086,6 +1104,7 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
             by_expert(n.expert, FutExp0, FutExp1, FutExp2, FutExp3) + cell_off(C2C_FUT, n);
   if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the margin per Consilium Plebis expert. OFF by default; SPRT pending
     fut += c2_tab[C2T_FUT][n.c2e];
+  fut += FutCut * n.cut - FutAll * n.all;   // node type (28/10/2026, ours, OFF; see above)
   PL_SET(pl_fut, fut - n.alpha);
   if (!n.in_check && red_depth < QuietFutMaxDepth && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
@@ -1094,7 +1113,8 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
     return true;
   }
   red_depth = std::max(red_depth, 0);
-  if (!see_holds_q(td, q, m, -(QuietSeeMul * red_depth * red_depth + QuietSeeLin * red_depth))) {
+  if (!see_holds_q(td, q, m, -(QuietSeeMul * red_depth * red_depth + QuietSeeLin * red_depth +
+                               SeeAbove * above * red_depth))) {
     PL_RULE(15);
     return true;
   }
@@ -1115,7 +1135,8 @@ static bool capture_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQ
                     (piece_values_mat(td)[td.piece_on[to] & 15] + pawn_struct_adj(td, to, td.piece_on[to])) *
                         CaptFutVictim / 1024 +
                     CaptFutHist * ch / 1024 +
-                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0)
+                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0) +
+                    CaptFutCut * n.cut - CaptFutAll * n.all   // node type (28/10/2026, ours, OFF; positive = prune less)
                     ;
     if (fut <= n.alpha) {
       PL_RULE(11);
@@ -1154,6 +1175,14 @@ static void count_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQue
   // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind, the defender looks wider.
   if (C2ImbBehindLmp && n.c2_imb < 0)
     lmp_count = lmp_count * (1024 + C2ImbBehindLmp) / 1024;
+  // Node type and "static above alpha" in the move count (28/10/2026, ours, OFF; prunelog of 27/10): moves pruned in CUT
+  // nodes were wrong x1.8-2.3, in ALL nodes x0.4; LMP with static >= alpha x6.1. The threshold scales by /1024 (positive
+  // = more moves searched): LmpCut in CUT nodes, minus LmpAll in ALL nodes, LmpAbove when the static evaluation is at
+  // or above alpha. All 0: the old count.
+  if (LmpCut | LmpAll | LmpAbove) {
+    const int s = LmpCut * n.cut - LmpAll * n.all + LmpAbove * (f->static_eval >= n.alpha);
+    lmp_count = lmp_count * (1024 + s) / 1024;
+  }
   if (f->move_count >= lmp_count && !(AN && (td.an_bits & AN_LMPNEAR) && (n.pv || f->ply <= 2))) {   // AnLmpNear
 #ifdef TRIUMV_PRUNELOG
     q.pl_count_off = true;

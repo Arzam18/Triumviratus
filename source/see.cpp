@@ -140,13 +140,41 @@ static inline void c2_see_sync(const ThreadData& td) {
         c2_see_rebuild(td, pair);
 }
 
+// Constant tables of the release (speed, 28/10/2026, same values): when every per-expert offset of the release is 0
+// (the pre-release of 28/10 has them unbaked), the thread's tables would always hold the base values, so the release
+// reads these two constant tables and skips the expert-pair check of every call and the rebuild of three tables at
+// every change of expert. xperf on the Xeon (deterministic PGO, avx512, 3 rounds): -0.86% cycles per node in the
+// middlegame, -0.53% in endgames. A release with offsets baked to non-zero values takes the thread's tables again by
+// itself; the development builds always do (their offsets are options).
+#ifdef TRIUMV_RELEASE
+static constexpr bool see_offsets_all_zero() {
+    for (int t = 0; t < 5; t++)
+        for (int e = 0; e < 8; e++)
+            if (see_val_offsets[t][e]) return false;
+    return true;
+}
+static constexpr bool g_const_values = see_offsets_all_zero();
+alignas(64) static constexpr int k_see_val16[16] = {see_piece_values[0], see_piece_values[1], see_piece_values[2],
+    see_piece_values[3], see_piece_values[4], see_piece_values[5], see_piece_values[6], see_piece_values[7],
+    see_piece_values[8], see_piece_values[9], see_piece_values[10], see_piece_values[11], 0, 0, 0, 0};
+alignas(64) static constexpr int k_mat_val16[16] = {see_piece_values[0], see_piece_values[1], see_piece_values[2],
+    see_piece_values[3], see_piece_values[4], 0, see_piece_values[6], see_piece_values[7], see_piece_values[8],
+    see_piece_values[9], see_piece_values[10], 0, 0, 0, 0, 0};
+#else
+static constexpr bool g_const_values = false;
+static constexpr const int* k_see_val16 = nullptr;
+static constexpr const int* k_mat_val16 = nullptr;
+#endif
+
 const int* piece_values_mat(const ThreadData& td) {
+    if constexpr (g_const_values) return k_mat_val16;
     c2_see_sync(td);
     return td.mat_val;
 }
 
 // Values the exchange evaluation reads (kings 20000).
 static inline const int* see_values(const ThreadData& td) {
+    if constexpr (g_const_values) return k_see_val16;
     c2_see_sync(td);
     return td.c2_see_val;
 }
