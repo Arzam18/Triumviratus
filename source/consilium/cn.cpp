@@ -81,9 +81,15 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
 // 28/10/2026: also on in the avx2 build (AVX2 with PEXT, no VNNI: Intel before Alder Lake, AMD Zen 3): on the Xeon with
 // the avx2 variant (deterministic PGO, 3 rounds) W2 + CN_SQ_MADD gave -4.2% cycles per node in the middlegame and
 // -4.0% in endgames against vpmovsxbw (port 5 on Intel). On the Zen 4 (avx512icl, native PGO) W2 was neutral (+0.1%),
-// so the VNNI builds keep vpmovsxbw; Zen 3 and the avxvnni build (Intel 12th-14th gen) are not measured yet.
+// so the AVX-512 VNNI builds keep vpmovsxbw (29/10/2026 on the Zen 4 again, 6 rounds with an identical copy as noise
+// control: W2 +0.8% / +1.6%); Zen 3 is not measured yet.
+// 29/10/2026: also on in the avxvnni build (Intel 12th gen and later without AVX-512), with two dot chains (below): on a
+// Core Ultra 7 (PGO of the release, xperf, 4 rounds, an identical copy of the base as noise control at -1.44% / -0.12%)
+// W2 + CN_SQ_MADD + CN_DOT_CHAINS=2 gave -3.88% cycles per node in the middlegame and -2.21% in endgames against the
+// build of the day; W2 alone -3.11% / -1.93% (vpmovsxbw is port 5 only on the P cores, as on the Xeon).
 #if (defined(USE_AVX512) && !defined(USE_VNNI)) \
-    || (defined(USE_AVX2) && !defined(USE_AVX512) && defined(USE_PEXT) && !defined(USE_VNNI))
+    || (defined(USE_AVX2) && !defined(USE_AVX512) && defined(USE_PEXT) && !defined(USE_VNNI)) \
+    || (defined(USE_AVX2) && !defined(USE_AVX512) && defined(USE_AVXVNNI))
     #if !defined(CN_NO_W2) && !defined(CN_W2)
         #define CN_W2 1
     #endif
@@ -113,10 +119,13 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
     #endif
 #endif
 
-// Independent chains of the sparse first layer: three when it uses vpdpbusd (latency about five cycles, AVX-512 VNNI
-// or AVX-VNNI), two otherwise. -DCN_DOT_CHAINS=2 goes back to two (not measured on a VNNI processor here).
+// Independent chains of the sparse first layer: three when it uses vpdpbusd with AVX-512 VNNI (latency about five
+// cycles), two otherwise. -DCN_DOT_CHAINS=2 or 3 forces the count.
 // -DCN_DOT_CHAINS=4 (21/10/2026): four chains in the AVX-512 VNNI path (Zen 5, Cascade Lake, Sapphire Rapids); the
-// AVX2 path keeps three (16 registers: four chains of four accumulators would spill).
+// AVX2 path keeps three at most (16 registers: four chains of four accumulators would spill). On the Zen 4 (29/10/2026,
+// 6 rounds) four chains were -1.53% in the middlegame and +0.40% in endgames: noise, so three.
+// 29/10/2026: two in the avxvnni build as well (AVX-VNNI on the Intel P cores; Core Ultra 7, see W2 above: with W2 and
+// CN_SQ_MADD, two chains -3.88% / -2.21%, three chains -3.25% / -0.90%).
 
 // Squares of the layers after l1 (21/10/2026; OFF by default, -DCN_SQ_MADD): vpmaddwd of ax with itself instead of
 // vpmulld. ax = min(|x|, cut) <= 16383 leaves the high 16 bits of every 32-bit lane zero, so the pair sum is
@@ -131,7 +140,7 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
     #define CN_SQ256(a) _mm256_mullo_epi32(a, a)
 #endif
 #ifndef CN_DOT_CHAINS
-    #if defined(USE_VNNI)
+    #if defined(USE_VNNI) && !defined(USE_AVXVNNI)
         #define CN_DOT_CHAINS 3
     #else
         #define CN_DOT_CHAINS 2
@@ -320,14 +329,17 @@ inline int threat_index(int p, int o, int apc, int tpc, int fe, int te) {
     return g_thrA[x][f] + sl + g_thrL[x][f][t];
 }
 
-// The same index from precomputed tables (17/10, the counters showed ~50 instructions per tuple and perspective):
-// base of (perspective, half, attacker, target, from) and the attack-count part of (perspective, half, attacker,
-// from, to); same-type pairs are kept once (spec 3.2) through g_same and the oriented order g_lt. Checked against
-// threat_index on every combination at startup.
-std::int32_t g_tb[2][2][12][12][64];
-std::uint8_t g_to[2][2][12][64][64];
-std::uint8_t g_lt[2][2][64][64];
+// The same index with small tables (29/10/2026). The oriented square is one xor away (T(s) ^ orient = s ^ g_oo), so
+// threat_index needs only the attacker kind of the perspective (g_x), the slot offset of the (perspective, attacker,
+// target) triple (g_ts, -1 = no feature, a king attacker included), the per-kind tables g_thrA and g_thrL and g_same
+// (same-type pairs kept once, spec 3.2). About 45 KB together, in L1. From 17/10 to 29/10 the index came from tables of
+// 285 KB (g_tb, g_to, g_lt) that were read at every tuple, beyond L1: threat_row was 140 cycles per node; with these
+// -0.53% cycles per node in the middlegame and in endgames (Xeon, deterministic PGO, xperf, 4 rounds, every round
+// below), instructions +0.17%. Checked against threat_index on every combination at startup.
 std::uint8_t g_same[12][12];
+std::uint8_t g_x[2][12];        // [persp][attacker]: attacker kind ac * 5 + at (0 for a king: never valid)
+std::int32_t g_ts[2][12][12];   // [persp][attacker][target]: slot offset g_thrS, -1 = no feature
+std::uint8_t g_oo[2][2];        // [persp][mirror]: 56 ^ orient
 
 void build_fast_threats() {
     for (int a = 0; a < 12; a++)
@@ -335,29 +347,17 @@ void build_fast_threats() {
             const bool enemy = (a >= 6) != (d >= 6);
             g_same[a][d] = std::uint8_t(a % 6 == d % 6 && (enemy || a % 6 != PAWN));
         }
-    for (int p = 0; p < 2; p++)
-        for (int m = 0; m < 2; m++) {
-            const int o = orient(p, m);
-            for (int f = 0; f < 64; f++)
-                for (int t = 0; t < 64; t++) g_lt[p][m][f][t] = std::uint8_t((T(f) ^ o) < (T(t) ^ o));
-            for (int a = 0; a < 12; a++) {
-                const int at = a % 6, ac = (a >= 6) ^ p;
-                for (int f = 0; f < 64; f++) {
-                    const int fo = T(f) ^ o;
-                    for (int d = 0; d < 12; d++) {
-                        const int dt = d % 6, dc = (d >= 6) ^ p;
-                        int base = -1;
-                        if (at != KING) {
-                            const int x = ac * 5 + at, sl = g_thrS[x][dc][dt];
-                            if (sl >= 0) base = g_thrA[x][fo] + sl;
-                        }
-                        g_tb[p][m][a][d][f] = base;
-                    }
-                    for (int t = 0; t < 64; t++)
-                        g_to[p][m][a][f][t] = at == KING ? 0 : g_thrL[(ac * 5 + at)][fo][T(t) ^ o];
-                }
+    for (int p = 0; p < 2; p++) {
+        for (int m = 0; m < 2; m++) g_oo[p][m] = std::uint8_t(56 ^ orient(p, m));
+        for (int a = 0; a < 12; a++) {
+            const int at = a % 6, ac = (a >= 6) ^ p;
+            g_x[p][a] = std::uint8_t(at == KING ? 0 : ac * 5 + at);
+            for (int d = 0; d < 12; d++) {
+                const int dt = d % 6, dc = (d >= 6) ^ p;
+                g_ts[p][a][d] = at == KING ? -1 : g_thrS[ac * 5 + at][dc][dt];
             }
         }
+    }
 }
 
 // -DCN_ROWSTATS: how many times each threat row is read (incremental updates and refreshes), written to
@@ -404,19 +404,14 @@ void build_thr_slots() {}
 inline int thr_slot(int r) { return r; }
 #endif
 
-inline int threat_index_fast(int p, int m, int apc, int tpc, int f, int t) {
-    const int base = g_tb[p][m][apc][tpc][f];
-    if (base < 0 || (g_same[apc][tpc] & g_lt[p][m][f][t])) return -1;
-    return base + g_to[p][m][apc][f][t];
-}
-
-// The same without a branch, for the update loops: the row (0 when the tuple has no feature) and valid = 0/1. Whether
-// a tuple has a feature depends on the pieces and squares of each move, so the branch of threat_index_fast was
+// The row of a threat tuple without a branch, for the update loops: the row (0 when the tuple has no feature) and
+// valid = 0/1. Whether a tuple has a feature depends on the pieces and squares of each move, so a branch here was
 // mispredicted often.
 inline int threat_row(int p, int m, int apc, int tpc, int f, int t, int& valid) {
-    const int base = g_tb[p][m][apc][tpc][f];
-    valid          = int(base >= 0) & (1 ^ int(g_same[apc][tpc] & g_lt[p][m][f][t]));
-    return (base + g_to[p][m][apc][f][t]) & -valid;
+    const int o = g_oo[p][m], fo = f ^ o, to = t ^ o, x = g_x[p][apc];
+    const int ts = g_ts[p][apc][tpc];
+    valid        = int(ts >= 0) & (1 ^ int(g_same[apc][tpc] & int(fo < to)));
+    return (g_thrA[x][fo] + ts + g_thrL[x][fo][to]) & -valid;
 }
 
 bool check_fast_threats() {
@@ -425,9 +420,12 @@ bool check_fast_threats() {
             for (int a = 0; a < 12; a++)
                 for (int d = 0; d < 12; d++)
                     for (int f = 0; f < 64; f++)
-                        for (int t = 0; t < 64; t++)
-                            if (threat_index_fast(p, m, a, d, f, t) != threat_index(p, orient(p, m), a, d, f, t))
-                                return false;
+                        for (int t = 0; t < 64; t++) {
+                            int       valid;
+                            const int r   = threat_row(p, m, a, d, f, t, valid);
+                            const int ref = threat_index(p, orient(p, m), a, d, f, t);
+                            if (ref < 0 ? valid != 0 : (valid != 1 || r != ref)) return false;
+                        }
     return true;
 }
 
