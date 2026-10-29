@@ -9,9 +9,10 @@
 #    4. zips the phase 1 folder on the Desktop, ready to copy to the machine of phase 2 (release.ps1 -Pack -From).
 #  ONE COMMAND (PowerShell, not as administrator):
 #    Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/Tors3/Triumviratus/main/build/variants_here.ps1 -OutFile $env:TEMP\variants_here.ps1; & $env:TEMP\variants_here.ps1
-#  Options: -Day 20261029 (the same day on every machine), -Variants avxvnni,avx2 (empty = every variant this CPU runs).
+#  Options: -Day 20261029 (the same day on every machine), -Variants avxvnni,avx2 (empty = every variant this CPU runs),
+#  -Ref <commit or tag> (the SAME source as the other machines: phase 2 refuses folders from different commits).
 # =====================================================================================================================
-param([string]$Day = "20261029", [string[]]$Variants = @("avxvnni"))
+param([string]$Day = "20261029", [string[]]$Variants = @("avxvnni"), [string]$Ref = "main")
 $ErrorActionPreference = "Stop"
 $raw = "https://raw.githubusercontent.com/Tors3/Triumviratus/main/build"
 $dir = "$env:USERPROFILE\tr_build"
@@ -35,7 +36,7 @@ if (-not (Test-Path $clang)) {
 }
 
 Invoke-WebRequest "$raw/release.ps1" -OutFile "$dir\release.ps1"
-if ($Variants.Count) { & "$dir\release.ps1" -Day $Day -Variants $Variants } else { & "$dir\release.ps1" -Day $Day }
+if ($Variants.Count) { & "$dir\release.ps1" -Ref $Ref -Day $Day -Variants $Variants } else { & "$dir\release.ps1" -Ref $Ref -Day $Day }
 
 $out = Get-ChildItem "$env:USERPROFILE\Triumviratus_release\variants" -Directory -ErrorAction SilentlyContinue |
        Where-Object Name -like "*-$Day-*" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
