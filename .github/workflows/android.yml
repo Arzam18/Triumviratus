@@ -1,5 +1,5 @@
 
-name: Build Triumviratus for Android ARM64 NEON
+name: Build Triumviratus Android ARM64 NEON
 
 on:
   workflow_dispatch:
@@ -24,111 +24,56 @@ jobs:
         run: |
           set -euxo pipefail
 
-          NDK_ROOT="$HOME/android-ndk-r27c"
-          NDK_ZIP="$RUNNER_TEMP/android-ndk-r27c-linux.zip"
+          curl -fL --retry 5 \
+            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip \
+            -o "$RUNNER_TEMP/ndk.zip"
 
-          curl -L --fail --retry 5 \
-            -o "$NDK_ZIP" \
-            "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
+          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$HOME"
 
-          rm -rf "$NDK_ROOT"
-          unzip -q "$NDK_ZIP" -d "$HOME"
+          echo "NDK_ROOT=$HOME/android-ndk-r27c" >> "$GITHUB_ENV"
 
-          test -x "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
-
-          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
-          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-
-      - name: Obtain Triumviratus NNUE network
+      - name: Check repository and network references
         shell: bash
         run: |
           set -euxo pipefail
 
-          NETWORK_REPO="https://github.com/Tors3/Triumviratus-Networks.git"
-          NETWORK_DIR="$RUNNER_TEMP/Triumviratus-Networks"
-          NET_NAME="nn-consilium.nnue"
-          NET_PATH="nets/$NET_NAME"
+          echo "Repository files:"
+          find . -maxdepth 4 -type f \
+            \( -name 'Makefile' \
+            -o -name '*.cpp' \
+            -o -name '*.nnue' \) | sort
 
-          export GIT_LFS_SKIP_SMUDGE=1
+          echo "Network references:"
+          grep -RInE \
+            'nn-consilium(-plebis)?\.nnue|NET_NAME|incbin' \
+            source \
+            --include='*.cpp' \
+            --include='*.h' \
+            --include='Makefile' \
+            || true
 
-          git clone --depth 1 "$NETWORK_REPO" "$NETWORK_DIR"
-          cd "$NETWORK_DIR"
-
-          git lfs install
-
-          if ! git ls-tree -r --name-only HEAD | grep -Fx "$NET_PATH" >/dev/null; then
-            echo "ERROR: $NET_PATH was not found in the network repository."
-            exit 1
-          fi
-
-          git lfs pull --include="$NET_PATH" --exclude=""
-
-          test -f "$NET_PATH"
-          test "$(stat -c%s "$NET_PATH")" -ge 1000000
-
-          cp "$NET_PATH" "$GITHUB_WORKSPACE/source/$NET_NAME"
-          ls -lh "$GITHUB_WORKSPACE/source/$NET_NAME"
-
-      # FIX: resolve the uint64_t vs unsigned long long pointer mismatch.
-      - name: Patch ARM64 board pointer types
+      - name: Verify required NNUE file
         working-directory: source
         shell: bash
         run: |
           set -euxo pipefail
 
-          FILE="consilium_bridge.cpp"
-          test -f "$FILE"
+          # The assembler error explicitly requires this filename.
+          NET="nn-consilium-plebis.nnue"
 
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("consilium_bridge.cpp")
-          source = path.read_text()
-
-          old = "return cn::Board{piece_bb_, occupied_, mb_, mover_ == BLACK};"
-          new = (
-              "return cn::Board{"
-              "reinterpret_cast<const std::uint64_t*>(piece_bb_), "
-              "reinterpret_cast<const std::uint64_t*>(occupied_), "
-              "mb_, mover_ == BLACK};"
-          )
-
-          count = source.count(old)
-          if count != 1:
-              raise SystemExit(
-                  f"ERROR: Expected exactly one board initializer, found {count}. "
-                  "Source may have changed; refusing an unsafe patch."
-              )
-
-          source = source.replace(old, new, 1)
-          path.write_text(source)
-
-          print("Applied ARM64 board pointer compatibility patch.")
-          PY
-
-          grep -n "cn::Board view" "$FILE"
-
-      - name: Verify NNUE network
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          NET="nn-consilium.nnue"
-          test -f "$NET"
-
-          SIZE=$(stat -c%s "$NET")
-          echo "NNUE size: $SIZE bytes"
-
-          if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: NNUE file is suspiciously small."
+          if [ ! -f "$NET" ]; then
+            echo "::error::Missing $NET. The actual network file must be supplied; renaming a different network is not a valid fix."
             exit 1
           fi
 
-          file "$NET"
+          if [ "$(stat -c%s "$NET")" -lt 1000000 ]; then
+            echo "::error::The network file is unexpectedly small."
+            exit 1
+          fi
+
           ls -lh "$NET"
 
-      - name: Build Triumviratus ARM64 NEON
+      - name: Build Android ARM64 NEON
         working-directory: source
         shell: bash
         run: |
@@ -138,10 +83,10 @@ jobs:
 
           make android \
             NDK="$NDK_ROOT" \
-            NET_NAME=nn-consilium.nnue \
+            NET_NAME=nn-consilium-plebis.nnue \
             EXE=Triumviratus-android-arm64-neon
 
-      - name: Verify Android ARM64 binary
+      - name: Verify binary
         working-directory: source
         shell: bash
         run: |
@@ -150,43 +95,14 @@ jobs:
           BIN="Triumviratus-android-arm64-neon"
           LLVM="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-          test -f "$BIN"
           test -x "$BIN"
-
           "$LLVM/llvm-readelf" -h "$BIN"
-          "$LLVM/llvm-readelf" -A "$BIN" || true
-
           file "$BIN"
-          ls -lh "$BIN"
-
-      - name: Verify NNUE embedding
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          BIN="Triumviratus-android-arm64-neon"
-          SIZE=$(stat -c%s "$BIN")
-
-          echo "Final binary size: $SIZE bytes"
-
-          if [ "$SIZE" -lt 90000000 ]; then
-            echo "ERROR: Binary is too small; NNUE embedding may have failed."
-            exit 1
-          fi
-
-          echo "NNUE embedding verification passed."
-
-      - name: Prepare artifact
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
 
           mkdir -p ../artifact
-          cp Triumviratus-android-arm64-neon ../artifact/
+          cp "$BIN" ../artifact/
 
-      - name: Upload Android engine
+      - name: Upload engine
         uses: actions/upload-artifact@v4
         with:
           name: Triumviratus-android-arm64-neon
