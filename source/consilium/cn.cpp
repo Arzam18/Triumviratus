@@ -50,6 +50,18 @@ static inline int CN_LSB(unsigned long long b) { unsigned long i; _BitScanForwar
     #define CN_PREFETCH(p) ((void)0)
 #endif
 
+// (29/10/2026, speed, same code) The Windows x64 calling convention keeps xmm6-xmm15 across a call, so a function that
+// uses them saves and restores them at every call: in the AVX2 builds apply (twice per evaluation) saved 10 of them,
+// forward_simd 6 and forward_tail_avx2 8, in the AVX-512 builds apply 7 (clang-cl listing, 29/10/2026). CN_LEAF gives
+// these internal functions the System V convention, where every vector register is free: evaluate, which keeps no
+// vector value across them, has already saved what Windows asks for. Only the calls change, not one instruction of
+// the sums. -DCN_NO_SYSV_LEAF: the Windows convention, as before. Elsewhere (Linux, MSVC) it is empty.
+#if defined(_WIN64) && (defined(__clang__) || defined(__GNUC__)) && !defined(CN_NO_SYSV_LEAF)
+    #define CN_LEAF __attribute__((sysv_abi))
+#else
+    #define CN_LEAF
+#endif
+
 // CN_W1 (block 8, 18/10/2026; the idea is A Tin Man's, 15/10/2026, measured on the previous inference): the int8 rows
 // (threats, pawn pairs, passed pawns) are stored with their bytes interleaved in blocks of 32 (byte 2j = element j,
 // byte 2j + 1 = element 16 + j). One 32-byte load then gives two int16 vectors: vpmaddubsw with (1, 0) pairs keeps the
@@ -676,7 +688,7 @@ inline void apply_tile(const RowList& L, const Acc& src, Acc& dst, int t) {
     if (WithPsqt) _mm256_storeu_si256((__m256i*)dst.psqt, ps);
 }
 
-void apply(const RowList& L, const Acc& src, Acc& dst) {
+CN_LEAF void apply(const RowList& L, const Acc& src, Acc& dst) {
     CN_TIME(3);
     static_assert(L1 == 2 * 16 * 32, "apply: two tiles of 16 registers");
     apply_tile<true>(L, src, dst, 0);
@@ -779,7 +791,7 @@ inline void apply_tile(const RowList& L, const Acc& src, Acc& dst, int t) {
     if (WithPsqt) _mm256_storeu_si256((__m256i*)dst.psqt, ps);
 }
 
-void apply(const RowList& L, const Acc& src, Acc& dst) {
+CN_LEAF void apply(const RowList& L, const Acc& src, Acc& dst) {
     CN_TIME(3);
     constexpr int TILE = 8 * 16;
 #ifdef CN_PSQT_SEPARATE
@@ -1073,7 +1085,7 @@ inline void act16(__m512i x, int cut, int sqShift, int vShift, __m128i& sq, __m1
     val = _mm512_cvtepi32_epi8(v);
 }
 
-Out forward_tail_simd(const Stack& st, const std::int32_t* x1, const Acc& us, const Acc& them, int bucket) {
+CN_LEAF Out forward_tail_simd(const Stack& st, const std::int32_t* x1, const Acc& us, const Acc& them, int bucket) {
     alignas(64) std::uint8_t a1[2 * L2], a2[2 * L3];
     const __m512i x1lo = _mm512_load_si512(x1), x1hi = _mm512_load_si512(x1 + 16);
     __m128i q0, v0, q1, v1;
@@ -1109,7 +1121,7 @@ Out forward_tail_simd(const Stack& st, const std::int32_t* x1, const Acc& us, co
     return r;
 }
 
-Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket CN_PK_PARAM) {
+CN_LEAF Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket CN_PK_PARAM) {
     CN_TIME(4);
     alignas(64) std::uint8_t l0[L1];
     alignas(64) std::int32_t nz[L1 / 4 + 16];
@@ -1254,7 +1266,7 @@ inline __m256i act32(const __m256i* x, int cut, int sqShift, int vShift, bool sq
     return _mm256_permutevar8x32_epi32(b, _mm256_setr_epi32(0, 4, 1, 5, 2, 6, 3, 7));
 }
 
-Out forward_tail_avx2(const Stack& st, const __m256i* x1, const Acc& us, const Acc& them, int bucket) {
+CN_LEAF Out forward_tail_avx2(const Stack& st, const __m256i* x1, const Acc& us, const Acc& them, int bucket) {
     alignas(32) std::uint8_t a1[2 * L2];
     _mm256_store_si256((__m256i*)a1, act32(x1, 16383, 21, 7, true));
     _mm256_store_si256((__m256i*)(a1 + 32), act32(x1, 16383, 21, 7, false));
@@ -1288,7 +1300,7 @@ Out forward_tail_avx2(const Stack& st, const __m256i* x1, const Acc& us, const A
     return r;
 }
 
-Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket CN_PK_PARAM) {
+CN_LEAF Out forward_simd(const Net& net, const Acc& us, const Acc& them, int bucket CN_PK_PARAM) {
     CN_TIME(4);
     alignas(64) std::uint8_t l0[L1];
     alignas(64) std::int32_t nz[L1 / 4 + 8];
