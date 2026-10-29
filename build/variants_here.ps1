@@ -39,7 +39,7 @@ if ($Variants.Count) { & "$dir\release.ps1" -Day $Day -Variants $Variants } else
 
 $out = Get-ChildItem "$env:USERPROFILE\Triumviratus_release\variants" -Directory -ErrorAction SilentlyContinue |
        Where-Object Name -like "*-$Day-*" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $out) { throw "no phase 1 folder for day $Day: see the messages above" }
+if (-not $out) { throw "no phase 1 folder for day $($Day): see the messages above" }
 $zip = "$([Environment]::GetFolderPath('Desktop'))\$($out.Name).zip"
 Compress-Archive -Path $out.FullName -DestinationPath $zip -Force
 Write-Host "DONE: $zip -- copy it to the machine of phase 2, unzip it and give the folder to release.ps1 -Pack -From." -ForegroundColor Green
