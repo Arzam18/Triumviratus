@@ -162,9 +162,15 @@ From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)
 start-up it picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2, AVX-512,
 AVX-512 VNNI, AVX-512 VBMI2). The engine name is `Triumviratus - 8.0`. The same release has builds for **Android**
 (arm64, with and without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network
-embedded. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
-`source/universal/build_universal.ps1 -Official`; on `main`, `make -C source` builds the current development engine
-with Consilium.
+embedded.
+
+**Building from source.** On Windows, [`build/release.ps1`](build/release.ps1) downloads the source and the network
+(checked by SHA-256 and MD5), checks the compiler and builds with PGO. Each variant's profile is recorded on a CPU
+that runs it: every machine builds and verifies the variants its CPU runs, then one machine joins the profiles into the
+universal executable, which the others verify by bench (instructions at the top of the script; from 8.1 on).
+`source/universal/build_universal.ps1` builds everything on one machine in one go. On `main`, `make -C source`
+builds the current development engine with Consilium Plebis. macOS and Linux builds come from the GitHub Actions
+workflows [`macos.yml`](.github/workflows/macos.yml) and [`linux.yml`](.github/workflows/linux.yml).
 
 **Large pages (recommended).** The 8.1 network is large: about 250 MB of weights, and every evaluation reads rows
 scattered over the whole block, so on the normal 4 KB pages the processor loses time translating addresses. On 2 MB

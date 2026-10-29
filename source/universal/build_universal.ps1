@@ -1,23 +1,28 @@
 # =====================================================================================================================
-#  build_universal.ps1 -- binario universale di Triumviratus 8.1 con PGO, da questa cartella del sorgente.
+#  build_universal.ps1 -- universal binary of Triumviratus 8.1 with PGO, in one shot, from this source folder.
 #
-#  Sette varianti ISA, ognuna nel suo namespace Triumv_v<n>: di default un'unita' di compilazione per ogni .cpp del
-#  motore (involucri con vns.h, ThinLTO; -Unity = una sola unita' per variante, variant.cpp), ingresso con cpuid (entry.cpp),
-#  rete incorporata (triumv.rc), runtime C++ statico. Per ogni variante: build strumentata, training deterministico
-#  (pgo_train_det.py su pgo_positions.epd, `go nodes` fissi: stesso profilo a ogni build), merge, build ottimizzata.
-#  Ogni variante si allena con le SUE istruzioni se questa CPU le ha; altrimenti vnni512 e avx512icl si allenano con
-#  quelle di avx512 e avxvnni con quelle di avx2, e senza AVX-512 le varianti 3-5 restano senza profilo.
+#  Seven ISA variants, each in its own namespace Triumv_v<n>: by default one compilation unit for every .cpp of the
+#  engine (wrappers with vns.h, ThinLTO; -Unity = one unit per variant, variant.cpp), entry point with cpuid (entry.cpp),
+#  embedded network (triumv.rc), static C++ runtime. For every variant: instrumented build, deterministic training
+#  (pgo_train_det.py on pgo_positions.epd, fixed `go nodes`: the same profile at every build), merge, optimised build.
+#  Every variant trains with ITS OWN instructions if this CPU has them; otherwise vnni512 and avx512icl train with those
+#  of avx512 and avxvnni with those of avx2, and without AVX-512 the variants 3-5 stay without a profile.
 #
-#  Serve: Visual Studio 2022 (o Build Tools) con i componenti "C++ Clang Compiler for Windows" e "MSBuild support for
-#  LLVM (clang-cl) toolset", Windows SDK, Python 3, la rete nn-consilium.nnue nella cartella del sorgente (una sopra).
+#  For releases built on several machines (every variant trained on a CPU that runs it) see the two-phase chain:
+#  build_variants.ps1 (per machine) + pack_universal.ps1 (one executable), driven by build\release.ps1. The flags, the
+#  compilation and the link are shared with them (ubuild_lib.ps1).
 #
-#  USO (PowerShell, non serve amministratore):
-#    .\build_universal.ps1                         # tutto, data di rilascio = oggi
-#    .\build_universal.ps1 -Day 20261010           # data della riga id name
-#    .\build_universal.ps1 -NoPgo                  # senza PGO (prova veloce)
+#  Needs: Visual Studio 2022 (or Build Tools) with the components "C++ Clang Compiler for Windows" and "MSBuild support
+#  for LLVM (clang-cl) toolset", Windows SDK, Python 3, the network that triumv.rc embeds (..\nn-consilium.nnue: the
+#  Consilium Plebis file under that name) in the source folder (one level up).
+#
+#  USE (PowerShell, no administrator needed):
+#    .\build_universal.ps1                         # everything, release date = today
+#    .\build_universal.ps1 -Day 20261010           # date of the id name line
+#    .\build_universal.ps1 -NoPgo                  # without PGO (quick trial)
 #    .\build_universal.ps1 -ExtraFlags "/clang:-mbranches-within-32B-boundaries"
-#    .\build_universal.ps1 -Unity                  # una sola unita' per variante (piu' lenta di ~1%, vedi -Unity sotto)
-#  Risultato: <Out>\Triumviratus_8.1_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt (bench di ogni variante).
+#    .\build_universal.ps1 -Unity                  # one unit per variant (about 1% slower, see -Unity below)
+#  Result: <Out>\Triumviratus_8.1_<Day>_universal.exe, SHA256SUMS.txt, verifica.txt (bench of every variant).
 # =====================================================================================================================
 param(
     [string]$Day = (Get-Date -Format yyyyMMdd),
@@ -28,251 +33,91 @@ param(
     [switch]$Tune,
     [switch]$DevOptions,
     [switch]$NoStrictAliasing,
-    [string]$ExpectedBench = "222811",
-    # File separati (DEFAULT dal 09/10/2026): ogni .cpp del motore e' un'unita' a se' (involucro con il namespace della
-    # variante, vns.h), compilata con -flto=thin e unita al collegamento, come la build separata di MSBuild. L'universale
-    # a unita' unica per variante costava +0,98/+1,14% di cicli/nodo rispetto alla separata a pari sorgente; a file
-    # separati -0,28/-0,17% (xperf sullo Xeon, socket fissato, 4 giri, rumore A/A <0,1%; z_un e z_mtu in
-    # docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). -Unity torna all'unita' unica (variant.cpp); -MultiTU resta accettato.
+    # Empty = the "bench" of release.json (or "bench_possolver" with -PosSolver).
+    [string]$ExpectedBench = "",
+    # Separate files (DEFAULT since 09/10/2026): every .cpp of the engine is a unit of its own (wrapper with the
+    # namespace of the variant, vns.h), compiled with -flto=thin and joined at link time, like the separate MSBuild build.
+    # The universal with one unit per variant cost +0.98/+1.14% cycles/node against the separate build with the same
+    # source; with separate files -0.28/-0.17% (xperf on the Xeon, pinned socket, 4 rounds, A/A noise <0.1%; z_un and
+    # z_mtu in docs/audit_8.0/Z_RIVALUTAZIONE_VELOCITA.md). -Unity goes back to one unit (variant.cpp); -MultiTU is
+    # still accepted.
     [switch]$MultiTU,
     [switch]$Unity,
-    # Rete per il TRAINING del profilo (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md §5). Vuota = la rete
-    # incorporata. Con una rete a blocchi da innesto il codice dei blocchi entrava nel profilo (blocchi tolti dal motore
-    # il 10/10/2026: oggi serve solo per un'altra rete dello stesso formato); -PgoNetShare 50 allena
-    # meta' dei worker con questa e meta' con la incorporata (binario che deve andare bene con entrambe). Il bench di
-    # verifica resta quello della rete incorporata.
+    # Network for the TRAINING of the profile (10/10/2026, docs/audit_8.0/GRAFT_PASSEDREL_COSTO2.md section 5). Empty = the
+    # embedded one. With a graft-block network the code of the blocks entered the profile (blocks removed from the
+    # engine on 10/10/2026: today it only serves another network of the same format); -PgoNetShare 50 trains half the
+    # workers with this one and half with the embedded one. The verification bench stays the embedded network's.
     [string]$PgoNet = "",
     [int]$PgoNetShare = 100,
-    # Una sola variante (10/10/2026, misure xperf dei blocchi da innesto): -Only 3 = solo avx512, PGO con le sue
-    # istruzioni, collegata con standalone.cpp (niente ingresso cpuid). Esce <Out>\Triumviratus_8.1_<Day>_v<n>.exe.
-    # Solo a file separati (default). Per misurare, non per distribuire.
+    # One variant only (10/10/2026, xperf measurements): -Only 3 = only avx512, PGO with its own instructions, linked
+    # with standalone.cpp (no cpuid entry). Writes <Out>\Triumviratus_8.1_<Day>_v<n>.exe. Separate files only
+    # (default). For measuring, not for distributing.
     [int]$Only = 0,
-    [int]$Jobs = [Environment]::ProcessorCount,    # compilazioni insieme a file separati
-    # Release ufficiale (14/10/2026): id name senza data ("Triumviratus - 8.1", -DTRIUMV_OFFICIAL) e file
-    # Triumviratus_8.1_windows_universal.exe. Senza -Official resta la pre-release datata.
+    [int]$Jobs = [Environment]::ProcessorCount,    # compilations at once with separate files
+    # Official release (14/10/2026): id name without date ("Triumviratus - 8.1", -DTRIUMV_OFFICIAL) and file
+    # Triumviratus_8.1_windows_universal.exe. Without -Official it stays the dated pre-release.
     [switch]$Official,
-    # Pos Solver (14/10/2026): build per l'analisi (-DTRIUMV_POS_SOLVER: modalita' analisi sempre accesa, albero
-    # dell'11/10), id name "Triumviratus - 8.1 Pos Solver", file Triumviratus_8.1_PosSolver_windows_universal.exe. Il bench e'
-    # quello della modalita' analisi: va passato con -ExpectedBench.
+    # Pos Solver (14/10/2026): analysis build (-DTRIUMV_POS_SOLVER: analysis mode always on), id name
+    # "Triumviratus - 8.1 Pos Solver", file Triumviratus_8.1_PosSolver_windows_universal.exe. The bench is the analysis
+    # mode one ("bench_possolver" of release.json, or -ExpectedBench).
     [switch]$PosSolver,
-    # Training one variant at a time (28/10/2026, author: "usa 3 processi cosi non interferisce col torneo"): every
-    # variant gets all $Workers in turn, instead of all variants together with at least one worker each (4 processes
-    # or more even with -Workers 3). Slower, same profiles. Use with -Jobs for the compilations.
+    # Training one variant at a time (28/10/2026, author: "use 3 processes so it does not interfere with the
+    # tournament"): every variant gets all $Workers in turn, instead of all variants together with at least one worker
+    # each (4 processes or more even with -Workers 3). Slower, same profiles. Use with -Jobs for the compilations.
     [switch]$SerialTrain
 )
 $MultiTU = -not $Unity
 $ErrorActionPreference = "Stop"
 $U   = $PSScriptRoot                               # ...\universal
-$SRC = (Resolve-Path "$U\..").Path                 # sorgente del motore
+$SRC = (Resolve-Path "$U\..").Path                 # engine source
+. "$U\ubuild_lib.ps1"
 if (-not $Out) { $Out = "$SRC\..\universal_out" }
 $OBJ = "$Out\obj"; $PROF = "$Out\prof"
 New-Item -ItemType Directory -Force $Out, $OBJ, $PROF | Out-Null
 $Out = (Resolve-Path $Out).Path; $OBJ = (Resolve-Path $OBJ).Path; $PROF = (Resolve-Path $PROF).Path
 $LOG = "$Out\build.log"
-function Say($m) { $l = "[$(Get-Date -Format HH:mm:ss)] $m"; Write-Host $l; Add-Content -Encoding utf8 $LOG $l }
-function Fail($m) { Say "ERRORE: $m"; throw $m }
 Set-Content -Encoding utf8 $LOG "build_universal.ps1 $(Get-Date)"
+$rel = Get-Content -Raw "$U\release.json" | ConvertFrom-Json
+$VER = $rel.version
+if (-not $ExpectedBench) { $ExpectedBench = if ($PosSolver) { "$($rel.bench_possolver)" } else { "$($rel.bench)" } }
+if (-not $ExpectedBench) { Fail "no expected bench: give -ExpectedBench (release.json has none for this flavour)" }
 
-# --- strumenti ----------------------------------------------------------------------------------------------------
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { Fail "vswhere non trovato: manca Visual Studio 2022 (vedi build\setup_toolchain.ps1)" }
-$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
-if (-not $vs) { Fail "Visual Studio senza il componente 'C++ Clang Compiler for Windows'" }
-$L = "$vs\VC\Tools\Llvm\x64\bin"
-$CXX = "$L\clang-cl.exe"; $LNK = "$L\lld-link.exe"; $RC = "$L\llvm-rc.exe"; $PD = "$L\llvm-profdata.exe"
-foreach ($t in $CXX, $LNK, $RC, $PD) { if (-not (Test-Path $t)) { Fail "manca $t" } }
-$rt = Get-ChildItem "$vs\VC\Tools\Llvm\x64\lib\clang\*\lib\windows\clang_rt.profile-x86_64.lib" -ErrorAction SilentlyContinue |
-      Select-Object -First 1
-if (-not $rt -and -not $NoPgo) { Fail "manca clang_rt.profile-x86_64.lib (serve alla PGO)" }
-$msvc = Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-$kits = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" -ErrorAction SilentlyContinue).KitsRoot10
-if (-not $kits) { Fail "Windows SDK non trovato" }
-$sdk = Get-ChildItem "$kits\Lib" -Directory | Where-Object { Test-Path "$($_.FullName)\um\x64\kernel32.lib" } |
-       Sort-Object Name -Descending | Select-Object -First 1
-$env:LIB = "$($msvc.FullName)\lib\x64;$($sdk.FullName)\um\x64;$($sdk.FullName)\ucrt\x64"
-$py = (Get-Command python -ErrorAction SilentlyContinue).Source
-if (-not $py -and -not $NoPgo) { Fail "Python 3 non trovato nel PATH" }
-if (-not (Test-Path "$SRC\nn-consilium.nnue")) { Fail "manca la rete $SRC\nn-consilium.nnue" }
-Say "clang-cl: $CXX ($((& $CXX --version)[0]))"
-Say "MSVC $($msvc.Name), SDK $($sdk.Name), worker $Workers, data $Day"
+# --- tools --------------------------------------------------------------------------------------------------------
+$tc = Find-Toolchain -NeedPgo:(-not $NoPgo)
+$CXX = $tc.CXX; $LNK = $tc.LNK; $RC = $tc.RC; $PD = $tc.PD; $rt = $tc.rt; $py = $tc.py
+$net = Get-EmbeddedNetPath
+if (-not (Test-Path $net)) { Fail "missing the network $net (the file triumv.rc embeds)" }
+Say "clang-cl: $CXX ($($tc.clang))"
+Say "MSVC $($tc.msvc.Name), SDK $($tc.sdk.Name), workers $Workers, day $Day"
 
-# --- CPU: quali varianti puo' eseguire ------------------------------------------------------------------------------
-$probe = @'
-#include <intrin.h>
-#include <stdio.h>
-#include <string.h>
-__attribute__((target("xsave"))) static unsigned long long xcr0(void) { return _xgetbv(0); }
-int main(void) {
-  int r[4]; char vendor[13] = {0};
-  __cpuid(r, 0); memcpy(vendor, &r[1], 4); memcpy(vendor + 4, &r[3], 4); memcpy(vendor + 8, &r[2], 4);
-  __cpuid(r, 1); int ecx1 = r[2], fam = ((r[0] >> 8) & 15) + ((r[0] >> 20) & 255);
-  __cpuidex(r, 7, 0); unsigned ebx7 = r[1], ecx7 = r[2], sub7 = r[0];
-  unsigned long long x = (ecx1 >> 27 & 1) ? xcr0() : 0;
-  int avx = (x & 6) == 6, z = (x & 0xE6) == 0xE6;
-  int avx2 = avx && (ebx7 >> 5 & 1) && (ebx7 >> 3 & 1);
-  int pext = avx2 && (ebx7 >> 8 & 1);
-  int f512 = z && (ebx7 >> 16 & 1) && (ebx7 >> 17 & 1) && (ebx7 >> 30 & 1) && (ebx7 >> 31 & 1);
-  int vnni = f512 && (ecx7 >> 11 & 1);
-  int icl = vnni && (ecx7 >> 1 & 1) && (ecx7 >> 6 & 1) && (ecx7 >> 12 & 1);
-  int s41 = (ecx1 >> 19 & 1) && (ecx1 >> 23 & 1);
-  int avxvnni = 0;
-  if (sub7 >= 1) { __cpuidex(r, 7, 1); avxvnni = pext && (r[0] >> 4 & 1); }
-  printf("%s%s%s%s%s%s%s %s %d\n", s41 ? "6" : "", avx2 ? "1" : "", pext ? "2" : "", avxvnni ? "7" : "", f512 ? "3" : "",
-         vnni ? "4" : "", icl ? "5" : "", vendor, fam);
-  return 0;
-}
-'@
-Set-Content -Encoding ascii "$OBJ\probe.c" $probe
-& $CXX /nologo /O2 "$OBJ\probe.c" "/Fe$OBJ\probe.exe" "/Fo$OBJ\probe.obj" | Out-Null
-$cpu = (& "$OBJ\probe.exe").Trim().Split(' ')
-$can = $cpu[0]
-Say "CPU $($cpu[1]) famiglia $($cpu[2]): varianti eseguibili '$can' (6 sse41, 1 avx2-nopext, 2 avx2, 7 avxvnni, 3 avx512, 4 vnni512, 5 avx512icl)"
-if (-not $can.Contains('1')) { Fail "questa CPU non ha AVX2: la build (training PGO delle varianti AVX2) non si puo' fare qui" }
-# 6 = sse41 (15/10/2026): stampata per prima dalla sonda, cosi' $can[-1] resta la variante AVX piu' alta. 7 = avxvnni
-# (15/10/2026) stampata dopo avx2 e prima di avx512: $can[-1] e' 7 su Intel da Alder Lake senza AVX-512, 3-5 con AVX-512.
-$names = @{ 1 = 'avx2-nopext'; 2 = 'avx2'; 3 = 'avx512'; 4 = 'vnni512'; 5 = 'avx512icl'; 6 = 'sse41'; 7 = 'avxvnni' }
+# --- CPU: which variants it runs ------------------------------------------------------------------------------------
+$cpu = Get-CpuInfo
+$can = $cpu.Can
+$names = $VariantNames
+Say "CPU $($cpu.Vendor) family $($cpu.Family): runnable variants '$can' (6 sse41, 1 avx2-nopext, 2 avx2, 7 avxvnni, 3 avx512, 4 vnni512, 5 avx512icl)"
+if (-not $can.Contains('1')) { Fail "this CPU has no AVX2: the build (PGO training of the AVX2 variants) cannot run here" }
 
-# --- flag (come build_pgo_clang_80.ps1 e il prototipo dello Xeon) ---------------------------------------------------
-$base = @('/c', '/nologo', '/std:c++17', '/EHsc', '/MT', '/O2', '/Oy', '/GS-', '/Gy', '/Gw', '/clang:-O3',
-          '/clang:-ffp-contract=off', '-w', '-DNDEBUG', '-D_CONSOLE', '-DTRIUMV_EMBED_RESOURCE', '-DTRIUMV5_THREATS_INCR',
-          '-DUSE_AVX2', '-DUSE_SSE41', '-DUSE_SSSE3', '-DUSE_SSE2', '-DUSE_SSE', '-DTRIUMV_RELEASE',
-          "-DTRIUMV_RELEASE_DAY=$Day", "-I$SRC\fathom")
-# -DevOptions (20/10/2026): senza TRIUMV_RELEASE, cioe' con le opzioni di taratura visibili, per i test sul laptop Zen 4
-# con la variante VNNI (la release le piega in costanti e il motore le ignora).
-if ($DevOptions) { $base = @($base | Where-Object { $_ -ne '-DTRIUMV_RELEASE' }) }
-# Analisi degli alias per tipo: gcc la usa di default, clang-cl per Windows no. Misurata il 08/10/2026 sera (xperf,
-# 6 giri): -1,06% cicli/nodo in mediogioco, -0,76% nei finali; verificata con tutte le macro VERIFY_* e con gcc.
-if (-not $NoStrictAliasing) { $base += '/clang:-fstrict-aliasing' }
-# Cicli allineati a 64 byte: questo binario (un'unica unita' di compilazione per variante) perdeva il 2,2% di cicli
-# rispetto alle build separate in avx512 a istruzioni identiche; l'allineamento ne recupera 0,7 (xperf 08/10/2026).
-$base += '/clang:-falign-loops=64'
-if ($ExtraFlags) { $base += $ExtraFlags.Split(' ', [StringSplitOptions]::RemoveEmptyEntries) }
-if ($Official) { $base += '-DTRIUMV_OFFICIAL' }
-if ($PosSolver) { $base += '-DTRIUMV_POS_SOLVER' }
-function VFlags($n) {
-    switch ($n) {
-        1 { @('/arch:AVX2', '-UUSE_PEXT', '-mno-bmi2', '-mno-avx512f') }
-        2 { @('/arch:AVX2', '-DUSE_PEXT', '-mbmi2', '-mno-avx512f') }
-        3 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-mavx512f', '-mavx512cd', '-mavx512bw', '-mavx512dq', '-mavx512vl', '-mbmi2',
-              '-mno-avx512vnni') }
-        4 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-mavx512f', '-mavx512cd', '-mavx512bw', '-mavx512dq', '-mavx512vl',
-              '-mbmi2', '-mavx512vnni') }
-        5 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_AVX512', '-DUSE_VNNI', '-DUSE_AVX512ICL', '-mavx512f', '-mavx512cd', '-mavx512bw',
-              '-mavx512dq', '-mavx512vl', '-mbmi2', '-mavx512vnni', '-mavx512vbmi', '-mavx512vbmi2', '-mavx512bitalg') }
-        6 { @('-UUSE_AVX2', '-UUSE_PEXT', '-msse4.1', '-mssse3', '-mpopcnt', '-mno-avx', '-mno-avx2', '-mno-bmi2') }
-        7 { @('/arch:AVX2', '-DUSE_PEXT', '-DUSE_VNNI', '-DUSE_AVXVNNI', '-mbmi2', '-mavxvnni', '-mno-avx512f') }
-    }
-}
-# Messa a punto per i processori a cui la variante e' destinata. SPENTA di default (-Tune per accenderla): sullo Xeon
-# -mtune=skylake-avx512 dava +0,5% di cicli rispetto alla messa a punto generica (xperf 08/10/2026).
-function VTune($n) {
-    if (-not $Tune) { return @() }
-    switch ($n) { 1 { @('/clang:-mtune=znver2') } 3 { @('/clang:-mtune=skylake-avx512') } 4 { @('/clang:-mtune=cascadelake') }
-                  default { @() } }
-}
+# --- flags --------------------------------------------------------------------------------------------------------
+$base = Get-BaseFlags -Day $Day -DevOptions:$DevOptions -NoStrictAliasing:$NoStrictAliasing -ExtraFlags $ExtraFlags `
+                      -Official:$Official -PosSolver:$PosSolver
 
-# Compila una variante: $as = variante di cui usare le istruzioni (training su CPU che non ha quelle di $n).
+# One unit per variant (-Unity): variant.cpp. $as = variant whose instructions to use (training on a CPU without $n's).
 function Start-Variant($n, $objOut, $mode, $as, $profdata) {
     $a = $base + (VFlags $as) + (VTune $n) + @("-DTRIUMV_VID=$n")
     if ($mode -eq 'gen') { $a += @('-DTRIUMV_STANDALONE', '-fprofile-generate', '-DCLANG_PGO_GEN') }
     if ($mode -eq 'use') { $a += @("-fprofile-use=$profdata", '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled') }
     $a += @("$U\variant.cpp", "/Fo$objOut")
-    # Start-Process unisce gli argomenti con spazi senza virgolette: quelli con spazi (percorsi) vanno quotati qui.
+    # Start-Process joins the arguments with spaces and no quotes: those with spaces (paths) are quoted here.
     $a = $a | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }
     $p = Start-Process -FilePath $CXX -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput "$objOut.out" `
                        -RedirectStandardError "$objOut.err"
     Keep-Handle $p
 }
-# PowerShell 5.1: con -NoNewWindow il processo restituito non tiene un handle, e se finisce prima che qualcuno lo apra il
-# codice di uscita va perso (ExitCode vuoto, letto come errore da Wait-All). Successo sul Ryzen 8845HS il 09/10/2026:
-# le cinque compilazioni finivano prima che Wait-All arrivasse ad aspettarle. Leggere Handle subito lo tiene aperto.
-function Keep-Handle($p) { $null = $p.Handle; $p }
+if ($MultiTU) { $WRAP = New-UnitWrappers }
 
-# -MultiTU: un involucro per ogni .cpp che variant.cpp include (stesso ordine, che e' anche quello del .vcxproj, quindi
-# lo stesso ordine dei costruttori globali). Attenzione ai nomi: PowerShell non distingue maiuscole e minuscole, quindi
-# niente variabili $u, $src, $obj, $prof (sarebbero $U, $SRC, $OBJ, $PROF).
-if ($MultiTU) {
-    $unitList = @(Select-String -Path "$U\variant.cpp" -Pattern '^#include "\.\./(.+\.cpp)"' |
-                  ForEach-Object { $_.Matches[0].Groups[1].Value })
-    $WRAP = "$OBJ\mtu"
-    New-Item -ItemType Directory -Force $WRAP | Out-Null
-    Remove-Item "$WRAP\*.cpp" -ErrorAction SilentlyContinue
-    $k = 0
-    foreach ($unit in $unitList) {
-        $k++
-        $wname = '{0:D2}_{1}' -f $k, (($unit -replace '[\\/]', '_') -replace '\.cpp$', '')
-        $srcFile = ((Resolve-Path "$SRC\$unit").Path) -replace '\\', '/'
-        Set-Content -Encoding ascii "$WRAP\$wname.cpp" @(
-            '// generato da build_universal.ps1 -MultiTU',
-            "#include `"$(($U -replace '\\', '/'))/prelude.h`"",
-            "#include `"$(($U -replace '\\', '/'))/vns.h`"",
-            'namespace TRIUMV_VNS {',
-            "#include `"$srcFile`"",
-            '}  // namespace TRIUMV_VNS')
-    }
-}
-# Compila a file separati le varianti di $specs (@{n; mode; as; prof}), al massimo $Jobs compilazioni insieme.
-# Restituisce, per variante, gli oggetti in ordine. Con 'gen' aggiunge standalone.cpp (main della sola variante).
-function Compile-Units($specs) {
-    $todo = New-Object System.Collections.Generic.List[object]
-    $uobjs = @{}
-    $wfiles = @(Get-ChildItem "$WRAP\*.cpp" | Sort-Object Name | ForEach-Object FullName)
-    foreach ($sp in $specs) {
-        $uobjs[$sp.n] = @()
-        $files = $wfiles
-        if ($sp.mode -eq 'gen' -or $Only) { $files += "$U\standalone.cpp" }
-        foreach ($f in $files) {
-            $o = "$OBJ\mtu_{0}{1}_{2}.obj" -f $sp.mode, $sp.n, [IO.Path]::GetFileNameWithoutExtension($f)
-            $a = $base + (VFlags $sp.as) + (VTune $sp.n) + @("-DTRIUMV_VID=$($sp.n)", '-flto=thin')
-            if ($sp.mode -eq 'gen') { $a += @('-fprofile-generate', '-DCLANG_PGO_GEN') }
-            if ($sp.mode -eq 'use') { $a += @("-fprofile-use=$($sp.prof)", '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled') }
-            $a += @($f, "/Fo$o")
-            $a = $a | ForEach-Object { if ($_ -match ' ') { "`"$_`"" } else { $_ } }
-            $todo.Add(@(, $a) + @($o))
-            $uobjs[$sp.n] += $o
-        }
-    }
-    $run = @()
-    foreach ($t in $todo) {
-        while (@($run | Where-Object { -not $_.HasExited }).Count -ge $Jobs) { Start-Sleep -Milliseconds 200 }
-        $run += Keep-Handle (Start-Process -FilePath $CXX -ArgumentList $t[0] -NoNewWindow -PassThru `
-                             -RedirectStandardOutput "$($t[1]).out" -RedirectStandardError "$($t[1]).err")
-    }
-    Wait-All $run "compilazione a file separati"
-    return $uobjs
-}
-function Wait-All($procs, $what) {
-    foreach ($p in $procs) { $p.WaitForExit() }
-    foreach ($p in $procs) { if ($p.ExitCode -ne 0) { Fail "$what fallita (codice $($p.ExitCode)): vedi i file .err in $OBJ" } }
-}
-function Link($exe, $objs, [switch]$Gen) {
-    $a = @('/nologo', "/OUT:$exe", '/SUBSYSTEM:CONSOLE', '/STACK:8388608', '/LARGEADDRESSAWARE') + $objs +
-         @("$OBJ\tbprobe.obj", "$OBJ\triumv.res", 'advapi32.lib')
-    if ($Gen) { $a += $rt.FullName } else { $a += @('/OPT:REF', '/OPT:ICF') }
-    if ($MultiTU) { $a += "/opt:lldltojobs=$Jobs" }   # gli oggetti sono bitcode ThinLTO: il codice nasce qui
-    # W3 (09/10/2026): niente conversione cmov -> salto nel codegen ThinLTO (-0,15% mediogioco, -0,29% finali, z_w3)
-    $a += '/mllvm:-x86-cmov-converter=false'
-    $a += '/mllvm:-enable-ext-tsp-block-placement=true'   # 14/10/2026: ext-tsp adottata (xperf v14/et, con EVC8 -0,6% mediogioco)
-    & $LNK @a 2>&1 | Out-File -Append -Encoding utf8 $LOG
-    if ($LASTEXITCODE -ne 0) { Fail "collegamento di $exe fallito" }
-}
-function Bench($exe, $isa) {
-    $env:TRIUMV_ISA = $isa
-    # Riga vuota in testa (14/10/2026): una PowerShell con $OutputEncoding UTF-8 manda il BOM davanti al primo comando,
-    # il motore leggeva BOM+bench, non lo riconosceva e il bench risultava "?".
-    $o = "`nbench`nquit`n" | & $exe 2>&1 | Select-String "Nodes searched" | Select-Object -First 1
-    Remove-Item Env:TRIUMV_ISA -ErrorAction SilentlyContinue
-    if ($o -and "$o" -match '(\d+)\s*$') { return $Matches[1] } else { return "?" }
-}
-
-# --- parti comuni: fathom (C, indipendente dall'ISA), ingresso, risorse ---------------------------------------------
-Say "parti comuni"
-& $CXX /nologo /c /O2 /MT /arch:AVX2 /std:c11 -w "-I$SRC\fathom" "$SRC\fathom\tbprobe.c" "/Fo$OBJ\tbprobe.obj"
-if ($LASTEXITCODE -ne 0) { Fail "fathom" }
-& $CXX /nologo /c /std:c++17 /O2 /MT -w "$U\entry.cpp" "/Fo$OBJ\entry.obj"
-if ($LASTEXITCODE -ne 0) { Fail "entry.cpp" }
-Push-Location $U; & $RC /FO "$OBJ\triumv.res" triumv.rc; $rcOk = $LASTEXITCODE; Pop-Location
-if ($rcOk -ne 0) { Fail "risorse (triumv.rc)" }
+# --- common parts: fathom (C, ISA-independent), entry point, resources ----------------------------------------------
+Say "common parts"
+Build-CommonParts
 
 # --- PGO ----------------------------------------------------------------------------------------------------------
 $profs = @{}
@@ -280,28 +125,28 @@ if (-not $NoPgo) {
     $train = @{}
     foreach ($n in 1..7) {
         if ($can.Contains("$n")) { $train[$n] = $n }
-        elseif ($n -eq 7 -and $can.Contains('2')) { $train[$n] = 2 }   # istruzioni di avx2, namespace della variante
-        elseif ($n -ge 4 -and $n -le 5 -and $can.Contains('3')) { $train[$n] = 3 }   # istruzioni di avx512, idem
+        elseif ($n -eq 7 -and $can.Contains('2')) { $train[$n] = 2 }   # avx2 instructions, the variant's namespace
+        elseif ($n -ge 4 -and $n -le 5 -and $can.Contains('3')) { $train[$n] = 3 }   # avx512 instructions, likewise
     }
     if ($Only) {
-        if (-not $train.ContainsKey($Only)) { Fail "-Only ${Only}: variante non allenabile su questa CPU" }
+        if (-not $train.ContainsKey($Only)) { Fail "-Only ${Only}: variant not trainable on this CPU" }
         $train = @{ $Only = $train[$Only] }
     }
-    Say "build strumentate: $(($train.Keys | Sort-Object | ForEach-Object { "$($names[$_])<-$($names[$train[$_]])" }) -join ', ')"
+    Say "instrumented builds: $(($train.Keys | Sort-Object | ForEach-Object { "$($names[$_])<-$($names[$train[$_]])" }) -join ', ')"
     if ($MultiTU) {
         $gobjs = Compile-Units @($train.Keys | ForEach-Object { @{ n = $_; mode = 'gen'; as = $train[$_]; prof = '' } })
         foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" $gobjs[$n] -Gen }
     } else {
         $ps = foreach ($n in $train.Keys) { Start-Variant $n "$OBJ\g$n.obj" 'gen' $train[$n] '' }
-        Wait-All $ps "build strumentata"
+        Wait-All $ps "instrumented build"
         foreach ($n in $train.Keys) { Link "$OBJ\g$n.exe" @("$OBJ\g$n.obj") -Gen }
     }
-    Say "training ($Workers worker per variante, in parallelo)"
+    Say "training ($Workers workers per variant, in parallel)"
     if ($PgoNet) {
-        if (-not (Test-Path $PgoNet)) { Fail "rete di training non trovata: $PgoNet" }
+        if (-not (Test-Path $PgoNet)) { Fail "training network not found: $PgoNet" }
         $env:PGO_EVALFILE = (Resolve-Path $PgoNet).Path
         $env:PGO_EVALFILE_SHARE = "$PgoNetShare"
-        Say "rete di training: $($env:PGO_EVALFILE) ($PgoNetShare% dei worker)"
+        Say "training network: $($env:PGO_EVALFILE) ($PgoNetShare% of the workers)"
     }
     $perVar = if ($SerialTrain) { $Workers } else { [Math]::Max(1, [int]($Workers / $train.Count)) }
     $ps = foreach ($n in $train.Keys) {
@@ -310,53 +155,49 @@ if (-not $NoPgo) {
         $p = Keep-Handle (Start-Process -FilePath $py -ArgumentList @("`"$U\pgo_train_det.py`"", "`"$OBJ\g$n.exe`"", '0', "`"$U\pgo_positions.epd`"",
                       '200', '--workers', "$perVar") -NoNewWindow -PassThru `
                       -WorkingDirectory $OBJ -RedirectStandardOutput "$OBJ\train$n.log" -RedirectStandardError "$OBJ\train$n.err")
-        if ($SerialTrain) { Wait-All @($p) "training $($names[$n])"; Say "training $($names[$n]) finito" } else { $p }
+        if ($SerialTrain) { Wait-All @($p) "training $($names[$n])"; Say "training $($names[$n]) done" } else { $p }
     }
     Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
     if (-not $SerialTrain) { Wait-All $ps "training" }
     Remove-Item Env:PGO_EVALFILE, Env:PGO_EVALFILE_SHARE -ErrorAction SilentlyContinue
     foreach ($n in $train.Keys) {
         $raw = @(Get-ChildItem "$PROF\v$n\*.profraw")
-        if (-not $raw.Count) { Fail "nessun profilo per la variante $n" }
+        if (-not $raw.Count) { Fail "no profile for variant $n" }
         & $PD merge -o "$PROF\v$n.profdata" @($raw | ForEach-Object FullName)
-        if ($LASTEXITCODE -ne 0) { Fail "merge del profilo $n" }
+        if ($LASTEXITCODE -ne 0) { Fail "merge of profile $n" }
         $profs[$n] = "$PROF\v$n.profdata"
     }
     if ($MultiTU) {
-        # Con il ThinLTO il linker importa funzioni fra moduli, anche di varianti diverse (copie condivise della libreria
-        # standard), e rifiuta moduli con profili diversi ("ProfileSummary: conflicting values", 09/10/2026). Un solo
-        # profilo per tutte: le funzioni del motore hanno nomi diversi per variante (namespace), i conteggi restano loro.
+        # With ThinLTO the linker imports functions across modules, also of different variants (shared copies of the
+        # standard library), and refuses modules with different profiles ("ProfileSummary: conflicting values",
+        # 09/10/2026). One profile for all: the engine functions have different names per variant (namespace), their
+        # counts stay theirs.
         $all = @($train.Keys | ForEach-Object { "$PROF\v$_.profdata" })
         & $PD merge -o "$PROF\tutte.profdata" @all
-        if ($LASTEXITCODE -ne 0) { Fail "merge del profilo unico" }
+        if ($LASTEXITCODE -ne 0) { Fail "merge of the single profile" }
         foreach ($n in @($profs.Keys)) { $profs[$n] = "$PROF\tutte.profdata" }
     }
-    Say "profili: $(($profs.Keys | Sort-Object | ForEach-Object { $names[$_] }) -join ', ')"
+    Say "profiles: $(($profs.Keys | Sort-Object | ForEach-Object { $names[$_] }) -join ', ')"
 }
 
-# --- build ottimizzate e collegamento (la variante piu' bassa per prima: le copie condivise della libreria standard
-#     vengono da avx2-nopext e girano su ogni CPU) ---------------------------------------------------------------------
-Say "build ottimizzate"
-$exe = if ($Official) { "$Out\Triumviratus_8.1_windows_universal.exe" } else { "$Out\Triumviratus_8.1_${Day}_universal.exe" }
-if ($PosSolver) { $exe = $exe -replace 'Triumviratus_8.1_', 'Triumviratus_8.1_PosSolver_' }
+# --- optimised builds and link (the lowest variant first: the shared copies of the standard library come from
+#     avx2-nopext) ------------------------------------------------------------------------------------------------
+Say "optimised builds"
+$exe = if ($Official) { "$Out\Triumviratus_${VER}_windows_universal.exe" } else { "$Out\Triumviratus_${VER}_${Day}_universal.exe" }
+if ($PosSolver) { $exe = $exe -replace "Triumviratus_${VER}_", "Triumviratus_${VER}_PosSolver_" }
 if ($Only) {
-    if (-not $MultiTU) { Fail "-Only vuole la build a file separati (senza -Unity)" }
-    $exe = "$Out\Triumviratus_8.1_${Day}_v$Only.exe"
+    if (-not $MultiTU) { Fail "-Only needs the separate-files build (without -Unity)" }
+    $exe = "$Out\Triumviratus_${VER}_${Day}_v$Only.exe"
     $sp1 = if ($profs.ContainsKey($Only)) { @{ n = $Only; mode = 'use'; as = $Only; prof = $profs[$Only] } }
            else { @{ n = $Only; mode = 'none'; as = $Only; prof = '' } }
-    $pobjs = Compile-Units @($sp1)
+    $pobjs = Compile-Units @($sp1) -Standalone
     Link $exe $pobjs[$Only]
-    # Il bench passa da Python (10/10/2026): con la pipe di PowerShell 5.1 il binario a variante unica riceveva solo la
-    # prima riga e il controllo leggeva "?" anche con il bench giusto.
-    $b = "?"
-    $bo = & $py -c "import subprocess,sys; r=subprocess.run([sys.argv[1]],input=b'bench\nquit\n',capture_output=True); print(r.stdout.decode(errors='ignore'))" $exe |
-          Select-String "Nodes searched" | Select-Object -First 1
-    if ($bo -and "$bo" -match '(\d+)\s*$') { $b = $Matches[1] }
-    $ver = @("{0,-12} bench {1,-8} {2}" -f $names[$Only], $b, $(if ($b -eq $ExpectedBench) { "ok" } else { "BENCH DIVERSO (atteso $ExpectedBench)" }))
-    Set-Content -Encoding utf8 "$Out\verifica.txt" $ver
-    $ver | ForEach-Object { Say $_ }
-    if ($b -ne $ExpectedBench) { Fail "bench diverso" }
-    Say "PRONTO: $exe"
+    $b = (Get-Bench $exe '' $OBJ).Nodes
+    $vlines = @("{0,-12} bench {1,-8} {2}" -f $names[$Only], $b, $(if ($b -eq $ExpectedBench) { "ok" } else { "BENCH DIFFERS (expected $ExpectedBench)" }))
+    Set-Content -Encoding utf8 "$Out\verifica.txt" $vlines
+    $vlines | ForEach-Object { Say $_ }
+    if ($b -ne $ExpectedBench) { Fail "bench differs" }
+    Say "READY: $exe"
     return
 }
 if ($MultiTU) {
@@ -369,30 +210,25 @@ if ($MultiTU) {
         if ($profs.ContainsKey($n)) { Start-Variant $n "$OBJ\p$n.obj" 'use' $n $profs[$n] }
         else { Start-Variant $n "$OBJ\p$n.obj" 'none' $n '' }
     }
-    Wait-All $ps "build ottimizzata"
+    Wait-All $ps "optimised build"
     Link $exe @("$OBJ\entry.obj", "$OBJ\p1.obj", "$OBJ\p2.obj", "$OBJ\p3.obj", "$OBJ\p4.obj", "$OBJ\p5.obj", "$OBJ\p6.obj",
          "$OBJ\p7.obj")
 }
 
-# --- verifica -----------------------------------------------------------------------------------------------------
-$ver = @()
+# --- verification -------------------------------------------------------------------------------------------------
+$vlines = @()
 $ok = $true
 foreach ($n in 1..7) {
-    if (-not $can.Contains("$n")) { $ver += "{0,-12} non eseguibile su questa CPU" -f $names[$n]; continue }
-    $b = Bench $exe $names[$n]
-    $tag = if ($b -eq $ExpectedBench) { "ok" } else { $ok = $false; "BENCH DIVERSO (atteso $ExpectedBench)" }
-    $pg = if ($profs.ContainsKey($n)) { "PGO" } else { "senza PGO" }
-    $ver += "{0,-12} bench {1,-8} {2,-10} {3}" -f $names[$n], $b, $pg, $tag
+    if (-not $can.Contains("$n")) { $vlines += "{0,-12} not runnable on this CPU" -f $names[$n]; continue }
+    $b = (Get-Bench $exe $names[$n] $OBJ).Nodes
+    $tag = if ($b -eq $ExpectedBench) { "ok" } else { $ok = $false; "BENCH DIFFERS (expected $ExpectedBench)" }
+    $pg = if ($profs.ContainsKey($n)) { "PGO" } else { "no PGO" }
+    $vlines += "{0,-12} bench {1,-8} {2,-10} {3}" -f $names[$n], $b, $pg, $tag
 }
-$auto = "uci`nquit`n" | & $exe 2>&1 | Select-String "^id name" | Select-Object -First 1
-# Variante che l'ingresso sceglie qui (stessa regola di entry.cpp: PEXT lento su AMD famiglie 15h, 17h e Hygon 18h).
-$best = [int]("$($can[-1])")
-if ($best -eq 2 -and (($cpu[1] -eq 'AuthenticAMD' -and ($cpu[2] -eq '21' -or $cpu[2] -eq '23')) -or
-                      ($cpu[1] -eq 'HygonGenuine' -and $cpu[2] -eq '24'))) { $best = 1 }
-$ver += "$auto; su questa CPU parte la variante $($names[$best]) (in console: riga 'info string Build: universal')"
-Set-Content -Encoding utf8 "$Out\verifica.txt" $ver
-(Get-FileHash -Algorithm SHA256 $exe).Hash.ToLower() + " *" + (Split-Path $exe -Leaf) |
-    Set-Content -Encoding ascii "$Out\SHA256SUMS.txt"
-$ver | ForEach-Object { Say $_ }
-if (-not $ok) { Fail "una variante non da' il bench atteso" }
-Say "PRONTO: $exe"
+$auto = Get-Bench $exe '' $OBJ
+$vlines += "id name $($auto.IdName); on this CPU the variant $($names[$cpu.Best]) starts (in a console: line 'info string Build: universal')"
+Set-Content -Encoding utf8 "$Out\verifica.txt" $vlines
+(Get-Sha256 $exe) + " *" + (Split-Path $exe -Leaf) | Set-Content -Encoding ascii "$Out\SHA256SUMS.txt"
+$vlines | ForEach-Object { Say $_ }
+if (-not $ok) { Fail "a variant does not give the expected bench" }
+Say "READY: $exe"
