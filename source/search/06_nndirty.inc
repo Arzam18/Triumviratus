@@ -127,10 +127,12 @@ static inline U64 nn_piece_attacks(int pc, int s, U64 bAttacks, U64 rAttacks) {
 //   contains the whole move (from | to, `whole_move`) is skipped: there nothing opens or closes;
 // - outgoing: the pieces pc attacks from s;
 // - incoming: the pieces attacking s that make a feature with pc (knights, pawns for a knight or rook, line pieces).
-// The king has only the first group.
+// The king has only the first group. A capture leaves out two kinds of tuples that the next step would take back at
+// once (nn_threat_steps): the lines of the seers in `skip_seers`, and the outgoing and incoming threats with the
+// pieces on `skip_pairs`.
 template <bool Lines, typename Look>
 static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bool put, int s, NnDirtyThreats *dts,
-                                    U64 whole_move = ~0ULL) {
+                                    U64 whole_move = ~0ULL, U64 skip_seers = 0, U64 skip_pairs = 0) {
   const int kind = pc >= 6 ? pc - 6 : pc;
   const SliderPair sp = get_slider_pair(s, tb.occ);   // AA1: both lines from one lookup (magic.h)
   const U64 diag = pair_bishop(sp), orth = pair_rook(sp);
@@ -138,7 +140,7 @@ static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bo
   const U64 seers = (diag & (tb.type[NN_BISHOP] | tb.type[NN_QUEEN])) | (orth & (tb.type[NN_ROOK] | tb.type[NN_QUEEN]));
 
   if constexpr (Lines) {
-    for (U64 rest = seers; rest; rest &= rest - 1) {
+    for (U64 rest = seers & ~skip_seers; rest; rest &= rest - 1) {
       const int from = get_ls1b_index(rest);
       const U64 line = nn_ray_pass[from][s];
       const U64 behind = line & (diag | orth) & targets_any;
@@ -163,6 +165,8 @@ static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bo
   if (kind == NN_KNIGHT || kind == NN_ROOK)
     incoming |= (pawn_attacks[white][s] & tb.type[NN_PAWN] & tb.color[black]) |
                 (pawn_attacks[black][s] & tb.type[NN_PAWN] & tb.color[white]);
+  outgoing &= ~skip_pairs;
+  incoming &= ~skip_pairs;
 
 #ifdef NN_THREATS_VECTOR
   nn_write_multi<NN_THR_TSQ, NN_THR_TPC>(look, outgoing, nn_threat(pc, 0, s, 0, put), dts);
@@ -183,8 +187,9 @@ static inline void nn_piece_threats(const NnTB &tb, const Look &look, int pc, bo
 // Put: after. Move: before and after, skipping the uncovered rays that contain from|to. Replace (capture): the
 // old piece leaves and the new one enters with the square always occupied, without uncovered rays.
 template <typename Look>
-static inline void nn_step_remove(NnTB &tb, const Look &look, int pc, int s, NnDirtyThreats *dts) {
-  nn_piece_threats<true>(tb, look, pc, false, s, dts);
+static inline void nn_step_remove(NnTB &tb, const Look &look, int pc, int s, NnDirtyThreats *dts,
+                                  U64 skip_seers = 0) {
+  nn_piece_threats<true>(tb, look, pc, false, s, dts, ~0ULL, skip_seers);
   nn_tb_toggle(tb, pc, 1ULL << s);
 }
 template <typename Look>
@@ -200,9 +205,10 @@ static inline void nn_step_move(NnTB &tb, const Look &look, int pc, int from, in
   nn_piece_threats<true>(tb, look, pc, true, to, dts, fromTo);
 }
 template <typename Look>
-static inline void nn_step_swap(NnTB &tb, const Look &look, int oldPc, int newPc, int s, NnDirtyThreats *dts) {
+static inline void nn_step_swap(NnTB &tb, const Look &look, int oldPc, int newPc, int s, NnDirtyThreats *dts,
+                                U64 skip_old = 0) {
   nn_tb_toggle(tb, oldPc, 1ULL << s);
-  nn_piece_threats<false>(tb, look, oldPc, false, s, dts);
+  nn_piece_threats<false>(tb, look, oldPc, false, s, dts, ~0ULL, 0, skip_old);
   nn_tb_toggle(tb, newPc, 1ULL << s);
   nn_piece_threats<false>(tb, look, newPc, true, s, dts);
 }
@@ -213,7 +219,15 @@ static inline void nn_threat_steps(NnTB &tb, const Look &look, const NnDirtyPiec
   dts->n = 0;
   const int pc = dp.pc, from = dp.from;
   if (dp.to != NN_SQ_NONE && dp.add_sq != NN_SQ_NONE) {
-    // Castling: first king and rook are removed, then put back (in Chess960 the squares overlap).
+    // (29/10/2026, speed, same accumulators) Castling on four different squares (always in chess, often in Chess960):
+    // a king move, then a rook move, each skipping the lines it closes and reopens itself. Removing both and putting
+    // both back opened and closed again 1.4 tuples per castling move (bench), two rows per perspective each.
+    if (count_bits((1ULL << from) | (1ULL << dp.to) | (1ULL << dp.remove_sq) | (1ULL << dp.add_sq)) == 4) {
+      nn_step_move(tb, look, pc, from, dp.to, dts);
+      nn_step_move(tb, look, dp.remove_pc, dp.remove_sq, dp.add_sq, dts);
+      return;
+    }
+    // Otherwise (Chess960, the squares overlap): first king and rook are removed, then put back.
     nn_step_remove(tb, look, pc, from, dts);
     nn_step_remove(tb, look, dp.remove_pc, dp.remove_sq, dts);
     nn_step_put(tb, look, pc, dp.to, dts);
@@ -228,8 +242,17 @@ static inline void nn_threat_steps(NnTB &tb, const Look &look, const NnDirtyPiec
       nn_step_remove(tb, look, dp.remove_pc, dp.remove_sq, dts);
       nn_step_move(tb, look, pc, from, to, dts);
     } else {
-      nn_step_remove(tb, look, pc, from, dts);
-      nn_step_swap(tb, look, dp.remove_pc, arriving, to, dts);
+      // (29/10/2026, speed, same accumulators) A capture along a line: when the mover leaves `from`, the piece on
+      // that line behind it (X, beyond `from` seen from `to`) gets a line onto the victim, and a line victim gets
+      // one onto X; when the victim leaves `to`, both tuples are taken back (two rows per perspective each, for
+      // nothing). So the mover leaving skips the seers on the line (`ray` and `to`), and the victim leaving skips its
+      // threats with the piece on `ray` (only X can be there: the squares between are empty, `from` is empty by
+      // then; knights and pawns are never on it). Nothing else changes: nnperft and nnueverify compare the
+      // accumulators with a refresh. No line (a knight capture): `ray` is 0 and the piece on `to` cannot see `from`,
+      // so nothing is skipped.
+      const U64 ray = nn_ray_pass[to][from];
+      nn_step_remove(tb, look, pc, from, dts, ray | (1ULL << to));
+      nn_step_swap(tb, look, dp.remove_pc, arriving, to, dts, ray);
     }
   } else if (promo) {
     nn_step_remove(tb, look, pc, from, dts);
