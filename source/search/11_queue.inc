@@ -224,7 +224,78 @@ static int rank_into(ScoredMove *out, const int *mv, const int *sc, int n, int l
 // (the 2-4 captures of a quiescence node) the fixed cost of the vector code is larger than the scalar loop. Xeon
 // (PGO, xperf, with the other patches of 28/10/2026 night), cycles per node middlegame / endgame: from 8 moves
 // 4012 / 3803, on every list 4020 / 3819. -DTRIUMV_VERIFY_RANK compares every call with rank_into.
+#if defined(__AVX2__) && !defined(__AVX512F__)
+// AVX2 has no vpcompressd: for each 8-bit lane mask, the indices of its set lanes in order (the rest 0), for vpermd.
+// Used by the AVX2 ranking below and by the compaction of fill_quiets.
+struct Pack8 {
+  unsigned char idx[256][8];
+};
+static constexpr Pack8 make_pack8() {
+  Pack8 t{};
+  for (int m = 0; m < 256; m++) {
+    int k = 0;
+    for (int b = 0; b < 8; b++)
+      if ((m >> b) & 1) t.idx[m][k++] = (unsigned char)b;
+  }
+  return t;
+}
+alignas(64) static constexpr Pack8 kPack8 = make_pack8();
+static inline __m256i pack8_idx(unsigned mask) {
+  return _mm256_cvtepu8_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i *>(kPack8.idx[mask])));
+}
+// (29/10/2026 night, speed, same output as rank_into<false>) The vector ranking on AVX2 builds (avx2, avx2-nopext,
+// avxvnni: Intel 12th gen and later, Core Ultra, AMD Zen 2/3), 8 moves at a time, packed with vpermd and kPack8. Same
+// keys, same positions; the stores stay inside the 256 slots (at most 218 moves plus 7 lanes). The ranks are counted 8
+// keys per comparison, as in rank_into. Xeon, avx2 variant (PGO, xperf), with the AVX2 compaction, hist_learn and TT
+// below: -2.2% cycles per node in the middlegame and in endgames.
+#define TRIUMV_HAVE_RANKV 1
+static int rank_into_v(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
+  PROF_GUARD(prof_mp);
+  alignas(32) int key[256 + 8], hmv[256 + 8], hsc[256 + 8];
+  unsigned char up[32];
+  const int ng = (n + 7) >> 3;
+  const __m256i lim = _mm256_set1_epi32(limit), iota = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+  int nh = 0;
+  for (int g = 0; g < ng; g++) {
+    const __m256i k = _mm256_cmpgt_epi32(_mm256_set1_epi32(n - 8 * g), iota);
+    const __m256i s = _mm256_maskload_epi32(sc + 8 * g, k);
+    up[g] = (unsigned char)_mm256_movemask_ps(_mm256_castsi256_ps(_mm256_andnot_si256(_mm256_cmpgt_epi32(lim, s), k)));
+    nh += count_bits(up[g]);
+  }
+  int h = 0, l = nh;
+  for (int g = 0; g < ng; g++) {
+    const __m256i k = _mm256_cmpgt_epi32(_mm256_set1_epi32(n - 8 * g), iota);
+    const __m256i s = _mm256_maskload_epi32(sc + 8 * g, k), m = _mm256_maskload_epi32(mv + 8 * g, k);
+    const unsigned u = up[g], d = (unsigned)_mm256_movemask_ps(_mm256_castsi256_ps(k)) & ~u;
+    const __m256i cl = _mm256_min_epi32(_mm256_max_epi32(s, _mm256_set1_epi32(-(1 << 22))), _mm256_set1_epi32((1 << 22) - 1));
+    const __m256i ky = _mm256_or_si256(_mm256_slli_epi32(cl, 8), _mm256_sub_epi32(_mm256_set1_epi32(255 - 8 * g), iota));
+    const __m256i iu = pack8_idx(u);
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(key + h), _mm256_permutevar8x32_epi32(ky, iu));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(hmv + h), _mm256_permutevar8x32_epi32(m, iu));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(hsc + h), _mm256_permutevar8x32_epi32(s, iu));
+    h += count_bits(u);
+    const __m256i id = pack8_idx(d);
+    const __m256i lm = _mm256_permutevar8x32_epi32(m, id), ls = _mm256_permutevar8x32_epi32(s, id);
+    const __m256i a = _mm256_unpacklo_epi32(lm, ls), b = _mm256_unpackhi_epi32(lm, ls);   // pairs 0 1 4 5 / 2 3 6 7
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(out + l), _mm256_permute2x128_si256(a, b, 0x20));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(out + l + 4), _mm256_permute2x128_si256(a, b, 0x31));
+    l += count_bits(d);
+  }
+  _mm256_storeu_si256(reinterpret_cast<__m256i *>(key + nh), _mm256_set1_epi32(INT_MIN));   // padding of the last group
+  const int nchunk = (nh + 7) >> 3;
+  for (int j = 0; j < nh; j++) {
+    const __m256i x = _mm256_set1_epi32(key[j]);
+    int r = 0;
+    for (int c = 0; c < nchunk; c++)
+      r += count_bits((U64)(unsigned)_mm256_movemask_ps(_mm256_castsi256_ps(
+               _mm256_cmpgt_epi32(_mm256_load_si256(reinterpret_cast<const __m256i *>(key + 8 * c)), x))));
+    out[r] = {hmv[j], hsc[j]};
+  }
+  return nh;
+}
+#endif
 #if defined(__AVX512F__)
+#define TRIUMV_HAVE_RANKV 1
 static int rank_into_v(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
   PROF_GUARD(prof_mp);
   alignas(64) int key[256 + 16], hmv[256 + 16], hsc[256 + 16];
@@ -271,9 +342,9 @@ static int rank_into_v(ScoredMove *out, const int *mv, const int *sc, int n, int
 }
 #endif
 
-// The ranking the fills call: the vector code on AVX-512 from 8 moves, rank_into otherwise (same output).
+// The ranking the fills call: the vector code on AVX-512 and AVX2 from 8 moves, rank_into otherwise (same output).
 static inline int rank_list(ScoredMove *out, const int *mv, const int *sc, int n, int limit) {
-#if defined(__AVX512F__)
+#if defined(TRIUMV_HAVE_RANKV)
 #if defined(TRIUMV_VERIFY_RANK)   // check: the same list and size as rank_into
   if (n >= 8) {
     ScoredMove chk[256];
@@ -447,42 +518,51 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   const int eoff = them == white ? 0 : 6, us_off = 6 - eoff;
   const U64 occ = td.occupancies[both];
 
-  // Squares attacked by all enemy pawns together: the two shifts of mask_pawn_attacks (attacks.cpp) applied to the
-  // whole bitboard, the same union as the loop per pawn (04/10/2026).
+  // (29/10/2026 night, speed, same scores) The enemy's attacks per kind are the node's enemy map of the legal generator
+  // (movegen_legal.h, enemy_map), built by castling or the quiet king steps of the stage just before, or here: the
+  // same lookups this function made before (one slider pair per enemy slider). The node is never in check here
+  // (QK_MAIN), so lifting our king in that map changes no attack. -DTRIUMV_VERIFY_EMAP checks it against direct lookups.
+  legalgen::LegalInfo local;
+  legalgen::LegalInfo *li = &q.lgen.info;
+  if (!q.lgen.ready) {   // the moves did not come from the legal generator (Chess960): a map for this node only
+    local.king = get_ls1b_index(td.bitboards[K + us_off]);
+    local.emap = false;
+    li = &local;
+  }
+  if (!li->emap) {
+    if (us == white)
+      legalgen::enemy_map<white>(td, *li);
+    else
+      legalgen::enemy_map<black>(td, *li);
+  }
   const U64 epawns = td.bitboards[P + eoff];
-  const U64 by_pawn = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
-                                    : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
-  // (10/10/2026, speed, same scores) The opponent's maps and the safe-square attacks (AttackOrder*) come from ONE
-  // slider computation per enemy slider (get_slider_pair), instead of loops that computed the attacks of the same
-  // pieces again (~0.84 computations per node before, ~0.35 now); knights and pawns go through sets.
-  // First pass, over the sliders: by_bishop, by_rook, by_queen and the parts of attack_to that do not depend on `safe`
-  // (rooks and the queen are always targets for the bishop, the queen for the rook).
   const U64 eN = td.bitboards[N + eoff], eB = td.bitboards[B + eoff], eR = td.bitboards[R + eoff],
             eQ = td.bitboards[Q + eoff];
-  const U64 by_knight = knight_fill(eN);
-  U64 by_bishop = 0, by_rook = 0, by_queen = 0;
-  U64 aa_b = 0, aa_r = 0, aa_q = 0;            // attack_to[B], [R], [Q] (targets below)
-  U64 sl_b[16], sl_r[16];                      // bishop and rook attacks of the sliders, for the second pass
-  unsigned char sl_slot[64];                   // index into sl_b/sl_r per square (written only for sliders)
-  int nsl = 0;
-  for (U64 t = eB | eR | eQ; t; pop_lsb_bb(t)) {
-    const int sq = get_ls1b_index(t);
-    const SliderPair sp = get_slider_pair(sq, occ);
-    const U64 b = pair_bishop(sp), r = pair_rook(sp);
-    const U64 mB = 0 - ((eB >> sq) & 1), mR = 0 - ((eR >> sq) & 1), mQ = 0 - ((eQ >> sq) & 1);
-    by_bishop |= b & mB;
-    by_rook |= r & mR;
-    by_queen |= (b | r) & mQ;
-    aa_b |= b & (mR | mQ);
-    aa_r |= r & mQ;
-    sl_b[nsl] = b;
-    sl_r[nsl] = r;
-    sl_slot[sq] = (unsigned char)nsl++;
+  const U64 by_pawn = li->em[P], by_knight = li->em[N], by_bishop = li->em[B], by_rook = li->em[R],
+            by_queen = li->em[Q];
+#ifdef TRIUMV_VERIFY_EMAP
+  {
+    U64 vb = 0, vr = 0, vq = 0;
+    for (U64 t = eB | eR | eQ; t; pop_lsb_bb(t)) {
+      const int sq = get_ls1b_index(t);
+      const SliderPair sp = get_slider_pair(sq, occ);
+      if ((eB >> sq) & 1) vb |= pair_bishop(sp);
+      if ((eR >> sq) & 1) vr |= pair_rook(sp);
+      if ((eQ >> sq) & 1) vq |= pair_bishop(sp) | pair_rook(sp);
+    }
+    const U64 vp = them == white ? ((epawns >> 7) & not_a_file) | ((epawns >> 9) & not_h_file)
+                                 : ((epawns << 7) & not_h_file) | ((epawns << 9) & not_a_file);
+    if (vb != by_bishop || vr != by_rook || vq != by_queen || knight_fill(eN) != by_knight || vp != by_pawn) {
+      printf("info string EMAP WRONG: enemy map differs\n");
+      fflush(stdout);
+      abort();
+    }
   }
+#endif
   const U64 by_minor = by_knight | by_bishop;
   // Map for see_holds_q (the queen and the king are not in lesser[], only here).
   q.opp_slider = by_bishop | by_rook | by_queen;
-  q.opp_att = by_pawn | by_knight | q.opp_slider | king_attacks[get_ls1b_index(td.bitboards[K + eoff])];
+  q.opp_att = li->em_all;
   q.opp_ready = true;
   U64 lesser[6];
   lesser[P] = 0;
@@ -579,6 +659,24 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
   if (AttackOrder || AttackOrderQ) {
     const U64 safe = ~q.opp_att;
     const U64 minors = eN | eB;
+    // First pass, over the enemy sliders (the node's map has only the union per kind): the parts of attack_to that do
+    // not depend on `safe` (rooks and the queen are always targets for the bishop, the queen for the rook) and the
+    // lines of each slider for the second pass.
+    U64 aa_b = 0, aa_r = 0, aa_q = 0;            // attack_to[B], [R], [Q]
+    U64 sl_b[16], sl_r[16];                      // bishop and rook attacks of the sliders
+    unsigned char sl_slot[64];                   // index into sl_b/sl_r per square (written only for sliders)
+    int nsl = 0;
+    for (U64 t = eB | eR | eQ; t; pop_lsb_bb(t)) {
+      const int sq = get_ls1b_index(t);
+      const SliderPair sp = get_slider_pair(sq, occ);
+      const U64 b = pair_bishop(sp), r = pair_rook(sp);
+      const U64 mR = 0 - ((eR >> sq) & 1), mQ = 0 - ((eQ >> sq) & 1);
+      aa_b |= b & (mR | mQ);
+      aa_r |= r & mQ;
+      sl_b[nsl] = b;
+      sl_r[nsl] = r;
+      sl_slot[sq] = (unsigned char)nsl++;
+    }
     // Second pass. Targets: of the bishop er|eq|(minors&safe), of the rook eq|((minors|er)&safe), of the queen
     // (minors|er)&safe, of the knight as the bishop, of the pawn minors|er|eq. The parts without `safe` are already in
     // aa_b and aa_r; safe bishops and rooks reuse their first-pass attacks; safe knights (0-2) are the only targets that
@@ -889,6 +987,23 @@ __attribute__((noinline)) static void fill_quiets(MoveQueue &q) {
                              _mm512_cmpneq_epi32_mask(pr, _mm512_set1_epi32(Q)) &
                              _mm512_cmpneq_epi32_mask(pr, _mm512_set1_epi32(Q + 6));   // black queen (q)
       _mm512_storeu_si512(ml->moves + n, _mm512_maskz_compress_epi32(keep, v));
+      n += count_bits(keep);
+    }
+  }
+#elif defined(__AVX2__)
+  // (29/10/2026 night, speed, same list) The same compaction on AVX2, 8 moves at a time: the kept lanes are packed with
+  // vpermd and the index list of their 8-bit mask (kPack8). The store at n <= i never reaches the moves not read yet.
+  {
+    const __m256i hmv = _mm256_set1_epi32(q.hash_move), iota = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    for (int i = 0; i < ml->count; i += 8) {
+      const __m256i k = _mm256_cmpgt_epi32(_mm256_set1_epi32(ml->count - i), iota);
+      const __m256i v = _mm256_maskload_epi32(ml->moves + i, k);
+      const __m256i pr = _mm256_and_si256(_mm256_srli_epi32(v, 16), _mm256_set1_epi32(15));
+      const __m256i drop = _mm256_or_si256(_mm256_cmpeq_epi32(v, hmv),
+                                           _mm256_or_si256(_mm256_cmpeq_epi32(pr, _mm256_set1_epi32(Q)),
+                                                           _mm256_cmpeq_epi32(pr, _mm256_set1_epi32(Q + 6))));
+      const unsigned keep = (unsigned)_mm256_movemask_ps(_mm256_castsi256_ps(_mm256_andnot_si256(drop, k)));
+      _mm256_storeu_si256(reinterpret_cast<__m256i *>(ml->moves + n), _mm256_permutevar8x32_epi32(v, pack8_idx(keep)));
       n += count_bits(keep);
     }
   }
