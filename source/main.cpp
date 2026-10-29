@@ -175,7 +175,7 @@ int main()
     // a missing net fails loudly. Override at runtime via the UCI "EvalFile" option.
     nn_init_tables();   // feature index tables of the network
     // Own-lineage net, dev and release builds alike (2026-07-05: dev builds used to default to
-    // a Stockfish reference net here, which silently made a dev-build bench/SPRT run on
+    // a reference net here, which silently made a dev-build bench/SPRT run on
     // different weights than a release build unless EvalFile was set explicitly -> never
     // again; both build kinds load our own net by default now).
     // TRANN3 (4 blocks: threats+halfka+pawnpair+passedpawns). ONE single source of truth

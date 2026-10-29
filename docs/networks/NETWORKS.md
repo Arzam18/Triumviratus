@@ -34,11 +34,14 @@ The full record of each one — data, recipe, epoch-by-epoch measurements — is
 
 ---
 
-## Consilium Plebis — the network of Triumviratus 8.1 (in training)
+## Consilium Plebis — the network of Triumviratus 8.1
 
-> **Status, 26 October 2026: training in progress** (pretraining P, 550 epochs, started 21 October; epoch 443
-> exported). The network file is not published yet: it will be released with 8.1. The engine side is written and
-> verified; the development source of 8.1 now uses this network only.
+> **File:** [`nn-consilium-plebis.nnue`](https://github.com/Tors3/Triumviratus-Networks/releases/download/consilium-plebis/nn-consilium-plebis.nnue)
+> (255.7 MB, SHA-256 `b069fc08…`), the default network of 8.1, attached to the release
+> [`consilium-plebis`](https://github.com/Tors3/Triumviratus-Networks/releases/tag/consilium-plebis) with its float
+> weights; recipe, data, scripts and measurements in
+> [`recipes/07_consilium-plebis`](https://github.com/Tors3/Triumviratus-Networks/tree/main/recipes/07_consilium-plebis).
+> Trained 21-28 October 2026. **+10.3 ± 4.3 Elo over Consilium**, same search on both sides, 30k nodes per move.
 
 The name comes from the *Concilium Plebis* of the Roman Republic, the assembly of the plebs. Here the plebs are the
 pawns: in this network they get a subnetwork of their own, together with the two kings.
@@ -94,15 +97,21 @@ match the trainer on exported networks, and the loader indices (cells, buckets, 
 independent python-chess computation; after it, the engine had to match the Python evaluator move by move across
 bucket changes.
 
-### First measurements (provisional, during training)
+The run, on two RTX 4090: a pretraining P in epochs of one billion positions, stopped after epoch 496 of the 550
+planned while the loss was still falling; a finetune F of 60 epochs from those weights (a rise to 25% of P's peak
+learning rate, a slow descent with a flat stretch at 15%, then down to P's final rate); and a continuation of 3 epochs
+from F's final rate down to zero. The final network is the average of the weights of those 3 epochs, with its
+first-layer neurons permuted on 2 million positions.
 
-- **Loss on held-out data** (the same positions for every network): at epoch 435 Consilium Plebis is better than the
-  final Consilium in every material bucket, by 2.9% at lambda 0.75 overall, most of all in endgames, and the gap
-  still grows as the learning rate falls.
-- **Against Consilium with the same 8.1 search, at fixed nodes (100k per move):** +4.7 ± 3.5 Elo over 10,418 games,
-  pooling the exports from epoch 358 to 435; single exports scatter by ±7-10 around it, as snapshots taken at a high
-  learning rate do.
-- Numbers for the final network will be given with the release of 8.1.
+### Measurements
+
+- **The final network against Consilium**, the same search source on both sides (built for each network), 30k nodes
+  per move: **+10.3 ± 4.3 Elo** over 8,332 games (SPRT [0, 3] passed). Against the end of its own pretraining:
+  +0.7 ± 2.8 over 18,332 games.
+- **Loss on held-out data** (the same positions for every network): at epoch 435 Consilium Plebis was better than the
+  final Consilium in every material bucket, by 2.9% at lambda 0.75 overall, most of all in endgames.
+- **During the pretraining, against Consilium at 100k nodes per move:** +4.7 ± 3.5 Elo over 10,418 games pooling the
+  exports from epoch 358 to 435, then +10.8 ± 5.5 at epoch 463 and +10.3 ± 5.6 at epoch 486.
 
 ---
 

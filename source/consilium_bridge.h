@@ -33,6 +33,14 @@ int nn_load_net(const char* net_path);
 // success, 0 if the path could not be loaded.
 int nn_reload_big(const char* net_path);
 
+// PassedScale (26/10/2026): percent on the PassedPawns rows of the network, applied at load time (cn::set_passed_scale);
+// a change reloads the current network. Call with no search running. Returns 1 if the network was reloaded.
+int nn_set_passed_scale(int pct);
+
+// C2PkStale (27/10/2026): 1 = on a pawn-king cache miss the handle reuses the outputs of its last lookup (set by the
+// search for shallow nodes before evaluating), 0 = compute as usual.
+void nn_set_pk_stale(void* handle, int on);
+
 // No-ops kept for API stability: the refresh cache is always on, and "accstats" has no counters.
 void nn_set_finny(int on);
 void nn_acc_stats(void);
@@ -93,14 +101,9 @@ void  nn_pos_set_optimism(void* handle, int w, int b);   // OptPerThread
 // Back to the root: the stack returns to one state, and the root accumulator is computed at the first evaluation.
 void  nn_pos_set(void* handle);
 
-// ExpertFix (20/10/2026): expert of the network per piece count (33 entries, 0..3), set by the engine at the start of
-// a search (the normal bands, or the root's expert kept for a margin of pieces). Call only between searches.
-void  nn_set_phase_map(const unsigned char* map);
-
 // The handle's dirty stack, written directly by the engine's make and unmake.
 NnStack* nn_pos_stack(void* handle);
 
-#ifdef TRIUMV_C2
 // Consilium Plebis: the routing table of the loaded network (2,916 cells -> expert 0..7), for the make. The cell of a
 // perspective is cn_sig(own side) * 54 + cn_sig(opponent); the signature counts N, B, R (capped at 2) and Q (at 1).
 const unsigned char* nn_router_table(void);
@@ -163,7 +166,6 @@ int nn_pk_effect_now(void* handle, const unsigned long long* bb, const unsigned 
 // Evaluation terms of the search parameters C2Conv* and C2EvalExp0..7 (01_params.inc), set at the start of each
 // search (15_threads.inc). All 0 = the evaluation is unchanged. conv = {weight /1024, from, cap}; exp_scale[8] /1024.
 void     nn_set_c2_eval(const int* conv, const int* exp_scale);
-#endif
 
 // Memory hint from the make (board before the move, bb[12] as above; phase = material band after the move): asks for
 // the network rows the move will change, so they are in cache when the child evaluates. Changes no state. Without a

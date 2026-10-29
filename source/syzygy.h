@@ -53,6 +53,7 @@ bool syzygy_probe_wdl(const ThreadData& td, int ply, int& score);
 // probing is disabled, the position is out of range, the position still has
 // castling rights, the DTZ tables are missing, or the move could not be
 // matched (in which case the caller falls back to a normal search).
-bool syzygy_probe_root(int& best_move, int& score);
+// keep_moves / n_keep (optional, 28/10/2026, TbDrawSearch): the legal moves that keep the root's WDL (up to 256).
+bool syzygy_probe_root(int& best_move, int& score, int* keep_moves = nullptr, int* n_keep = nullptr);
 
 #endif // SYZYGY_H

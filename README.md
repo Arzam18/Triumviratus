@@ -37,7 +37,8 @@ GitHub). Everyone is welcome, as long as discussions stay open and respectful.
 
 ## Triumviratus 8.1 (in development)
 
-8.1 brings a new network, **Consilium Plebis**, now in training. Consilium chose its experts by the total piece count,
+8.1 brings a new network, **Consilium Plebis**, trained from 21 to 28 October 2026: **+10.3 ± 4.3 Elo over Consilium**
+with the same search at fixed nodes. Consilium chose its experts by the total piece count,
 the same for both sides; Consilium Plebis gives **each side its own expert, chosen by the non-pawn material that side
 is facing**, so positions with a material imbalance are read differently from the two points of view and a pawn more or
 less no longer moves a position to another expert. The king-relative weights are **int8** (eight experts in the memory
@@ -46,8 +47,9 @@ layer stack.
 
 <p align="center"><img src="docs/networks/consilium_plebis_architecture.svg" alt="Consilium Plebis architecture: int8 HalfKA split into eight experts chosen per side by the opponent's non-pawn material, two 1024 accumulators, a pawn-king subnetwork added to the first layer of each of the eight layer stacks" width="100%"></p>
 
-[Architecture and first measurements](docs/networks/NETWORKS.md#consilium-plebis--the-network-of-triumviratus-81-in-training) ·
-the network file comes with the release of 8.1.
+[Architecture and measurements](docs/networks/NETWORKS.md#consilium-plebis--the-network-of-triumviratus-81) ·
+[network file](https://github.com/Tors3/Triumviratus-Networks/releases/tag/consilium-plebis) ·
+[recipe](https://github.com/Tors3/Triumviratus-Networks/tree/main/recipes/07_consilium-plebis).
 
 ---
 
@@ -179,7 +181,8 @@ on Arasan 2026, against 145 and 137 for 8.0 (details in
 
 **Maurizio Platino** is the project's tester and search-tuner. Beyond SPSA tuning, he tests the engine on hard
 positions at long time controls and against other engines on his own machine, and shares with the author the cost of
-the cloud GPUs on which the networks are trained. Triumviratus would be materially weaker without his work.
+the cloud GPUs on which the networks are trained. Maurizio has been a fundamental asset for this project: without
+Maurizio, the fast development that started with version 4 would never have been possible.
 
 **Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
 extensively, in matches and on tactical test suites such as IQ4, and his reports shaped the release. His remark that
@@ -212,11 +215,6 @@ Details of both contributions: [Contributions](docs/project/CONTRIBUTING.md#cont
   random keys, FEN parsing, perft and parts of the UCI input still descend from it, rewritten and extended over the
   years; each of these files carries a note of its origin. The input polling came to BBC from VICE by Richard Allbert.
   Many thanks to Maksim Korzh for publishing BBC.
-- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): up to 8.0, the NNUE inference (`nnue/`,
-  ported from SFNNv16) and a search written in October 2026 on the algorithmic base of Stockfish 19. **8.1 contains no
-  Stockfish code**: the inference is Consilium's own, written from a specification, and every part of the search has
-  been rewritten in the project's own form. Some numeric constants of the search still have the values of Stockfish 19;
-  they will be retuned by SPSA when the training of the next network ends.
 - **[Fathom](https://github.com/jdart1/Fathom)** (MIT): Syzygy tablebase probing.
 - **[Zoomies](https://github.com/CodeAdopter/Zoomies)** by A Tin Man (MIT, © 2026 Angelo Wolff) and
   **[Surge](https://github.com/nkarve/surge)** (MIT, © 2020 DiehardTheTryhard), from which the Zoomies generator
@@ -230,6 +228,11 @@ Details of both contributions: [Contributions](docs/project/CONTRIBUTING.md#cont
 Ideas for search, move ordering, time management, pruning and network inputs were studied from these engines and,
 where adopted, implemented in our own way and re-tuned on the project's own network:
 
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): studied for the search. Up to 8.0 the
+  engine contained Stockfish code: the NNUE inference ported from SFNNv16 and a search written in October 2026 on the
+  algorithmic base of Stockfish 19 (tag `v8.0`). 8.1 contains no Stockfish code: the inference is Consilium Plebis's
+  own and the search is written in the project's own form. Many numeric constants of the search still have the values
+  of Stockfish 19; they are being retuned by SPSA on the new network.
 - **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**: the **`PawnPair`** input block (pairs of pawns on
   the same or adjacent files), **invented by Jonathan Hallström** and also used by Stormphrax and Viridithas; our
   implementation and weights are our own, the idea is his.

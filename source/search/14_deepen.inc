@@ -110,7 +110,6 @@ static void budget_own(ClockBudget &b, double clock, double inc, int overhead, i
   b.ceil_mult = TL(TmOwnCeil) / 100.0;
 }
 
-#ifdef TRIUMV_C2
 // --- C2 time signals (agent B, 21/10/2026) ---
 // TmC2Edge: how close the root sits to an edge of the routing table. Each non-pawn piece type that a side has is taken
 // off once (a single capture); the result is the share of those captures after which the expert of either perspective
@@ -161,7 +160,6 @@ static bool c2_line_switches(const ThreadData &td, const int *line, int plies) {
   }
   return c2_experts(k) != e0;
 }
-#endif
 
 static void clock_plan(int us, int game_ply, int overhead) {
   if (!g_limits.time[us]) {
@@ -198,7 +196,6 @@ static void clock_plan(int us, int game_ply, int overhead) {
     const int k = e == 0 ? TmExp0 : e == 1 ? TmExp1 : e == 2 ? TmExp2 : TmExp3;
     opt_share *= 1 + k / 1000.0;
   }
-#ifdef TRIUMV_C2
   // C2 time levers (agent B, 21/10/2026; OFF by default, SPRT pending). TmC2Exp0..7: the share by the Consilium Plebis
   // expert of the side to move at the root, the routing region the network itself chose (TmExp0..3 above follow the
   // piece bands of the old network). TmC2Edge: more time the closer the root is to a routing edge (c2_edge_share).
@@ -210,7 +207,6 @@ static void clock_plan(int us, int game_ply, int overhead) {
     if (TmC2Edge)
       opt_share *= 1 + TmC2Edge / 1000.0 * c2_edge_share(k);
   }
-#endif
   g_clock.optimum = (int)std::max(1.0, opt_share * b.reserve);
   g_clock.maximum =
       (int)std::max((double)g_clock.optimum, std::min(TmMaxClock / 1e4 * clock - overhead, b.ceil_mult * g_clock.optimum));
@@ -276,7 +272,7 @@ static void print_score(char *out, size_t sz, int v) {
   else if (v <= -TB_WIN_FLOOR)
     snprintf(out, sz, "cp %d", -20000 + (TB_WIN_TOP + v));
   else
-    snprintf(out, sz, "cp %d", units_to_cp(v));
+    snprintf(out, sz, "cp %d", units_to_print_cp(v));   // screen scale (09_history.inc, 28/10/2026)
 }
 
 static void report_lines(ThreadData &td, int depth) {
@@ -308,7 +304,7 @@ static void report_lines(ThreadData &td, int depth) {
       int w, dd, l;
       if (v >= TB_WIN_FLOOR) { w = 1000; dd = l = 0; }        // mates and tablebase wins
       else if (v <= -TB_WIN_FLOOR) { l = 1000; w = dd = 0; }
-      else wdl_from_cp(units_to_cp(v), w, dd, l);
+      else wdl_from_cp(units_to_print_cp(v), w, dd, l);
       printf(" wdl %d %d %d", w, dd, l);
     }
     printf(" nodes %llu nps %llu hashfull %d tbhits %llu time %d pv", (unsigned long long)nodes,
@@ -336,7 +332,7 @@ static void settle_lines(ThreadData &td, int from, int to) {
 }
 
 // AnDirect (Pos Solver, 15/10/2026): the position collections give the most direct win as the key, and whoever
-// analyses wants to see that one; we (and SF19) often choose a quiet move with a slightly higher score.
+// analyses wants to see that one; we often choose a quiet move with a slightly higher score.
 // With two exact lines both above DirectFrom and at most DirectGap apart, if the second is forcing (check,
 // capture, promotion) and the first is not, they are swapped. It must be called with the board at the root.
 // Direct move at the root (AnDirect, AnDirLine): check, capture, promotion, or sacrifice (quiet move with
@@ -415,11 +411,12 @@ static GdRoot gd_root_facts(ThreadData &td) {
     const int m = td.root[i].pv[0];
     if (!get_move_capture(m) || kPieceKind[move_piece(m)] == K)
       continue;
-    int mover = unit_value[kPieceKind[move_piece(m)]];
+    const int *pv = piece_values_mat(td);   // per-expert values of the root (see.cpp)
+    int mover = pv[move_piece(m)];
     if (get_move_promoted(m))
-      mover += unit_value[kPieceKind[get_move_promoted(m) & 15]] - unit_value[P];
-    const int vk = get_move_enpassant(m) ? P : kPieceKind[td.piece_on[move_to(m)] & 15];
-    if (mover > unit_value[vk]) { g.sacrificial = true; break; }
+      mover += pv[get_move_promoted(m) & 15] - pv[move_piece(m)];
+    const int victim = get_move_enpassant(m) ? pv[td.side == white ? p : P] : pv[td.piece_on[move_to(m)] & 15];
+    if (mover > victim) { g.sacrificial = true; break; }
   }
   // Pedoni bianchi in 5a-7a (righe 1-3 con a8 = 0, case 8-31), neri in 2a-4a (righe 4-6, case 32-55).
   g.near_promo = (td.bitboards[P] & 0x00000000FFFFFF00ULL) || (td.bitboards[p] & 0x00FFFFFF00000000ULL);
@@ -494,11 +491,9 @@ static void deepen(ThreadData &td) {
 #endif
   NodeFrame *root = &td.frames[FRAME_OFFSET];
   prepare_frames(td);
-#ifdef TRIUMV_C2
   // SmpRouteShift (21/10/2026): the odd helpers evaluate with the shifted routing table (built in start_search), set
   // here, in the thread itself, before its first evaluation; every other thread with the network's table.
   nn_thread_router(SmpRouteShift && (td.thread_id & 1));
-#endif
   root->in_check = td_is_square_attacked(td, get_ls1b_index(td.bitboards[td.side == white ? K : k]), td.side ^ 1);
   td.root_side = td.side;   // Contempt: the draw is worth less for the side to move at the root
   // DrawDefend: from the score with which the previous move closed (fixed for the whole search and the same for all the
@@ -511,10 +506,8 @@ static void deepen(ThreadData &td) {
   // C2ConvRoot (the author's idea, 21/10/2026 evening): the conversion push decided once here, from the root's static
   // evaluation and exact pawn-king effect (mode 2 decides again at every iteration, below).
   td.c2_conv_root = 0;
-#ifdef TRIUMV_C2
   if (C2ConvRoot && (C2ConvOrder | C2ConvRed) && !root->in_check)
     td.c2_conv_root = c2_conv_root_decide(td, static_evaluate(td));
-#endif
   td.deep_w = 0;
   td.lt_lmr_log_mul = -1;   // forces the construction of the thread's table at the first iteration (root_depth is 0)
   lt_update(td);
@@ -582,13 +575,11 @@ static void deepen(ThreadData &td) {
   while (td.root_depth + 1 < max_ply && !stop_threads.load(std::memory_order_relaxed) &&
          !(g_limits.depth && main && td.root_depth >= g_limits.depth)) {
     td.root_depth++;
-#ifdef TRIUMV_C2
     // C2ConvRoot 2: the decision follows the score of the last completed iteration (the search's judgement of the
     // root, instead of its static evaluation).
     if (C2ConvRoot == 2 && (C2ConvOrder | C2ConvRed) && !root->in_check && td.root_depth > 1 &&
         td.root[0].score > -infinity)
       td.c2_conv_root = c2_conv_root_decide(td, td.root[0].score);
-#endif
     if (direct_swapped) {   // AnDirect: the search restarts from the true order of the lines
       std::swap(td.root[0], td.root[1]);
       direct_swapped = false;
@@ -818,7 +809,7 @@ static void deepen(ThreadData &td) {
           total_time *= TmSurpriseScale / 1000.0;
       }
       // TmDefendMul (08/10/2026, audit X3; BAKED at 500 on 11/10/2026): in defence (root between -TmDefendTo and -TmDefendFrom) more time; the
-      // cap stays the move's maximum. Against SF19 in defence we err 2-3 times more often than it does.
+      // cap stays the move's maximum. Against a stronger reference engine in defence we erred 2-3 times more often.
       if (TmDefendMul && best <= -TmDefendFrom && best > -TmDefendTo)
         total_time *= 1 + TmDefendMul / 1000.0;
       // TmTrans (20/10/2026, ours, 0 = off): the captures in the first TmTransPlies moves of the principal variation
@@ -832,7 +823,6 @@ static void deepen(ThreadData &td) {
           caps += get_move_capture(top.pv[i]) != 0;
         const int pieces = count_bits(occupancies[both]);
         bool trans = net_phase(pieces - caps) != net_phase(pieces);
-#ifdef TRIUMV_C2
         // TmC2Trans (agent B, 21/10/2026; OFF by default, SPRT pending): with Consilium Plebis the experts are not the piece
         // bands above. 1 = the trigger is a change of the C2 expert of either perspective after the same PV moves
         // (captures and promotions); 2 = either trigger.
@@ -844,7 +834,6 @@ static void deepen(ThreadData &td) {
                  (int)(net_phase(pieces - caps) != net_phase(pieces)), (int)c2);
 #endif
         }
-#endif
         total_time *= trans ? 1 + TmTransMul / 1000.0 : 1 - TmTransRest / 1000.0;
       }
       const int elapsed = get_time_ms() - g_limits.start_ms;

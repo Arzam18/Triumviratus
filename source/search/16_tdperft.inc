@@ -178,7 +178,6 @@ static inline void nnp_eval(ThreadData &td) {
     if (tdp_key_mism < 5) printf("info string NN STACK MISMATCH stati=%d mosse=%d\n", td.nnstack->size, nnp_moves);
     tdp_key_mism++;
   }
-#ifdef TRIUMV_C2
   // Review 21/10/2026: the C2 experts the search ideas read from the stack (c2_experts_td, c2_expert) must be those of
   // the board, also after null moves, promotions and en passant.
   if (c2_experts_td(td) != c2_experts(c2_count(td.bitboards))) {
@@ -186,7 +185,6 @@ static inline void nnp_eval(ThreadData &td) {
                                  c2_experts(c2_count(td.bitboards)));
     tdp_key_mism++;
   }
-#endif
 }
 static U64 nnp_rec(ThreadData &td, int depth) {
   const bool evaluated = depth == 0 || td.hash_key % 3 == 0;
@@ -194,7 +192,6 @@ static U64 nnp_rec(ThreadData &td, int depth) {
     nn_last_disagree = -1;   // set again only by an incremental network evaluation (the fresh case below)
     nnp_eval(td);
   }
-#ifdef TRIUMV_C2
   // Conversion push (C2ConvPkSrc 1, 21/10/2026): the exact pawn-king effect the search would read, right after an
   // evaluation (fresh) and, at one internal node in seven not evaluated, on demand (now); the bridge compares both with
   // the value from scratch under nnueverify (a difference counts in "bad"). Only with the option set.
@@ -204,7 +201,6 @@ static U64 nnp_rec(ThreadData &td, int depth) {
     else if (!evaluated && td.hash_key % 7 == 0)
       c2_pk_effect_now(td);
   }
-#endif
   if (depth == 0) return 1;
   U64 n = 0;
   const int ksq = get_ls1b_index(td.side == white ? td.bitboards[K] : td.bitboards[k]);
@@ -242,9 +238,7 @@ void td_nnperft_driver(int depth) {
   ThreadData &td = thread_data[0];
   copy_board_to_thread(td);
   nn_root_sync(td);
-#ifdef TRIUMV_C2
   c2_eval_push();   // the C2 evaluation terms as set now (review 21/10/2026), so that the check covers them
-#endif
   nn_set_verify(1);
   const unsigned long long c0 = nn_verify_count(), b0 = nn_verify_bad();
   tdp_key_mism = 0;

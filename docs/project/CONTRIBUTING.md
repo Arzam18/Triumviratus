@@ -37,6 +37,13 @@ Results from testers are published in [`tests/`](../tests/README.md) with their 
 
 Merged contributions, newest first.
 
+- **A Tin Man**, bug report (28 October 2026): in a CCRL Blitz gauntlet game against Halogen 16.0.0, Triumviratus 8.0
+  played 37.Re4 at depth 26 with +1.27, and 37...Nxe4 wins the rook. The investigation traced it to a false hash hit:
+  the Zobrist keys, inherited from the BBC base, were built from 16-bit pieces of a 32-bit xorshift generator, so every
+  64-bit key carried only 32 bits of entropy (2,300-3,600 false hash hits per search at 1.5M nodes with a 256 MB hash).
+  With a constructed key collision the 8.0 binary repeats the game's move, score and principal variation. The keys of
+  the 8.1 development line now come from a 64-bit generator (no false hits in the same test), with the position as a
+  regression test; non-regression SPRT at 5+0.05, Hash 64: +4.57 ± 3.56 over 9,660 games.
 - **Bastiii**, code review of the 8.1 development branch (17 October 2026): a race between threads in the
   transposition table store (the entry is checked again before its move and evaluation are reused), a dead write of
   the network-scale cache in the evaluation, the `hashfull` count limited to the current search, the network name in

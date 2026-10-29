@@ -9,12 +9,10 @@
 #include "magic.h"
 #include "attacks.h"
 #include <algorithm>
-#include <cstdio>    // TRIUMV_VERIFY_SEE2
+#include <cstdio>
 #include <cstdlib>
-#ifdef TRIUMV_C2
 #include "nn_dirty.h"            // C2 piece values (agent SEE): the expert pair on the network's stack
 #include "consilium_bridge.h"    // nn_router_table, cn_sig (the pair at the root)
-#endif
 
 // Get least valuable attacker
 static inline int get_lva(U64 bb[12], U64 occ[3], int square, int side, int* from_sq) {
@@ -87,30 +85,26 @@ extern bool g_see_fix;
 extern int  g_see_pinned;      // SeePinned (copy of the search parameter, 01_params.inc)
 #endif
 
-// --- C2 piece values (agent SEE) ---
-// REGIME PIECE VALUES (21/10/2026, idea 1 of docs/rete/C2_IDEE_FABLE_2026-10-21.md; OFF by default; SPRT/SPSA pending).
-// Consilium Plebis routes each perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone
-// rook, e2 two minors or rook + minor, e3 a lone queen, e4 10-13, e5 14-18, e6 19-25, e7 26-31 points). The expert of
-// the Black perspective therefore reads White's material, and the reverse. With C2SeeReg on, a piece is valued by the
-// regime of its OWNER's material: White's pieces take the offsets of the Black perspective's expert, Black's pieces
-// those of the White perspective's expert (the proposal's choice; the other side's reading is the "own rows" half of
-// the network's PSQT, tools/c2_psqt_seeds.py). value(piece) = SeeVal<type> + C2Val<type><expert>, pawns and kings
-// without offset (the pawn is the unit of the scale).
-// The two tables (values and offsets, 16 piece codes each) live in the thread and are rebuilt only when the expert
-// pair changes: the pair is one byte on the network's stack (dp.phase, written by the make), so the check per call is
-// one load and one compare; at the root of a search (one state) the pair is read from the board. copy_board_to_thread
-// marks the table stale (c2_see_pair = -1) at each search start, which also catches a setoption in between.
-// C2SeeReg bits: 1 = the exchange evaluation (this file); 2 = the victim of the quiescence futility (qs_worth,
-// 12_quiesce.inc); 4 = the victim of the capture futility and of the capture order (capture_gate, score_tactic).
+// PIECE VALUES (28/10/2026, author: "one value per piece per expert, replacing the inherited values everywhere").
+// One definition for the whole engine: value(piece) = SeeVal<type> + C2Val<type><expert>, every type with an offset
+// per expert, pawns included (kings: 20000 in the exchange evaluation, 0 as material). Consilium Plebis routes each
+// perspective to an expert by the OPPONENT's non-pawn material (e0 at most a minor, e1 a lone rook, e2 two minors or
+// rook + minor, e3 a lone queen, e4 10-13, e5 14-18, e6 19-25, e7 26-31 points), so a piece is valued by the expert
+// that reads its OWNER's material: White's pieces take the Black perspective's expert, Black's the White one's.
+// The exchange evaluation, the capture and quiescence futility, the capture order, the threat terms of the quiet
+// order, the material thresholds and the stat score of a capture all read this table (piece_values_mat for the
+// search, see_values here); unit_value of the search is gone. With every offset at 0 the values are the old table
+// 208/781/825/1276/2538 and the tree is the old one. The offsets come from the network: match_moe/piece_values.
+// The tables (SEE values, material values, offsets; 16 piece codes each) live in the thread and are rebuilt only when
+// the expert pair changes: the pair is one byte on the network's stack (dp.phase, written by the make), so the check
+// per call is one load and one compare; at the root of a search (one state) the pair is read from the board.
+// copy_board_to_thread marks the tables stale (c2_see_pair = -1) at each search start, which also catches a setoption.
 // Least valuable attacker: the swap list keeps taking the attackers by kind (pawn, knight, bishop, rook, queen) even
 // where the offsets would reorder two kinds; the values only change the balance of the exchange.
-#ifdef TRIUMV_C2
 #ifdef TRIUMV_RELEASE
-constexpr int g_c2_see_reg = 0;                   // C2SeeReg (static_assert in 01_params.inc)
-static constexpr int g_c2_val_off[4][8] = {};      // C2ValN..C2ValQ, experts 0..7
+static constexpr const int (&g_c2_val_off)[5][8] = see_val_offsets;   // C2ValP..C2ValQ (static_assert in 01_params.inc)
 #else
-extern int g_c2_see_reg;                           // copies of C2SeeReg and C2Val*, synced at setoption
-extern int g_c2_val_off[4][8];
+extern int g_c2_val_off[5][8];                     // copies of C2Val*, synced at setoption
 #endif
 
 // Expert pair of the thread's position, White | Black << 4 (the same byte as c2_experts_td, 06_nndirty.inc).
@@ -130,12 +124,13 @@ static void c2_see_rebuild(const ThreadData& td, int pair) {
     const int e_of_owner[2] = {(pair >> 4) & 7, pair & 7};   // White's pieces: Black's expert; Black's: White's
     for (int c = 0; c < 2; c++)
         for (int t = 0; t < 6; t++) {
-            const int off = (t >= N && t <= Q) ? g_c2_val_off[t - N][e_of_owner[c]] : 0;
+            const int off = t <= Q ? g_c2_val_off[t][e_of_owner[c]] : 0;
             td.c2_see_off[6 * c + t] = off;
             td.c2_see_val[6 * c + t] = g_see_val[6 * c + t] + off;
+            td.mat_val[6 * c + t] = t == K ? 0 : g_see_val[6 * c + t] + off;
         }
     for (int i = 12; i < 16; i++)
-        td.c2_see_off[i] = td.c2_see_val[i] = 0;
+        td.c2_see_off[i] = td.c2_see_val[i] = td.mat_val[i] = 0;
     td.c2_see_pair = pair;
 }
 
@@ -145,26 +140,48 @@ static inline void c2_see_sync(const ThreadData& td) {
         c2_see_rebuild(td, pair);
 }
 
-const int* see_c2_offsets(const ThreadData& td) {
+// Constant tables of the release (speed, 28/10/2026, same values): when every per-expert offset of the release is 0
+// (the pre-release of 28/10 has them unbaked), the thread's tables would always hold the base values, so the release
+// reads these two constant tables and skips the expert-pair check of every call and the rebuild of three tables at
+// every change of expert. xperf on the Xeon (deterministic PGO, avx512, 3 rounds): -0.86% cycles per node in the
+// middlegame, -0.53% in endgames. A release with offsets baked to non-zero values takes the thread's tables again by
+// itself; the development builds always do (their offsets are options).
+#ifdef TRIUMV_RELEASE
+static constexpr bool see_offsets_all_zero() {
+    for (int t = 0; t < 5; t++)
+        for (int e = 0; e < 8; e++)
+            if (see_val_offsets[t][e]) return false;
+    return true;
+}
+static constexpr bool g_const_values = see_offsets_all_zero();
+alignas(64) static constexpr int k_see_val16[16] = {see_piece_values[0], see_piece_values[1], see_piece_values[2],
+    see_piece_values[3], see_piece_values[4], see_piece_values[5], see_piece_values[6], see_piece_values[7],
+    see_piece_values[8], see_piece_values[9], see_piece_values[10], see_piece_values[11], 0, 0, 0, 0};
+alignas(64) static constexpr int k_mat_val16[16] = {see_piece_values[0], see_piece_values[1], see_piece_values[2],
+    see_piece_values[3], see_piece_values[4], 0, see_piece_values[6], see_piece_values[7], see_piece_values[8],
+    see_piece_values[9], see_piece_values[10], 0, 0, 0, 0, 0};
+#else
+static constexpr bool g_const_values = false;
+static constexpr const int* k_see_val16 = nullptr;
+static constexpr const int* k_mat_val16 = nullptr;
+#endif
+
+const int* piece_values_mat(const ThreadData& td) {
+    if constexpr (g_const_values) return k_mat_val16;
     c2_see_sync(td);
-    return td.c2_see_off;
+    return td.mat_val;
 }
 
-// Values the SEE reads: the regime table when bit 1 of C2SeeReg is on, otherwise SeeVal*.
+// Values the exchange evaluation reads (kings 20000).
 static inline const int* see_values(const ThreadData& td) {
-    if (g_c2_see_reg & 1) {
-        c2_see_sync(td);
-        return td.c2_see_val;
-    }
-    return g_see_val;
+    if constexpr (g_const_values) return k_see_val16;
+    c2_see_sync(td);
+    return td.c2_see_val;
 }
-#else
-static inline const int* see_values(const ThreadData&) { return g_see_val; }
-#endif
 
 // SEE implementation
 int td_see(ThreadData& td, int move) {
-    const int* const val = see_values(td);   // piece values (SeeVal*, or the C2 regime table)
+    const int* const val = see_values(td);   // piece values (the per-expert table of the thread)
     int from = get_move_source(move);
     int to = get_move_target(move);
     int piece = get_move_piece(move);
@@ -209,7 +226,7 @@ int td_see(ThreadData& td, int move) {
     int current_side = td.side;
 
     // Initial gain (0 for quiet moves: no piece collected by the move itself)
-    gain[0] = (captured != -1) ? val[captured] : 0;
+    gain[0] = (captured != -1) ? val[captured] + pawn_struct_adj(td, captured_sq, captured) : 0;
 
     // Remove attacker from source
     pop_bit(bb[piece], from);
@@ -296,12 +313,11 @@ int td_see(ThreadData& td, int move) {
 // - the least valuable attacker is found by an index (lowest set bit of the mask of the kinds present, W2,
 //   08/10/2026), not by a chain of tests per kind.
 // The two bounds of the resolved list are tested first (the walk is needed only between them).
-// Validation: -DTRIUMV_VERIFY_SEE2 compares every call with the previous form (abort at the first difference).
 static int see_ge_impl(ThreadData& td, int move, int threshold) {
     const int from = get_move_source(move);
     const int to   = get_move_target(move);
     int piece      = get_move_piece(move);
-    // Piece values by piece code (agent SEE, 21/10/2026): SeeVal*, or with C2SeeReg the regime table of the thread,
+    // Piece values by piece code (the per-expert table of the thread, 28/10/2026),
     // where the two colours can differ (a kind index t is turned into a code with the side's base below).
     const int* const val = see_values(td);
 
@@ -321,7 +337,8 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
 
     int gain[40];
     int d = 0;
-    gain[0] = ((captured != -1) ? val[captured] : 0) + promo_gain;
+    // The first victim with its pawn-structure correction (see.h; 0 unless a PawnAdj lever is set).
+    gain[0] = ((captured != -1) ? val[captured] + pawn_struct_adj(td, get_move_enpassant(move) ? (td.side == white ? to + 8 : to - 8) : to, captured) : 0) + promo_gain;
     int standing = val[piece];   // value of the piece now on `to`, the next victim
 
     // Bounds of the resolved list, known before any attacker is looked up (20/10/2026, speed, same answers): the
@@ -372,11 +389,10 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
         }
         gain[d + 1] = standing - gain[d];
         d++;
-#if defined(TRIUMV_C2) && !defined(TRIUMV_RELEASE)
-        standing = val[base + t];   // the regime table may differ between the colours
-#else
-        standing = val[t];          // both colours share the values (same code as before)
-#endif
+        // The two colours have different values (each side's pieces are valued by its own expert, 28/10/2026). The
+        // release used val[t] (White's values for both sides) until 28/10: harmless with one shared table, a different
+        // tree with the per-expert offsets (bench 365341 instead of 366783).
+        standing = val[base + t];
         const U64 bb = mine & td.bitboards[base + t];
         occupied ^= bb & (0 - bb);
         const SliderPair sp = get_slider_pair(to, occupied);
@@ -390,145 +406,8 @@ static int see_ge_impl(ThreadData& td, int move, int threshold) {
     return gain[0] >= threshold;
 }
 
-#ifdef TRIUMV_VERIFY_SEE2
-// The previous form (index variant, 08/10/2026), kept only to validate the swap-list form call by call.
-template <bool Chain>
-static int see_ge_prev(ThreadData& td, int move, int threshold) {
-    const int* const val = see_values(td);   // same values as see_ge_impl (agent SEE, 21/10/2026), by piece code
-    int from  = get_move_source(move);
-    int to    = get_move_target(move);
-    int piece = get_move_piece(move);
-
-    // Victim on 'to': one read of the mailbox board (04/10/2026) instead of scanning the six enemy bitboards
-    // with a branch each. For a pseudo-legal move 'to' is empty (-1) or holds an enemy piece.
-    int captured = td.piece_on[to];
-
-    U64 occupied = td.occupancies[both] ^ (1ULL << from);   // the mover leaves the origin
-    if (get_move_enpassant(move)) {
-        captured = (td.side == white) ? p : P;
-        occupied ^= (td.side == white) ? (1ULL << (to + 8)) : (1ULL << (to - 8));
-    }
-
-    // Promotion gain (17/10/2026, review by Bastiii; SPRT on endgames, option SeePromo baked and retired): a promotion
-    // gains (promoted piece - pawn) and the piece the opponent may recapture on 'to' is the promoted one. Before, the
-    // search never sent promotions here (SEE = 0) and the move counted as a pawn move.
-    int promo_gain = 0;
-    if (get_move_promoted(move)) {
-        const int promoted = get_move_promoted(move);
-        promo_gain = val[promoted] - val[piece];
-        piece = promoted;
-    }
-
-    // Balance if the exchange stops right after our move.
-    int swap = ((captured != -1) ? val[captured] : 0) + promo_gain - threshold;
-    if (swap < 0) return 0;      // not even collecting the victim reaches the threshold
-    // The opponent recaptures our piece: if we stay above anyway, decided.
-    swap = val[piece] - swap;
-    if (swap <= 0) return 1;
-
-    // Attackers of 'to' of BOTH sides. The bb[] stay whole (no copy):
-    // they are masked with `occupied` at every round, the "peeled" pieces disappear by themselves.
-    const U64 diag_sliders = td.bitboards[B] | td.bitboards[b] | td.bitboards[Q] | td.bitboards[q];
-    const U64 orth_sliders = td.bitboards[R] | td.bitboards[r] | td.bitboards[Q] | td.bitboards[q];
-    // AA1 (10/10/2026): bishop and rook from a single computation (magic.h, get_slider_pair), here and in the x-rays of W2.
-    const SliderPair sp0 = get_slider_pair(to, occupied);
-    U64 attackers =
-          (pawn_attacks[black][to] & td.bitboards[P])
-        | (pawn_attacks[white][to] & td.bitboards[p])
-        | (knight_attacks[to] & (td.bitboards[N] | td.bitboards[n]))
-        | (king_attacks[to]   & (td.bitboards[K] | td.bitboards[k]))
-        | (pair_bishop(sp0) & diag_sliders)
-        | (pair_rook(sp0)   & orth_sliders);
-
-    int stm = td.side;
-    int res = 1;                 // 1 = "the threshold holds" for the side that moved
-
-    while (true) {
-        stm ^= 1;
-        attackers &= occupied;
-        U64 stm_att = attackers & td.occupancies[stm];   // attackers is already <= occupied
-        if (!stm_att) break;                             // no attackers: the current res decides
-        // SeePinned (05/10/2026, core audit; SF's rule): while an enemy pinner is still on the
-        // board (and is not the piece just captured on `to`), our pinned pieces do not recapture.
-        // Pinned pieces and pinners are computed by see_holds (11_queue.inc) once per position.
-        if (g_see_pinned && (td.see_pinners[stm ^ 1] & occupied & ~(1ULL << to))) {
-            stm_att &= ~td.see_pinned[stm];
-            if (!stm_att) break;
-        }
-        res ^= 1;
-
-        const int base = (stm == white) ? P : p;
-        if constexpr (!Chain) {
-            // diagonals after pawn, bishop, queen (types 0, 2, 4); orthogonals after rook and queen (3, 4)
-            static constexpr U64 diag_mask[5] = {~0ULL, 0, ~0ULL, 0, ~0ULL};
-            static constexpr U64 orth_mask[5] = {0, 0, 0, ~0ULL, ~0ULL};
-            const unsigned kinds = unsigned((stm_att & td.bitboards[base + 0]) != 0)
-                                 | unsigned((stm_att & td.bitboards[base + 1]) != 0) << 1
-                                 | unsigned((stm_att & td.bitboards[base + 2]) != 0) << 2
-                                 | unsigned((stm_att & td.bitboards[base + 3]) != 0) << 3
-                                 | unsigned((stm_att & td.bitboards[base + 4]) != 0) << 4
-                                 | 32u;
-            const int t = __builtin_ctz(kinds);
-            if (t == 5)                                         // king: capture legal only if UNDEFENDED
-                return ((attackers & occupied) & td.occupancies[stm ^ 1]) ? (res ^ 1) : res;
-            if ((swap = val[base + t] - swap) < res) break;
-            const U64 bb = stm_att & td.bitboards[base + t];
-            occupied ^= (bb & (0 - bb));
-            // Skipping the slider lookup when a knight recaptures (17/10/2026, review by Bastiii: a knight opens no
-            // line) was measured with xperf on the Xeon: +0.2% instructions, cycles within noise. Not adopted: the
-            // loop stays branch-free (W2).
-            {
-                const SliderPair sp = get_slider_pair(to, occupied);
-                attackers |= (pair_bishop(sp) & diag_sliders & diag_mask[t])
-                           | (pair_rook(sp)   & orth_sliders & orth_mask[t]);
-            }
-            continue;
-        }
-
-        U64 bb;
-        if ((bb = stm_att & td.bitboards[base + 0])) {          // pawn
-            if ((swap = val[base + 0] - swap) < res) break;
-            occupied ^= (bb & (0 - bb));
-            attackers |= get_bishop_attacks(to, occupied) & diag_sliders;  // x-ray diagonale
-        }
-        else if ((bb = stm_att & td.bitboards[base + 1])) {     // knight
-            if ((swap = val[base + 1] - swap) < res) break;
-            occupied ^= (bb & (0 - bb));
-        }
-        else if ((bb = stm_att & td.bitboards[base + 2])) {     // bishop
-            if ((swap = val[base + 2] - swap) < res) break;
-            occupied ^= (bb & (0 - bb));
-            attackers |= get_bishop_attacks(to, occupied) & diag_sliders;
-        }
-        else if ((bb = stm_att & td.bitboards[base + 3])) {     // rook
-            if ((swap = val[base + 3] - swap) < res) break;
-            occupied ^= (bb & (0 - bb));
-            attackers |= get_rook_attacks(to, occupied) & orth_sliders;    // x-ray ortogonale
-        }
-        else if ((bb = stm_att & td.bitboards[base + 4])) {     // queen
-            if ((swap = val[base + 4] - swap) < res) break;
-            occupied ^= (bb & (0 - bb));
-            attackers |= (get_bishop_attacks(to, occupied) & diag_sliders)
-                       | (get_rook_attacks(to, occupied)   & orth_sliders);
-        }
-        else {                                                  // king: capture legal only if UNDEFENDED
-            return ((attackers & occupied) & td.occupancies[stm ^ 1]) ? (res ^ 1) : res;
-        }
-    }
-    return res;
-}
-#endif
-
+// (27/10/2026) The previous index form see_ge_prev and its call-by-call check (-DTRIUMV_VERIFY_SEE2) were removed:
+// the swap list above has been the only form since 20/10 (copy in _backup/Triumviratus_8.1_pre_testo_nostro_2026-10-27).
 int td_see_ge(ThreadData& td, int move, int threshold) {
-#ifdef TRIUMV_VERIFY_SEE2
-    const int a = see_ge_impl(td, move, threshold), o = see_ge_prev<false>(td, move, threshold);
-    if (a != o) {
-        printf("info string SEE2 MISMATCH: move %d threshold %d new %d previous %d\n", move, threshold, a, o);
-        fflush(stdout);
-        abort();
-    }
-    return a;
-#else
     return see_ge_impl(td, move, threshold);
-#endif
 }

@@ -315,7 +315,7 @@ void uci_loop()
     parse_fen(start_position);
 
     // Buffered I/O (12/10/2026). Before, unbuffered: every printf of an "info" line (one per move of the pv)
-    // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4; SF19 1.2).
+    // became a write on the pipe, ~2.5-5 ms lost per move (go nodes 1000: 4.1 ms wall against 1.4).
     // Output stays prompt: fflush after every info, currmove and bestmove line, and the loop below does fflush
     // before every read (uciok, readyok, info string). Buffered stdin: nobody reads stdin behind our back any more
     // during the search (read_input/communicate of misc.cpp are not called).
@@ -367,7 +367,7 @@ void uci_loop()
             printf("id author %s\n", AUTHOR);
             printf("option name Hash type spin default 64 min 1 max %d\n", max_hash);
             printf("option name Threads type spin default 1 min 1 max %d\n", max_threads);
-            // MultiPV (Stockfish-style analysis): OFFICIAL option, always advertised
+            // MultiPV (multi-line analysis): OFFICIAL option, always advertised
             // (also in TRIUMV_RELEASE). The setoption arrives via the generic handler
             // -> set_search_param("MultiPV") in threads.cpp.
             printf("option name MultiPV type spin default 1 min 1 max 64\n");
@@ -402,6 +402,7 @@ void uci_loop()
             printf("option name FinnyTables type check default true\n");
             printf("option name LargePages type spin default 1 min 0 max 1\n");
             printf("option name EvalScale type spin default 60 min 10 max 2000\n");
+            printf("option name PassedScale type spin default 100 min 50 max 200\n");
             for (int b = 0; b < 8; ++b)
                 printf("option name EvalScaleB%d type spin default %d min 20 max 150\n", b, nn_get_eval_scale_bucket(b));
             for (int i = 0, n = nn_eval_const_count(); i < n; ++i)
@@ -818,6 +819,37 @@ void uci_loop()
         // DIAGNOSTIC: "eval" -> static NNUE eval of the current position (cp,
         // side-to-move relative), no search => byte-identical for cross-checks.
         // ORACOLO B6: "evalbatch <in.fen> <out.txt>": per riga FEN -> "psqt positional final".
+        // DIAGNOSTIC (28/10/2026, piece values per expert, match_moe/piece_values): "expertbatch <in.fen> <out.txt>":
+        // per FEN line the Consilium Plebis expert of the White and of the Black perspective (router table over the
+        // non-pawn material signatures, as c2_pair_now in see.cpp). No search, no change to the engine's state beyond
+        // the board.
+        else if (strncmp(input, "expertbatch", 11) == 0)
+        {
+            char fin[1024], fout[1024];
+            if (sscanf(input + 11, "%1023s %1023s", fin, fout) == 2) {
+                FILE* fi = fopen(fin, "r");
+                FILE* fo = fopen(fout, "w");
+                char line[512];
+                long n = 0;
+                const unsigned char* rt = nn_router_table();
+                while (fi && fo && fgets(line, sizeof line, fi)) {
+                    size_t L = strlen(line);
+                    while (L && (line[L-1] == '\n' || line[L-1] == '\r')) line[--L] = 0;
+                    if (!L) continue;
+                    parse_fen(line);
+                    int sig[2];
+                    for (int c = 0; c < 2; c++)
+                        sig[c] = cn_sig(count_bits(bitboards[N + 6 * c]), count_bits(bitboards[B + 6 * c]),
+                                        count_bits(bitboards[R + 6 * c]), count_bits(bitboards[Q + 6 * c]));
+                    fprintf(fo, "%d %d\n", rt[sig[0] * 54 + sig[1]], rt[sig[1] * 54 + sig[0]]);
+                    n++;
+                }
+                if (fi) fclose(fi);
+                if (fo) fclose(fo);
+                printf("expertbatch %ld\n", n);
+                fflush(stdout);
+            }
+        }
         else if (strncmp(input, "evalbatch", 9) == 0)
         {
             extern int nn_eval_parts(int, const unsigned long long*, const unsigned long long*, int, int*, int*);
@@ -953,6 +985,21 @@ void uci_loop()
             wait_for_search_done();
             g_large_pages = atoi(input + 32) != 0;
             init_hash_table(mb);
+        }
+
+        // PassedScale (26/10/2026): percent on the PassedPawns rows of the network, applied when it is read
+        // (consilium/cn.cpp). A change reloads the current network and clears the TT, as EvalFile does (the TT
+        // keeps static evaluations of the old weights). 100 = the file as it is.
+        else if (strncmp(input, "setoption name PassedScale value ", 33) == 0)
+        {
+            stop_search_threads();
+            wait_for_search_done();
+            if (nn_set_passed_scale(atoi(input + 33)))
+            {
+                clear_hash_table();
+                printf("info string PassedScale: network reloaded at %d%%\n", atoi(input + 33));
+            }
+            fflush(stdout);
         }
 
         // UCI command: "setoption name EvalFile value <path>" -> reload the TRANN1

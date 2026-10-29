@@ -6,7 +6,7 @@
 // network the processes read the SAME physical pages, so the hot rows of the network share the cache instead
 // of evicting each other, and the RAM drops to one copy per NUMA node.
 //
-// As Stockfish does (src/shm.h, SystemWideSharedConstant): the first process that loads a network creates a named
+// The first process that loads a network creates a named
 // area (CreateFileMapping on the pagefile), copies into it the whole Network object (it is byte-copyable: weights in arrays,
 // names in FixedString) and marks it ready; the others open it READ-ONLY and free their own copy.
 // The name contains the hash of the network's content, its size and the process's NUMA node: different networks or

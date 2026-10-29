@@ -1,7 +1,7 @@
 // nstats.h -- counters of the network's work (08/10/2026), ONLY with -DTRIUMV_NSTATS.
 // They serve to compare how much network work every engine does PER NODE: evaluations, incremental updates of the
 // accumulators, refreshes from the finny table, weight rows read. An identical copy of this file goes into the source of
-// the Stockfish 19 used for the comparison (scratchpad sf19n), with the macros at the same points of nnue_accumulator.cpp.
+// the reference engine used for the comparison, with the macros at the same points of its accumulator code.
 // At the end of the process, if the environment variable NSTATS_FILE is set, it appends to the file a line "key value" per
 // counter. The nodes are taken from the workload (uci_workload.py), which reads them from the engine.
 // Without TRIUMV_NSTATS the macros do nothing: identical generated code.

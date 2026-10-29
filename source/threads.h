@@ -15,11 +15,9 @@
 struct NnStack;   // stack of the network's dirty entries (nn_dirty.h)
 
 // ============================================================================
-// Triumviratus search (8.1). Its algorithmic base is the Stockfish 19 search (GPLv3), on which the 8.0 search
-// was rewritten on 04/10/2026. In 8.1 the code is the engine's own: every block has been rewritten in its own
-// form, with our structures and names, and no Stockfish source remains. Some numeric constants still have the
-// values of Stockfish 19 (marked in search/01_params.inc); they will be retuned by SPSA after the training of
-// the next network.
+// Triumviratus search (8.1). The code is the engine's own: every block is written in its own form, with our
+// structures and names. Many numeric constants still have inherited values (marked in search/01_params.inc); they
+// will be retuned by SPSA. Engines studied are listed in the credits of the README.
 // ============================================================================
 
 #define MAX_THREADS 512
@@ -60,12 +58,11 @@ struct NodeFrame {
     unsigned char negext_path;    // extensions from negative reduction along the line up to this node
     int  refute;                  // CausalRed: move that gave the beta cutoff in this node (0 = none)
     unsigned char hctx;           // ThreatHist: threat context of the move made at this ply (0 = none)
-#ifdef TRIUMV_C2
     // C2 regime selectivity (21/10/2026; 13_search.inc), written only when the option that reads them is on.
     unsigned char c2pair;         // C2SameRegImp: Consilium Plebis experts of this node (White | Black << 4)
     unsigned char settle;         // C2SettleHorizon: the move searched from this frame got the settling ply
     unsigned char settle_path;    // C2SettleHorizon: settling plies along the line up to this node
-#endif
+    unsigned char nn_hold;        // C2HoldDepth / C2HoldQs: the children of this node keep its experts (06_nndirty.inc)
 };
 
 // A root move with its line and the statistics collected on it.
@@ -147,6 +144,9 @@ struct ThreadData {
     int  root_depth;
     int  completed_depth;
     int  root_delta;
+    // (28/10/2026 night) LmrDeltaMul / root_delta of a null window, with the two values it came from (move_loop
+    // divides again only when one of them changes).
+    int  rw1_delta = 0, rw1_mul = 0, rw1_term = 0;
     int  sel_depth;
     int  nmp_min_ply;
     U64  best_move_changes;
@@ -177,13 +177,12 @@ struct ThreadData {
     U64  see_pin_key;                 // position for which the fields below hold
     U64  see_pinned[2];               // pieces of each colour pinned to their own king
     U64  see_pinners[2];              // sliders of each colour that pin an enemy piece
-#ifdef TRIUMV_C2
     // --- C2 piece values (agent SEE) --- (21/10/2026): the per-thread table of the regime piece values (see.cpp),
     // rebuilt only when the expert pair of the position changes; -1 = to rebuild (set at each search start).
     mutable int c2_see_pair;          // expert pair (White | Black << 4) the two tables below were built for
     mutable int c2_see_val[16];       // SEE value per piece code: SeeVal* + offset of the owner's regime
-    mutable int c2_see_off[16];       // the offset alone (margins built on unit_value); codes 12..15 = 0
-#endif
+    mutable int c2_see_off[16];       // the offset alone; codes 12..15 = 0
+    mutable int mat_val[16];          // material value per piece code (kings 0): the table the search reads
 
     // Result, read by the driver and by the vote between threads
     int best_move;
@@ -201,6 +200,10 @@ struct ThreadData {
     // Rete incrementale
     void* nnpos = nullptr;
     NnStack* nnstack = nullptr;   // stack of the dirty entries of the nnpos handle: written by make and unmake (06_nndirty.inc)
+    // Expert holds (25/10/2026, 06_nndirty.inc): the frame's nn_hold for the make in progress (step_in sets it and
+    // clears it after the make, so the makes outside the search see 0). The root's experts of C2HoldRoot went with it
+    // on 27/10/2026.
+    unsigned char nn_hold = 0;
     // E1 (15/10/2026, speed at identical tree): REMOVED the per-thread evaluation cache (EVC8, 512 KB).
     // Counters: bench 20 2,519,149 lookups and 12 hits; a game of 40 plies at 500k nodes (cache never cleared
     // between moves) 9,382,726 lookups and 62 hits, and a perfect cache would have caught only 0.5% more. The

@@ -31,7 +31,7 @@ extern U64 bishop_masks[64];
 extern U64 rook_masks[64];
 // (PACKED SLIDER TABLES: tried and REMOVED on 10/09/2026.
 //  The form below uses a FIXED stride per square, 2.25 MB in all, where
-//  Stockfish packs every square to its exact size and fits in 841 KB.
+//  a layout that packs every square to its exact size fits in 841 KB.
 //  Really compacted: rook_attacks_store had dropped to 800 KB and bishop to 41 KB,
 //  exactly their sizes, with the bench signature unchanged.
 //  RESULT: NEUTRAL, 5,647.5 +- 11.6 cycles/node against 5,624.0 +- 23.1, and the L2

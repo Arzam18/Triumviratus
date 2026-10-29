@@ -18,6 +18,7 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
 #include "prunelog.h"   // block 3 data: which pruning rule decided, and what a search says about it
 #else
 #define PL_RULE(x) ((void)0)
+#define PL_SET(var, v) ((void)0)
 #endif
 #ifdef TRIUMV_ORDLOG
 #include "ordlog.h"     // move-ordering data: where the refuting moves are in the queue order (oracle)
@@ -49,14 +50,14 @@ struct NodeState {
   U64  causal;                    // CausalRed: squares of the refutation of the last quiet move that failed low (0 = none)
   int  expert;                   // network expert for the node's material (net_phase), for the *Exp* margins
   int  disagree;                 // |psqt - positional| of the network on this node, -1 when the eval came from the hash
-#ifdef TRIUMV_C2
   // C2 search ideas (agent A): the Consilium Plebis experts of the node, read only when an idea needs them (g_c2_node).
   int  c2e;                      // expert indexing the C2 margin tables (C2ExpSide: ours or the opponent's perspective)
   int  c2_own;                   // expert of the opponent's perspective: it reads the material of the side to move
+  int  cell;                     // C2Cells: expert x pawn-structure cell (0..31), 0 when off
   bool c2_asym;                  // the two perspectives use different experts
   int  c2_pk;                    // conversion push (C2ConvPkSrc 1): exact pawn-king effect of this node, INT_MIN = not read
   int  c2_imb;                   // C2Imb*: +1 ahead, -1 behind by material class and evaluation, 0 otherwise or off
-#endif
+  bool pk_crit;                  // PkCrit: the pawn-king subnetwork adds >= PkCritFrom here (fresh evaluations only)
 };
 
 #ifdef TRIUMV_REDLOG
@@ -111,13 +112,16 @@ static inline int by_expert(int e, int v0, int v1, int v2, int v3) {
   return e == 0 ? v0 : e == 1 ? v1 : e == 2 ? v2 : v3;
 }
 
+// What the search learns (every statistic and correction update, as events): its own module since C5a, 27/10/2026.
+#include "13_learn.inc"
+
 // CausalRed (09/10/2026, June idea "causal pruning", rewritten on the current search). When one of our quiet moves
 // fails low, the opponent's move that refutes it (the beta cutoff in the child) says where the problem is:
 // the square it starts from, the one it arrives on and the squares the piece attacks from there. The sibling quiet moves tried
 // afterwards that touch none of these squares (neither start nor arrival) usually change nothing against that refutation,
 // and are reduced more. Never pruned: the reduced search that beats alpha is repeated at full depth as always.
 // Checks, the hash move and passer pushes stay out. Known precedent: the "threat" of the null move
-// used by Stockfish 1.x-2.x to prune unconnected moves (connected_threat); here the threat is the refutation
+// used by older engines to prune unconnected moves (connected threats); here the threat is the refutation
 // of the siblings and the move is reduced, not pruned.
 // Squares attacked by the piece pc (code P..k) from the square sq with the occupancy occ.
 static inline U64 piece_attacks(int pc, int sq, U64 occ) {
@@ -145,24 +149,6 @@ static inline int king_ring_attacked(const ThreadData &td, int c) {
     return 0;
   return count_bits(king_attacks[get_ls1b_index(kb)] & attacked_by(td, c ^ 1, td.occupancies[both]));
 }
-// Weight of the attack that the piece just moved to `to` brings on the king of the side to move: squares next to the
-// king it hits, plus 2 for each piece of that side next to its king it hits (pawn or piece of the shelter), plus 3 for
-// each piece pinned to that king it hits. Called after the move, so the side to move is the defender.
-static inline int king_attack_weight(ThreadData &td, int to) {
-  const int def = td.side;
-  const U64 kb = td.bitboards[def == white ? K : k];
-  if (!kb)
-    return 0;
-  const U64 ring = king_attacks[get_ls1b_index(kb)];
-  const U64 att = piece_attacks(td.piece_on[to], to, td.occupancies[both]);
-  if (!(att & ring) && !(att & td.occupancies[def]))
-    return 0;
-  if (td.see_pin_key != td.hash_key)
-    see_pins_update(td);
-  return count_bits(att & ring) + 2 * count_bits(att & ring & td.occupancies[def]) +
-         3 * count_bits(att & td.see_pinned[def]);
-}
-
 static inline U64 causal_mask(const ThreadData &td, int refute) {
   const int from = get_move_source(refute), to = get_move_target(refute), pc = get_move_piece(refute);
   return piece_attacks(pc, to, td.occupancies[both]) | (1ULL << from) | (1ULL << to);
@@ -181,13 +167,24 @@ static constexpr auto make_all_node_recip = [](int base) {
   }
   return r;
 };
+// History divisor per depth in our form (27/10/2026, docs/audit_8.1/R9): the inherited table HistDiv1-16 times
+// (1024 + HistDivScale + HistDivTilt * (d - 8)) / 1024, one level for the whole table and one slope across depth, so
+// that the SPSA moves two levers instead of sixteen. Clamped to [256, 8192] (up to 8192 the 40-bit reciprocal stays
+// exact for |hist| < 2^27). Both at 0: the table itself (x * 1024 / 1024 = x).
+static constexpr auto make_hist_div = [](const std::array<int, 16> &div, int scale, int tilt) {
+  std::array<int, 16> r{};
+  for (int i = 0; i < 16; i++) {
+    const long long k = 1024LL + scale + (long long)tilt * (i + 1 - 8);
+    r[i] = (int)std::clamp(div[i] * k / 1024, 256LL, 8192LL);
+  }
+  return r;
+};
 static constexpr auto make_hist_recip = [](const std::array<int, 16> &div) {
   std::array<unsigned long long, 16> r{};
   for (int i = 0; i < 16; i++)
     r[i] = ((1ULL << 40) + (unsigned long long)div[i] - 1) / (unsigned long long)div[i];
   return r;
 };
-#ifdef TRIUMV_C2
 // ---------------------------------------------------------------------------
 // C2 search ideas (21/10/2026, agent A; parameters and the expert scale in 01_params.inc, block "C2 search ideas").
 // The margins per C2 expert sit in one table built from the parameters (dev: at every setoption, as the tables
@@ -220,6 +217,69 @@ static void c2_eval_push() {
                             C2EvalExp4, C2EvalExp5, C2EvalExp6, C2EvalExp7};
   nn_set_c2_eval(conv, exp_scale);
 }
+// Offsets per cell (C2 expert x pawn-structure class, 01_params.inc) for reverse futility, quiet futility, LMR, null
+// move, razoring, ProbCut and move count, added on top of the per-band tables where those rules read them. They do not
+// depend on C2Cells (author, 26/10: "split it while staying byte-identical"): the piece bands stay the base, all offsets
+// 0 = the identical tree, and any offset not 0 turns the cell on (g_cell_on: the node computes its cell). C2Cells 1/2
+// replaces the band by the cell's slot instead (experimental, lost). Dev: rebuilt at every setoption.
+#define C2_CELL_LIST                                                                                                         \
+  {{C2cRfp00, C2cRfp01, C2cRfp02, C2cRfp03, C2cRfp10, C2cRfp11, C2cRfp12, C2cRfp13,                                   \
+    C2cRfp20, C2cRfp21, C2cRfp22, C2cRfp23, C2cRfp30, C2cRfp31, C2cRfp32, C2cRfp33,                                   \
+    C2cRfp40, C2cRfp41, C2cRfp42, C2cRfp43, C2cRfp50, C2cRfp51, C2cRfp52, C2cRfp53,                                   \
+    C2cRfp60, C2cRfp61, C2cRfp62, C2cRfp63, C2cRfp70, C2cRfp71, C2cRfp72, C2cRfp73},                                  \
+   {C2cFut00, C2cFut01, C2cFut02, C2cFut03, C2cFut10, C2cFut11, C2cFut12, C2cFut13,                                   \
+    C2cFut20, C2cFut21, C2cFut22, C2cFut23, C2cFut30, C2cFut31, C2cFut32, C2cFut33,                                   \
+    C2cFut40, C2cFut41, C2cFut42, C2cFut43, C2cFut50, C2cFut51, C2cFut52, C2cFut53,                                   \
+    C2cFut60, C2cFut61, C2cFut62, C2cFut63, C2cFut70, C2cFut71, C2cFut72, C2cFut73},                                  \
+   {C2cLmr00, C2cLmr01, C2cLmr02, C2cLmr03, C2cLmr10, C2cLmr11, C2cLmr12, C2cLmr13,                                   \
+    C2cLmr20, C2cLmr21, C2cLmr22, C2cLmr23, C2cLmr30, C2cLmr31, C2cLmr32, C2cLmr33,                                   \
+    C2cLmr40, C2cLmr41, C2cLmr42, C2cLmr43, C2cLmr50, C2cLmr51, C2cLmr52, C2cLmr53,                                   \
+    C2cLmr60, C2cLmr61, C2cLmr62, C2cLmr63, C2cLmr70, C2cLmr71, C2cLmr72, C2cLmr73},                                  \
+   {C2cNmp00, C2cNmp01, C2cNmp02, C2cNmp03, C2cNmp10, C2cNmp11, C2cNmp12, C2cNmp13,                                   \
+    C2cNmp20, C2cNmp21, C2cNmp22, C2cNmp23, C2cNmp30, C2cNmp31, C2cNmp32, C2cNmp33,                                   \
+    C2cNmp40, C2cNmp41, C2cNmp42, C2cNmp43, C2cNmp50, C2cNmp51, C2cNmp52, C2cNmp53,                                   \
+    C2cNmp60, C2cNmp61, C2cNmp62, C2cNmp63, C2cNmp70, C2cNmp71, C2cNmp72, C2cNmp73},                                  \
+   {C2cRaz00, C2cRaz01, C2cRaz02, C2cRaz03, C2cRaz10, C2cRaz11, C2cRaz12, C2cRaz13,                                   \
+    C2cRaz20, C2cRaz21, C2cRaz22, C2cRaz23, C2cRaz30, C2cRaz31, C2cRaz32, C2cRaz33,                                   \
+    C2cRaz40, C2cRaz41, C2cRaz42, C2cRaz43, C2cRaz50, C2cRaz51, C2cRaz52, C2cRaz53,                                   \
+    C2cRaz60, C2cRaz61, C2cRaz62, C2cRaz63, C2cRaz70, C2cRaz71, C2cRaz72, C2cRaz73},                                  \
+   {C2cPcut00, C2cPcut01, C2cPcut02, C2cPcut03, C2cPcut10, C2cPcut11, C2cPcut12, C2cPcut13,                           \
+    C2cPcut20, C2cPcut21, C2cPcut22, C2cPcut23, C2cPcut30, C2cPcut31, C2cPcut32, C2cPcut33,                           \
+    C2cPcut40, C2cPcut41, C2cPcut42, C2cPcut43, C2cPcut50, C2cPcut51, C2cPcut52, C2cPcut53,                           \
+    C2cPcut60, C2cPcut61, C2cPcut62, C2cPcut63, C2cPcut70, C2cPcut71, C2cPcut72, C2cPcut73},                          \
+   {C2cLmp00, C2cLmp01, C2cLmp02, C2cLmp03, C2cLmp10, C2cLmp11, C2cLmp12, C2cLmp13,                                   \
+    C2cLmp20, C2cLmp21, C2cLmp22, C2cLmp23, C2cLmp30, C2cLmp31, C2cLmp32, C2cLmp33,                                   \
+    C2cLmp40, C2cLmp41, C2cLmp42, C2cLmp43, C2cLmp50, C2cLmp51, C2cLmp52, C2cLmp53,                                   \
+    C2cLmp60, C2cLmp61, C2cLmp62, C2cLmp63, C2cLmp70, C2cLmp71, C2cLmp72, C2cLmp73}}
+enum { C2C_RFP, C2C_FUT, C2C_LMR, C2C_NMP, C2C_RAZ, C2C_PCUT, C2C_LMP };
+static constexpr bool cell_tab_any(const int (&t)[7][32]) {
+  for (int i = 0; i < 7; i++)
+    for (int c = 0; c < 32; c++)
+      if (t[i][c]) return true;
+  return false;
+}
+#ifdef TRIUMV_RELEASE
+static constexpr int c2_cell_tab[7][32] = C2_CELL_LIST;
+static constexpr bool g_cell_on = cell_tab_any(c2_cell_tab);
+#else
+static int c2_cell_tab[7][32];
+static bool g_cell_on = false;
+static void c2_cells_refresh() {
+  const int t[7][32] = C2_CELL_LIST;
+  std::memcpy(c2_cell_tab, t, sizeof(c2_cell_tab));
+  g_cell_on = cell_tab_any(c2_cell_tab);
+  const int b[32] = {C2CellBand00, C2CellBand01, C2CellBand02, C2CellBand03, C2CellBand10, C2CellBand11,
+      C2CellBand12, C2CellBand13, C2CellBand20, C2CellBand21, C2CellBand22, C2CellBand23, C2CellBand30, C2CellBand31,
+      C2CellBand32, C2CellBand33, C2CellBand40, C2CellBand41, C2CellBand42, C2CellBand43, C2CellBand50, C2CellBand51,
+      C2CellBand52, C2CellBand53, C2CellBand60, C2CellBand61, C2CellBand62, C2CellBand63, C2CellBand70, C2CellBand71,
+      C2CellBand72, C2CellBand73};
+  for (int c = 0; c < 32; c++)
+    g_cell_band[c] = (unsigned char)std::clamp(b[c], 0, 3);
+}
+#endif
+#undef C2_CELL_LIST
+// n.cell is computed only when an offset is set or C2Cells is on; otherwise it is 0 and every entry is 0 as well
+static inline int cell_off(int fam, const NodeState &n) { return g_cell_on ? c2_cell_tab[fam][n.cell] : 0; }
 #ifndef TRIUMV_RELEASE
 static int  c2_tab[4][8];
 static bool g_c2_node = false, g_c2_red = false;
@@ -229,6 +289,7 @@ static void c2_tables_refresh() {
   g_c2_node = c2_tab_any(c2_tab) || C2AsymRfp || C2AsymLmr;
   g_c2_red = C2SwitchRed || C2ConvRed || C2PkRed || C2PkVol || C2AsymLmr;
   c2_eval_push();
+  c2_cells_refresh();
 }
 #endif
 #undef C2_TAB_LIST
@@ -282,12 +343,11 @@ static inline int c2_imbalance(const ThreadData &td, int static_eval) {
     return -1;
   return 0;
 }
-#endif
 
 #define HIST_DIV_LIST {HistDiv1, HistDiv2, HistDiv3, HistDiv4, HistDiv5, HistDiv6, HistDiv7, HistDiv8, HistDiv9, \
                        HistDiv10, HistDiv11, HistDiv12, HistDiv13, HistDiv14, HistDiv15, HistDiv16}
 #ifdef TRIUMV_RELEASE
-static constexpr std::array<int, 16> hist_div = HIST_DIV_LIST;
+static constexpr std::array<int, 16> hist_div = make_hist_div(HIST_DIV_LIST, HistDivScale, HistDivTilt);
 static constexpr auto all_node_recip = make_all_node_recip(LmrAllDivBase);
 static constexpr auto hist_recip = make_hist_recip(hist_div);
 #else
@@ -295,11 +355,9 @@ static std::array<int, 16> hist_div;
 static std::array<unsigned long long, max_ply + 8> all_node_recip;
 static std::array<unsigned long long, 16> hist_recip;
 static void param_tables_refresh() {
-#ifdef TRIUMV_C2
   c2_tables_refresh();
   c2_sel_refresh();
-#endif
-  hist_div = HIST_DIV_LIST;
+  hist_div = make_hist_div(HIST_DIV_LIST, HistDivScale, HistDivTilt);
   all_node_recip = make_all_node_recip(LmrAllDivBase);
   hist_recip = make_hist_recip(hist_div);
 }
@@ -379,7 +437,7 @@ static inline int red_entry_v80(const ThreadData &td, const NodeFrame *f, const 
     r = r * (1024 + by_expert(n.expert, LmrScaleExp0, LmrScaleExp1, LmrScaleExp2, LmrScaleExp3)) / 1024;
   if (f->tt_pv)
     r += LmrTtPvAdd;
-  return r + by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3);
+  return r + by_expert(n.expert, LmrExp0, LmrExp1, LmrExp2, LmrExp3) + cell_off(C2C_LMR, n);
 }
 
 static inline int red_final_v80(const ThreadData &td, const NodeFrame *f, const NodeState &n, int m, int r, bool tact,
@@ -413,13 +471,9 @@ static inline int red_final_v80(const ThreadData &td, const NodeFrame *f, const 
     r += x < 0 ? -share : share;
   }
   if (passer) {
-#ifdef TRIUMV_C2
     // C2OrdReg (idea 5): the same per-expert scale as the passer ordering terms, C2PassExp[e_us] of the side that has
     // just moved (td.side ^ 1: the move is already made). C2OrdReg 0, or every scale 1024: the identical reduction.
     r -= C2OrdReg ? c2_reg_apply(PassedPushRed, c2_reg_scales(td, td.side ^ 1).pass) : PassedPushRed;
-#else
-    r -= PassedPushRed;
-#endif
   }
   // CausalRed: a quiet move that touches none of the squares of a sibling's refutation is reduced more.
   if (CausalRed && n.causal && !tact && !gives && !passer && m != n.h.move &&
@@ -485,9 +539,10 @@ static inline bool gd_skip_null(const ThreadData &td, const NodeState &n) {
   if (td.gd_heat < -100)
     return false;
   const int off = td.side == white ? 0 : 6;
+  const int *pv = piece_values_mat(td);
   int npm = 0;
   for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * count_bits(td.bitboards[t + off]);
+    npm += pv[t + off] * count_bits(td.bitboards[t + off]);
   return td.gd_heat + (npm > 2000) + (n.depth > 8) + (n.depth > 12) >= 4;
 }
 
@@ -509,67 +564,6 @@ static void poll_limits(ThreadData &td) {
       (g_limits.movetime && elapsed >= g_limits.movetime && root_move_ready()) ||
       (g_limits.nodes && total >= g_limits.nodes))
     stop_threads.store(true, std::memory_order_relaxed);
-}
-
-// Statistics of a node that found the best move: reward to it, malus to the moves tried before.
-static void reward_best(ThreadData &td, NodeFrame *f, NodeState &n) {
-  PROF_GUARD(prof_hist);
-  const int bm = n.best_move;
-  int bonus = hist_amount(n.expert, n.depth, BonusMul, BonusSub, BonusMax) + (bm == n.h.move ? BonusTTMove : 0) +
-              f[-1].stat_score / BonusPrevStatDiv;
-  const int malus = hist_amount(n.expert, n.depth, MalusMul, MalusSub, MalusMax);
-  if (!n.pv)
-    bonus += (int)((long long)bonus * (n.n_quiets + n.n_tacts) / BonusTriedDiv);
-
-  // E. How much the histories learn (HistLearn, block 1): reward, penalty and penalty decay of quiet moves, reward and
-  //    penalty of captures, per expert. In an endgame a quiet move that cuts among few alternatives says more than one
-  //    among forty in the opening. Defaults = the old single scales.
-  const int qb = by_expert(n.expert, HlQBonus0, HlQBonus1, HlQBonus2, HlQBonus3);
-  const int qm = by_expert(n.expert, HlQMalus0, HlQMalus1, HlQMalus2, HlQMalus3);
-  const int qd = by_expert(n.expert, HlQDecay0, HlQDecay1, HlQDecay2, HlQDecay3);
-  const int cb = by_expert(n.expert, HlCBonus0, HlCBonus1, HlCBonus2, HlCBonus3);
-  const int cm = by_expert(n.expert, HlCMalus0, HlCMalus1, HlCMalus2, HlCMalus3);
-  if (!is_tactical(bm)) {
-    // HistGrad (22/10/2026, ours, off): the update of a listwise ranker. The ordering scores of the best move and of
-    // the quiet moves tried give a softmax p over them (temperature HistGradT, in score units); the gradient of the
-    // log-loss of "the best move is the right one" is 1 - p for the best move and -p_i for each other move. A best move
-    // the ordering already expected (p near 1) learns little, a surprising one a lot; a tried move the ordering rated
-    // low and that failed is barely punished, one rated high is punished in full. HistGradMix blends this with the fixed
-    // amounts (0 = off, 1024 = full); the factors average 1 over a uniform p, so the size of the update is kept.
-    int fb = 1024, fq[TRACKED];
-    for (int i = 0; i < n.n_quiets; i++)
-      fq[i] = 1024;
-    if (HistGradMix && n.best_score != INT_MIN) {
-      const float t = 1.0f / std::max(HistGradT, 1);
-      int mx = n.best_score, k = 1;
-      for (int i = 0; i < n.n_quiets; i++)
-        if (n.quiet_score[i] != INT_MIN)
-          mx = std::max(mx, n.quiet_score[i]), k++;
-      float e[TRACKED], z = std::exp((n.best_score - mx) * t);
-      const float eb = z;
-      for (int i = 0; i < n.n_quiets; i++)
-        z += (e[i] = n.quiet_score[i] != INT_MIN ? std::exp((n.quiet_score[i] - mx) * t) : 0.0f);
-      const float pb = eb / z;
-      fb = std::clamp(1024 + int(HistGradMix * (2.0f * (1.0f - pb) - 1.0f)), 0, 3072);
-      for (int i = 0; i < n.n_quiets; i++)
-        if (n.quiet_score[i] != INT_MIN)
-          fq[i] = std::clamp(1024 + int(HistGradMix * (k * e[i] / z - 1.0f)), 0, 3072);
-    }
-    learn_quiet(td, f, bm, bonus * qb / 1024 * fb / 1024, n.best_ctx, n.expert);
-    int m = malus * qm / 1024;
-    for (int i = 0; i < n.n_quiets; i++) {
-      m = m * qd / 1024;
-      learn_quiet(td, f, n.quiets[i], -m * fq[i] / 1024, n.quiet_ctx[i], n.expert);
-    }
-  } else
-    learn_capture(td, bm, bonus * cb / 1024, n.expert);
-
-  // The move that led here, if quiet and searched at once (first move, or second after the hash move), was weak.
-  if (n.prev_to >= 0 && f[-1].move_count == 1 + (f[-1].tt_hit ? 1 : 0) && !n.prior_capture)
-    learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -malus * PrevContMalus / 1024, n.expert);
-
-  for (int i = 0; i < n.n_tacts; i++)
-    learn_capture(td, n.tacts[i], -malus * cm / 1024, n.expert);
 }
 
 // --------------------------------------------------------------------------
@@ -595,6 +589,21 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
     // BAKE INSUFMATERIAL (11/10/2026, agent AE): insufficient material after a capture (12_quiesce.inc).
     if (f[-1].captured >= 0 && insufficient_material(td))
       return draw_score(td);
+  }
+
+  // The hash entry is read before the window is narrowed to the reachable mate distances (order of ours, 28/10/2026):
+  // the read depends on the position only, and a node that closes on the mate distance does not read its frame again.
+  n.excluded = f->excluded;
+  hash_read(td, n.h);
+  f->tt_hit = n.h.hit;
+  if (n.root)
+    n.h.move = td.root[td.pv_idx].pv[0];
+  if (!n.excluded)
+    f->tt_pv = n.pv || (n.h.hit && n.h.pv);
+  n.tact_hash = n.h.move && is_tactical(n.h.move);
+
+  // Mate distance: no score above a mate at the next ply, none below being mated here.
+  if (!n.root) {
     n.alpha = std::max(mated_at(td.ply), n.alpha);
     n.beta = std::min(mating_in(td.ply + 1), n.beta);
     if (n.alpha >= n.beta)
@@ -608,12 +617,13 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   f[2].cutoff_cnt = 0;
   n.signal = corr_signal(td, f);
   n.signal_x = corr_signal_extra(td);
-  n.excluded = f->excluded;
-  n.expert = net_phase(count_bits(td.occupancies[both]));
-#ifdef TRIUMV_C2
+  // per-band tables: piece band of Consilium, or with C2Cells the slot of the node's cell (01_params.inc)
+  n.cell = (C2Cells || g_cell_on) ? c2_cell(td) : 0;
+  n.expert = C2Cells ? g_cell_band[n.cell] : search_band(td);
   n.c2e = n.c2_own = 0;
   n.c2_asym = false;
   n.c2_pk = INT_MIN;
+  n.pk_crit = false;
   if (g_c2_node) {   // C2 ideas 1, 6, 7: the two experts of the node (from the make's state, one load)
     const int e_us = c2_expert(td, td.side), e_them = c2_expert(td, td.side ^ 1);
     n.c2e = C2ExpSide ? e_them : e_us;
@@ -623,15 +633,6 @@ static int node_open(ThreadData &td, NodeFrame *f, NodeState &n) {
   n.c2_imb = 0;
   if (C2SameRegImp)   // C2 idea 7 (regime selectivity): the expert pair of this node, for the comparisons of its children
     f->c2pair = (unsigned char)c2_experts_td(td);
-#endif
-
-  hash_read(td, n.h);
-  f->tt_hit = n.h.hit;
-  if (n.root)
-    n.h.move = td.root[td.pv_idx].pv[0];
-  if (!n.excluded)
-    f->tt_pv = n.pv || (n.h.hit && n.h.pv);
-  n.tact_hash = n.h.move && is_tactical(n.h.move);
   return NO_VALUE;
 }
 
@@ -696,19 +697,42 @@ static int hash_cutoff(ThreadData &td, NodeFrame *f, NodeState &n) {
       hash_soften(tt_key(td));
     return NO_VALUE;
   }
-  if (h.move && high) {
-    if (!n.tact_hash)
-      learn_quiet(td, f, h.move, hist_amount(n.expert, n.depth, HashCutQuietMul, 0, HashCutQuietMax),
-                  quiet_ctx_slow(td, h.move), n.expert);
-    if (n.prev_to >= 0 && f[-1].move_count < HashPrevLate && !n.prior_capture)
-      learn_followups(f - 1, td.piece_on[n.prev_to], n.prev_to, -HashCutPrevMalus, n.expert);
-  }
+  if (h.move && high)
+    on_hash_cut(td, f, n);
   if (td.fifty >= HashFiftyGuard)
     return NO_VALUE;
   if (n.depth >= HashVerify && h.move && td_is_pseudo_legal(td, h.move) && !val_decided(h.value) &&
       !hash_child_agrees(td, n))
     return NO_VALUE;
   return hash_cut_value(n);
+}
+
+// Once a move has raised alpha, the remaining moves of the node are searched shallower (AlphaRedLo < depth <
+// AlphaRedHi). Our form (28/10/2026, plan point 3): the cut is AlphaRed plus a term per expert of the node
+// (AlphaRedExp, plies) plus a term in how far the move cleared the old alpha, jump * AlphaRedJumpW / 4096 plies
+// within [-1, 2] (positive weight: a move far above the old alpha leaves the others less to prove). The cut is never
+// negative and the depth never drops below 1. AlphaRedExp and AlphaRedJumpW at 0 = the old tree (AlphaRed is at most
+// AlphaRedLo, so depth - AlphaRed >= 1).
+static inline int alpha_raised_cut(const NodeState &n, int jump) {
+  const int by_jump = std::clamp((int)((long long)jump * AlphaRedJumpW / 4096), -1, 2);
+  return std::max(AlphaRed + by_exp4(n.expert, AlphaRedExp0, AlphaRedExp1, AlphaRedExp2, AlphaRedExp3) + by_jump, 0);
+}
+
+// A lower bound in the hash well above beta, found after the pruning before the moves, closes the node without the
+// move loop (the step stays: its removal, SmallProbCut 0, leaned negative on 27-28/10/2026, -1.81 +- 8.26 over 1,724
+// games at 10+0.1 after -8 at the start). Our form (28/10/2026, plan point 3: replace, do not remove): the margin
+// over beta is ProbCutTTMargin plus SpcGapW per ply by which the entry is shallower than the node (an entry deeper
+// than the node gives a negative term, at most 4 plies of it) plus a term per expert of the node (SpcExp). An entry
+// up to SmallPcSlack plies shorter than the node is accepted. The node returns beta plus that margin. SpcGapW and
+// SpcExp at 0 = the old tree (bench 279330).
+static inline int hash_bound_cut(const NodeState &n) {
+  const HashView &h = n.h;
+  if (!bound_covers(h.bound, true) || h.depth < n.depth - SmallPcSlack || val_decided(n.beta) || !val_known(h.value) ||
+      val_decided(h.value))
+    return NO_VALUE;
+  const int shallower = std::max(n.depth - h.depth, -4);
+  const int margin = ProbCutTTMargin + SpcGapW * shallower + by_exp4(n.expert, SpcExp0, SpcExp1, SpcExp2, SpcExp3);
+  return h.value >= n.beta + margin ? n.beta + margin : NO_VALUE;
 }
 
 // Tablebases in interior nodes.
@@ -718,7 +742,7 @@ static int tablebase_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   unsigned men = syzygy_max_pieces();
   if (g_syzygy_probe_limit >= 0 && (unsigned)g_syzygy_probe_limit < men)
     men = (unsigned)g_syzygy_probe_limit;
-  if (!men || td.castle || td.fifty)
+  if (!men || td.castle || td.fifty || g_tb_root_draw_search)   // TbDrawSearch: no probe while choosing among draws
     return NO_VALUE;
   const unsigned pieces = (unsigned)count_bits(td.occupancies[both]);
   if (pieces > men || (pieces == men && n.depth < g_syzygy_probe_depth))
@@ -759,14 +783,18 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
     n.eval_raw = n.h.hit ? n.h.eval_raw : tt_eval_none;
   } else {
     nn_last_disagree = -1;
+    if (C2PkStale)   // shallow node: a pawn-king miss reuses the last outputs (01_params.inc)
+      nn_set_pk_stale(td.nnpos, n.depth <= C2PkStale);
     const int plain = node_eval(td, n.h, n.eval_raw);
     n.disagree = nn_last_disagree;   // -1 when node_eval took the evaluation from the hash
-#ifdef TRIUMV_C2
     // Conversion push (C2ConvPkSrc 1): the network has just evaluated this very position, so its l1 sums give the
     // exact pawn-king effect for one tail pass. From the hash: read at the move loop (move_loop, c2_conv_side).
     if (c2_conv_exact() && n.disagree >= 0)
       n.c2_pk = c2_pk_effect_fresh(td);
-#endif
+    // PkCrit (28/10/2026, ours, OFF): the same exact effect, read only at a fresh evaluation (reused when the
+    // conversion push has just read it); a node evaluated from the hash stays unmarked.
+    if ((PkCritRed | PkCritPrune) && n.disagree >= 0)
+      n.pk_crit = std::abs(n.c2_pk != INT_MIN ? n.c2_pk : c2_pk_effect_fresh(td)) >= PkCritFrom;
     f->static_eval = n.eval = corrected_eval(plain, n.signal + n.signal_x);
     if (n.h.hit) {
       if (val_known(n.h.value) && bound_covers(n.h.bound, n.h.value > n.eval))
@@ -774,16 +802,14 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
     } else
       hash_write(td, VAL_NONE, f->tt_pv, BOUND_NIL, HD_EVAL, 0, n.eval_raw);
   }
-  n.improving = f->static_eval > f[-2].static_eval;
+  // The opponent's view got worse since its own evaluation: read by the hindsight step below (the node's own trend,
+  // improving, is set after the hash cutoff and the tablebases, node_trend).
   n.opp_worse = f->static_eval > -f[-1].static_eval;
-#ifdef TRIUMV_C2
   // C2 idea 7 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): the comparisons with earlier plies only
   // inside one expert pair. Frames before the root carry no pair, hence the ply guards.
   bool c2_prior_ok = true;
   if (C2SameRegImp) {
     const int sr = C2SameRegImp, pair = f->c2pair;
-    if ((sr & 1) && !n.in_check && f->ply >= 2 && f[-2].c2pair != pair)
-      n.improving = (f->ply >= 4 && f[-4].c2pair == pair) ? f->static_eval > f[-4].static_eval : (sr & 8) != 0;
     const bool switched = f->ply >= 1 && f[-1].c2pair != pair;
     if ((sr & 2) && switched)
       n.opp_worse = false;
@@ -793,15 +819,25 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
   // moves and the reductions.
   if (g_c2_imb && !n.in_check && !val_decided(f->static_eval))
     n.c2_imb = c2_imbalance(td, f->static_eval);
-#else
-  constexpr bool c2_prior_ok = true;
-#endif
   // Hindsight on the parent's reduction (PriorRed*, CENSUS 21/10/2026: were 3, 2, 2).
   if (c2_prior_ok) {
     if (n.prior_red >= PriorRedHigh && !n.opp_worse)
       n.depth++;
     if (n.prior_red >= PriorRedLow && n.depth >= PriorRedMinDepth && f->static_eval + f[-1].static_eval > PriorRedEvalSum)
       n.depth--;
+  }
+}
+
+// The node's trend: is its static evaluation above the one of two plies ago? Read only by the stages that search
+// (pruning before the moves, move loop), so it is set once the hash cutoff and the tablebases have let the node go on
+// (order of ours, 28/10/2026). C2SameRegImp bit 1 compares inside one expert pair (four plies back, or the default of
+// bit 8, when the pair changed two plies ago).
+static inline void node_trend(const NodeFrame *f, NodeState &n) {
+  n.improving = f->static_eval > f[-2].static_eval;
+  if (C2SameRegImp & 1) {
+    const int pair = f->c2pair;
+    if (!n.in_check && f->ply >= 2 && f[-2].c2pair != pair)
+      n.improving = (f->ply >= 4 && f[-4].c2pair == pair) ? f->static_eval > f[-4].static_eval : (C2SameRegImp & 8) != 0;
   }
 }
 
@@ -813,24 +849,6 @@ static void node_evaluate(ThreadData &td, NodeFrame *f, NodeState &n) {
 // expert of the network start at 0, so the tree is the one of 8.0 (bench unchanged).
 // --------------------------------------------------------------------------
 
-// The change of the evaluation since the previous ply teaches the history something about the move that led here.
-static void learn_from_eval_change(ThreadData &td, NodeFrame *f, const NodeState &n) {
-  const int us = td.side;
-  if (move_ok(f[-1].move) && !f[-1].in_check && !n.prior_capture) {
-    const int diff = std::clamp(-(f[-1].static_eval + f->static_eval), -EvalDiffLo, EvalDiffHi) + EvalDiffOfs;
-    const int pm = f[-1].move;
-    // Weight per expert (HlEval) and gravity of the expert; EvPen scales the penalties (diff < 0) apart from the
-    // rewards (1024 = one weight for both, as before: ev * 1024 / 1024 = ev).
-    int ev = by_exp4(n.expert, HlEval0, HlEval1, HlEval2, HlEval3);
-    if (diff < 0)
-      ev = ev * by_exp4(n.expert, EvPen0, EvPen1, EvPen2, EvPen3) / 1024;
-    qh_push(td, us ^ 1, quiet_key(pm), f[-1].hctx, diff * EvalDiffMul * ev / 1024, hist_grav(n.expert));
-    const int pc_now = td.piece_on[n.prev_to];
-    if (!n.h.hit && pc_now % 6 != P && !get_move_promoted(pm))
-      hist_learn(pawn_row(td)[pc_now][n.prev_to], diff * EvalDiffPawnMul * ev / 1024, LIM_PAWN, hist_grav(n.expert));
-  }
-}
-
 // Evaluation gates. Below alpha by a margin quadratic in depth, the quiescence search answers for the node
 // (razoring); above beta by a margin that grows with depth, the node holds without a search (reverse futility) and
 // returns a blend of beta and the evaluation. Both margins have a term per expert (RazorExp ours at 0; RfpExp from
@@ -838,16 +856,40 @@ static void learn_from_eval_change(ThreadData &td, NodeFrame *f, const NodeState
 // between the two outputs of the network (RfpDisagree, ours, off). gd_razor and gd_rfp_pct belong to the analysis
 // mode (AnGold) and are neutral in games; n.crystal is always false outside AnCrystal.
 template <bool AN>
+static int reverse_futility(ThreadData &td, NodeFrame *f, NodeState &n);
+
+// Order of ours (27/10/2026): reverse futility first, razoring after. At the current values the two cannot both fire
+// (razoring needs the evaluation below alpha minus a positive margin, reverse futility at or above beta), so the tree
+// is the same; the razoring margin is still computed first for the data build (pl_razor).
+// Order of ours (28/10/2026): both gates give their verdict first; then the change of the evaluation since the previous
+// ply teaches the move that led here (on_eval_change), and only then does a gate act. The verdicts read the evaluation
+// and the window, the lesson writes move statistics, so neither reads what the other writes; the lesson still comes
+// before the quiescence search of razoring, which reads those statistics, and it is taken by every node that reaches
+// the gates, as before.
+template <bool AN>
 static int eval_gates(ThreadData &td, NodeFrame *f, NodeState &n) {
-  if (AN && n.crystal)
-    return NO_VALUE;
-  const int razor = RazorMul * n.depth * n.depth + by_expert(n.expert, RazorExp0, RazorExp1, RazorExp2, RazorExp3) +
-                    (AN ? td.gd_razor : 0);
-  if (!n.pv && n.eval < n.alpha - razor) {
+  int held = NO_VALUE;
+  bool razor_on = false;
+  if (!(AN && n.crystal)) {
+    const int razor = RazorMul * n.depth * n.depth + RazorLin * n.depth +
+                      by_expert(n.expert, RazorExp0, RazorExp1, RazorExp2, RazorExp3) +
+                      cell_off(C2C_RAZ, n) + (AN ? td.gd_razor : 0);
+    PL_SET(pl_razor, razor);
+    held = reverse_futility<AN>(td, f, n);
+    razor_on = held == NO_VALUE && !n.pv && n.eval < n.alpha - razor;
+  }
+  on_eval_change(td, f, n);
+  if (held != NO_VALUE)
+    return held;
+  if (razor_on) {
     PL_RULE(1);
     return quiesce(td, f, n.alpha, n.beta, false);
   }
+  return NO_VALUE;
+}
 
+template <bool AN>
+static int reverse_futility(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int max_depth = n.hunt_mate ? RfpHuntDepth : e_rfp_max_depth(td);
   if (f->tt_pv || n.depth >= max_depth || n.eval < n.beta || (n.h.move && !n.tact_hash) || val_lost(n.beta) ||
       val_won(n.eval))
@@ -856,20 +898,32 @@ static int eval_gates(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (AN && td.gd_rfp_pct != 100)
     mult = mult * td.gd_rfp_pct / 100;
   mult -= RfpNoTTHit * !f->tt_hit;
-  mult += by_expert(n.expert, RfpExp0, RfpExp1, RfpExp2, RfpExp3);
-#ifdef TRIUMV_C2
+  mult += by_expert(n.expert, RfpExp0, RfpExp1, RfpExp2, RfpExp3) + cell_off(C2C_RFP, n);
   if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the multiplier per Consilium Plebis expert. OFF by default; SPRT pending
     mult += c2_tab[C2T_RFP][n.c2e];
-#endif
   const int lean = RfpImproving * n.improving + RfpOppWorse * n.opp_worse;   // the node's trend, per 1024 of mult
-  int margin = mult * n.depth - lean * mult / 1024 + std::abs(n.signal) / RfpCorrDiv;
-#ifdef TRIUMV_C2
+  // Margin in our form (27/10/2026, docs/audit_8.1/R9): + RfpMarginBase, a constant that does not grow with depth, and
+  // the correction read with its sign as well as its size: corr = signal / RfpCorrDiv adds |corr| (as before; integer
+  // division truncates toward zero, so |s|/D = |s/D|) plus RfpCorrSign/1024 of corr (positive = less trust in an
+  // evaluation the correction has raised). Both at 0: the old margin.
+  const int corr = n.signal / RfpCorrDiv;
+  int margin = mult * n.depth - lean * mult / 1024 + std::abs(corr) + RfpCorrSign * corr / 1024 + RfpMarginBase;
   // C2 idea 7 (21/10/2026, agent A): the two perspectives evaluate with different experts (the routing table puts the
   // material of the two sides in different classes): the evaluation of an unbalanced position is trusted less (or more,
   // with a negative value). OFF by default; SPRT pending.
   if (C2AsymRfp && n.c2_asym)
     margin += C2AsymRfp;
-#endif
+  // RfpBehind / RfpAll (28/10/2026, ours, OFF; search-ideas agent, prunelog of 27/10, match_moe/idee_ricerca_2026-10-28):
+  // at equal depth and surplus eval - beta, the cuts of a side whose static evaluation is far below zero were wrong
+  // x2.1 / x2.9 / x5.1 at depths 1-2 / 3-5 / 6-12 (static < -700), and the cuts of ALL nodes x2.73 at every depth. So
+  // the margin grows with the deficit beyond RfpBehindFrom (capped at 2048 units), RfpBehind/4096 per unit plus
+  // RfpBehindD/4096 per unit and ply, and by RfpAll in ALL nodes. All 0: the old margin.
+  if (RfpBehind | RfpBehindD) {
+    const int def = std::min(std::max(-f->static_eval - RfpBehindFrom, 0), 2048);
+    margin += def * (RfpBehind + RfpBehindD * n.depth) / 4096;
+  }
+  if (RfpAll && n.all)
+    margin += RfpAll;
   // RfpDisagree: in the prunelog data the error of the static evaluation is 12-45% larger in the quarter of nodes
   // with the most disagreement, at equal size of the evaluation, and flat below; so the margin grows only past a
   // threshold per expert (its upper quartile).
@@ -878,6 +932,7 @@ static int eval_gates(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (over > 0)
       margin += RfpDisagree * std::min(over, 4096) / 1024;
   }
+  PL_SET(pl_rfp, margin);
   if (n.eval - margin < n.beta)
     return NO_VALUE;
   PL_RULE(2);
@@ -894,8 +949,7 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   const int us = td.side;
   const bool pieces = td.occupancies[us] & ~td.bitboards[us == white ? P : p] & ~td.bitboards[us == white ? K : k];
   int floor = n.beta - NmpDepthMul * n.depth - e_nmp_improving(td) * n.improving + NmpBase +
-              by_expert(n.expert, NmpExp0, NmpExp1, NmpExp2, NmpExp3);
-#ifdef TRIUMV_C2
+              by_expert(n.expert, NmpExp0, NmpExp1, NmpExp2, NmpExp3) + cell_off(C2C_NMP, n);
   // C2 idea 1 (21/10/2026, agent A; OFF by default, SPRT pending): the floor per Consilium Plebis expert.
   if (g_c2_node)
     floor += c2_tab[C2T_NMP][n.c2e];
@@ -903,7 +957,7 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
   // passing is rarely wrong, so the floor is lower.
   if (C2ImbAheadNmp && n.c2_imb > 0)
     floor -= C2ImbAheadNmp;
-#endif
+  PL_SET(pl_nmp_floor, floor - n.beta);
   if (!n.cut || f->static_eval < floor || n.excluded || !pieces || td.ply < td.nmp_min_ply || n.beta < -NmpBetaFloor ||
       (AN && gd_skip_null(td, n)) ||
       (AN && (td.an_bits & AN_NMPZUG) && td.root_depth >= 11 && td.side != td.root_side && few_moves(td)) ||
@@ -918,8 +972,13 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (npm <= NmpNpmFloor)
       return NO_VALUE;
   }
+  // Reduction in our form (27/10/2026, docs/audit_8.1/R9): the whole plies of the inherited rule, NmpRedBase +
+  // d/NmpDepthDiv + the evaluation term, plus a part in 1024ths of a ply rounded with ten bits of the key: DeepNmp,
+  // NmpRedDepth per ply of depth (a continuous slope on top of the integer d/NmpDepthDiv) and NmpRedImp on an
+  // improving node. Both at 0: the old reduction.
   const int r = NmpRedBase + n.depth / NmpDepthDiv + std::max((f->static_eval - n.beta) / NmpEvalDiv, 0) +
-                (((AN ? td.dz_nmp : deep_term(td, DeepNmp)) + (int)((td.hash_key >> 20) & 1023)) >> 10);
+                (((AN ? td.dz_nmp : deep_term(td, DeepNmp)) + NmpRedDepth * n.depth + NmpRedImp * n.improving +
+                  (int)((td.hash_key >> 20) & 1023)) >> 10);
   NullUndo nu;
   step_in_null(td, f, nu);
   f[1].in_check = false;
@@ -945,8 +1004,8 @@ static int null_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
 // ProbCutRedImp more when the node is improving.
 template <bool AN>
 static int capture_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
-  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving +
-                       by_expert(n.expert, ProbCutExp0, ProbCutExp1, ProbCutExp2, ProbCutExp3);
+  const int cut_beta = n.beta + ProbCutMargin - ProbCutImproving * n.improving + ProbCutDepth * n.depth / 16 +
+                       by_expert(n.expert, ProbCutExp0, ProbCutExp1, ProbCutExp2, ProbCutExp3) + cell_off(C2C_PCUT, n);
   if (n.depth < ProbCutMinDepth || val_decided(n.beta) || (val_known(n.h.value) && n.h.value < cut_beta))
     return NO_VALUE;
   MoveQueue q;
@@ -982,8 +1041,7 @@ static int capture_probe(ThreadData &td, NodeFrame *f, NodeState &n) {
 
 template <bool AN>
 static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
-  learn_from_eval_change(td, f, n);
-  int v;
+  int v;   // the evaluation gates also hold the lesson of the evaluation change (on_eval_change)
   if ((v = eval_gates<AN>(td, f, n)) != NO_VALUE)
     return v;
   if ((v = null_probe<AN>(td, f, n)) != NO_VALUE)
@@ -1000,60 +1058,35 @@ static int prune_before_moves(ThreadData &td, NodeFrame *f, NodeState &n) {
 // --------------------------------------------------------------------------
 
 // --------------------------------------------------------------------------
-// Block 3 of 8.1 (20/10/2026): pruning of single moves, in our form. Three gates, in this order: the move count
-// (past a threshold per node the queue stops handing out quiet moves), the capture gate (futility and exchange test
-// of captures and checks) and the quiet gate (history, futility on a depth corrected by the history, exchange test).
+// Block 3 of 8.1 (20/10/2026): pruning of single moves, in our form. Three gates; since 28/10/2026 (order of ours) a
+// move meets first its own gate, the quiet gate (history, futility on a depth corrected by the history, exchange test)
+// or the capture gate (futility and exchange test of captures and checks), and then the move count (past a threshold
+// per node the queue stops handing out quiet moves after this one).
 // Numbers once written in the code are parameters at their old values; terms per expert start at 0.
 // --------------------------------------------------------------------------
 
-// Capture gate: a capture (or a check) is skipped when even its victim and a margin leave the evaluation at or
-// below alpha, or when the exchange test fails by more than a margin. The last piece is never offered with alpha
-// below the draw (it may lead to stalemate).
-template <bool AN>
-static bool capture_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQueue &q, int m, bool gives,
-                         int red_depth, U64 own_pieces, bool pr_exp) {
-  const int pc = move_piece(m), to = move_to(m);
-  const int vk = victim_kind(td, m);
-  const int ch = td.capt_hist[pc][to][vk];
-  if (!gives && red_depth < CaptFutMaxDepth) {
-    const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth + unit_value[vk] + CaptFutHist * ch / 1024 +
-                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0)
-#ifdef TRIUMV_C2   // --- C2 piece values (agent SEE) ---: bit 4 of C2SeeReg, the victim in its owner's regime (see.cpp)
-                    + ((C2SeeReg & 4) ? see_c2_offsets(td)[td.piece_on[to] & 15] : 0)
-#endif
-                    ;
-    if (fut <= n.alpha) {
-      PL_RULE(11);
-      return true;
-    }
-  }
-  int margin = CaptSeeDepth * n.depth + ch * CaptSeeHist / 1024 +
-               (pr_exp ? by_expert(n.expert, CaptSeeExp0, CaptSeeExp1, CaptSeeExp2, CaptSeeExp3) : 0);
-#ifdef TRIUMV_C2
-  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): ahead, a capture that takes the
-  // opponent's last piece of a type simplifies toward the won ending; its exchange test is relaxed.
-  if (C2ImbAhead && n.c2_imb > 0 && vk >= N && vk <= Q &&
-      count_bits(td.bitboards[vk + 6 * (td.side ^ 1)]) == 1)
-    margin += C2ImbAhead;
-#endif
-  const bool last_piece = count_bits(own_pieces) == 1 && (own_pieces >> move_from(m) & 1);
-  if ((n.alpha >= contempt(td) || !last_piece) && !see_holds_q(td, q, m, -margin)) {
-    PL_RULE(12);
-    return true;
-  }
-  return false;
-}
-
 // Quiet gate: a quiet move with a very bad continuation history is skipped; otherwise the history corrects its depth
-// (divided by a divisor per depth, HistDiv1-16, as a multiplication by the reciprocal: exact for these sizes), and
+// (divided by a divisor per depth, HistDiv1-16 with the level HistDivScale and the slope HistDivTilt of our form, see
+// make_hist_div; as a multiplication by the reciprocal: exact for these sizes), and
 // the move is skipped when the evaluation plus a margin on that depth stays at or below alpha (futility, which also
 // raises the node's best value to the margin), or when the exchange test fails by more than a margin quadratic in
 // the corrected depth.
 template <bool AN>
 static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, int m, int red_depth, int ctx) {
   const int us = td.side, pc = move_piece(m), to = move_to(m);
+  if (PkCritPrune && n.pk_crit && kPieceKind[pc] == P)   // PkCrit: the structure decides here, pawn moves are searched
+    return false;
+  if (BreakPrune && pawn_break(td, m))   // pawn breaks (28/10/2026, ours, OFF): searched, not pruned by this gate
+    return false;
+  // Node type and "static above alpha" in the quiet gate (28/10/2026, ours, OFF; prunelog of 27/10: quiet moves pruned in
+  // CUT nodes wrong x1.8-2.3, in ALL nodes x0.4; with static >= alpha history prune x3.0, exchange test x2.7, futility
+  // x2.0 even with QuietFutAlpha). Positive values prune less: the history threshold grows by (HistCut in CUT nodes -
+  // HistAll in ALL nodes + HistAbove when static >= alpha) per ply, the futility margin by FutCut / -FutAll, the exchange
+  // test accepts SeeAbove more per ply of corrected depth when static >= alpha. All 0: the old gate.
+  const bool above = f->static_eval >= n.alpha;
   int hist = (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
-  if (hist < -QuietHistPrune * n.depth) {
+  if (hist < -(QuietHistPrune * n.depth + QuietHistBase +
+               (HistCut * n.cut - HistAll * n.all + HistAbove * above) * n.depth)) {
     PL_RULE(13);
     return true;
   }
@@ -1066,12 +1099,13 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
     shift = shift * (1024 + deep_term(td, DeepHist)) / 1024;
   red_depth += hist < 0 ? -shift : shift;
   int fut = f->static_eval + QuietFutDepth * red_depth + e_quiet_fut_alpha(td) * (f->static_eval > n.alpha) +
-            QuietFutBase + (AN ? td.dz_fut : deep_term(td, DeepFut)) +
-            by_expert(n.expert, FutExp0, FutExp1, FutExp2, FutExp3);
-#ifdef TRIUMV_C2
+            QuietFutBase + (red_depth > 0 ? QuietFutQuad * red_depth * red_depth / 16 : 0) +
+            (AN ? td.dz_fut : deep_term(td, DeepFut)) +
+            by_expert(n.expert, FutExp0, FutExp1, FutExp2, FutExp3) + cell_off(C2C_FUT, n);
   if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): the margin per Consilium Plebis expert. OFF by default; SPRT pending
     fut += c2_tab[C2T_FUT][n.c2e];
-#endif
+  fut += FutCut * n.cut - FutAll * n.all;   // node type (28/10/2026, ours, OFF; see above)
+  PL_SET(pl_fut, fut - n.alpha);
   if (!n.in_check && red_depth < QuietFutMaxDepth && fut <= n.alpha) {
     if (n.best <= fut && !val_decided(n.best) && !val_won(fut))
       n.best = fut;
@@ -1079,11 +1113,83 @@ static bool quiet_gate(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q,
     return true;
   }
   red_depth = std::max(red_depth, 0);
-  if (!see_holds_q(td, q, m, -QuietSeeMul * red_depth * red_depth)) {
+  if (!see_holds_q(td, q, m, -(QuietSeeMul * red_depth * red_depth + QuietSeeLin * red_depth +
+                               SeeAbove * above * red_depth))) {
     PL_RULE(15);
     return true;
   }
   return false;
+}
+
+// Capture gate: a capture (or a check) is skipped when even its victim and a margin leave the evaluation at or
+// below alpha, or when the exchange test fails by more than a margin. The last piece is never offered with alpha
+// below the draw (it may lead to stalemate).
+template <bool AN>
+static bool capture_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQueue &q, int m, bool gives,
+                         int red_depth, U64 own_pieces, bool pr_exp) {
+  const int pc = move_piece(m), to = move_to(m);
+  const int vk = victim_kind(td, m);
+  const int ch = td.capt_hist[pc][to][vk];
+  if (!gives && red_depth < CaptFutMaxDepth) {
+    const int fut = f->static_eval + CaptFutBase + CaptFutDepth * red_depth +
+                    (piece_values_mat(td)[td.piece_on[to] & 15] + pawn_struct_adj(td, to, td.piece_on[to])) *
+                        CaptFutVictim / 1024 +
+                    CaptFutHist * ch / 1024 +
+                    (pr_exp ? by_expert(n.expert, CaptFutExp0, CaptFutExp1, CaptFutExp2, CaptFutExp3) : 0) +
+                    CaptFutCut * n.cut - CaptFutAll * n.all   // node type (28/10/2026, ours, OFF; positive = prune less)
+                    ;
+    if (fut <= n.alpha) {
+      PL_RULE(11);
+      return true;
+    }
+  }
+  int margin = CaptSeeDepth * n.depth + CaptSeeQuad * n.depth * n.depth / 16 + ch * CaptSeeHist / 1024 +
+               (pr_exp ? by_expert(n.expert, CaptSeeExp0, CaptSeeExp1, CaptSeeExp2, CaptSeeExp3) : 0);
+  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): ahead, a capture that takes the
+  // opponent's last piece of a type simplifies toward the won ending; its exchange test is relaxed.
+  if (C2ImbAhead && n.c2_imb > 0 && vk >= N && vk <= Q &&
+      count_bits(td.bitboards[vk + 6 * (td.side ^ 1)]) == 1)
+    margin += C2ImbAhead;
+  const bool last_piece = count_bits(own_pieces) == 1 && (own_pieces >> move_from(m) & 1);
+  if ((n.alpha >= contempt(td) || !last_piece) && !see_holds_q(td, q, m, -margin)) {
+    PL_RULE(12);
+    return true;
+  }
+  return false;
+}
+
+// Move count (our form, 27/10/2026): past LmpBase + (LmpLin*d + LmpQuad*d^2)/16 moves, scaled by LmpNotImp/1024 when
+// the node is not improving, the queue stops handing out quiet moves. Computed in sixteenths of a move and 1024ths of
+// the scale, one shift at the end: at 0/16/512 it equals the old (LmpBase + d^2) halved when not improving.
+// LmpExp scales the threshold per expert (from PrExpRootDepth, pr_exp).
+template <bool AN>
+static void count_gate(ThreadData &td, NodeFrame *f, const NodeState &n, MoveQueue &q, bool pr_exp) {
+  const long long lmp_16 = std::max(16LL * LmpBase + (long long)LmpLin * n.depth + (long long)LmpQuad * n.depth * n.depth, 0LL);
+  int lmp_count = (int)((lmp_16 * (n.improving ? 1024 : LmpNotImp)) >> 14);
+  {   // per-band scale (from PrExpRootDepth) and the C2Cells offset of the node's cell, /1024
+    const int lx = (pr_exp && (LmpExp0 | LmpExp1 | LmpExp2 | LmpExp3) ? by_expert(n.expert, LmpExp0, LmpExp1, LmpExp2,
+                                                                                  LmpExp3) : 0) + cell_off(C2C_LMP, n);
+    if (lx)
+      lmp_count = lmp_count * (1024 + lx) / 1024;
+  }
+  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind, the defender looks wider.
+  if (C2ImbBehindLmp && n.c2_imb < 0)
+    lmp_count = lmp_count * (1024 + C2ImbBehindLmp) / 1024;
+  // Node type and "static above alpha" in the move count (28/10/2026, ours, OFF; prunelog of 27/10): moves pruned in CUT
+  // nodes were wrong x1.8-2.3, in ALL nodes x0.4; LMP with static >= alpha x6.1. The threshold scales by /1024 (positive
+  // = more moves searched): LmpCut in CUT nodes, minus LmpAll in ALL nodes, LmpAbove when the static evaluation is at
+  // or above alpha. All 0: the old count.
+  if (LmpCut | LmpAll | LmpAbove) {
+    const int s = LmpCut * n.cut - LmpAll * n.all + LmpAbove * (f->static_eval >= n.alpha);
+    lmp_count = lmp_count * (1024 + s) / 1024;
+  }
+  if (f->move_count >= lmp_count && !(AN && (td.an_bits & AN_LMPNEAR) && (n.pv || f->ply <= 2))) {   // AnLmpNear
+#ifdef TRIUMV_PRUNELOG
+    q.pl_count_off = true;
+#else
+    q.quiets_off = true;
+#endif
+  }
 }
 
 // Pruning of a move before it is played; true = skip it. n.crystal belongs to AnCrystal only.
@@ -1105,35 +1211,29 @@ static bool skip_move(ThreadData &td, NodeFrame *f, NodeState &n, MoveQueue &q, 
     return true;
   }
 #endif
-  // Move count: past (LmpBase + d^2), halved when the node is not improving (a shift), the queue stops handing out
-  // quiet moves. LmpExp scales the threshold per expert; PrExpRootDepth (0 = always) lets the per-expert levers act
-  // only once the iteration is that deep (pruning less paid only with depth to spare: block 3 data, 20/10/2026).
+  // PrExpRootDepth (0 = always) lets the per-expert levers act only once the iteration is that deep (pruning less paid
+  // only with depth to spare: block 3 data, 20/10/2026).
   const bool pr_exp = td.root_depth >= PrExpRootDepth;
-  int lmp_count = (LmpBase + n.depth * n.depth) >> (1 - (int)n.improving);
-  if (pr_exp && (LmpExp0 | LmpExp1 | LmpExp2 | LmpExp3))
-    lmp_count = lmp_count * (1024 + by_expert(n.expert, LmpExp0, LmpExp1, LmpExp2, LmpExp3)) / 1024;
-#ifdef TRIUMV_C2
-  // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind, the defender looks wider.
-  if (C2ImbBehindLmp && n.c2_imb < 0)
-    lmp_count = lmp_count * (1024 + C2ImbBehindLmp) / 1024;
-#endif
-  if (f->move_count >= lmp_count && !(AN && (td.an_bits & AN_LMPNEAR) && (n.pv || f->ply <= 2))) {   // AnLmpNear
-#ifdef TRIUMV_PRUNELOG
-    q.pl_count_off = true;
-#else
-    q.quiets_off = true;
-#endif
-  }
   const int red_depth = n.depth - 1 - r / 1024;
-  if (tact || gives)
-    return capture_gate<AN>(td, f, n, q, m, gives, red_depth, own_pieces, pr_exp);
-  if (f->follow_pv && n.pv)
-    return false;
-  return quiet_gate<AN>(td, f, n, q, m, red_depth, ctx);
+  // Order of ours (28/10/2026): the move is judged first by its own gate; the move count, which decides only whether
+  // the queue goes on handing out quiet moves after this one, comes last. The gates read neither the count nor the
+  // queue's quiet switch, and the count reads nothing the gates write (the quiet gate may raise the node's best value;
+  // the guard on a lost best value above was read before it).
+  // A quiet move goes through the quiet gate (not on the previous line in a PV node), a capture or a check through the
+  // capture gate.
+  const bool skip = (!tact && !gives) ? !(f->follow_pv && n.pv) && quiet_gate<AN>(td, f, n, q, m, red_depth, ctx)
+                                      : capture_gate<AN>(td, f, n, q, m, gives, red_depth, own_pieces, pr_exp);
+  count_gate<AN>(td, f, n, q, pr_exp);
+  return skip;
 }
 
 #ifdef TRIUMV_PRUNELOG
 static inline int pl_clip(int v) { return std::clamp(v, -32000, 32000); }
+// Consilium Plebis experts of the two perspectives at this node, read even when the C2 margin tables are off.
+static inline void pl_c2_experts(ThreadData &td, int8_t &us, int8_t &them) {
+  us = (int8_t)c2_expert(td, td.side);
+  them = (int8_t)c2_expert(td, td.side ^ 1);
+}
 
 // Block 3 data (prunelog.h): a move that a pruning rule skipped, searched anyway with a null window at alpha, at the
 // depth its reduction would have given it and at the full depth.
@@ -1159,6 +1259,9 @@ static void prunelog_move(ThreadData &td, NodeFrame *f, NodeState &n, int m, boo
   rec.stat = tact ? td.capt_hist[pc][to][victim_kind(td, m)]
                   : (*f[-1].cont_hist)[pc][to] + (*f[-2].cont_hist)[pc][to] + pawn_row(td)[pc][to];
   rec.pieces = (int16_t)count_bits(td.occupancies[both]);
+  // the quiet futility value is computed just before rules 14 and 15 for this move; for the others it is stale
+  rec.fut = pl_rule == 14 || pl_rule == 15 ? pl_fut : PL_NONE;
+  pl_c2_experts(td, rec.c2_us, rec.c2_them);
   const int d_full = n.depth - 1, d_red = std::clamp(n.depth - 1 - r / 1024, 0, d_full);
   rec.d_red = (int8_t)d_red;
   rec.d_full = (int8_t)d_full;
@@ -1217,9 +1320,14 @@ static int prunelog_node(ThreadData &td, NodeFrame *f, NodeState &n) {
   if (v >= hi)
     rec.flags |= 256;
   pl_rule = 0;
+  pl_razor = pl_rfp = pl_nmp_floor = PL_NONE;
   const int ret = prune_before_moves<AN>(td, f, n);
   rec.rule = (int8_t)(ret == NO_VALUE ? 0 : pl_rule);
   rec.ret = ret == NO_VALUE ? 0 : pl_clip(ret - n.eval);
+  rec.razor = pl_razor;
+  rec.rfp = pl_rfp;
+  rec.nmp_floor = pl_nmp_floor;
+  pl_c2_experts(td, rec.c2_us, rec.c2_them);
   if (!stop_threads.load(std::memory_order_relaxed))
     prunelog_write(td.thread_id, "prunenode", 0, rec);
   return ret;
@@ -1303,23 +1411,20 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
   nr.beta = n.beta;
   nr.eval_beta = ol_clip(n.eval - n.beta, 32000);
   nr.static_beta = ol_clip(f->static_eval - n.beta, 32000);
-#ifdef TRIUMV_C2
   nr.c2ex = (int16_t)c2_experts_td(td);
   C2Mat cm;
   c2_mat_init(td, cm);
-#else
-  nr.c2ex = -1;
-#endif
   const int lm = f[-1].move, pm = f[-2].move;
   const int lmto = lm > 0 ? move_to(lm) : -1;
   const int lmpc = lmto >= 0 ? td.piece_on[lmto] : -1;
   nr.last_kind = (int8_t)(lmpc >= 0 && lmpc < 12 ? kPieceKind[lmpc] : -1);
   nr.last_victim = (int8_t)(lm > 0 && f[-1].captured >= 0 && f[-1].captured < 12 ? kPieceKind[f[-1].captured] : -1);
   int hang_n = 0, hang_max = -1;
+  const int *pv = piece_values_mat(td);   // per-expert values of the node (see.cpp)
   for (U64 t = td.occupancies[us] & ~td.bitboards[K + us_off]; t; pop_lsb_bb(t)) {
     const int sq = get_ls1b_index(t), k = kPieceKind[td.piece_on[sq]];
     const int a = ol_min_attacker(td, sq, them, occ);
-    if (a >= 0 && (unit_value[a] < unit_value[k] || !(attackers_with(td, sq, us, occ) & occ & ~(1ULL << sq))))
+    if (a >= 0 && (pv[a + eoff] < pv[td.piece_on[sq]] || !(attackers_with(td, sq, us, occ) & occ & ~(1ULL << sq))))
       hang_n++, hang_max = std::max(hang_max, k);
   }
   nr.hanging_n = (int8_t)hang_n;
@@ -1359,9 +1464,9 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
     const U64 fromb = 1ULL << from, tob = 1ULL << to;
     const int fa = ol_min_attacker(td, from, them, occ);
     r.from_att = fa >= 0;
-    r.from_lesser = fa >= 0 && unit_value[fa] < unit_value[pt];
+    r.from_lesser = fa >= 0 && pv[fa + eoff] < pv[pc];
     r.from_hang = fa >= 0 && pt != K &&
-                  (unit_value[fa] < unit_value[pt] || !(attackers_with(td, from, us, occ) & occ & ~fromb));
+                  (pv[fa + eoff] < pv[pc] || !(attackers_with(td, from, us, occ) & occ & ~fromb));
     U64 occ2 = (occ ^ fromb) | tob, gone = cap ? tob : 0;
     if (ep) {
       const int cs = us == white ? to + 8 : to - 8;
@@ -1379,7 +1484,7 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
       nt++;
       mx = std::max(mx, k);
       const bool undef = !(attackers_with(td, sq, them, occ2) & occ2 & ~gone);
-      ng += unit_value[k] > unit_value[apt] || undef;
+      ng += pv[td.piece_on[sq]] > pv[apt + us_off] || undef;
     }
     r.n_targets = (int8_t)nt;
     r.max_target = (int8_t)mx;
@@ -1405,11 +1510,7 @@ static void ordlog_oracle(ThreadData &td, NodeFrame *f, NodeState &n, int depth0
     r.advance = (int8_t)(ol_rel_rank(us, to) - ol_rel_rank(us, from));
     r.killer = f->ply < 256 && ol_killer[f->ply] == m;
     r.counter = lmpc >= 0 && lmpc < 12 && ol_counter[lmpc][lmto] == m;
-#ifdef TRIUMV_C2
     r.c2_switch = cap ? (int8_t)c2_switches(td, cm, m) : 0;
-#else
-    r.c2_switch = -1;
-#endif
     for (int j = 0; j < fn; j++)
       if (fmv[j] == m) { r.fate = ffate[j]; r.red = fred[j]; break; }
     if (cap || ep) {
@@ -1461,9 +1562,10 @@ static bool passed_push(const ThreadData &td, int m) {
   const int to = move_to(m), us = td.side, row = to / 8, file = to % 8;   // row 0 = ottava traversa
   if (us == white ? (row != 1 && row != 2) : (row != 5 && row != 6))
     return false;
+  const int *pv = piece_values_mat(td);
   int npm = 0;
   for (int t = N; t <= Q; t++)
-    npm += unit_value[t] * (count_bits(td.bitboards[t]) + count_bits(td.bitboards[t + 6]));
+    npm += pv[t] * count_bits(td.bitboards[t]) + pv[t + 6] * count_bits(td.bitboards[t + 6]);
   if (npm > PassedPushNpm)
     return false;
   U64 files = 0;
@@ -1509,8 +1611,11 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
   const int margin = SingMarginBase + (AN ? td.dz_sing : deep_term(td, DeepSing)) +
                      SingMarginTtPv * (f->tt_pv && !n.pv) + by_exp4(n.expert, SingExp0, SingExp1, SingExp2, SingExp3) +
                      SingSurplus * surplus + SingMoving * moving;
-  const int s_beta = h.value - margin * n.depth / SingMarginDiv;
-  const int s_depth = new_depth * SingDepthMul / 2048;
+  // Our form (27/10/2026, docs/audit_8.1/R9): the bar also sits SingBarBase lower at every depth (a constant beside the
+  // margin per ply), and the exclusion search is SingDepthOfs sixteenths of a ply deeper than new_depth*SingDepthMul/2048
+  // (the offset enters the numerator, so the truncation is shared). Both at 0: the old bar and depth.
+  const int s_beta = h.value - margin * n.depth / SingMarginDiv - SingBarBase;
+  const int s_depth = (new_depth * SingDepthMul + 128 * SingDepthOfs) / 2048;
   f->excluded = m;
   const int v = explore<AN>(td, f, s_beta - 1, s_beta, s_depth, n.cut, false);
   f->excluded = 0;
@@ -1537,11 +1642,7 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
     return 1 + extra;
   }
   if (v >= n.beta && !val_decided(v)) {   // several good moves: the node returns, and the hash move learns it
-    hist_learn(td.tt_move_hist, -SingFhTtBase - SingFhTtDepth * n.depth, LIM_TTMOVE, ttm_grav(n.expert));
-    if (!n.in_check && v > f->static_eval) {
-      const int bonus = std::clamp((v - f->static_eval) * s_depth * CorrSingMul / 1024, -CorrSingMax, CorrSingMax);
-      corr_learn(td, f, bonus, n.expert);
-    }
+    on_multi_cut(td, f, n, v, s_depth);
     *cutoff = v;
     return 0;
   }
@@ -1554,37 +1655,45 @@ static int singular_probe(ThreadData &td, NodeFrame *f, NodeState &n, int m, int
 }
 
 // Updates the root move just searched (statistics, line, best-move changes).
+// Blend of a running average with a fresh value, the fresh one weighing w/32 (truncated toward zero).
+static inline long long blend32(long long old, long long fresh, int w) { return (fresh * w + old * (32 - w)) / 32; }
+
+// Bookkeeping of one searched root move (rewritten in our structure 27/10/2026, same results): the effort spent on it,
+// the two running averages read by the aspiration window (score, and signed square for its width), and, for the first
+// move or one that raised alpha, its score, bound and line. A search weighs in the averages by its share of the effort
+// spent on the move so far, in 32nds between RootAvgMin and RootAvgMax (RootAvgChi scales the past effort; the square
+// is capped at RootMsqMax; CENSUS 21/10/2026, were 3, 12, 24, 16).
 static void root_record(ThreadData &td, NodeState &n, int m, int value, U64 spent, int move_no) {
-  RootLine *rl = nullptr;
-  for (int i = 0; i < td.root_count; i++)
-    if (td.root[i].pv[0] == m) { rl = &td.root[i]; break; }
-  if (!rl)
+  RootLine *const end = td.root + td.root_count;
+  RootLine *const rl = std::find_if(td.root, end, [m](const RootLine &r) { return r.pv[0] == m; });
+  if (rl == end)
     return;
+  const U64 before = std::max<U64>(1, rl->effort);
   rl->effort += spent;
-  const U64 prev = std::max<U64>(1, rl->effort - spent);
-  // Weight of this search in the running averages, /32 (RootAvg*, RootMsqMax: CENSUS 21/10/2026, were 3, 12, 24, 16).
-  const U64 w = std::clamp<U64>((32 * spent * 2) / (spent * 2 + (U64)RootAvgChi * prev), (U64)RootAvgMin, (U64)RootAvgMax);
-  const U64 w_sq = std::min<U64>(w, (U64)RootMsqMax);
-  const long long v2 = (long long)value * std::abs(value);
-  rl->avg_score = rl->avg_score == -infinity ? value : (int)((value * (long long)w + rl->avg_score * (long long)(32 - w)) / 32);
-  rl->mean_sq = rl->mean_sq == -(long long)infinity * infinity ? v2
-              : (v2 * (long long)w_sq + rl->mean_sq * (long long)(32 - w_sq)) / 32;
-  if (move_no == 1 || value > n.alpha) {
-    rl->score = rl->uci_score = value;
-    rl->sel_depth = td.sel_depth;
-    rl->lower = rl->upper = false;
-    if (value >= n.beta) { rl->lower = true; rl->uci_score = n.beta; }
-    else if (value <= n.alpha) { rl->upper = true; rl->uci_score = n.alpha; }
-    rl->pv_len = 1;
-    for (int i = 1; i < td.pv_length[1] && rl->pv_len < max_ply; i++)
-      rl->pv[rl->pv_len++] = td.pv_table[1][i];
-    if (move_no > 1 && !td.pv_idx)
-      td.best_move_changes++;
-  } else
+  const U64 share = 64 * spent / (2 * spent + (U64)RootAvgChi * before);
+  const int w = (int)std::clamp<U64>(share, (U64)RootAvgMin, (U64)RootAvgMax);
+  const int w_sq = std::min(w, (int)RootMsqMax);
+  const long long signed_sq = (long long)value * std::abs(value);
+  rl->avg_score = rl->avg_score == -infinity ? value : (int)blend32(rl->avg_score, value, w);
+  rl->mean_sq = rl->mean_sq == -(long long)infinity * infinity ? signed_sq : blend32(rl->mean_sq, signed_sq, w_sq);
+
+  // A later move that did not raise alpha keeps no score and no line.
+  if (move_no != 1 && value <= n.alpha) {
     rl->score = -infinity;
+    return;
+  }
+  rl->score = value;
+  rl->sel_depth = td.sel_depth;
+  rl->lower = value >= n.beta;
+  rl->upper = !rl->lower && value <= n.alpha;
+  rl->uci_score = rl->lower ? n.beta : rl->upper ? n.alpha : value;
+  rl->pv_len = 1;
+  for (int i = 1; i < td.pv_length[1] && rl->pv_len < max_ply; i++)
+    rl->pv[rl->pv_len++] = td.pv_table[1][i];
+  if (move_no != 1 && td.pv_idx == 0)   // a new best move in the main line
+    td.best_move_changes++;
 }
 
-#ifdef TRIUMV_C2
 // Conversion push (the author's idea: push toward the endgame when the pawn-king subnetwork or an endgame expert
 // thinks it is winning; 21/10/2026, OFF by default, SPRT pending): +1 when the side to move is ahead, -1 behind, 0
 // in between, on the blend (C2ConvEvalW * static evaluation + pawn-king term) / 1024 against C2ConvMargin, with the
@@ -1627,7 +1736,19 @@ static int c2_conv_root_decide(ThreadData &td, int value) {
                                 infinity);
   return (lean > 0) - (lean < 0);
 }
-#endif
+
+// A fail high that is not a decided value comes back as the average of the score, weighted by the depth, and beta:
+// (best * d + beta) / (d + 1). W1 (08/10/2026): the division by d + 1 is a multiplication by the 40-bit reciprocal;
+// |x| < 2^15 * (max_ply + 8) < 2^24, exact (numpy: 0 differences for |x| <= 32768 * (d + 1), d < 260). Called at the
+// cutoff in move_loop (28/10/2026); the result stays >= beta.
+static inline void soften_fail_high(NodeState &n) {
+  if (n.best < n.beta || val_decided(n.best) || val_decided(n.alpha))
+    return;
+  const long long x = (long long)n.best * n.depth + n.beta;
+  const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
+  const int q = (int)((mag * succ_recip[n.depth]) >> 40);
+  n.best = x < 0 ? -q : q;
+}
 
 template <bool AN>
 static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
@@ -1638,7 +1759,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   s.ready = false;
   q.checks = &s.checks;
   int value = n.best, m;
-#ifdef TRIUMV_C2
   // C2 idea 3, conversion push (the author's idea; 21/10/2026, agent A; OFF by default, SPRT pending): is the side to
   // move ahead (+1) or behind (-1) by C2ConvMargin on a blend of the corrected static evaluation and the pawn-king term
   // (what pawns and kings are worth to the network, the part that remains after trades; c2_conv_side above)? Read by
@@ -1649,7 +1769,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
   q.c2_conv = c2_conv;
   const bool c2_conv_red = c2_conv && C2ConvRed, c2_pk_red = (C2PkRed | C2PkVol) != 0;   // once per node
   int c2_pk_here = INT_MIN;   // C2PkRed/C2PkVol: pawn-king skip of the node, read at its first pawn or king move
-#endif
   int red_window = -1, red_window_term = 0, red_window_ours = 0;   // see red_entry_v80; ours: per 1024 of root_delta
   // RdKingDanger (ours, off): squares next to our king that the opponent attacks, once per node.
   const int king_danger = RdKingDanger ? std::min(king_ring_attacked(td, us), 4) : 0;
@@ -1685,8 +1804,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         continue;
     }
     f->move_count = ++n.moves;
-    // "info currmove" at the root (like 7.0 and the old SFs: main thread only, only after 3 s; SF19 instead uses
-    // 10 million nodes of the main thread, NODES_LIMIT_OUTPUT, corrected on 16/10/2026): the GUIs show the
+    // "info currmove" at the root (like 7.0: main thread only, only after 3 s, corrected on 16/10/2026): the GUIs show the
     // move being examined. Lost with the rewrite of 04/10, reported by Maurizio Platino on 12/10/2026 (Fritz 18).
     // The time keeps it out of bench and short games; at the root the loop runs few times, zero cost.
     if (n.root && td.thread_id == 0 && get_time_ms() - g_limits.start_ms > 3000) {
@@ -1702,7 +1820,17 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     int new_depth = n.depth - 1;
     if (n.beta - n.alpha != red_window) {
       red_window = n.beta - n.alpha;
-      red_window_term = red_window * LmrDeltaMul / td.root_delta;
+      // (28/10/2026 night, speed, same value) Most nodes have a null window, whose term is the same in the whole
+      // iteration: it is divided once and kept in the thread with the two values it came from (before, a 32-bit
+      // division at almost every node).
+      if (red_window == 1) {
+        if (td.rw1_delta != td.root_delta || td.rw1_mul != LmrDeltaMul || td.rw1_delta == 0) {
+          td.rw1_delta = td.root_delta, td.rw1_mul = LmrDeltaMul;
+          td.rw1_term = LmrDeltaMul / td.root_delta;
+        }
+        red_window_term = td.rw1_term;
+      } else
+        red_window_term = red_window * LmrDeltaMul / td.root_delta;
     }
     // LmrRank (block 2 of 8.1, 16/10/2026, ours; docs/development/8.1/SEARCH_2_REDUCTIONS.md in the repo): for a
     // quiet move of the ordered list, the base reduction does not read only its order number. The "effective" number
@@ -1719,10 +1847,8 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       red_move_no = std::clamp((n.moves * (1024 - mix) + eff * mix) / 1024, 1, 255);
     }
     int r = red_entry_v80(td, f, n, red_move_no, red_window_term, gd_style);
-#ifdef TRIUMV_C2
     if (g_c2_node)   // C2 idea 1 (21/10/2026, agent A): reduction per Consilium Plebis expert (entry: the pruning reads it too)
       r += c2_tab[C2T_LMR][n.c2e];
-#endif
 #ifdef TRIUMV_REDLOG
     const int redlog_entry = r;   // the value skip_move reads
 #endif
@@ -1767,14 +1893,13 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       ext = 1;
     f->ldse = ldse;
 
-#ifdef TRIUMV_C2
     // C2 ideas 3 and 5: what the reduction block needs from the board before the move.
     const bool c2_trade = c2_conv_red && c2_even_trade(td, m);
     const bool c2_pkm = c2_pk_red && (kPieceKind[pc] == P || kPieceKind[pc] == K || victim_kind(td, m) == P ||
                                       get_move_enpassant(m));
     if (c2_pkm && c2_pk_here == INT_MIN)
       c2_pk_here = c2_pk_skip(td);
-#endif
+    const bool brk = BreakRed && pawn_break(td, m);   // pawn break, read before the move is made
     const U64 nodes_before = td.nodes;
     UndoInfo u;
     if (!step_in(td, f, m, u, gen_legal)) {
@@ -1786,7 +1911,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     if (CausalRed)
       f[1].refute = 0;
     new_depth += ext;
-#ifdef TRIUMV_C2
     // C2 idea 11 (regime-settled horizon, 21/10/2026; OFF by default, SPRT pending): the move just made switched an
     // expert of either perspective and its child would be a quiescence node: one ply of real moves instead, once per
     // line, and with C2SettleHorizon 1 not in all nodes. The deep-reduction steps below do not take it back.
@@ -1797,14 +1921,13 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         new_depth = 1;
       f->settle = c2_settle;
     }
-#else
-    constexpr bool c2_settle = false;
-#endif
 
     if (tact) {
       // Piece actually captured (for en passant it is the pawn, not the empty arrival square).
       const int took = kPieceKind[u.captured_piece & 15];
-      f->stat_score = CaptStatMul * unit_value[took] / 128 + td.capt_hist[pc][to][took];
+      // The captured piece at its per-expert value; the move is made, so the table is the child's, whose owner
+      // regime already counts the capture (28/10/2026).
+      f->stat_score = CaptStatMul * piece_values_mat(td)[u.captured_piece & 15] / 128 + td.capt_hist[pc][to][took];
     }
     else
       f->stat_score = (StatQuietW * qh_main(td, us, quiet_key(m), ctx) + StatCont1W * (*f[-1].cont_hist)[pc][to] +
@@ -1838,7 +1961,25 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
     const bool redlog_own_ok = false;
     const int redlog_own = 0, redlog_raw_moves = n.moves;
 #endif
-    if (n.depth >= LmrMinDepth && n.moves > 1) {
+    // Order of ours (28/10/2026): the moves searched without the reduction rule come first in the text, the reduced
+    // moves after; the two branches exclude each other, so this is the same code.
+    if (n.depth < LmrMinDepth || n.moves <= 1) {
+      // A move outside the reduction rule (shallow node or first move) gets a null-window search at full depth, less
+      // one or two plies when its reduction is large, unless it is the first move of a PV node (searched below).
+      if (!n.pv || n.moves > 1) {
+        if (!n.h.move)
+          r += e_lmr_no_tt_full(td);
+#ifdef TRIUMV_REDLOG
+        if (!AN && !n.pv && n.moves == 1 && n.depth >= 2 && new_depth >= 3 && redres_pick(td.thread_id))
+          redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);
+#endif
+        const int deep_red = c2_settle ? 0 : (r > LmrDeepRed1) + (r > LmrDeepRed2 && new_depth > LmrDeepRedMin);
+#ifdef TRIUMV_ORDLOG
+        ol_red_cur = deep_red, ol_fate_cur = deep_red > 0 ? 2 : 3;
+#endif
+        value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth - deep_red, !n.cut, false);
+      }
+    } else {
       // NegExtMax (08/10/2026): with a negative reduction the move is searched up to 2 plies DEEPER, and along a line
       // these extensions add up like those of Ldse before its guard (LdseMax). Same remedy: a cap on the
       // number of extensions from negative reduction on the line (NodeFrame::negext_path).
@@ -1849,12 +1990,11 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
       //               unsure, per 1024 units of disagreement, up to 8;
       //  RdBoundCapt  a capture that moves the position to another expert of the network (piece count 10, 16, 24 ->
       //               one less): the next evaluations come from another expert;
-      //  RdKingAtt    the moved piece hits the defender's king zone, its shelter or a piece pinned to its king
-      //               (king_attack_weight, up to 6);
       //  RdKingDanger squares next to our own king under attack, up to 4;
       //  RdPawnBreak  in a closed position (at least 3 pawns blocked head to head) a pawn push that touches an enemy
       //               pawn: the few breaks of a frozen structure are often the plan of the whole game (user's idea).
-      if (RdDisagree | RdBoundCapt | RdKingAtt | RdKingDanger | RdPawnBreak) {
+      // (RdKingAtt, king-zone hits of the moved piece: no positive value on 19/10, removed on 28/10/2026.)
+      if (RdDisagree | RdBoundCapt | RdKingDanger | RdPawnBreak) {
         int less = RdKingDanger * king_danger;
         if (RdPawnBreak && !get_move_capture(m) && kPieceKind[pc] == P) {
           const int mover = td.side ^ 1;   // the move is made: the side to move is the opponent
@@ -1869,16 +2009,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           const int pieces = count_bits(td.occupancies[both]);   // after the capture
           less += RdBoundCapt * (pieces == 9 || pieces == 15 || pieces == 23);
         }
-        if (RdKingAtt) {
-#ifdef TRIUMV_C2
-          // C2OrdReg (idea 5): the attack ordering scale C2AtkExp[e_them] of the mover (td.side ^ 1, move made);
-          // C2OrdReg 0, or every scale 1024: the identical credit.
-          const int katt = C2OrdReg ? c2_reg_apply(RdKingAtt, c2_reg_scales(td, td.side ^ 1).atk) : RdKingAtt;
-#else
-          const int katt = RdKingAtt;
-#endif
-          less += katt * std::min(king_attack_weight(td, to), 6);
-        }
         // Positive: less reduction, down to zero at most. Negative weights (allowed since 19/10 evening) add
         // reduction instead, with no floor needed.
         if (less > 0)
@@ -1886,7 +2016,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         else
           r -= less;
       }
-#ifdef TRIUMV_C2
       // C2 search ideas 2, 3, 5, 7 (21/10/2026, agent A; all OFF by default, SPRT pending). Same rule as the levers
       // above: positive = less reduction, down to zero at most; negative = more.
       //  C2SwitchRed  the capture or promotion just made gave another expert to either perspective (the make's flag):
@@ -1912,6 +2041,20 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         else
           r -= less;
       }
+      // Pawn breaks (28/10/2026, ours, OFF): a quiet pawn push that attacks an enemy pawn, same sign rule.
+      if (BreakRed && brk) {
+        if (BreakRed > 0)
+          r = std::max(r - BreakRed, std::min(r, 0));
+        else
+          r -= BreakRed;
+      }
+      // PkCrit (28/10/2026, ours, OFF): a pawn move in a node decided by the pawn structure, same sign rule.
+      if (PkCritRed && n.pk_crit && kPieceKind[pc] == P) {
+        if (PkCritRed > 0)
+          r = std::max(r - PkCritRed, std::min(r, 0));
+        else
+          r -= PkCritRed;
+      }
       // C2 idea 8 (regime selectivity, 21/10/2026; OFF by default, SPRT pending): behind in material class and
       // evaluation, checks and losing captures (the queue's losing stage: sacrifices) are the counterplay the defender
       // must find, so they are reduced less (positive: down to zero at most; negative: more).
@@ -1921,7 +2064,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
         else
           r -= C2ImbBehind;
       }
-#endif
       const int neg_cap = f->negext_path < 1 ? NegExtPlies : 0;   // at most one such extension per line
       if (AN && n.no_lmr && r > 0)   // AnKingDanger / AnCycle: no reduction, the negative reductions stay
         r = 0;
@@ -1955,12 +2097,7 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           new_depth += (d < new_depth && value > n.best + DeeperMargin) - (value < n.best + ShallowerMargin);
         if (new_depth > d)
           value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth, !n.cut, false);
-        // Follow-up learning after a reduced move cleared alpha (ours, 19/10/2026): what the re-search found decides.
-        // Confirmed, the move earns FollowFhBonus plus FollowFhRed per ply of reduction it overcame (up to 8): a move
-        // that beat a deep reduction was badly placed in the ordering. Refuted by the re-search, it earns FollowFhMiss.
-        // FollowFhRed 0 and FollowFhMiss = FollowFhBonus give the previous rule (one fixed reward either way).
-        const int fh_bonus = value > n.alpha ? FollowFhBonus + FollowFhRed * std::min(full_depth - d, 8) : FollowFhMiss;
-        learn_followups(f, pc, to, fh_bonus, n.expert);
+        on_research(td, f, n, pc, to, value > n.alpha, full_depth - d);   // what the re-search found decides
       }
 #ifdef TRIUMV_REDLOG
       if (redlog_on && !stop_threads.load(std::memory_order_relaxed)) {
@@ -1980,18 +2117,6 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
                      redlog_raw_moves, redlog_own_ok);
       }
 #endif
-    } else if (!n.pv || n.moves > 1) {
-      if (!n.h.move)
-        r += e_lmr_no_tt_full(td);
-#ifdef TRIUMV_REDLOG
-      if (!AN && !n.pv && n.moves == 1 && n.depth >= 2 && new_depth >= 3 && redres_pick(td.thread_id))
-        redres_probes<AN>(td, f, n, 2, new_depth, new_depth, new_depth - 2, 0, red_move_no, r, redlog_flags);
-#endif
-      const int deep_red = c2_settle ? 0 : (r > LmrDeepRed1) + (r > LmrDeepRed2 && new_depth > LmrDeepRedMin);
-#ifdef TRIUMV_ORDLOG
-      ol_red_cur = deep_red, ol_fate_cur = deep_red > 0 ? 2 : 3;
-#endif
-      value = -explore<AN>(td, f + 1, -(n.alpha + 1), -n.alpha, new_depth - deep_red, !n.cut, false);
     }
     if (n.pv && (n.moves == 1 || value > n.alpha)) {
       // The hash move of a PV node is not left to the quiescence when its entry has some depth (a decided value from
@@ -2054,11 +2179,18 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
           }
           ol_cut = true;
 #endif
+          // Order of ours (28/10/2026): a node that fails high learns from its cutoff here, where it happens, and then
+          // softens its value; node_close only stores the result. Nothing after the break reads or writes the move
+          // statistics before the store, and the softening reads the depth and the window, which no longer change.
+          // The line of the node's hash bucket is fetched first, with the updates covering the wait.
+          TT_PREFETCH(&hash_table[tt_base_index(tt_key(td))]);
+          on_node_outcome(td, f, n);   // 13_learn.inc
+          soften_fail_high(n);
           break;
         }
         if (n.depth > AlphaRedLo && n.depth < AlphaRedHi && !val_decided(value) &&
             !(AN && (td.an_bits & AN_KEEPDEPTH) && f->ply <= kAnKeepPly))   // AnKeepDepth: not near the root
-          n.depth -= AlphaRed;
+          n.depth = std::max(n.depth - alpha_raised_cut(n, value - n.alpha), 1);
         n.alpha = value;
       }
     }
@@ -2084,59 +2216,33 @@ static int move_loop(ThreadData &td, NodeFrame *f, NodeState &n) {
 // --------------------------------------------------------------------------
 // Stage 4: end of the node.
 // --------------------------------------------------------------------------
+// The end of a node (rewritten 27/10/2026 in four steps of ours, same tree; since 28/10/2026 a fail high learns and
+// softens its value at the cutoff, in move_loop): let the statistics learn from the outcome of a node that did not fail
+// high, store the result, and teach the correction tables the error of the static evaluation.
+
 static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
-  const int us = td.side;
-  // The line of this node's hash bucket, read at entry, has often left the cache after the subtree:
-  // it is fetched again now, with the statistics to update covering the wait, before the hash_write at the end.
-  TT_PREFETCH(&hash_table[tt_base_index(tt_key(td))]);
-  if (n.best >= n.beta && !val_decided(n.best) && !val_decided(n.alpha)) {
-    // W1 (08/10/2026): division by depth + 1 with the 40-bit reciprocal; |x| < 2^15 * (max_ply + 8) < 2^24, exact
-    // (numpy: 0 differences for |x| <= 32768 * (d + 1), d < 260).
-    const long long x = (long long)n.best * n.depth + n.beta;
-    const unsigned long long mag = (unsigned long long)(x < 0 ? -x : x);
-    const int q = (int)((mag * succ_recip[n.depth]) >> 40);
-    n.best = x < 0 ? -q : q;
-  }
+  // A node that failed high (only a cutoff in move_loop gives best >= beta, and the softening keeps it there) has
+  // already fetched its hash line, learned and softened its value. For the others the line of the node's hash bucket,
+  // read at entry, has often left the cache after the subtree: it is fetched again now, with the statistics to update
+  // covering the wait, before the hash_write at the end.
+  const bool failed_high = n.best >= n.beta;
+  if (!failed_high)
+    TT_PREFETCH(&hash_table[tt_base_index(tt_key(td))]);
+  if (!n.moves)   // no legal move searched: the exclusion search gives alpha, otherwise mate or stalemate (Contempt)
+    n.best = n.excluded ? n.alpha : n.in_check ? mated_at(td.ply) : contempt(td);
+  else if (!failed_high)
+    on_node_outcome(td, f, n);   // 13_learn.inc
 
-  if (!n.moves)
-    n.best = n.excluded ? n.alpha : n.in_check ? mated_at(td.ply) : contempt(td);   // stalemate: draw (Contempt)
-  else if (n.best_move) {
-    reward_best(td, f, n);
-    if (!n.pv)
-      hist_learn(td.tt_move_hist, n.best_move == n.h.move ? TtMoveHistGood : -TtMoveHistBad, LIM_TTMOVE,
-                 ttm_grav(n.expert));
-  } else if (!n.prior_capture && n.prev_to >= 0) {
-    // H. No move raised alpha: the opponent's move that led here was good. Per expert: the move number from which the
-    //    previous move counts as late (PrLate, was 9) and a gain on the scale (PrGain, /1024). Defaults give the old
-    //    tree (scale * 1024 / 1024 = scale).
-    const int late_n = by_exp4(n.expert, PrLate0, PrLate1, PrLate2, PrLate3);
-    int scale = -PriorScaleBase - f[-1].stat_score / PriorScaleStatDiv +
-                std::min(PriorScaleDepthMul * n.depth, PriorScaleDepthMax) + PriorScaleLate * (f[-1].move_count > late_n) +
-                PriorScaleEval * (!n.in_check && n.best <= f->static_eval - PriorScaleEvalMargin) +
-                PriorScaleOppEval * (!f[-1].in_check && n.best <= -f[-1].static_eval - PriorScaleOppMargin);
-    scale = std::max(scale, 0) * by_exp4(n.expert, PrGain0, PrGain1, PrGain2, PrGain3) / 1024;
-    const int bonus = hist_amount(n.expert, n.depth, PriorBonusDepthMul, PriorBonusSub, PriorBonusMax) * scale;
-    const int prev_pc = td.piece_on[n.prev_to];
-    learn_followups(f - 1, prev_pc, n.prev_to, bonus * PriorContW / 16384, n.expert);
-    qh_push(td, us ^ 1, quiet_key(f[-1].move), f[-1].hctx, bonus * PriorQuietW / 32768, hist_grav(n.expert));
-    if (prev_pc % 6 != P && !get_move_promoted(f[-1].move))
-      hist_learn(pawn_row(td)[prev_pc][n.prev_to], bonus * PriorPawnW / 8192, LIM_PAWN, hist_grav(n.expert));
-  } else if (n.prior_capture && n.prev_to >= 0) {
-    hist_learn(td.capt_hist[td.piece_on[n.prev_to]][n.prev_to][f[-1].captured % 6],
-               by_exp4(n.expert, PrCapt0, PrCapt1, PrCapt2, PrCapt3), LIM_CAPT, hist_cgrav(n.expert));
-  }
-
+  // A PV node never returns more than the cap (decided value of a tablebase hit), and a node that failed low inherits
+  // the PV mark of its parent's hash entry.
   if (n.pv)
     n.best = std::min(n.best, n.cap_value);
   if (n.best <= n.alpha)
     f->tt_pv = f->tt_pv || f[-1].tt_pv;
 
-  if (!n.excluded && !(n.root && td.pv_idx))
-    hash_write(td, n.best, f->tt_pv,
-               n.best >= n.beta ? BOUND_LOW : (n.pv && n.best_move) ? BOUND_EXACT : BOUND_UP,
-               n.moves ? n.depth : std::min(max_ply - 1, n.depth + MateHashDepth), n.best_move, n.eval_raw);
-
-  // CorrLearnMode (06/10/2026, report N_CORREZIONI 4.5): at 0 the usual condition.
+  // Correction tables before the store (27/10/2026, same tree: the two touch different tables, and the store at the
+  // very end gives the prefetch above the most time). CorrLearnMode (06/10/2026, report N_CORREZIONI 4.5): at 0 the
+  // usual condition.
   const bool learn_ok = !((CorrLearnMode & 1) && n.excluded && !n.moves) && !((CorrLearnMode & 2) && n.excluded) &&
                         !((CorrLearnMode & 4) && val_decided(n.best));
   const bool dir_ok = (n.best > f->static_eval) == (n.best_move != 0) ||
@@ -2152,13 +2258,14 @@ static int node_close(ThreadData &td, NodeFrame *f, NodeState &n) {
     CSTAT(net_phase(count_bits(td.occupancies[both])), fb, kind, n.best - plain, n.best - f->static_eval);
   }
 #endif
-  if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && dir_ok && learn_ok) {
-    // I. Reward of the correction tables: depth enters as d + q*d*d/64, q per expert (CorrDepthQ; 0 = the old linear
-    //    form: x * 64d * k / (128 * 64) truncates like x * d * k / 128).
-    const long long dq = 64LL * n.depth + (long long)by_exp4(n.expert, CorrDepthQ0, CorrDepthQ1, CorrDepthQ2, CorrDepthQ3) * n.depth * n.depth;
-    const int bonus = (int)std::clamp((long long)(n.best - f->static_eval) * dq * (n.best_move ? CorrBonusHi : CorrBonusLo) / 8192,
-                                      (long long)-CorrBonusMaxLo, (long long)CorrBonusMaxHi);
-    corr_learn(td, f, CorrLearnW * bonus / 1024, n.expert);
+  if (!n.in_check && !(n.best_move && get_move_capture(n.best_move)) && dir_ok && learn_ok)
+    on_eval_error(td, f, n);   // 13_learn.inc
+
+  // Store the result (not for an exclusion search, nor for a secondary line at the root).
+  if (!n.excluded && !(n.root && td.pv_idx)) {
+    const int bound = n.best >= n.beta ? BOUND_LOW : (n.pv && n.best_move) ? BOUND_EXACT : BOUND_UP;
+    const int stored_depth = n.moves ? n.depth : std::min(max_ply - 1, n.depth + MateHashDepth);
+    hash_write(td, n.best, f->tt_pv, bound, stored_depth, n.best_move, n.eval_raw);
   }
   return n.best;
 }
@@ -2197,12 +2304,13 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
   // Same count for the extensions from negative reduction (move_loop; BAKE NEGEXTMAX 11/10/2026).
   f->negext = 0;
   f->negext_path = f[-1].negext_path + f[-1].negext;
-#ifdef TRIUMV_C2
   if (C2SettleHorizon) {   // C2 idea 11: the settling plies along the line, the same count
     f->settle = 0;
     f->settle_path = f[-1].settle_path + f[-1].settle;
   }
-#endif
+  // Expert holds (25/10/2026, 01_params.inc, off): the children of a shallow node (C2HoldDepth) keep this node's
+  // experts (step_in passes the flag to the make).
+  f->nn_hold = (unsigned char)(C2HoldDepth && n.depth <= C2HoldDepth);
 
   int v = node_open(td, f, n);
   if (v != NO_VALUE) return v;
@@ -2219,9 +2327,12 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
         n.no_lmr = true;
     }
   }
+  // The evaluation comes before the hash cutoff (the hindsight depth change of the parent's reduction needs it); the
+  // cutoff before the evaluation was tested and removed on 27/10/2026 (HashCutEarly, 01_params.inc).
   node_evaluate(td, f, n);
   if ((v = hash_cutoff(td, f, n)) != NO_VALUE) return v;
   if ((v = tablebase_probe(td, f, n)) != NO_VALUE) return v;
+  node_trend(f, n);
   if (!n.in_check && !n.no_early) {
 #ifdef TRIUMV_PRUNELOG
     if (!AN && !n.root && n.depth <= PRUNELOG_MAX_DEPTH && !val_decided(n.beta) && !val_decided(n.eval) &&
@@ -2232,11 +2343,8 @@ static int explore(ThreadData &td, NodeFrame *f, int alpha, int beta, int depth,
     if ((v = prune_before_moves<AN>(td, f, n)) != NO_VALUE) return v;
   }
 
-  // Lower bound from the hash well above beta: that is enough.
-  const int hash_beta = n.beta + ProbCutTTMargin;
-  if (bound_covers(n.h.bound, true) && n.h.depth >= n.depth - SmallPcSlack && n.h.value >= hash_beta && !val_decided(n.beta) &&
-      val_known(n.h.value) && !val_decided(n.h.value))
-    return hash_beta;
+  if ((v = hash_bound_cut(n)) != NO_VALUE)
+    return v;
 
   if ((v = move_loop<AN>(td, f, n)) != NO_VALUE)
     return v;

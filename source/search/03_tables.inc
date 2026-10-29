@@ -71,19 +71,15 @@ struct SharedStats {
   U64 pawn_mask = 0;
   U64 corr_mask = 0;
   int slots = 0;                        // power of two >= number of threads
-#ifdef TRIUMV_C2
   // --- C2 ordering (agent ORDER) --- C2StructHistW: [pawn-king signature][piece][to], 4096 rows whatever the number
   // of threads (the key takes ~230 values over the bench), shared like the pawn rows (09_history.inc).
   PieceToRow* struct_rows = nullptr;
-#endif
 };
 static SharedStats g_stats;
 
 constexpr int PAWN_ROWS_PER_SLOT = 8192;
 constexpr int CORR_ROWS_PER_SLOT = 65536;
-#ifdef TRIUMV_C2
 constexpr int C2_STRUCT_ROWS = 1 << 12;   // the maximum of C2StructHistBits
-#endif
 
 // V1 (08/10/2026, speed, identical tree): the shared tables on large pages, like TT and network. With one thread they are
 // ~21 MB (follow 5.5 MB, pawn_rows 13.6 MB, corr 1 MB, corr_x 256 KB) read at random at every node (5 continuation
@@ -114,10 +110,8 @@ static void shared_stats_alloc(int threads) {
   g_stats.pawn_mask = (U64)PAWN_ROWS_PER_SLOT * slots - 1;
   g_stats.corr_mask = (U64)CORR_ROWS_PER_SLOT * slots - 1;
   g_stats.slots     = slots;
-#ifdef TRIUMV_C2
   if (!g_stats.struct_rows)   // --- C2 ordering (agent ORDER) --- fixed size: allocated once
     g_stats.struct_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * C2_STRUCT_ROWS);
-#endif
 }
 
 template <typename T>
@@ -133,9 +127,7 @@ static void shared_stats_reset() {
   fill_with(g_stats.pawn_rows, (size_t)g_stats.pawn_mask + 1, (int16_t)HistInitPawn);
   fill_with(&g_stats.corr[0][0], (size_t)(g_stats.corr_mask + 1) * 2, (int16_t)HistInitCorr);
   fill_with(&g_stats.corr_x[0][0], (size_t)(g_stats.corr_mask + 1) * 2, 0);
-#ifdef TRIUMV_C2
   fill_with(g_stats.struct_rows, (size_t)C2_STRUCT_ROWS, 0);   // --- C2 ordering (agent ORDER) ---
-#endif
 }
 
 static void thread_stats_reset(ThreadData &td) {
@@ -152,12 +144,10 @@ static void clock_memory_reset();
 void search_clear() {
   for (auto &td : thread_data) {
     thread_stats_reset(td);
-#ifdef TRIUMV_C2
     // 21/10/2026: the pawn-king cache restarts with each game too. It holds exact outputs, so no evaluation changes,
     // but the options that read it on hits only (CorrPkW with CorrPkCompute 0, C2StructHistW) depended on what the
     // previous searches had left in it: a second bench in the same process gave another count.
     nn_pk_cache_clear(td.nnpos);
-#endif
   }
   shared_stats_reset();
   clock_memory_reset();
@@ -258,7 +248,5 @@ void copy_board_to_thread(ThreadData &td) {
   td.repetition_index = repetition_index;
   td.ply = 0;
   td.see_pin_key = ~td.hash_key;   // SeePinned: pins to be recomputed at the first SEE
-#ifdef TRIUMV_C2
   td.c2_see_pair = -1;             // --- C2 piece values (agent SEE) ---: regime table rebuilt at the first use
-#endif
 }

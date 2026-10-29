@@ -1,33 +1,8 @@
 // Origin: this file descends from BBC (Bit Board Chess) by Maksim Korzh, https://github.com/maksimKorzh/bbc,
 // released under the GNU General Public License v3; the project started from BBC in 2024 and has since rewritten
 // and extended much of it. Triumviratus is distributed under the GNU GPL v3 (see COPYING).
-#include "defs.h"
-#include "magic.h"
-#include <cstdlib>
-
-unsigned int random_state = 1804289383;
-
-unsigned int get_random_U32_number()
-{
-    unsigned int number = random_state;
-    number ^= number << 13;
-    number ^= number >> 17;
-    number ^= number << 5;
-    random_state = number;
-    return number;
-}
-
-U64 get_random_U64_number()
-{
-    U64 n1, n2, n3, n4;
-    n1 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n2 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n3 = (U64)(get_random_U32_number()) & 0xFFFF;
-    n4 = (U64)(get_random_U32_number()) & 0xFFFF;
-    return n1 | (n2 << 16) | (n3 << 32) | (n4 << 48);
-}
-
-U64 generate_magic_number()
-{
-    return get_random_U64_number() & get_random_U64_number() & get_random_U64_number();
-}
+//
+// Empty since 28/10/2026. It held BBC's 32-bit xorshift generator, which built the Zobrist keys from four 16-bit
+// pieces (GF(2) rank 32: false hash hits, the 37.Re4 blunder of 8.0 against Halogen) and fed the magic-number search,
+// which the engine never ran. The Zobrist keys now come from zobrist.cpp (64-bit generator); the magic numbers are
+// constants. The file stays because the Makefile, the Visual Studio project and universal/variant.cpp name it.

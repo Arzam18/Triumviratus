@@ -46,19 +46,11 @@ OBJS := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 # sorgenti-only per le VM). NB: il nome deve restare allineato a CN_DEFAULT_NET_FILE.
 # 17/10/2026 (review by Bastiii): the 8.0 network, aligned with CN_DEFAULT_NET_FILE (it still named the 7.0 network,
 # so Linux builds missed the file at the build root and turned embedding off).
-# Consilium Plebis by default (22/10/2026, author: from here on every test runs on the engine adapted to the new network).
-# C2=1 defines TRIUMV_C2 (8 experts per perspective, int8 HalfKA, pawn-king subnetwork) and names the default network
-# nn-consilium2.nnue, as CN_DEFAULT_NET_FILE does; `make C2=0` builds the Consilium (8.0) engine with nn-consilium.nnue.
-# On main the default is C2=0 (24/10/2026): the Consilium Plebis network is still in training and not yet published,
-# so a plain `make` builds with Consilium; `make C2=1` with nn-consilium2.nnue next to the Makefile builds Plebis.
-C2 ?= 0
-ifeq ($(C2),1)
-  NET_NAME ?= nn-consilium2.nnue
-  C2_DEF := -DTRIUMV_C2
-else
-  NET_NAME ?= nn-consilium.nnue
-  C2_DEF :=
-endif
+# Consilium Plebis is the only network of 8.1 (26/10/2026: the Consilium engine was removed from this source; the last
+# source with both is _backup/Triumviratus_8.1_pre_rimozione_c1_2026-10-26). The default network is nn-consilium-plebis.nnue (nn-consilium2.nnue until 28/10/2026),
+# as CN_DEFAULT_NET_FILE. -DTRIUMV_C2 is still passed for scripts that test for it; the code no longer reads it.
+NET_NAME ?= nn-consilium-plebis.nnue
+C2_DEF := -DTRIUMV_C2
 ifneq (,$(wildcard $(NET_NAME)))
   EMBED_DEF :=
   $(info [i] $(NET_NAME) trovata: rete EMBEDDATA nel binario)
@@ -92,7 +84,7 @@ ARCH := -mavx2 -mbmi2 -mfma -mpopcnt -msse4.1 -mssse3 -msse2
 # conteneva 44 `vpdpbusd` e moriva con SIGILL (exit 132) alla prima valutazione,
 # subito dopo `readyok` — cioe' il tester vede il motore rispondere a `uci` e poi
 # sparire alla prima mossa.
-# ✅ Tre gradini, come Stockfish (x86-64-avx512 / vnni512 / avx512icl):
+# ✅ Tre gradini (x86-64-avx512 / vnni512 / avx512icl):
 #   make avx512      F/BW/DQ/VL              -> Skylake-X, Xeon W-21xx
 #   make vnni512     + VNNI                  -> Cascade Lake, Ice Lake SP, Zen4
 #   make avx512icl   + VBMI/VBMI2/BITALG     -> Ice Lake client+, Sapphire Rapids, Zen5
@@ -225,9 +217,9 @@ ifneq (,$(filter sse41,$(MAKECMDGOALS)))
 endif
 
 # ---- macOS (15/10/2026, issue #4) ------------------------------------------
-#   make macos-arm CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Apple Silicon (M1 e successivi): NEON + dot product,
+#   make macos-arm CXX=clang++   Apple Silicon (M1 e successivi): NEON + dot product,
 #                                                           gli stessi percorsi della build android-dotprod
-#   make macos-x86 CXX=clang++ C2=0 NET_NAME=nn-consilium.nnue   Mac Intel con AVX2 (Haswell, 2013, e successivi)
+#   make macos-x86 CXX=clang++   Mac Intel con AVX2 (Haswell, 2013, e successivi)
 # Compilati e verificati col bench dal workflow .github/workflows/macos.yml (macchine macOS di GitHub).
 ifneq (,$(filter macos-arm,$(MAKECMDGOALS)))
   DEFS := -DNDEBUG $(EMBED_DEF) $(C2_DEF) -DTRIUMV5_THREATS_INCR -DUSE_POPCNT -DUSE_NEON=8 -DUSE_NEON_DOTPROD

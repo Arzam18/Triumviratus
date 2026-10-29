@@ -75,12 +75,12 @@
   // triggered by KING moves). The ratio pawn/(pawn+threat) is the ceiling of the gain.
   extern unsigned long long prof_cols_thr, prof_cols_pawn, prof_n_refresh_calls;
   // Columns per INCREMENTAL update, per block: it is the count that tells "longer
-  // lists" from "more expensive columns" in the comparison with Stockfish (09/09/2026).
+  // lists" from "more expensive columns" in the comparison with a reference engine (09/09/2026).
   extern unsigned long long prof_cols_psq_inc, prof_cols_thr_inc, prof_cols_pawn_inc;
   // --- SEARCH SUB-BUCKETS (09/09/2026) -----------------------------------------
   // The "other" bucket was worth 1,297 cycles/node on kiwipete, the second of the engine after
   // the accumulator, and it was completely blind: eval/movegen/make/tt/score were the
-  // only guards. Stockfish on the same node spends 929 cycles in EVERYTHING that is not
+  // only guards. The reference engine on the same node spends 929 cycles in EVERYTHING that is not
   // eval, do_move and movegen. Without these counters one does not know what to attack.
   //   prof_mp      = MovePicker (mp_init + mp_next: stages, lazy generation, selection)
   //   prof_hist    = EVERY write into a history (td_update_history, both
@@ -98,7 +98,7 @@
   extern unsigned long long prof_thr, prof_see, prof_isatk, prof_rep;
   //   prof_idx_thr / prof_idx_pawn = generation of the INDICES in the incremental update,
   //   separated per block. It serves to answer a question the comparison with
-  //   Stockfish opens: they have THREE blocks (Threats, HalfKA, PP_3Wide), we have FOUR
+  //   the reference engine opens: it has THREE blocks (Threats, HalfKA, PP_3Wide), we have FOUR
   //   (+ PassedPawns), and `passers()` rebuilds the set of passers BEFORE and AFTER at
   //   every pawn event. If it is expensive, it is a cost they do not pay at all.
   extern unsigned long long prof_idx_thr, prof_idx_pawn;
