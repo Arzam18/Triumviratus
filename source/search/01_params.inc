@@ -287,6 +287,9 @@
   /* lookup instead of computing them (consilium/cn.cpp pawn_king). Saves up to ~2% of the time; the evaluation       */ \
   /* differs only after a pawn or king move that the cache has not seen.                                             */ \
   /* 4 vs 0, ep486 (27/10): +1.94 +- 3.37 / 10,012 g, 10+0.1 noHT, stopped at 10k (s0 +1.2, s1 +2.7): not shown.     */ \
+  /* 29/10/2026, final net, base 273963: speed -2.50% / -0.87% cycles per node (mg / eg); 4+0.04 noHT +0.82 +- 3.73  */ \
+  /* / 8,924 g; fixed 80k nodes +2.31 +- 6.44 / 2,854 g; fixed 10k nodes -1.62 +- 6.46 / 4,714 g. CLOSED NEUTRAL by   */ \
+  /* the author (at long time controls neither the error nor the speed is visible): stays 0, no SPSA.               */ \
   P(C2PkStale, 0, 0, 16)                                                                                  \
   /* PawnHistLog (29/10/2026, speed idea for an SPRT): log2 of the pawn-history rows per thread slot. 13 = the 8192 rows */ \
   /* of before (12.6 MB with one thread); smaller tables keep more of the rows the quiet score reads in cache, at the   */ \
