@@ -166,6 +166,15 @@ embedded. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows
 `source/universal/build_universal.ps1 -Official`; on `main`, `make -C source` builds the current development engine
 with Consilium.
 
+**Large pages (recommended).** The 8.1 network is large: about 250 MB of weights, and every evaluation reads rows
+scattered over the whole block, so on the normal 4 KB pages the processor loses time translating addresses. On 2 MB
+pages Triumviratus is about 7% faster at the same search tree (Xeon, 8.1 development build, 29 October 2026). On
+Windows they need the "Lock pages in memory" right: run `secpol.msc`, open *Local Policies > User Rights Assignment >
+Lock pages in memory*, add your user, then sign out and back in. The engine reports the outcome at start-up:
+`info string Hash: ... MB, large pages ON` for the hash table and `info string NNUE weights: shared (created, large
+pages, ...)` for the network. On Linux it asks for transparent huge pages (`madvise`), which most distributions grant
+by default. The UCI option `LargePages` (default 1) turns them off.
+
 <details>
 <summary><b>Position Solver, for the analysis of hard positions</b></summary>
 
