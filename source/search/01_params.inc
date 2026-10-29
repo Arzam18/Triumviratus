@@ -279,6 +279,9 @@
   /*  nodes costs more than the refreshes saved (+6% nps).                                                           */ \
   /* C2HoldDepth 4: -5.6 +- 8.0 / 1,750 g, 10+0.1, ep310 (25/10), stopped; ep486 + adopted margins (27/10): +0.35 */ \
   /* +- 3.33 / 10,020 g, 10+0.1 noHT, stopped at 10k (+8.7 at 2,078 g faded; s0 -1.7, s1 +2.4). 6: -2% nps, not run */ \
+  /* 29/10/2026, final net, base 273963: speed -3.06% / -0.45% cycles per node (mg / eg); fixed 20k nodes -10.25    */ \
+  /* +- 8.60 / 2,068 g: the quality lost per node is far more than ~3% of speed can buy back. CLOSED NEGATIVE by the */ \
+  /* author, stays 0.                                                                                                */ \
   P(C2HoldDepth, 0, 0, 16)                                                                                \
   P(C2HoldQs, 0, 0, 1)                                                                                    \
   P(C2HoldDist, 1, 1, 7)                                                                                  \
