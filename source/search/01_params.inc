@@ -1109,15 +1109,18 @@
   /*  BAKE 28/10/2026 (author, for the release): the margins of e5/e6/e7 from the rough SPSA of 25/10 on the new     */ \
   /*  network, used in every Plebis test since (vs Consilium +10.8/+10.3 at 100k, +11.2 at 30k): 5 = -1/2/-6/2,   */ \
   /*  6 = 4/22/-72/13, 7 = 0/-1/5/-3 (Rfp/Fut/Lmr/Nmp). A dedicated on/off SPRT goes into the SPSA phase.          */ \
+  /*  UNBAKED 29/10/2026 (author): the on/off SPRT (T6, final net, base 273963, 8+0.08 noHT) gave the margins ON     */ \
+  /*  -6.49 +- 8.89 over 1,446 g (socket 1 clearly negative), so all back to 0; the 32 margins are re-tuned from 0    */ \
+  /*  by an SPSA with ranges of both signs (backup _backup/Triumviratus_8.1_pre_margini_e567_zero_2026-10-29).       */ \
   P(C2ExpSide, 0, 0, 1)                                                                                    \
   P(C2Rfp0, 0, -40, 40) P(C2Rfp1, 0, -40, 40) P(C2Rfp2, 0, -40, 40) P(C2Rfp3, 0, -40, 40)                  \
-  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, -1, -40, 40) P(C2Rfp6, 4, -40, 40) P(C2Rfp7, 0, -40, 40)                  \
+  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, 0, -40, 40) P(C2Rfp6, 0, -40, 40) P(C2Rfp7, 0, -40, 40)                    \
   P(C2Fut0, 0, -200, 200) P(C2Fut1, 0, -200, 200) P(C2Fut2, 0, -200, 200) P(C2Fut3, 0, -200, 200)          \
-  P(C2Fut4, 0, -200, 200) P(C2Fut5, 2, -200, 200) P(C2Fut6, 22, -200, 200) P(C2Fut7, -1, -200, 200)          \
+  P(C2Fut4, 0, -200, 200) P(C2Fut5, 0, -200, 200) P(C2Fut6, 0, -200, 200) P(C2Fut7, 0, -200, 200)            \
   P(C2Lmr0, 0, -1536, 1536) P(C2Lmr1, 0, -1536, 1536) P(C2Lmr2, 0, -1536, 1536) P(C2Lmr3, 0, -1536, 1536)  \
-  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, -6, -1536, 1536) P(C2Lmr6, -72, -1536, 1536) P(C2Lmr7, 5, -1536, 1536)  \
+  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, 0, -1536, 1536) P(C2Lmr6, 0, -1536, 1536) P(C2Lmr7, 0, -1536, 1536)    \
   P(C2Nmp0, 0, -200, 200) P(C2Nmp1, 0, -200, 200) P(C2Nmp2, 0, -200, 200) P(C2Nmp3, 0, -200, 200)          \
-  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 2, -200, 200) P(C2Nmp6, 13, -200, 200) P(C2Nmp7, -3, -200, 200)          \
+  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 0, -200, 200) P(C2Nmp6, 0, -200, 200) P(C2Nmp7, 0, -200, 200)            \
   /*  2. Expert-switching captures (a capture or promotion after which the routing table gives another expert to    */ \
   /*     either perspective): ordering bonus in the main search, less reduction (1/1024 ply, positive = less, stops  */ \
   /*     at zero), and a wider futility margin for such captures in the quiescence (evaluation units).               */ \
