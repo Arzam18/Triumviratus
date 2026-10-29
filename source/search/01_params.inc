@@ -288,6 +288,10 @@
   /* differs only after a pawn or king move that the cache has not seen.                                             */ \
   /* 4 vs 0, ep486 (27/10): +1.94 +- 3.37 / 10,012 g, 10+0.1 noHT, stopped at 10k (s0 +1.2, s1 +2.7): not shown.     */ \
   P(C2PkStale, 0, 0, 16)                                                                                  \
+  /* PawnHistLog (29/10/2026, speed idea for an SPRT): log2 of the pawn-history rows per thread slot. 13 = the 8192 rows */ \
+  /* of before (12.6 MB with one thread); smaller tables keep more of the rows the quiet score reads in cache, at the   */ \
+  /* price of more pawn structures sharing a row. Takes effect at the next new game (search_clear reallocates).       */ \
+  P(PawnHistLog, 13, 9, 16)                                                                               \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \

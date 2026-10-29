@@ -71,13 +71,15 @@ struct SharedStats {
   U64 pawn_mask = 0;
   U64 corr_mask = 0;
   int slots = 0;                        // power of two >= number of threads
+  int pawn_log = 0;                     // log2 of the pawn rows per slot the table was allocated with (PawnHistLog)
   // --- C2 ordering (agent ORDER) --- C2StructHistW: [pawn-king signature][piece][to], 4096 rows whatever the number
   // of threads (the key takes ~230 values over the bench), shared like the pawn rows (09_history.inc).
   PieceToRow* struct_rows = nullptr;
 };
 static SharedStats g_stats;
 
-constexpr int PAWN_ROWS_PER_SLOT = 8192;
+// Pawn rows per slot: 1 << PawnHistLog (29/10/2026, an option for the SPRT of a smaller pawn history; 13 = the 8192
+// rows of before, 12.6 MB with one thread: its row is one of the history reads of the quiet score that wait on memory).
 constexpr int CORR_ROWS_PER_SLOT = 65536;
 constexpr int C2_STRUCT_ROWS = 1 << 12;   // the maximum of C2StructHistBits
 
@@ -97,19 +99,29 @@ static void shared_stats_alloc(int threads) {
   int slots = 1;
   while (slots < threads)
     slots <<= 1;
-  if (slots == g_stats.slots)
+  const int pawn_log = PawnHistLog;
+  if (slots == g_stats.slots && pawn_log == g_stats.pawn_log)
     return;
+  const U64 pawn_rows = ((U64)1 << pawn_log) * (U64)slots;
+  if (slots == g_stats.slots) {   // only the pawn history changes size (PawnHistLog set before a new game)
+    large_pages_free(g_stats.pawn_rows);
+    g_stats.pawn_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * pawn_rows);
+    g_stats.pawn_mask = pawn_rows - 1;
+    g_stats.pawn_log  = pawn_log;
+    return;
+  }
   large_pages_free(g_stats.follow);
   large_pages_free(g_stats.pawn_rows);
   large_pages_free(g_stats.corr);
   large_pages_free(g_stats.corr_x);
   g_stats.follow    = lp_alloc<PieceToRow[2][NO_PC + 1][64]>(sizeof(PieceToRow[2][2][NO_PC + 1][64]));
-  g_stats.pawn_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * PAWN_ROWS_PER_SLOT * slots);
+  g_stats.pawn_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * pawn_rows);
   g_stats.corr      = lp_alloc<CorrSlot[2]>(sizeof(CorrSlot[2]) * CORR_ROWS_PER_SLOT * slots);
   g_stats.corr_x    = lp_alloc<int16_t[2]>(sizeof(int16_t[2]) * CORR_ROWS_PER_SLOT * slots);   // 256 KB per slot
-  g_stats.pawn_mask = (U64)PAWN_ROWS_PER_SLOT * slots - 1;
+  g_stats.pawn_mask = pawn_rows - 1;
   g_stats.corr_mask = (U64)CORR_ROWS_PER_SLOT * slots - 1;
   g_stats.slots     = slots;
+  g_stats.pawn_log  = pawn_log;
   if (!g_stats.struct_rows)   // --- C2 ordering (agent ORDER) --- fixed size: allocated once
     g_stats.struct_rows = lp_alloc<PieceToRow>(sizeof(PieceToRow) * C2_STRUCT_ROWS);
 }
@@ -149,6 +161,7 @@ void search_clear() {
     // previous searches had left in it: a second bench in the same process gave another count.
     nn_pk_cache_clear(td.nnpos);
   }
+  shared_stats_alloc(num_threads);   // PawnHistLog set since the last game: the pawn rows take the new size here
   shared_stats_reset();
   clock_memory_reset();
 }
