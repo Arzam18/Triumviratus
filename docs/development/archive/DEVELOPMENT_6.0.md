@@ -36,7 +36,8 @@
 Three main architectural changes over 5.1 — plus a longer tail of smaller incremental
 refinements, tracked in the table below:
 
-- **New network architecture — `TRANN1` (Triumviratus Rubicon Alea NNUE 1).** Extends the SFNNv13
+- **New network architecture — `TRANN1` (TRiumviratus Architecture Neural Network 1; the networks of this
+  architecture are the Rubicon Alea family).** Extends the SFNNv13
   feature set with two extra input blocks: **pawn-pair features** (4560 — phalanxes, chains,
   doubled/isolated pawns: pawn-structure geometry the threat features alone don't capture; a
   pairwise pawn-square co-occurrence feature **shared with Stormphrax, Viridithas and Pawnocchio** —
