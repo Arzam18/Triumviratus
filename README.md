@@ -95,38 +95,34 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-On CCRL 40/15 Triumviratus 8.0 has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19,
-1 CPU: 3630).
+On **CCRL 40/15** Triumviratus 8.0 is **first** in the list of 30 October 2026, both on 4 CPUs (3650 ± 28; Stockfish
+18, 4 CPU: 3649) and among the single-CPU engines (3633 ± 21; Stockfish 19, 1 CPU: 3629).
 
-**Note (25 October 2026): the CCRL Blitz test of Triumviratus 8.0 is being redone.** By mistake its games were played
-from openings that were too unbalanced. The 8.0 rating in the Blitz list of 24 October (3847 ± 17) comes from those
-games, and so does its place above the 8-CPU builds (Stockfish 19, 8 CPU: 3803), which is not correct. The rating will
-be replaced by the new games.
-
-**CCRL Blitz** (2 min + 1 s), list of 2026-10-24
+**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-30
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| Triumviratus 8.0 (1 CPU) | 3847 ± 17 (provisional, see the note above) | | 960 |
+| **Triumviratus 8.0** (4 CPU) | **3650** ± 28 | **1** | 214 |
+| **Triumviratus 8.0** (1 CPU) | **3633** ± 21 | **1** (single-CPU) | 392 |
+| Triumviratus 6.0 (4 CPU) | 3632 ± 16 | | 718 |
+| Triumviratus 7.0 (4 CPU) | 3632 ± 53 | | 59 |
+| Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
+| Triumviratus 6.0 (1 CPU) | 3606 ± 13 | | 1,018 |
+| Triumviratus 7.0 (1 CPU) | 3606 ± 13 | | 1,156 |
+| Triumviratus 5.0 (1 CPU) | 3572 ± 16 | | 717 |
+
+**CCRL Blitz** (2 min + 1 s), list of 2026-10-27
+
+| version | rating | rank | games |
+|---|---:|---:|---:|
 | Triumviratus 7.0 (8 CPU) | 3780 ± 20 | | 1,106 |
 | Triumviratus 7.0 (1 CPU) | 3755 ± 12 | | 2,015 |
 | Triumviratus 6.0 (1 CPU) | 3743 ± 12 | | 2,056 |
 | Triumviratus 4.2 (1 CPU) | 3666 ± 13 | | 1,518 |
 
-**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-23
-
-| version | rating | rank | games |
-|---|---:|---:|---:|
-| **Triumviratus 8.0** (1 CPU) | **3640** ± 40 | | 106 |
-| Triumviratus 6.0 (4 CPU) | 3633 ± 16 | 13–15 | 718 |
-| Triumviratus 7.0 (4 CPU) | 3633 ± 55 | | 55 |
-| Triumviratus 7.0 (1 CPU) | 3608 ± 13 | | 1,122 |
-| Triumviratus 6.0 (1 CPU) | 3607 ± 13 | | 1,018 |
-| Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
-| Triumviratus 5.0 (1 CPU) | 3573 ± 16 | | 717 |
-
-<sub>The rank is the one in the main table of each list, which shows the best version of every engine; ranks are tie
-bands shared by the engines inside the interval. The two lists are not comparable with each other.</sub>
+<sub>The rank is the one in the main table of each list, which shows the best version of every engine (for the 1-CPU
+row, the single-CPU table); ranks are tie bands shared by the engines inside the interval. The two lists are not
+comparable with each other.</sub>
 
 <details>
 <summary><b>Our matches and test suites for the 8.0 release</b></summary>
