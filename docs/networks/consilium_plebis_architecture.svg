@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900"
      font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" role="img"
-     aria-label="Consilium Plebis, the next Triumviratus network: shared threat, pawn-pair and passed-pawn inputs and an int8 HalfKA block split into eight experts, chosen per side by the opponent's non-pawn material (the learned routing table stayed inactive); two 1024 accumulators, clipped ReLU with pairwise product, a cached pawn-king subnetwork added to the first layer of the stack, eight layer stacks chosen by piece count and a PSQT term">
-  <title>Consilium Plebis architecture</title>
+     aria-label="TRANN4, Consilium Plebis, the Triumviratus 8.1 network: shared threat, pawn-pair and passed-pawn inputs and an int8 HalfKA block split into eight experts, chosen per side by the opponent's non-pawn material (the learned routing table stayed inactive); two 1024 accumulators, clipped ReLU with pairwise product, a cached pawn-king subnetwork added to the first layer of the stack, eight layer stacks chosen by piece count and a PSQT term">
+  <title>TRANN4 &#8212; Consilium Plebis &#8212; Triumviratus 8.1 network architecture</title>
   <defs>
     <style>
       text       { fill: #E6EAF0; }
@@ -32,7 +32,7 @@
 
   <rect width="1440" height="900" fill="#11161E"/>
 
-  <text x="40" y="48" font-size="24" font-weight="600">Consilium Plebis · the next Triumviratus network</text>
+  <text x="40" y="48" font-size="24" font-weight="600">Consilium Plebis · the Triumviratus 8.1 network (TRANN4)</text>
   <text x="40" y="74" font-size="14" class="dim">The int8 HalfKA block is split into eight experts, chosen for each side by the opponent's non-pawn material. A cached pawn-king subnetwork feeds every layer stack.</text>
 
   <!-- ===== 1. INPUTS ===== -->

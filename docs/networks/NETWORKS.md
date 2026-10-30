@@ -14,6 +14,17 @@ To be precise about provenance (and GPL-honest):
 The pawn-pair block was invented by Jonathan Hallström for Pawnocchio and is now Stockfish's `PP_3Wide`; our
 implementation and weights are ours, the idea is his. **`PassedPawns` is original to this project.**
 
+**Architecture names.** From 6.0 each network architecture of the project has a name, **TRANN** (*TRiumviratus
+Architecture Neural Network*), with a number that grows at every change of architecture; a new training on the same
+architecture keeps the number:
+
+| name | network | release | architecture |
+|---|---|---|---|
+| `TRANN1` | `rubicon-alea-v3` | 6.0 | SFNNv13 (threats) + `PawnPair` + `PassedPawns` |
+| `TRANN2` | `legio-septima` | 7.0 | SFNNv16 + `PassedPawns` |
+| `TRANN3` | Consilium | 8.0 | TRANN2 with the HalfKA block split into four experts by total piece count |
+| `TRANN4` | Consilium Plebis | 8.1 | int8 HalfKA split into eight experts per side, chosen by the opponent's non-pawn material, plus a pawn-king subnetwork |
+
 ---
 
 **Every network file, with its complete recipe** (binpacks, trainer patches, commands, scripts), is in the companion
@@ -57,6 +68,8 @@ queen against two rooks) is read with the same bucket by both sides, although ea
 material. Consilium Plebis keys the buckets on what each side is facing.
 
 ### Architecture
+
+Consilium Plebis is the architecture `TRANN4` (Consilium is `TRANN3`).
 
 | part | Consilium (8.0) | **Consilium Plebis (8.1)** |
 |---|---|---|

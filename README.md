@@ -294,7 +294,8 @@ results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 >
 > **What is the project's own:**
 > - **the networks**: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the
->   project from random initialisation, with no Stockfish network as seed or teacher
+>   project from random initialisation, and Consilium Plebis (TRANN4, eight experts per side), with no Stockfish
+>   network as seed or teacher
 >   ([`NETWORKS.md`](docs/networks/NETWORKS.md)), and the inference code that runs them, written from a specification;
 > - **the `PassedPawns` input block**, an original feature;
 > - **the search code of 8.1**, including the code that passes each move to the network (incremental updates of the
