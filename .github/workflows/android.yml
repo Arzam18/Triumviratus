@@ -1,5 +1,5 @@
 
-name: Build Triumviratus Android ARM64 NEON
+name: Build Triumviratus for Android ARM64 NEON
 
 on:
   workflow_dispatch:
@@ -16,22 +16,63 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # ========================================
+      # CHECKOUT
+      # ========================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ========================================
+      # INSTALL ANDROID NDK r27c
+      # ========================================
       - name: Install Android NDK r27c
         shell: bash
         run: |
           set -euxo pipefail
 
-          curl -fL --retry 5 \
-            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip \
-            -o "$RUNNER_TEMP/ndk.zip"
+          NDK_ROOT="$HOME/android-ndk-r27c"
+          NDK_ZIP="$RUNNER_TEMP/android-ndk-r27c-linux.zip"
 
-          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$HOME"
+          curl -fL --retry 5 --retry-all-errors \
+            -o "$NDK_ZIP" \
+            "https://dl.google.com/android/repository/android-ndk-r27c-linux.zip"
 
-          echo "NDK_ROOT=$HOME/android-ndk-r27c" >> "$GITHUB_ENV"
+          rm -rf "$NDK_ROOT"
 
+          unzip -q "$NDK_ZIP" -d "$HOME"
+
+          test -x \
+            "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++"
+
+          echo "NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin" \
+            >> "$GITHUB_PATH"
+
+      # ========================================
+      # VERIFY UPSTREAM POINTER FIX
+      # No source modifications necessary.
+      # ========================================
+      - name: Verify upstream source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          FILE="source/consilium_bridge.cpp"
+
+          grep -Fq \
+            'reinterpret_cast<const std::uint64_t*>(piece_bb_)' \
+            "$FILE"
+
+          grep -Fq \
+            'reinterpret_cast<const std::uint64_t*>(occupied_)' \
+            "$FILE"
+
+          echo "Upstream ARM64 pointer compatibility fix confirmed."
+
+      # ========================================
+      # DOWNLOAD OFFICIAL 8.1 NNUE
+      # ========================================
       - name: Download official Consilium Plebis network
         working-directory: source
         shell: bash
@@ -39,90 +80,112 @@ jobs:
           set -euxo pipefail
 
           NET="nn-consilium-plebis.nnue"
+
           URL="https://github.com/Tors3/Triumviratus-Networks/releases/download/consilium-plebis/nn-consilium-plebis.nnue"
-          EXPECTED="b069fc089421bdf2dfcc5d7ea4de2345d7af4795cd996373c07d5f5cf67e0670"
 
-          curl -fL --retry 5 "$URL" -o "$NET"
+          SHA256="b069fc089421bdf2dfcc5d7ea4de2345d7af4795cd996373c07d5f5cf67e0670"
 
-          echo "$EXPECTED  $NET" | sha256sum -c -
+          rm -f "$NET"
 
-          test "$(stat -c%s "$NET")" -gt 200000000
+          curl -fL --retry 5 --retry-all-errors \
+            "$URL" \
+            -o "$NET"
+
+          echo "$SHA256  $NET" | sha256sum -c -
+
+          test -s "$NET"
+
+          echo "Official network successfully verified:"
           ls -lh "$NET"
 
-      - name: Patch ARM64 pointer compatibility
+      # ========================================
+      # BUILD ARM64 NEON
+      # ========================================
+      - name: Build Triumviratus ARM64 NEON
         working-directory: source
         shell: bash
         run: |
           set -euxo pipefail
 
-          python3 - <<'PY'
-          from pathlib import Path
+          NET="nn-consilium-plebis.nnue"
 
-          path = Path("consilium_bridge.cpp")
-          text = path.read_text()
-
-          old = "return cn::Board{piece_bb_, occupied_, mb_, mover_ == BLACK};"
-          new = (
-              "return cn::Board{"
-              "reinterpret_cast<const std::uint64_t*>(piece_bb_), "
-              "reinterpret_cast<const std::uint64_t*>(occupied_), "
-              "mb_, mover_ == BLACK};"
-          )
-
-          if old in text:
-              text = text.replace(old, new, 1)
-              path.write_text(text)
-              print("Applied ARM64 pointer compatibility patch.")
-          elif new in text:
-              print("Pointer compatibility patch already applied.")
-          else:
-              raise SystemExit(
-                  "ERROR: Board initializer changed; inspect source before patching."
-              )
-          PY
-
-      - name: Build ARM64 NEON engine
-        working-directory: source
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          test -f nn-consilium-plebis.nnue
+          test -f "$NET"
 
           make clean
 
           make android \
             NDK="$NDK_ROOT" \
-            NET_NAME=nn-consilium-plebis.nnue \
+            NET_NAME="$NET" \
             EXE=Triumviratus-android-arm64-neon
 
-      - name: Verify binary and embedded network
+      # ========================================
+      # VERIFY ANDROID BINARY
+      # ========================================
+      - name: Verify Android ARM64 binary
         working-directory: source
         shell: bash
         run: |
           set -euxo pipefail
 
           BIN="Triumviratus-android-arm64-neon"
+
           LLVM="$NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
+          test -f "$BIN"
           test -x "$BIN"
 
-          file "$BIN"
           "$LLVM/llvm-readelf" -h "$BIN"
 
-          # The binary should contain the embedded 255+ MB network.
+          "$LLVM/llvm-readelf" -A "$BIN" || true
+
+          file "$BIN"
+
+          ls -lh "$BIN"
+
+      # ========================================
+      # VERIFY NNUE EMBEDDING
+      # ========================================
+      - name: Verify embedded NNUE
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BIN="Triumviratus-android-arm64-neon"
+          NET="nn-consilium-plebis.nnue"
+
           BIN_SIZE=$(stat -c%s "$BIN")
+          NET_SIZE=$(stat -c%s "$NET")
+
+          echo "Network size: $NET_SIZE bytes"
           echo "Binary size: $BIN_SIZE bytes"
 
-          if [ "$BIN_SIZE" -lt 200000000 ]; then
-            echo "::error::Binary is too small to confirm network embedding."
+          if [ "$BIN_SIZE" -le "$NET_SIZE" ]; then
+            echo "::error::Embedded NNUE verification failed."
             exit 1
           fi
 
-          mkdir -p ../artifact
-          cp "$BIN" ../artifact/
+          echo "NNUE embedding verification passed."
 
-      - name: Upload engine
+      # ========================================
+      # PREPARE ARTIFACT
+      # ========================================
+      - name: Prepare artifact
+        working-directory: source
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p ../artifact
+
+          cp \
+            Triumviratus-android-arm64-neon \
+            ../artifact/
+
+      # ========================================
+      # UPLOAD
+      # ========================================
+      - name: Upload Android engine
         uses: actions/upload-artifact@v4
         with:
           name: Triumviratus-android-arm64-neon
