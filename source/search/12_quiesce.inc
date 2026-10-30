@@ -444,6 +444,51 @@ struct QsWalk {
   C2Mat cm;       // C2SwitchQs: material and experts of the node (written only when the lever is on)
 };
 
+// Material balance for the side to move, with the search's piece values scaled to evaluation units (QsMatStand).
+static inline int qs_material(const ThreadData &td) {
+  const int m = (count_bits(td.bitboards[P]) - count_bits(td.bitboards[p])) * SeeValP
+              + (count_bits(td.bitboards[N]) - count_bits(td.bitboards[n])) * SeeValN
+              + (count_bits(td.bitboards[B]) - count_bits(td.bitboards[b])) * SeeValB
+              + (count_bits(td.bitboards[R]) - count_bits(td.bitboards[r])) * SeeValR
+              + (count_bits(td.bitboards[Q]) - count_bits(td.bitboards[q])) * SeeValQ;
+  return (td.side == white ? m : -m) * QsMatScale / 1024;   // in evaluation units
+}
+
+// The estimate QsMatStand compares with beta. QsMatMode 0: the material balance. QsMatMode 1: from the parent, the
+// parent's corrected evaluation seen from this side, minus what the move that led here took (the captured piece, the
+// gain of a promotion); it carries the positional part the material lacks. No estimate (no cut) when the parent was in
+// check (its evaluation is a copy from two plies up) or came from a null move.
+static inline int qs_stand_estimate(const ThreadData &td, const NodeFrame *f) {
+  if (!QsMatMode)
+    return qs_material(td);
+  const NodeFrame &par = f[-1];
+  if (par.in_check || !move_ok(par.move))
+    return -infinity;
+  int taken = 0;
+  if (par.captured >= 0) {
+    const int t = par.captured % 6;
+    taken = t == P ? SeeValP : t == N ? SeeValN : t == B ? SeeValB : t == R ? SeeValR : t == Q ? SeeValQ : 0;
+  }
+  if (get_move_promoted(par.move))
+    taken += SeeValQ - SeeValP;
+  return -par.static_eval - taken * QsMatScale / 1024;
+}
+
+#ifdef TRIUMV_QSMAT_STATS
+// Counters of QsMatStand (statistics build only): fresh evaluations of non-PV quiescence stands, shortcuts taken, and
+// shortcuts where the corrected network evaluation would have been below beta (the node would not have cut).
+#include <atomic>
+static std::atomic<long long> g_qsm_evals{0}, g_qsm_cuts{0}, g_qsm_wrong{0};
+static struct QsMatReport {
+  ~QsMatReport() {
+    if (g_qsm_evals)
+      fprintf(stderr, "QsMatStand: fresh evals %lld, shortcuts %lld (%.2f%%), network below beta %lld (%.2f%% of the "
+              "shortcuts)\n", g_qsm_evals.load(), g_qsm_cuts.load(), 100.0 * g_qsm_cuts / g_qsm_evals,
+              g_qsm_wrong.load(), g_qsm_cuts ? 100.0 * g_qsm_wrong / g_qsm_cuts : 0.0);
+  }
+} g_qsm_report;
+#endif
+
 // Pull a value that lies above beta toward beta by a mix weight (/1024); 1024 keeps the value.
 static inline int qs_pull(int value, int beta, int mix) { return (mix * value + (1024 - mix) * beta) / 1024; }
 
@@ -518,6 +563,26 @@ static int quiesce(ThreadData &td, NodeFrame *f, int alpha, int beta, bool pv) {
     best = w.fut_base = -infinity;
   } else {
     const int signal = corr_signal(td, f);
+    // QsMatStand (29/10/2026, OFF by default): stand on the material when the network would be called and the
+    // material alone, minus the margin, already reaches beta (01_params.inc).
+    const bool fresh = !(h.hit && h.eval_raw != tt_eval_none);
+    const bool mat_cut = QsMatStand && !pv && fresh && qs_stand_estimate(td, f) - QsMatStand >= beta;
+#ifdef TRIUMV_QSMAT_STATS
+    if (!pv && fresh)
+      g_qsm_evals++;
+    if (mat_cut) {
+      g_qsm_cuts++;
+      int raw_unused;
+      const int ev = corrected_eval(node_eval(td, h, raw_unused), signal + corr_signal_extra(td));
+      if (ev < beta)
+        g_qsm_wrong++;
+    }
+    // The statistics build only counts: the tree stays the one of QsMatStand 0, so the shares are not distorted by
+    // the cuts themselves (a wrong cut changes the lines that follow).
+#else
+    if (mat_cut)
+      return beta;
+#endif
     if (C2PkStale)   // quiescence: a pawn-king miss reuses the last outputs (01_params.inc)
       nn_set_pk_stale(td.nnpos, 1);
     const int plain = node_eval(td, h, eval_raw);

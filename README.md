@@ -95,38 +95,34 @@ weights, rather than only in the small layers after it.
 
 ## Rating lists
 
-On CCRL 40/15 Triumviratus 8.0 has the highest single-CPU rating after its first 106 games (3640 ± 40; Stockfish 19,
-1 CPU: 3630).
+On **CCRL 40/15** Triumviratus 8.0 is **first** in the list of 30 October 2026, both on 4 CPUs (3650 ± 28; Stockfish
+18, 4 CPU: 3649) and among the single-CPU engines (3633 ± 21; Stockfish 19, 1 CPU: 3629).
 
-**Note (25 October 2026): the CCRL Blitz test of Triumviratus 8.0 is being redone.** By mistake its games were played
-from openings that were too unbalanced. The 8.0 rating in the Blitz list of 24 October (3847 ± 17) comes from those
-games, and so does its place above the 8-CPU builds (Stockfish 19, 8 CPU: 3803), which is not correct. The rating will
-be replaced by the new games.
-
-**CCRL Blitz** (2 min + 1 s), list of 2026-10-24
+**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-30
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| Triumviratus 8.0 (1 CPU) | 3847 ± 17 (provisional, see the note above) | | 960 |
+| **Triumviratus 8.0** (4 CPU) | **3650** ± 28 | **1** | 214 |
+| **Triumviratus 8.0** (1 CPU) | **3633** ± 21 | **1** (single-CPU) | 392 |
+| Triumviratus 6.0 (4 CPU) | 3632 ± 16 | | 718 |
+| Triumviratus 7.0 (4 CPU) | 3632 ± 53 | | 59 |
+| Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
+| Triumviratus 6.0 (1 CPU) | 3606 ± 13 | | 1,018 |
+| Triumviratus 7.0 (1 CPU) | 3606 ± 13 | | 1,156 |
+| Triumviratus 5.0 (1 CPU) | 3572 ± 16 | | 717 |
+
+**CCRL Blitz** (2 min + 1 s), list of 2026-10-27
+
+| version | rating | rank | games |
+|---|---:|---:|---:|
 | Triumviratus 7.0 (8 CPU) | 3780 ± 20 | | 1,106 |
 | Triumviratus 7.0 (1 CPU) | 3755 ± 12 | | 2,015 |
 | Triumviratus 6.0 (1 CPU) | 3743 ± 12 | | 2,056 |
 | Triumviratus 4.2 (1 CPU) | 3666 ± 13 | | 1,518 |
 
-**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-23
-
-| version | rating | rank | games |
-|---|---:|---:|---:|
-| **Triumviratus 8.0** (1 CPU) | **3640** ± 40 | | 106 |
-| Triumviratus 6.0 (4 CPU) | 3633 ± 16 | 13–15 | 718 |
-| Triumviratus 7.0 (4 CPU) | 3633 ± 55 | | 55 |
-| Triumviratus 7.0 (1 CPU) | 3608 ± 13 | | 1,122 |
-| Triumviratus 6.0 (1 CPU) | 3607 ± 13 | | 1,018 |
-| Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
-| Triumviratus 5.0 (1 CPU) | 3573 ± 16 | | 717 |
-
-<sub>The rank is the one in the main table of each list, which shows the best version of every engine; ranks are tie
-bands shared by the engines inside the interval. The two lists are not comparable with each other.</sub>
+<sub>The rank is the one in the main table of each list, which shows the best version of every engine (for the 1-CPU
+row, the single-CPU table); ranks are tie bands shared by the engines inside the interval. The two lists are not
+comparable with each other.</sub>
 
 <details>
 <summary><b>Our matches and test suites for the 8.0 release</b></summary>
@@ -162,9 +158,24 @@ From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)
 start-up it picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2, AVX-512,
 AVX-512 VNNI, AVX-512 VBMI2). The engine name is `Triumviratus - 8.0`. The same release has builds for **Android**
 (arm64, with and without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network
-embedded. To build it from source: `build/bootstrap_release_laptop.ps1` (Windows, PGO), or
-`source/universal/build_universal.ps1 -Official`; on `main`, `make -C source` builds the current development engine
-with Consilium.
+embedded.
+
+**Building from source.** On Windows, [`build/release.ps1`](build/release.ps1) downloads the source and the network
+(checked by SHA-256 and MD5), checks the compiler and builds with PGO. Each variant's profile is recorded on a CPU
+that runs it: every machine builds and verifies the variants its CPU runs, then one machine joins the profiles into the
+universal executable, which the others verify by bench (instructions at the top of the script; from 8.1 on).
+`source/universal/build_universal.ps1` builds everything on one machine in one go. On `main`, `make -C source`
+builds the current development engine with Consilium Plebis. macOS and Linux builds come from the GitHub Actions
+workflows [`macos.yml`](.github/workflows/macos.yml) and [`linux.yml`](.github/workflows/linux.yml).
+
+**Large pages (recommended).** The 8.1 network is large: about 250 MB of weights, and every evaluation reads rows
+scattered over the whole block, so on the normal 4 KB pages the processor loses time translating addresses. On 2 MB
+pages Triumviratus is about 7% faster at the same search tree (Xeon, 8.1 development build, 29 October 2026). On
+Windows they need the "Lock pages in memory" right: run `secpol.msc`, open *Local Policies > User Rights Assignment >
+Lock pages in memory*, add your user, then sign out and back in. The engine reports the outcome at start-up:
+`info string Hash: ... MB, large pages ON` for the hash table and `info string NNUE weights: shared (created, large
+pages, ...)` for the network. On Linux it asks for transparent huge pages (`madvise`), which most distributions grant
+by default. The UCI option `LargePages` (default 1) turns them off.
 
 <details>
 <summary><b>Position Solver, for the analysis of hard positions</b></summary>

@@ -107,8 +107,8 @@ if ($ok) {
     Write-Host '  git clone https://github.com/<utente>/Triumviratus.git' -ForegroundColor Gray
     Write-Host "  ripristina dal backup: Networks_Triumviratus_7\, OpeningBooks\, _artifacts\, Tuning_SPSA\" -ForegroundColor Gray
     Write-Host '  ssh-keygen -t ed25519    # la vecchia chiave e'' compromessa' -ForegroundColor Gray
-    Write-Host '  .\build_pgo_clang_80.ps1 -Arch avx512 -Det    # oppure source\universal\build_universal.ps1 per la release' -ForegroundColor Gray
-    Write-Host "  poi VERIFICA: tutte e cinque le varianti devono benchare 261287" -ForegroundColor Yellow
+    Write-Host '  release build: build\release.ps1 (variants of this CPU, PGO, bench check; usage at the top of the script)' -ForegroundColor Gray
+    Write-Host '  one-shot build: source\universal\build_universal.ps1 (expected bench in source\universal\release.json)' -ForegroundColor Gray
 } else {
     Write-Host "Qualcosa manca: rilancia l'installer di VS e aggiungi a mano i componenti segnati sopra." -ForegroundColor Red
     Write-Host "  Componenti: VC.Llvm.Clang  e  VC.Llvm.ClangToolset" -ForegroundColor Yellow

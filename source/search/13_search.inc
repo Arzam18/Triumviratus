@@ -171,11 +171,17 @@ static constexpr auto make_all_node_recip = [](int base) {
 // (1024 + HistDivScale + HistDivTilt * (d - 8)) / 1024, one level for the whole table and one slope across depth, so
 // that the SPSA moves two levers instead of sixteen. Clamped to [256, 8192] (up to 8192 the 40-bit reciprocal stays
 // exact for |hist| < 2^27). Both at 0: the table itself (x * 1024 / 1024 = x).
-static constexpr auto make_hist_div = [](const std::array<int, 16> &div, int scale, int tilt) {
+// HistDivForm 1 (30/10/2026, OFF): the inherited table is replaced by a parabola of ours across depth,
+// HistDivMid + HistDivCurve * (d - 8)^2 / 64 + HistDivSlope * (d - 8) / 8. Fitted to the 16 inherited values it explains
+// little of them (they zigzag by +-8% around 3083, tuning noise of another search): rms 227 against 253, so the form
+// changes the tree and has its own SPRT. Defaults = the fit (vertex near d = 8 at 2960, 3233 at d = 1, 3332 at d = 16).
+static constexpr auto make_hist_div = [](const std::array<int, 16> &div, int scale, int tilt, int form, int mid,
+                                         int curve, int slope) {
   std::array<int, 16> r{};
   for (int i = 0; i < 16; i++) {
-    const long long k = 1024LL + scale + (long long)tilt * (i + 1 - 8);
-    r[i] = (int)std::clamp(div[i] * k / 1024, 256LL, 8192LL);
+    const long long d = i + 1, k = 1024LL + scale + (long long)tilt * (d - 8);
+    const long long base = form ? mid + curve * (d - 8) * (d - 8) / 64 + slope * (d - 8) / 8 : div[i];
+    r[i] = (int)std::clamp(base * k / 1024, 256LL, 8192LL);
   }
   return r;
 };
@@ -346,8 +352,9 @@ static inline int c2_imbalance(const ThreadData &td, int static_eval) {
 
 #define HIST_DIV_LIST {HistDiv1, HistDiv2, HistDiv3, HistDiv4, HistDiv5, HistDiv6, HistDiv7, HistDiv8, HistDiv9, \
                        HistDiv10, HistDiv11, HistDiv12, HistDiv13, HistDiv14, HistDiv15, HistDiv16}
+#define HIST_DIV_ARGS HIST_DIV_LIST, HistDivScale, HistDivTilt, HistDivForm, HistDivMid, HistDivCurve, HistDivSlope
 #ifdef TRIUMV_RELEASE
-static constexpr std::array<int, 16> hist_div = make_hist_div(HIST_DIV_LIST, HistDivScale, HistDivTilt);
+static constexpr std::array<int, 16> hist_div = make_hist_div(HIST_DIV_ARGS);
 static constexpr auto all_node_recip = make_all_node_recip(LmrAllDivBase);
 static constexpr auto hist_recip = make_hist_recip(hist_div);
 #else
@@ -357,13 +364,14 @@ static std::array<unsigned long long, 16> hist_recip;
 static void param_tables_refresh() {
   c2_tables_refresh();
   c2_sel_refresh();
-  hist_div = make_hist_div(HIST_DIV_LIST, HistDivScale, HistDivTilt);
+  hist_div = make_hist_div(HIST_DIV_ARGS);
   all_node_recip = make_all_node_recip(LmrAllDivBase);
   hist_recip = make_hist_recip(hist_div);
 }
 static const bool param_tables_ready = (param_tables_refresh(), true);
 #endif
 #undef HIST_DIV_LIST
+#undef HIST_DIV_ARGS
 // W1 (08/10/2026): reciprocals of depth + 1 (mean of the cutoff value in node_close), same truncation.
 static constexpr auto succ_recip = [] {
   std::array<unsigned long long, max_ply + 8> r{};

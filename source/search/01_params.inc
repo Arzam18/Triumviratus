@@ -279,6 +279,9 @@
   /*  nodes costs more than the refreshes saved (+6% nps).                                                           */ \
   /* C2HoldDepth 4: -5.6 +- 8.0 / 1,750 g, 10+0.1, ep310 (25/10), stopped; ep486 + adopted margins (27/10): +0.35 */ \
   /* +- 3.33 / 10,020 g, 10+0.1 noHT, stopped at 10k (+8.7 at 2,078 g faded; s0 -1.7, s1 +2.4). 6: -2% nps, not run */ \
+  /* 29/10/2026, final net, base 273963: speed -3.06% / -0.45% cycles per node (mg / eg); fixed 20k nodes -10.25    */ \
+  /* +- 8.60 / 2,068 g: the quality lost per node is far more than ~3% of speed can buy back. CLOSED NEGATIVE by the */ \
+  /* author, stays 0.                                                                                                */ \
   P(C2HoldDepth, 0, 0, 16)                                                                                \
   P(C2HoldQs, 0, 0, 1)                                                                                    \
   P(C2HoldDist, 1, 1, 7)                                                                                  \
@@ -287,7 +290,14 @@
   /* lookup instead of computing them (consilium/cn.cpp pawn_king). Saves up to ~2% of the time; the evaluation       */ \
   /* differs only after a pawn or king move that the cache has not seen.                                             */ \
   /* 4 vs 0, ep486 (27/10): +1.94 +- 3.37 / 10,012 g, 10+0.1 noHT, stopped at 10k (s0 +1.2, s1 +2.7): not shown.     */ \
+  /* 29/10/2026, final net, base 273963: speed -2.50% / -0.87% cycles per node (mg / eg); 4+0.04 noHT +0.82 +- 3.73  */ \
+  /* / 8,924 g; fixed 80k nodes +2.31 +- 6.44 / 2,854 g; fixed 10k nodes -1.62 +- 6.46 / 4,714 g. CLOSED NEUTRAL by   */ \
+  /* the author (at long time controls neither the error nor the speed is visible): stays 0, no SPSA.               */ \
   P(C2PkStale, 0, 0, 16)                                                                                  \
+  /* PawnHistLog (29/10/2026, speed idea for an SPRT): log2 of the pawn-history rows per thread slot. 13 = the 8192 rows */ \
+  /* of before (12.6 MB with one thread); smaller tables keep more of the rows the quiet score reads in cache, at the   */ \
+  /* price of more pawn structures sharing a row. Takes effect at the next new game (search_clear reallocates).       */ \
+  P(PawnHistLog, 13, 9, 16)                                                                               \
   /* history: bonus e malus */                                                                            \
   P(BonusMul, 140, 50, 300)                                                                               \
   P(BonusSub, 81, 0, 300)                                                                                 \
@@ -359,8 +369,10 @@
   /*    ThrEsc  the piece leaves a square attacked by a lower-value enemy piece                                 */ \
   /*    ThrEnt  the piece enters such a square (one weight, ThreatOrderMul = 20, served both; tuned value 25)   */ \
   /*    ThrSafe ours, off: extra bonus when the threatened piece escapes to an unattacked square; own SPRT      */ \
-  P(ThrEsc0, 20, 0, 60)  P(ThrEsc1, 20, 0, 60)  P(ThrEsc2, 20, 0, 60)  P(ThrEsc3, 20, 0, 60)              \
-  P(ThrEnt0, 20, 0, 60)  P(ThrEnt1, 20, 0, 60)  P(ThrEnt2, 20, 0, 60)  P(ThrEnt3, 20, 0, 60)              \
+  /*    (30/10/2026) ThrEsc/ThrEnt in 1/64 of a point (1280 = the old 20; the term is shifted right by 6, exact   */ \
+  /*    for multiples of 64), so that the SPSA moves them on a fine scale instead of steps of 2 on 20.           */ \
+  P(ThrEsc0, 1280, 0, 3840)  P(ThrEsc1, 1280, 0, 3840)  P(ThrEsc2, 1280, 0, 3840)  P(ThrEsc3, 1280, 0, 3840)  \
+  P(ThrEnt0, 1280, 0, 3840)  P(ThrEnt1, 1280, 0, 3840)  P(ThrEnt2, 1280, 0, 3840)  P(ThrEnt3, 1280, 0, 3840)  \
   P(ThrSafe0, 0, 0, 60)  P(ThrSafe1, 0, 0, 60)  P(ThrSafe2, 0, 0, 60)  P(ThrSafe3, 0, 0, 60)              \
   /* A. LpDecay: how fast the first-ply history weight falls, 8 x entry x 1024 / (1024 + ply x LpDecay);        */ \
   /*    1024 = the old 8 x entry / (1 + ply), 0 = the same weight at every ply. Max 3072: beyond it the 40-bit  */ \
@@ -644,6 +656,17 @@
   P(QsSee0, 74, 0, 300)     P(QsSee1, 74, 0, 300)     P(QsSee2, 74, 0, 300)     P(QsSee3, 74, 0, 300)          \
   P(QsGate, 2, 0, 8)                                                                                      \
   P(QsVictimW, 1024, 512, 1536)                                                                           \
+  /*  QsMatStand (29/10/2026, ours, OFF; speed session R15 §3f, approved by the author): in a non-PV quiescence   */ \
+  /*  node out of check whose evaluation is not in the hash, if the material balance (SeeVal*) minus QsMatStand  */ \
+  /*  is already at or above beta, the node stands on the material and returns beta without calling the network */ \
+  /*  (~5,000 cycles per evaluation, 0.40 fresh evaluations per node). 0 = off, identical tree. Build with       */ \
+  /*  -DTRIUMV_QSMAT_STATS to count how often it fires and how often the network would have said < beta.       */ \
+  /*  QsMatScale: SEE units (pawn 208) to evaluation units (pawn ~356), /1024.                                  */ \
+  P(QsMatStand, 0, 0, 4000)                                                                               \
+  P(QsMatScale, 1752, 1024, 2560)                                                                         \
+  /*  QsMatMode: 0 = the material balance, 1 = from the parent (its corrected evaluation minus what the move    */ \
+  /*  that led here took; 12_quiesce.inc qs_stand_estimate).                                                      */ \
+  P(QsMatMode, 0, 0, 1)                                                                                   \
   P(QsSeeFutW, 1024, 512, 1536)                                                                           \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
@@ -1045,6 +1068,12 @@
   /* slope over the inherited table, which the SPSA keeps locked (block P2). Neutral 0/0 = the table (bench same).  */ \
   P(HistDivScale, 0, -512, 1024)                                                                           \
   P(HistDivTilt, 0, -64, 64)                                                                               \
+  /* HistDivForm (30/10/2026, OFF, own SPRT): 1 = a parabola of ours instead of the inherited table, divisor =       */ \
+  /*  HistDivMid + HistDivCurve*(d-8)^2/64 + HistDivSlope*(d-8)/8 (then the level and slope above), make_hist_div.   */ \
+  P(HistDivForm, 0, 0, 1)                                                                                  \
+  P(HistDivMid, 2960, 1500, 6000)                                                                          \
+  P(HistDivCurve, 364, -1000, 2000)                                                                        \
+  P(HistDivSlope, 0, -800, 800)                                                                            \
   /* Quiescence (12_quiesce.inc): a value above beta is pulled toward it, (Mix*best + (1024-Mix)*beta)/1024.   */ \
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
@@ -1099,15 +1128,18 @@
   /*  BAKE 28/10/2026 (author, for the release): the margins of e5/e6/e7 from the rough SPSA of 25/10 on the new     */ \
   /*  network, used in every Plebis test since (vs Consilium +10.8/+10.3 at 100k, +11.2 at 30k): 5 = -1/2/-6/2,   */ \
   /*  6 = 4/22/-72/13, 7 = 0/-1/5/-3 (Rfp/Fut/Lmr/Nmp). A dedicated on/off SPRT goes into the SPSA phase.          */ \
+  /*  UNBAKED 29/10/2026 (author): the on/off SPRT (T6, final net, base 273963, 8+0.08 noHT) gave the margins ON     */ \
+  /*  -6.49 +- 8.89 over 1,446 g (socket 1 clearly negative), so all back to 0; the 32 margins are re-tuned from 0    */ \
+  /*  by an SPSA with ranges of both signs (backup _backup/Triumviratus_8.1_pre_margini_e567_zero_2026-10-29).       */ \
   P(C2ExpSide, 0, 0, 1)                                                                                    \
   P(C2Rfp0, 0, -40, 40) P(C2Rfp1, 0, -40, 40) P(C2Rfp2, 0, -40, 40) P(C2Rfp3, 0, -40, 40)                  \
-  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, -1, -40, 40) P(C2Rfp6, 4, -40, 40) P(C2Rfp7, 0, -40, 40)                  \
+  P(C2Rfp4, 0, -40, 40) P(C2Rfp5, 0, -40, 40) P(C2Rfp6, 0, -40, 40) P(C2Rfp7, 0, -40, 40)                    \
   P(C2Fut0, 0, -200, 200) P(C2Fut1, 0, -200, 200) P(C2Fut2, 0, -200, 200) P(C2Fut3, 0, -200, 200)          \
-  P(C2Fut4, 0, -200, 200) P(C2Fut5, 2, -200, 200) P(C2Fut6, 22, -200, 200) P(C2Fut7, -1, -200, 200)          \
+  P(C2Fut4, 0, -200, 200) P(C2Fut5, 0, -200, 200) P(C2Fut6, 0, -200, 200) P(C2Fut7, 0, -200, 200)            \
   P(C2Lmr0, 0, -1536, 1536) P(C2Lmr1, 0, -1536, 1536) P(C2Lmr2, 0, -1536, 1536) P(C2Lmr3, 0, -1536, 1536)  \
-  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, -6, -1536, 1536) P(C2Lmr6, -72, -1536, 1536) P(C2Lmr7, 5, -1536, 1536)  \
+  P(C2Lmr4, 0, -1536, 1536) P(C2Lmr5, 0, -1536, 1536) P(C2Lmr6, 0, -1536, 1536) P(C2Lmr7, 0, -1536, 1536)    \
   P(C2Nmp0, 0, -200, 200) P(C2Nmp1, 0, -200, 200) P(C2Nmp2, 0, -200, 200) P(C2Nmp3, 0, -200, 200)          \
-  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 2, -200, 200) P(C2Nmp6, 13, -200, 200) P(C2Nmp7, -3, -200, 200)          \
+  P(C2Nmp4, 0, -200, 200) P(C2Nmp5, 0, -200, 200) P(C2Nmp6, 0, -200, 200) P(C2Nmp7, 0, -200, 200)            \
   /*  2. Expert-switching captures (a capture or promotion after which the routing table gives another expert to    */ \
   /*     either perspective): ordering bonus in the main search, less reduction (1/1024 ply, positive = less, stops  */ \
   /*     at zero), and a wider futility margin for such captures in the quiescence (evaluation units).               */ \

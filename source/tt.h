@@ -316,6 +316,32 @@ inline unsigned tt_match4(__m512i v, U64 tag, __m512i& w) {
 inline U64 tt_lane(__m512i v, int lane) {
     return (U64)_mm_cvtsi128_si64(_mm512_castsi512_si128(_mm512_permutexvar_epi64(_mm512_set1_epi64(lane), v)));
 }
+#elif defined(__AVX2__) && !defined(TRIUMV_NO_TT_VEC)
+// (29/10/2026 night, speed, same way, same values) The vector TT on the AVX2 builds (Intel 12th gen and later, Core
+// Ultra, AMD Zen 2/3), the bucket in two registers [kw0 d0 kw1 d1] [kw2 d2 kw3 d3]. Swapping the two words of every way
+// gives kw ^ data and the emptiness test as in tt_match4; the four ways answer together. The words are stored as read
+// (wv: kw ^ data at even slots, dv: the raw words), so the caller takes the way's values from the same snapshot as the
+// check. Returns bit i = way i non-empty with the tag. -0.4% / -0.8% cycles (mg / eg) on the Xeon avx2 variant.
+#define TRIUMV_TT_VEC2 1
+#include <immintrin.h>
+inline unsigned tt_match4_avx2(const void* bucket, U64 tag, U64* dv, U64* wv) {
+    const __m256i v0 = _mm256_load_si256(reinterpret_cast<const __m256i*>(bucket));
+    const __m256i v1 = _mm256_load_si256(reinterpret_cast<const __m256i*>(bucket) + 1);
+    const __m256i s0 = _mm256_shuffle_epi32(v0, _MM_SHUFFLE(1, 0, 3, 2)), s1 = _mm256_shuffle_epi32(v1, _MM_SHUFFLE(1, 0, 3, 2));
+    const __m256i w0 = _mm256_xor_si256(v0, s0), w1 = _mm256_xor_si256(v1, s1);   // even qwords: kw ^ data
+    const __m256i z = _mm256_setzero_si256(), T = _mm256_set1_epi64x((long long)tag);
+    const __m256i h0 = _mm256_andnot_si256(_mm256_cmpeq_epi64(_mm256_or_si256(v0, s0), z),
+                                           _mm256_cmpeq_epi64(_mm256_srli_epi64(w0, 16), T));
+    const __m256i h1 = _mm256_andnot_si256(_mm256_cmpeq_epi64(_mm256_or_si256(v1, s1), z),
+                                           _mm256_cmpeq_epi64(_mm256_srli_epi64(w1, 16), T));
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dv), v0);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dv) + 1, v1);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(wv), w0);
+    _mm256_storeu_si256(reinterpret_cast<__m256i*>(wv) + 1, w1);
+    const unsigned m0 = (unsigned)_mm256_movemask_pd(_mm256_castsi256_pd(h0));   // qword lanes 0 and 2: ways 0 and 1
+    const unsigned m1 = (unsigned)_mm256_movemask_pd(_mm256_castsi256_pd(h1));   // ways 2 and 3
+    return (m0 & 1) | ((m0 >> 1) & 2) | ((m1 & 1) << 2) | ((m1 << 1) & 8);
+}
 #endif
 
 // Slot of the bucket that holds this position, or nullptr.
@@ -375,6 +401,38 @@ inline bool probe_tt(U64 hash_key, int& tt_move, int& tt_score, int& tt_depth, i
                 printf("info string TTVEC: parole diverse\n"); fflush(stdout); abort();
             }
 #endif
+            tt_move  = unpack_move(data);
+            tt_score = unpack_score(data);
+            tt_depth = unpack_depth(data);
+            tt_flag  = unpack_flag(data);
+            tt_eval  = tt_unpack_eval16(wi);
+            is_pv    = (unpack_pv(data) != 0);
+            if (g_tt_age_refresh && unpack_age(data) != current_age) {
+                U64 new_data = (data & ~(0x1FULL << 58)) | ((U64)(current_age & 0x1F) << 58);
+                entry->data = new_data;
+                entry->kw   = wi ^ new_data;
+            }
+            if (tt_flag == hash_flag_none) return false;   // entry eval-only (EvalTTWrite)
+            return true;
+        }
+        tt_move = 0; tt_score = 0; tt_depth = 0;
+        tt_flag = hash_flag_alpha; tt_eval = tt_eval_none; is_pv = false;
+        return false;
+    }
+#elif defined(TRIUMV_TT_VEC2)
+    {
+        // Vector TT on AVX2 (29/10/2026, see tt_match4_avx2): same way, same values, from the snapshot of the check.
+        alignas(32) U64 dv[8], wv[8];
+        const unsigned found = tt_match4_avx2(b, tag, dv, wv);
+#ifdef TRIUMV_VERIFY_TTSTORE   // check: the same way (or none) as the scalar search
+        if ((found ? &b[get_ls1b_index(found)] : nullptr) != tt_find(hash_key)) {
+            printf("info string TTVEC2: via diversa nella lettura\n"); fflush(stdout); abort();
+        }
+#endif
+        if (found) {
+            const int i = get_ls1b_index(found);
+            tt_entry* entry = &b[i];
+            const U64 data = dv[2 * i + 1], wi = wv[2 * i];
             tt_move  = unpack_move(data);
             tt_score = unpack_score(data);
             tt_depth = unpack_depth(data);
@@ -453,6 +511,16 @@ inline void store_tt(U64 hash_key, int move, int score, int depth, int flag, int
         // Vector TT (10/10/2026, see tt_match4): bit 2i -> bit i (pext), so the rest is the old code.
         __m512i w4;
         found = _pext_u32(tt_match4(_mm512_load_si512(reinterpret_cast<const void*>(b)), tag, w4), 0x55u);
+    }
+#elif defined(TRIUMV_TT_VEC2)
+    {
+        // Vector TT on AVX2 (29/10/2026): the four ways together; the raw words of the snapshot fill kk/dd for the victim.
+        alignas(32) U64 dv[8], wv[8];
+        found = tt_match4_avx2(b, tag, dv, wv);
+        for (int i = 0; i < TT_WAYS; i++) {
+            kk[i] = dv[2 * i];
+            dd[i] = dv[2 * i + 1];
+        }
     }
 #else
     for (int i = 0; i < TT_WAYS; i++) {
