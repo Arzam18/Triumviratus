@@ -498,10 +498,10 @@ static inline void quiet_vec_score(const QuietVecIn &in, const int *mv, int *sc,
     };
     half(_mm512_castsi512_si256(pt), _mm512_castsi512_si256(from), _mm512_castsi512_si256(to), 0);
     half(_mm512_extracti64x4_epi64(pt, 1), _mm512_extracti64x4_epi64(from, 1), _mm512_extracti64x4_epi64(to, 1), 8);
-    // threat term: mval[pc] * (thr_esc * from_t - thr_ent * to_t)
+    // threat term: (mval[pc] * (thr_esc * from_t - thr_ent * to_t)) >> 6 (weights in 1/64, as the scalar path)
     const __m512i th = _mm512_sub_epi32(_mm512_maskz_mov_epi32((__mmask16)fm, _mm512_set1_epi32(in.thr_esc)),
                                         _mm512_maskz_mov_epi32((__mmask16)tm, _mm512_set1_epi32(in.thr_ent)));
-    qv = _mm512_add_epi32(qv, _mm512_mullo_epi32(th, _mm512_permutexvar_epi32(pc, MV)));
+    qv = _mm512_add_epi32(qv, _mm512_srai_epi32(_mm512_mullo_epi32(th, _mm512_permutexvar_epi32(pc, MV)), 6));
     _mm512_mask_storeu_epi32(sc + i, k, qv);
     flags[g] = (unsigned short)((cm | km) & k);
   }
@@ -867,7 +867,7 @@ static void score_quiets(MoveQueue &q, const int *mv, int *sc, int n) {
       s += chk_disc;
     {
       const int from_t = int((lesser[pt] >> from) & 1), to_t = int((lesser[pt] >> to) & 1);
-      s += mval[pc] * (thr_esc * from_t - thr_ent * to_t);
+      s += (mval[pc] * (thr_esc * from_t - thr_ent * to_t)) >> 6;   // weights in 1/64 (01_params.inc)
       if (thr_safe && from_t && !((q.opp_att >> to) & 1))
         s += mval[pc] * thr_safe;
     }

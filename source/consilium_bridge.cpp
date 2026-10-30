@@ -85,7 +85,12 @@ class NnBoard {
     int   count() const { return __builtin_popcountll(occupied_[2]); }
     int   count_type(int t) const { return __builtin_popcountll(piece_bb_[t] | piece_bb_[t + NN_BLACK]); }
     Color mover() const { return mover_; }
-    cn::Board view() const { return cn::Board{piece_bb_, occupied_, mb_, mover_ == BLACK}; }
+    // (30/10/2026) cn::Board holds std::uint64_t, which is unsigned long on Linux: same 64 bits, so the cast only
+    // makes the Linux build compile (found by the labeler build on the VM).
+    cn::Board view() const {
+        return cn::Board{reinterpret_cast<const std::uint64_t*>(piece_bb_), reinterpret_cast<const std::uint64_t*>(occupied_),
+                         mb_, mover_ == BLACK};
+    }
 
    private:
     const unsigned long long* piece_bb_;

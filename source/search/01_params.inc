@@ -369,8 +369,10 @@
   /*    ThrEsc  the piece leaves a square attacked by a lower-value enemy piece                                 */ \
   /*    ThrEnt  the piece enters such a square (one weight, ThreatOrderMul = 20, served both; tuned value 25)   */ \
   /*    ThrSafe ours, off: extra bonus when the threatened piece escapes to an unattacked square; own SPRT      */ \
-  P(ThrEsc0, 20, 0, 60)  P(ThrEsc1, 20, 0, 60)  P(ThrEsc2, 20, 0, 60)  P(ThrEsc3, 20, 0, 60)              \
-  P(ThrEnt0, 20, 0, 60)  P(ThrEnt1, 20, 0, 60)  P(ThrEnt2, 20, 0, 60)  P(ThrEnt3, 20, 0, 60)              \
+  /*    (30/10/2026) ThrEsc/ThrEnt in 1/64 of a point (1280 = the old 20; the term is shifted right by 6, exact   */ \
+  /*    for multiples of 64), so that the SPSA moves them on a fine scale instead of steps of 2 on 20.           */ \
+  P(ThrEsc0, 1280, 0, 3840)  P(ThrEsc1, 1280, 0, 3840)  P(ThrEsc2, 1280, 0, 3840)  P(ThrEsc3, 1280, 0, 3840)  \
+  P(ThrEnt0, 1280, 0, 3840)  P(ThrEnt1, 1280, 0, 3840)  P(ThrEnt2, 1280, 0, 3840)  P(ThrEnt3, 1280, 0, 3840)  \
   P(ThrSafe0, 0, 0, 60)  P(ThrSafe1, 0, 0, 60)  P(ThrSafe2, 0, 0, 60)  P(ThrSafe3, 0, 0, 60)              \
   /* A. LpDecay: how fast the first-ply history weight falls, 8 x entry x 1024 / (1024 + ply x LpDecay);        */ \
   /*    1024 = the old 8 x entry / (1 + ply), 0 = the same weight at every ply. Max 3072: beyond it the 40-bit  */ \
@@ -654,6 +656,17 @@
   P(QsSee0, 74, 0, 300)     P(QsSee1, 74, 0, 300)     P(QsSee2, 74, 0, 300)     P(QsSee3, 74, 0, 300)          \
   P(QsGate, 2, 0, 8)                                                                                      \
   P(QsVictimW, 1024, 512, 1536)                                                                           \
+  /*  QsMatStand (29/10/2026, ours, OFF; speed session R15 §3f, approved by the author): in a non-PV quiescence   */ \
+  /*  node out of check whose evaluation is not in the hash, if the material balance (SeeVal*) minus QsMatStand  */ \
+  /*  is already at or above beta, the node stands on the material and returns beta without calling the network */ \
+  /*  (~5,000 cycles per evaluation, 0.40 fresh evaluations per node). 0 = off, identical tree. Build with       */ \
+  /*  -DTRIUMV_QSMAT_STATS to count how often it fires and how often the network would have said < beta.       */ \
+  /*  QsMatScale: SEE units (pawn 208) to evaluation units (pawn ~356), /1024.                                  */ \
+  P(QsMatStand, 0, 0, 4000)                                                                               \
+  P(QsMatScale, 1752, 1024, 2560)                                                                         \
+  /*  QsMatMode: 0 = the material balance, 1 = from the parent (its corrected evaluation minus what the move    */ \
+  /*  that led here took; 12_quiesce.inc qs_stand_estimate).                                                      */ \
+  P(QsMatMode, 0, 0, 1)                                                                                   \
   P(QsSeeFutW, 1024, 512, 1536)                                                                           \
   /* correction history */                                                                                \
   P(CorrPawnW, 17291, 0, 40000)                                                                           \
@@ -1055,6 +1068,12 @@
   /* slope over the inherited table, which the SPSA keeps locked (block P2). Neutral 0/0 = the table (bench same).  */ \
   P(HistDivScale, 0, -512, 1024)                                                                           \
   P(HistDivTilt, 0, -64, 64)                                                                               \
+  /* HistDivForm (30/10/2026, OFF, own SPRT): 1 = a parabola of ours instead of the inherited table, divisor =       */ \
+  /*  HistDivMid + HistDivCurve*(d-8)^2/64 + HistDivSlope*(d-8)/8 (then the level and slope above), make_hist_div.   */ \
+  P(HistDivForm, 0, 0, 1)                                                                                  \
+  P(HistDivMid, 2960, 1500, 6000)                                                                          \
+  P(HistDivCurve, 364, -1000, 2000)                                                                        \
+  P(HistDivSlope, 0, -800, 800)                                                                            \
   /* Quiescence (12_quiesce.inc): a value above beta is pulled toward it, (Mix*best + (1024-Mix)*beta)/1024.   */ \
   /*  QsFhMix when the stand alone already fails high; QsStandMix for the value the node returns at the end.    */ \
   P(QsFhMix, 441, 0, 1024)                                                                                 \
