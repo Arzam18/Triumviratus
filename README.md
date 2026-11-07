@@ -4,22 +4,33 @@
 
 # Triumviratus
 
-**A strong UCI chess engine in C++** · mixture-of-experts NNUE · SPSA-tuned alpha-beta search · Syzygy tablebases
+**A strong UCI chess engine in C++** · NNUE with material input buckets · SPSA-tuned alpha-beta search · Syzygy tablebases
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](COPYING)
 [![C++](https://img.shields.io/badge/language-C%2B%2B-00599C.svg)](source/)
 ![UCI](https://img.shields.io/badge/protocol-UCI-brightgreen.svg)
 ![NNUE](https://img.shields.io/badge/evaluation-NNUE-orange.svg)
+[![Downloads](https://img.shields.io/github/downloads/Tors3/Triumviratus/total?label=downloads)](https://github.com/Tors3/Triumviratus/releases)
 
 **by Francesco Torsello**
 
 <sub>in collaboration with Maurizio Platino</sub>
 
-**Current release: [Triumviratus 8.0](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)** (October 2026) · `main`: development of 8.1
+**Current release: [Triumviratus 8.1](https://github.com/Tors3/Triumviratus/releases/tag/v8.1)** (November 2026) · `main`: development after 8.1
 
 **Triumviratus is becoming a community project.** The project has a Discord server where the development is followed,
 ideas are shared and contributions are discussed: to join, just contact me ([@Tors3](https://github.com/Tors3) on
 GitHub). Everyone is welcome, as long as discussions stay open and respectful.
+
+**Downloads of each release**
+
+[![8.1](https://img.shields.io/github/downloads/Tors3/Triumviratus/v8.1/total?label=v8.1)](https://github.com/Tors3/Triumviratus/releases/tag/v8.1)
+[![8.0](https://img.shields.io/github/downloads/Tors3/Triumviratus/v8.0/total?label=v8.0)](https://github.com/Tors3/Triumviratus/releases/tag/v8.0)
+[![7.0](https://img.shields.io/github/downloads/Tors3/Triumviratus/v7.0/total?label=v7.0)](https://github.com/Tors3/Triumviratus/releases/tag/v7.0)
+[![6.0](https://img.shields.io/github/downloads/Tors3/Triumviratus/v6.0/total?label=v6.0)](https://github.com/Tors3/Triumviratus/releases/tag/v6.0)
+[![5.1](https://img.shields.io/github/downloads/Tors3/Triumviratus/v5.1/total?label=v5.1)](https://github.com/Tors3/Triumviratus/releases/tag/v5.1)
+[![5.0](https://img.shields.io/github/downloads/Tors3/Triumviratus/v5.0/total?label=v5.0)](https://github.com/Tors3/Triumviratus/releases/tag/v5.0)
+[![4.2](https://img.shields.io/github/downloads/Tors3/Triumviratus/v4.2/total?label=v4.2)](https://github.com/Tors3/Triumviratus/releases/tag/v4.2)
 
 </div>
 
@@ -27,7 +38,7 @@ GitHub). Everyone is welcome, as long as discussions stay open and respectful.
 
 <div align="center">
 
-[8.1](#triumviratus-81-in-development) · [8.0](#triumviratus-80) · [Rating lists](#rating-lists) · [Download](#download) · [What is new](docs/project/NOVELTIES.md) ·
+[8.1](#triumviratus-81) · [8.0](#triumviratus-80) · [Rating lists](#rating-lists) · [Download](#download) · [What is new](docs/project/NOVELTIES.md) ·
 [Networks](docs/networks/NETWORKS.md) · [Tests](docs/tests/) · [History](docs/project/HISTORY.md) ·
 [Credits](#credits) · [License](#license)
 
@@ -35,7 +46,16 @@ GitHub). Everyone is welcome, as long as discussions stay open and respectful.
 
 ---
 
-## Triumviratus 8.1 (in development)
+## Triumviratus 8.1
+
+| opponent | games | conditions | Elo (Triumviratus 8.1) |
+|---|---:|---|---:|
+| **Triumviratus 8.0** | 2,508 | 15+0.15, UHO 2024, 1 thread, large pages | **+21.5 ± 6.7** |
+| **Stockfish 19** | 8,860 | 60+0.6, UHO 2024, 1 thread, large pages | **+0.3 ± 3.3** |
+
+All matches start from the UHO 2024 openings, with large pages enabled for both engines; without large pages
+Triumviratus, whose network is larger, loses more speed than Stockfish 19. Conditions and machines:
+[release notes](https://github.com/Tors3/Triumviratus/releases/tag/v8.1).
 
 8.1 brings a new network, **Consilium Plebis**, trained from 21 to 28 October 2026: **+10.3 ± 4.3 Elo over Consilium**
 with the same search at fixed nodes. Consilium chose its experts by the total piece count,
@@ -51,15 +71,32 @@ layer stack.
 [network file](https://github.com/Tors3/Triumviratus-Networks/releases/tag/consilium-plebis) ·
 [recipe](https://github.com/Tors3/Triumviratus-Networks/tree/main/recipes/07_consilium-plebis).
 
+<details>
+<summary><b>The next network: future training direction (not in training now)</b></summary>
+
+No network is being trained now. This design, **Lex Hortensia** (architecture `TRANN5`), comes from the lessons of Consilium Plebis: offline studies of what its
+experts, PSQT and pawn blocks contribute, judged on game results, and speed measurements of the engine (November
+2026). It has six experts with the queen as a boundary, rows of exactly 1024 bytes with the PSQT in a small table,
+a pawn-king block only in the pawn endgames and sixteen layer stacks.
+
+<p align="center"><img src="docs/networks/next_network_design.svg" alt="Design of the next network: six int8 HalfKA experts chosen per side by the opponent's material with the queen as a boundary, two 1024 accumulators without PSQT, a 24 KB piece-square table, a 128-unit pawn-king block active only in pawn endgames, sixteen layer stacks chosen by piece count and queens" width="100%"></p>
+
+[Details](docs/networks/NETWORKS.md#the-next-network--future-training-direction-not-in-training-now)
+
+</details>
+
 ---
 
 ## Triumviratus 8.0
 
-**Consilium**, the 8.0 network, is a mixture-of-experts network: its largest layer, the king-relative HalfKA inputs,
-is split into **four experts, one per material band** (chosen by the number of pieces, on top of the usual king
-buckets); only one is active at a time, so the layer has four times the weights at almost the cost of one. To our
-knowledge it is **the first engine with piece-count buckets on the input layer**. The idea is the author's own, from
-the mixture-of-experts models of language AI.
+<details>
+<summary><b>Consilium, the 8.0 network: input buckets by material</b></summary>
+
+**Consilium**, the 8.0 network, splits its largest layer, the king-relative HalfKA inputs, into **four input buckets
+by material** (chosen by the number of pieces, on top of the usual king buckets); only one is active at a time, so the
+layer has four times the weights at almost the cost of one. To our knowledge it is **the first engine with
+piece-count buckets on the input layer**. The idea is the author's own, taken from the mixture-of-experts models of
+language AI; in the project's notes and code each of these buckets is called an "expert".
 
 <p align="center"><img src="docs/networks/consilium_architecture.svg" alt="Consilium architecture: four HalfKA experts by material band, two 1024 accumulators, eight layer stacks chosen by piece count" width="100%"></p>
 
@@ -67,13 +104,14 @@ the mixture-of-experts models of language AI.
 [why it is new](docs/project/NOVELTIES.md#1-consilium-experts-by-material-on-the-first-layer)
 
 <details>
-<summary><b>What "mixture of experts" means here</b></summary>
+<summary><b>Input buckets and "experts"</b></summary>
 
-The experts are chosen by a fixed rule, the number of pieces on the board, not by a learned gate as in language
-models. In this sense other routing schemes of NNUE networks are also experts: king buckets on the input layer (chosen
-by king square) and output buckets or layer stacks after the accumulator (chosen by piece count). What is new in
-Consilium is not the routing itself but where piece count is used: on the input layer, which holds almost all the
-weights, rather than only in the small layers after it.
+The buckets are chosen by a fixed rule, the material on the board, not by a learned gate as in the mixture-of-experts
+models of language AI, where the idea came from; "expert" is the project's own name for each of them. Other routing
+schemes of NNUE networks work the same way: king buckets on the input layer (chosen by king square) and output buckets
+or layer stacks after the accumulator (chosen by piece count). What is new in Consilium is not the routing itself but
+where material is used: on the input layer, which holds almost all the weights, rather than only in the small layers
+after it.
 
 </details>
 
@@ -93,38 +131,47 @@ weights, rather than only in the small layers after it.
 
 </details>
 
+</details>
+
 ## Rating lists
 
-On **CCRL 40/15** Triumviratus 8.0 is **first** in the list of 30 October 2026, both on 4 CPUs (3650 ± 28; Stockfish
-18, 4 CPU: 3649) and among the single-CPU engines (3633 ± 21; Stockfish 19, 1 CPU: 3629). On **CCRL Blitz**
-Triumviratus 8.0 on one CPU (3784 ± 13) is **second** in the main table of 31 October 2026, behind Stockfish 19 on 8
-CPUs (3803); among the single-CPU versions it is behind Stockfish 19 on one CPU (3792 ± 11).
+On **CCRL 40/15** Triumviratus 8.0 shares **first place** on 4 CPUs with Stockfish 19 (both 3650) in the list of
+7 November 2026, and is **first** among the single-CPU engines (3635 ± 16; Stockfish 19, 1 CPU: 3629). On **CCRL
+Blitz** Triumviratus 8.0 on one CPU (3784 ± 13) is **second** in the main table, behind Stockfish 19 on 8 CPUs
+(3803); among the single-CPU versions it is behind Stockfish 19 on one CPU (3792 ± 11). On **CCRL 40/2 FRC**
+(Chess960) it is **second** (4104 ± 10), behind Stockfish 19 (4115).
 
-**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-10-30
+**CCRL 40/15** (40 moves in 15 minutes, with increment), list of 2026-11-07
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| **Triumviratus 8.0** (4 CPU) | **3650** ± 28 | **1** | 214 |
-| **Triumviratus 8.0** (1 CPU) | **3633** ± 21 | **1** (single-CPU) | 392 |
+| **Triumviratus 8.0** (4 CPU) | **3650** ± 19 | **1–2** | 499 |
+| **Triumviratus 8.0** (1 CPU) | **3635** ± 16 | **1** (single-CPU) | 700 |
 | Triumviratus 6.0 (4 CPU) | 3632 ± 16 | | 718 |
 | Triumviratus 7.0 (4 CPU) | 3632 ± 53 | | 59 |
+| Triumviratus 7.0 (1 CPU) | 3607 ± 13 | | 1,166 |
 | Triumviratus 5.0 (4 CPU) | 3606 ± 15 | | 924 |
 | Triumviratus 6.0 (1 CPU) | 3606 ± 13 | | 1,018 |
-| Triumviratus 7.0 (1 CPU) | 3606 ± 13 | | 1,156 |
 | Triumviratus 5.0 (1 CPU) | 3572 ± 16 | | 717 |
 
-**CCRL Blitz** (2 min + 1 s), list of 2026-10-31
+**CCRL Blitz** (2 min + 1 s), list of 2026-11-07
 
 | version | rating | rank | games |
 |---|---:|---:|---:|
-| **Triumviratus 8.0** (1 CPU) | **3784** ± 13 | **2** | 1,573 |
+| **Triumviratus 8.0** (1 CPU) | **3784** ± 13 | **2** | 1,582 |
 | Triumviratus 7.0 (8 CPU) | 3780 ± 20 | | 1,106 |
-| Triumviratus 7.0 (1 CPU) | 3756 ± 12 | | 2,015 |
+| Triumviratus 7.0 (1 CPU) | 3755 ± 12 | | 2,015 |
 | Triumviratus 6.0 (1 CPU) | 3743 ± 12 | | 2,056 |
 | Triumviratus 4.2 (1 CPU) | 3666 ± 13 | | 1,518 |
 
+**CCRL 40/2 FRC** (Chess960, 40 moves in 2 minutes), list of 2026-11-01
+
+| version | rating | rank | games |
+|---|---:|---:|---:|
+| **Triumviratus 8.0** | **4104** ± 10 | **2** | 3,047 |
+
 <sub>The rank is the one in the main table of each list, which shows the best version of every engine (for the 1-CPU
-row, the single-CPU table); ranks are tie bands shared by the engines inside the interval. The two lists are not
+row, the single-CPU table); ranks are tie bands shared by the engines inside the interval. The lists are not
 comparable with each other.</sub>
 
 <details>
@@ -156,12 +203,12 @@ Reckless 0.10.0-dev. Games and details: [`docs/tests/`](docs/tests/) and
 
 ## Download
 
-From the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0):
-`Triumviratus_8.0_windows_universal.exe`, one file for every x86-64 CPU with SSE4.1, with the network embedded. At
-start-up it picks the best of six builds for the CPU (SSE4.1 for CPUs without AVX2, AVX2 without PEXT, AVX2, AVX-512,
-AVX-512 VNNI, AVX-512 VBMI2). The engine name is `Triumviratus - 8.0`. The same release has builds for **Android**
-(arm64, with and without the dot-product instructions) and **macOS** (Apple Silicon and Intel), with the network
-embedded.
+From the [v8.1 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.1):
+`Triumviratus_8.1_windows_universal.exe`, one file for every x86-64 CPU with SSE4.1 and POPCNT, with the network
+embedded. At start-up it picks the best of seven builds for the CPU (SSE4.1, AVX2 without PEXT, AVX2, AVX-VNNI,
+AVX-512, AVX-512 VNNI, AVX-512 VBMI2). The engine name is `Triumviratus - 8.1`. The same release has **Linux** builds
+(SSE4.1, AVX2 without PEXT, AVX2, AVX-512; statically linked, for any distribution) and **macOS** builds (Apple
+Silicon and Intel). Builds for **Android** of 8.0 are in the [v8.0 release](https://github.com/Tors3/Triumviratus/releases/tag/v8.0).
 
 ## How to compile
 
@@ -206,11 +253,14 @@ by default. The UCI option `LargePages` (default 1) turns them off.
 <details>
 <summary><b>Position Solver, for the analysis of hard positions</b></summary>
 
-[Triumviratus 8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver) is the same
+[Triumviratus 8.1 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.1-possolver) is the same
 engine with search settings chosen for test positions (analysis mode always on, a two-line search that pauses in quiet
-positions, a preference for the most direct win). At 1 second per position it solves 153 of 183 on IQ4 and 157 of 200
-on Arasan 2026, against 145 and 137 for 8.0 (details in
-[DEVELOPMENT_8.0.md §49](docs/development/archive/DEVELOPMENT_8.0.md)). For games, use 8.0.
+positions, a preference for the most direct win). It is made for solving and analysing positions, not for games: for
+games, use 8.1. On Eduard Nemeth's "256 difficult positions 2023" at 10 s per position, Maurizio Platino measured 173
+solved with the Position Solver of 28 October, against 154 for ShashChess 42 and 146 for Stockfish 19. The
+[8.0 Position Solver](https://github.com/Tors3/Triumviratus/releases/tag/v8.0-possolver) solved 153 of 183 on IQ4 and
+157 of 200 on Arasan 2026 at 1 s per position, against 145 and 137 for 8.0 (details in
+[DEVELOPMENT_8.0.md §49](docs/development/archive/DEVELOPMENT_8.0.md)).
 
 </details>
 
@@ -221,8 +271,8 @@ positions at long time controls and against other engines on his own machine, an
 the cloud GPUs on which the networks are trained. Maurizio has been a fundamental asset for this project: without
 Maurizio, the fast development that started with version 4 would never have been possible.
 
-**Mark Tang** is an important tester and collaborator of the project. He tested almost every 8.0 pre-release
-extensively, in matches and on tactical test suites such as IQ4, and his reports shaped the release. His remark that
+**Mark Tang** is an important tester and collaborator of the project, for his testing and reports during development.
+He tested almost every 8.0 pre-release extensively, in matches and on tactical test suites such as IQ4, and his reports shaped the release. His remark that
 Stoofvlees answers very quickly between two moves started the line of thought that led to the surprise rule of 8.0's
 time management. Many thanks to him.
 
@@ -274,9 +324,8 @@ where adopted, implemented in our own way and re-tuned on the project's own netw
 
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)** (GPLv3): studied for the search. Up to 8.0 the
   engine contained Stockfish code: the NNUE inference ported from SFNNv16 and a search written in October 2026 on the
-  algorithmic base of Stockfish 19 (tag `v8.0`). 8.1 contains no Stockfish code: the inference is Consilium Plebis's
-  own and the search is written in the project's own form. Many numeric constants of the search still have the values
-  of Stockfish 19; they are being retuned by SPSA on the new network.
+  algorithmic base of Stockfish 19 (tag `v8.0`). In 8.1 the inference is Consilium Plebis's own and the search was
+  rewritten in the project's own code and order.
 - **[Pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)**: the **`PawnPair`** input block (pairs of pawns on
   the same or adjacent files), **invented by Jonathan Hallström** and also used by Stormphrax and Viridithas; our
   implementation and weights are our own, the idea is his.
@@ -295,7 +344,7 @@ The open-source computer-chess community is what makes a project like this possi
 
 ## Contributing
 
-`main` holds the development of 8.1, merged from the working branch [`dev`](https://github.com/Tors3/Triumviratus/tree/dev);
+`main` holds the development after 8.1, merged from the working branch [`dev`](https://github.com/Tors3/Triumviratus/tree/dev);
 released versions are on the [Releases](https://github.com/Tors3/Triumviratus/releases) page. How to send code or test
 results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 
@@ -326,25 +375,24 @@ results: [CONTRIBUTING.md](docs/project/CONTRIBUTING.md).
 > Triumviratus in the files and in the credits of the program that contains them.
 >
 > **What is the project's own:**
-> - **the networks**: Consilium, a mixture of four experts chosen by material (architecture TRANN3), trained by the
->   project from random initialisation, and Consilium Plebis (TRANN4, eight experts per side), with no Stockfish
+> - **the networks**: Consilium, with four input buckets chosen by material (architecture TRANN3), trained by the
+>   project from random initialisation, and Consilium Plebis (TRANN4, eight input buckets per side), with no Stockfish
 >   network as seed or teacher
 >   ([`NETWORKS.md`](docs/networks/NETWORKS.md)), and the inference code that runs them, written from a specification;
 > - **the `PassedPawns` input block**, an original feature;
 > - **the search code of 8.1**, including the code that passes each move to the network (incremental updates of the
 >   accumulators and their caches), the transposition table and the move picker;
 > - **the rules added to time management**: the surprise rule, less time when behind on the clock, the defence rules;
-> - **per-expert search margins, the causal reduction** and the other techniques listed as new in
->   [`NOVELTIES.md`](docs/project/NOVELTIES.md);
+> - **the techniques listed as new** in [`NOVELTIES.md`](docs/project/NOVELTIES.md);
 > - **the measurement method**: every search change by SPRT, every speed change by hardware counters at an identical
 >   search tree, with the numbers published.
 >
 > **Where the rest comes from.** The board, the attack tables and the basic infrastructure descend from **BBC**;
 > Syzygy probing is **Fathom** and the legal move generator comes from **Zoomies** and **Surge** (MIT). Up to 8.0 the
 > NNUE inference was ported from Stockfish's SFNNv16 and the search was written on the algorithmic base of Stockfish
-> 19's search. In **8.1 no Stockfish code remains**: the inference and every part of the search are the project's own;
-> some numeric constants of the search still have Stockfish 19's values and will be retuned by SPSA when the training
-> of the next network ends. The `PawnPair` input block implements a feature designed by Jonathan Hallström for
+> 19's search. In 8.1 the inference was written again from a specification of our own and every block of the search
+> was rewritten in the project's own code and order, using the techniques common to the engines of today. The
+> `PawnPair` input block implements a feature designed by Jonathan Hallström for
 > Pawnocchio; the implementation and the weights are ours.
 
 </details>
